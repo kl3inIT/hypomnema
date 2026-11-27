@@ -9,7 +9,7 @@ import {
   listTasksQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
 import { answerQuestion } from "@/api/generated/sdk.gen"
-import type { Question } from "@/api/generated/types.gen"
+import type { Choice, Question, QuestionPart } from "@/api/generated/types.gen"
 import { since } from "@/lib/time"
 import { callsOf } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
@@ -21,31 +21,59 @@ const answeredReads = callsOf(
   getRunQueryKey({ path: { run_id: "" } }),
 )
 
+// One decision of a question: the first is the question's own header, text and options; the more follow (issue #1219).
+type Decision = Pick<QuestionPart, "header" | "text" | "options">
+
 // QuestionForm answers a worker's question, after t3code's pending user-input panel (MIT, Copyright (c) 2026 T3
 // Tools Inc., https://github.com/pingdotgg/t3code; chat/ComposerPendingUserInputPanel.tsx): the options as radio
 // rows that 1 to 9 pick, and text where the chosen option, or a question without options, takes it. Enter sends,
 // never while an input method composes. The first answer wins on the server; a second is refused.
+//
+// Issue #1219: each option's description sits under its label, as t3code's (ComposerPendingUserInputPanel.tsx:
+// 300-311). A question of several decisions shows them one under another, each with its header, and is sent once,
+// as Paperclip's question card (MIT, Copyright (c) 2025 Paperclip AI, https://github.com/paperclipai/paperclip;
+// ui/src/components/IssueThreadInteractionCard.tsx:1482-1580, "Submit once after you finish the full form"), not
+// one at a time as t3code's, so the owner reads every decision beside the others. A Gate shows the worker's
+// summary above, a few lines that open to the whole, as Omnara's and Paperclip's cards sit in the agent's
+// conversation; the Task's panel, which shows the summary below, leaves it out.
 export function QuestionForm({
   question,
   onAnswered,
+  showSummary = true,
 }: {
   question: Question
   onAnswered?: () => void
+  showSummary?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [pick, setPick] = useState<number | undefined>(question.options.length ? 0 : undefined)
-  const [text, setText] = useState("")
+  const decisions: Decision[] = [question, ...(question.more ?? [])]
+  const [picks, setPicks] = useState<(number | undefined)[]>(() =>
+    decisions.map((d) => (d.options.length ? 0 : undefined)),
+  )
+  const [texts, setTexts] = useState<string[]>(() => decisions.map(() => ""))
 
-  const chosen = pick === undefined ? undefined : question.options[pick]
-  const takesText = question.options.length === 0 || !!chosen?.allows_text
-  const ready = question.options.length ? pick !== undefined : text.trim() !== ""
+  const choiceOf = (d: Decision, i: number): Choice => {
+    const pick = picks[i]
+    const takesText =
+      d.options.length === 0 || (pick !== undefined && !!d.options[pick]?.allows_text)
+    const text = texts[i]?.trim()
+
+    return { option: pick, text: takesText && text ? text : undefined }
+  }
+
+  const ready = decisions.every((d, i) =>
+    d.options.length ? picks[i] !== undefined : (texts[i] ?? "").trim() !== "",
+  )
 
   const send = useMutation({
-    mutationFn: async () =>
-      answerQuestion({
+    mutationFn: async () => {
+      const [first, ...more] = decisions.map(choiceOf)
+
+      return answerQuestion({
         path: { question_id: question.id },
-        body: { option: pick, text: takesText && text.trim() ? text.trim() : undefined },
-      }),
+        body: { ...first, more: more.length ? more : undefined },
+      })
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ predicate: answeredReads })
       onAnswered?.()
@@ -56,21 +84,7 @@ export function QuestionForm({
     if (ready && !send.isPending) send.mutate()
   }
 
-  // On an option, 1 to 9 pick one and Enter sends, as in t3code's panel.
-  const pickByNumber = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault()
-      submit()
-
-      return
-    }
-
-    const n = Number(e.key)
-    if (n >= 1 && n <= Math.min(9, question.options.length)) {
-      e.preventDefault()
-      setPick(n - 1)
-    }
-  }
+  const several = decisions.length > 1
 
   return (
     <form
@@ -90,72 +104,29 @@ export function QuestionForm({
         </span>
         <span className="text-muted-foreground">· {since(question.created_at)}</span>
       </div>
-      <p className="my-2 text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
-        {question.text}
-      </p>
 
-      {question.options.length > 0 && (
-        <fieldset className="m-0 -mx-2 flex flex-col border-0 p-0">
-          <legend className="sr-only">Options</legend>
-          {question.options.map((o, i) => (
-            <label
-              key={o.label}
-              className={cn(
-                "flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm has-focus-visible:ring-1 has-focus-visible:ring-primary/40 has-focus-visible:ring-inset max-sm:min-h-11",
-                pick === i ? "text-foreground" : "text-foreground/70 hover:bg-muted/30",
-              )}
-            >
-              <input
-                type="radio"
-                name={`q-${question.id}`}
-                checked={pick === i}
-                onChange={() => setPick(i)}
-                onKeyDown={pickByNumber}
-                className="peer sr-only"
-              />
-              <span
-                aria-hidden
-                className={cn(
-                  "relative inline-flex size-4 shrink-0 items-center justify-center rounded-full border",
-                  pick === i
-                    ? "border-primary bg-primary"
-                    : "border-input bg-background dark:bg-input/32",
-                )}
-              >
-                {pick === i && <span className="size-1.5 rounded-full bg-primary-foreground" />}
-              </span>
-              <span className="min-w-0 flex-1 font-medium">{o.label}</span>
-              {i < 9 && (
-                <kbd className="hidden h-[18px] min-w-[18px] items-center justify-center rounded border px-1 font-sans text-2xs text-muted-foreground sm:inline-flex">
-                  {i + 1}
-                </kbd>
-              )}
-            </label>
-          ))}
-        </fieldset>
-      )}
+      {showSummary && question.summary && <Summary text={question.summary} />}
 
-      {takesText && (
-        <textarea
-          aria-label={question.options.length ? "Details" : "Answer"}
-          rows={2}
-          value={text}
-          placeholder={question.options.length ? "Add details (optional)" : "Your answer"}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return
-            e.preventDefault()
-            submit()
-          }}
-          className="mt-1.5 block field-sizing-content max-h-40 min-h-[calc(2lh+0.5rem)] w-full resize-none border-t bg-transparent py-2.5 text-base leading-relaxed outline-none placeholder:text-muted-foreground sm:text-sm"
+      {decisions.map((d, i) => (
+        <DecisionRows
+          key={`${i}:${d.text}`}
+          name={`q-${question.id}-${i}`}
+          decision={d}
+          number={several ? i + 1 : undefined}
+          pick={picks[i]}
+          onPick={(n) => setPicks((all) => all.map((p, j) => (j === i ? n : p)))}
+          text={texts[i] ?? ""}
+          onText={(t) => setTexts((all) => all.map((x, j) => (j === i ? t : x)))}
+          takesText={d.options.length === 0 || !!d.options[picks[i] ?? -1]?.allows_text}
+          onSubmit={submit}
         />
-      )}
+      ))}
 
       <div className="flex items-center gap-2 pt-1">
         <span className="text-2xs text-muted-foreground">
           {send.error ? (
             <span className="text-destructive">Not sent: {errorText(send.error)}</span>
-          ) : question.options.length ? (
+          ) : decisions.some((d) => d.options.length) ? (
             "Enter sends · number keys pick"
           ) : (
             "Enter sends"
@@ -183,6 +154,169 @@ export function QuestionForm({
         </button>
       </div>
     </form>
+  )
+}
+
+// Summary is the worker's last report, a few lines that open to the whole (issue #1219, decision 5).
+function Summary({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const long = text.split("\n").length > 3 || text.length > 240
+
+  return (
+    <section aria-label="The worker's summary" className="mt-2 rounded-lg bg-muted/40 px-3 py-2">
+      <p
+        className={cn(
+          "text-sm leading-relaxed whitespace-pre-wrap text-foreground/80",
+          long && !open && "line-clamp-3",
+        )}
+      >
+        {text}
+      </p>
+      {long && (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="mt-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          {open ? "Show less" : "Show all"}
+        </button>
+      )}
+    </section>
+  )
+}
+
+// DecisionRows is one decision: its header and text, its options, and the text its chosen option takes.
+function DecisionRows({
+  name,
+  decision,
+  number,
+  pick,
+  onPick,
+  text,
+  onText,
+  takesText,
+  onSubmit,
+}: {
+  name: string
+  decision: Decision
+  number?: number
+  pick: number | undefined
+  onPick: (n: number) => void
+  text: string
+  onText: (t: string) => void
+  takesText: boolean
+  onSubmit: () => void
+}) {
+  const options = decision.options
+
+  // On an option, 1 to 9 pick one of this decision and Enter sends, as in t3code's panel.
+  const pickByNumber = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      onSubmit()
+
+      return
+    }
+
+    const n = Number(e.key)
+    if (n >= 1 && n <= Math.min(9, options.length)) {
+      e.preventDefault()
+      onPick(n - 1)
+    }
+  }
+
+  return (
+    <div
+      role={number ? "group" : undefined}
+      aria-label={number ? decision.header || `Decision ${number}` : undefined}
+      className={cn(number && number > 1 && "mt-2 border-t pt-2")}
+    >
+      {decision.header && (
+        <p className="mt-2 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+          {number ? `${number}. ` : ""}
+          {decision.header}
+        </p>
+      )}
+      <p
+        className={cn(
+          "mb-2 text-sm leading-relaxed whitespace-pre-wrap text-foreground/90",
+          decision.header ? "mt-0.5" : "mt-2",
+        )}
+      >
+        {decision.text}
+      </p>
+
+      {options.length > 0 && (
+        <fieldset className="m-0 -mx-2 flex flex-col border-0 p-0">
+          <legend className="sr-only">Options</legend>
+          {options.map((o, i) => (
+            <label
+              key={o.label}
+              className={cn(
+                "flex min-h-9 w-full cursor-pointer gap-2.5 rounded-lg px-2 py-1.5 text-sm has-focus-visible:ring-1 has-focus-visible:ring-primary/40 has-focus-visible:ring-inset max-sm:min-h-11",
+                o.description ? "items-start" : "items-center",
+                pick === i ? "text-foreground" : "text-foreground/70 hover:bg-muted/30",
+              )}
+            >
+              <input
+                type="radio"
+                name={name}
+                checked={pick === i}
+                onChange={() => onPick(i)}
+                onKeyDown={pickByNumber}
+                className="peer sr-only"
+              />
+              {/* The h-5 slots match the label's line, so the mark and the key stay on its first line (t3code). */}
+              <span
+                aria-hidden
+                className={cn("flex shrink-0 items-center", o.description && "h-5")}
+              >
+                <span
+                  className={cn(
+                    "relative inline-flex size-4 shrink-0 items-center justify-center rounded-full border",
+                    pick === i
+                      ? "border-primary bg-primary"
+                      : "border-input bg-background dark:bg-input/32",
+                  )}
+                >
+                  {pick === i && <span className="size-1.5 rounded-full bg-primary-foreground" />}
+                </span>
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="font-medium">{o.label}</span>
+                {o.description && (
+                  <span className="text-xs leading-snug text-muted-foreground">
+                    {o.description}
+                  </span>
+                )}
+              </span>
+              {i < 9 && (
+                <kbd className="hidden h-[18px] min-w-[18px] items-center justify-center rounded border px-1 font-sans text-2xs text-muted-foreground sm:inline-flex">
+                  {i + 1}
+                </kbd>
+              )}
+            </label>
+          ))}
+        </fieldset>
+      )}
+
+      {takesText && (
+        <textarea
+          aria-label={options.length ? "Details" : "Answer"}
+          rows={2}
+          value={text}
+          placeholder={options.length ? "Add details (optional)" : "Your answer"}
+          onChange={(e) => onText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return
+            e.preventDefault()
+            onSubmit()
+          }}
+          className="mt-1.5 block field-sizing-content max-h-40 min-h-[calc(2lh+0.5rem)] w-full resize-none border-t bg-transparent py-2.5 text-base leading-relaxed outline-none placeholder:text-muted-foreground sm:text-sm"
+        />
+      )}
+    </div>
   )
 }
 

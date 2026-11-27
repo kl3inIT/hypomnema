@@ -3155,10 +3155,11 @@ type AllowList struct {
 	Names   []string `json:"names"`
 }
 
-// Answer Pick one option by index, and add text when it allows; a question without options takes text.
+// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
 type Answer struct {
-	Option *int    `json:"option,omitempty"`
-	Text   *string `json:"text,omitempty"`
+	More   *[]Choice `json:"more,omitempty"`
+	Option *int      `json:"option,omitempty"`
+	Text   *string   `json:"text,omitempty"`
 }
 
 // Approval One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
@@ -3902,6 +3903,12 @@ type ChatWake struct {
 
 // ChatWakeEvent defines model for ChatWake.Event.
 type ChatWakeEvent string
+
+// Choice The answer to one of a question's more decisions, as the first's.
+type Choice struct {
+	Option *int    `json:"option,omitempty"`
+	Text   *string `json:"text,omitempty"`
+}
 
 // CodexModelCatalog Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
 type CodexModelCatalog struct {
@@ -5966,8 +5973,11 @@ type NodeTool struct {
 
 // Option defines model for Option.
 type Option struct {
-	AllowsText *bool  `json:"allows_text,omitempty"`
-	Label      string `json:"label"`
+	AllowsText *bool `json:"allows_text,omitempty"`
+
+	// Description One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option asked before has none.
+	Description *string `json:"description,omitempty"`
+	Label       string  `json:"label"`
 }
 
 // OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
@@ -6098,20 +6108,29 @@ type PushSubscriptionList struct {
 type Question struct {
 	AddressedTo Addressee `json:"addressed_to"`
 
-	// Answer Pick one option by index, and add text when it allows; a question without options takes text.
-	Answer       *Answer        `json:"answer,omitempty"`
-	AnsweredAt   *time.Time     `json:"answered_at,omitempty"`
-	AnsweredBy   *Addressee     `json:"answered_by,omitempty"`
-	CancelReason *string        `json:"cancel_reason,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	DispatchId   string         `json:"dispatch_id"`
-	Id           string         `json:"id"`
-	Mode         QuestionMode   `json:"mode"`
-	Options      []Option       `json:"options"`
-	RunId        string         `json:"run_id"`
-	Status       QuestionStatus `json:"status"`
-	TaskId       string         `json:"task_id"`
-	Text         string         `json:"text"`
+	// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
+	Answer       *Answer    `json:"answer,omitempty"`
+	AnsweredAt   *time.Time `json:"answered_at,omitempty"`
+	AnsweredBy   *Addressee `json:"answered_by,omitempty"`
+	CancelReason *string    `json:"cancel_reason,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DispatchId   string     `json:"dispatch_id"`
+
+	// Header A short title of the first decision (issue #1219); none on a question asked before.
+	Header *string      `json:"header,omitempty"`
+	Id     string       `json:"id"`
+	Mode   QuestionMode `json:"mode"`
+
+	// More The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the answer's more at the same place.
+	More    *[]QuestionPart `json:"more,omitempty"`
+	Options []Option        `json:"options"`
+	RunId   string          `json:"run_id"`
+	Status  QuestionStatus  `json:"status"`
+
+	// Summary For a Gate, the summary of the final report the worker stopped with, shown above the options (issue #1219).
+	Summary *string `json:"summary,omitempty"`
+	TaskId  string  `json:"task_id"`
+	Text    string  `json:"text"`
 }
 
 // QuestionList defines model for QuestionList.
@@ -6121,6 +6140,14 @@ type QuestionList struct {
 
 // QuestionMode defines model for QuestionMode.
 type QuestionMode string
+
+// QuestionPart One decision a question asks after its first, on the same card (issue
+type QuestionPart struct {
+	// Header A short title of the decision, at most 30 characters.
+	Header  *string  `json:"header,omitempty"`
+	Options []Option `json:"options"`
+	Text    string   `json:"text"`
+}
 
 // QuestionStatus defines model for QuestionStatus.
 type QuestionStatus string

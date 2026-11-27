@@ -265,3 +265,83 @@ func TestOptionsCarryText(t *testing.T) {
 	var bad []option
 	require.Error(t, json.Unmarshal([]byte(`[3]`), &bad))
 }
+
+// Scenario: a worker stops at a Gate that holds two decisions, each with a
+// header and options that say what they change (issue #1219, decisions 1-3).
+// The Gate keeps the first decision where a control plane before the issue
+// reads it, and the second in More; each decision's options end with "Other".
+// More than three decisions, or a decision without a header, is refused, so
+// the worker splits or names it rather than the owner reading a bare list.
+// `ask` takes the same shape.
+func TestAGateAsksSeveralDecisionsThatStandAlone(t *testing.T) {
+	t.Parallel()
+
+	decision := func(header, question string) map[string]any {
+		return map[string]any{"header": header, "question": question, "options": []any{
+			map[string]any{"label": "One item each (Recommended)", "description": "Each request is its own item. From: Linear."},
+			map[string]any{"label": "One item for all", "description": "No reference does this."},
+		}}
+	}
+
+	finish := func(t *testing.T, questions ...map[string]any) (*nodeproto.Ask, string) {
+		t.Helper()
+
+		c := newClient(t)
+		c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{
+			"name": "finish", "arguments": map[string]any{
+				"summary": "the design is in the issue", "gate": map[string]any{"questions": questions},
+			},
+		}})
+		reply := text(t, c.read())
+
+		final, ok, err := bridge.Finished(c.dir)
+		require.NoError(t, err)
+
+		if !ok {
+			return nil, reply
+		}
+
+		return final.Gate, reply
+	}
+
+	gate, _ := finish(t, decision(" Items ", "Is each request one item?"), decision("Server", "Fix the server now?"))
+	require.NotNil(t, gate)
+
+	options := []nodeproto.Option{
+		{Label: "One item each (Recommended)", Description: "Each request is its own item. From: Linear."},
+		{Label: "One item for all", Description: "No reference does this."},
+		{Label: "Other", AllowsText: true},
+	}
+	assert.Equal(t, nodeproto.Ask{
+		Header: "Items", Text: "Is each request one item?", Options: options, To: "owner",
+		More: []nodeproto.Part{{Header: "Server", Text: "Fix the server now?", Options: options}},
+	}, *gate)
+
+	gate, reply := finish(t, decision("A", "1?"), decision("B", "2?"), decision("C", "3?"), decision("D", "4?"))
+	assert.Nil(t, gate, "nothing is recorded")
+	assert.Contains(t, reply, "at most 3 decisions")
+
+	_, reply = finish(t, decision("", "Which?"))
+	assert.Contains(t, reply, "needs a header")
+
+	_, reply = finish(t, decision("A header that runs past thirty characters", "Which?"))
+	assert.Contains(t, reply, "header of at most 30 characters")
+
+	c := newClient(t)
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
+		"name": "ask", "arguments": map[string]any{"questions": []any{decision("Items", "One item each?")}},
+	}})
+
+	require.Eventually(t, func() bool {
+		qs, err := bridge.Questions(c.dir)
+
+		return err == nil && len(qs) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+
+	qs, err := bridge.Questions(c.dir)
+	require.NoError(t, err)
+	assert.Equal(t, nodeproto.Ask{Header: "Items", Text: "One item each?", Options: options, To: "owner"}, qs[0].Ask)
+
+	require.NoError(t, bridge.Answer(c.dir, qs[0].Seq, "Items: One item each"))
+	assert.Equal(t, "The answer: Items: One item each", text(t, c.read()))
+}

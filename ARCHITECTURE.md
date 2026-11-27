@@ -454,6 +454,18 @@ sequenceDiagram
   is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
   to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
   `internal/node/workertools`).
+  A question stands alone (issue #1219): `ask` and `finish`'s Gate take `questions`, one decision each and at most 3
+  (Codex's `request_user_input`), each with a header of at most 30 characters (opencode) and options
+  `{label, description}`, the description saying what choosing it changes and where it is learned from, the
+  recommended one first. The first decision stays in the question's `text` and `options`, the next ones in `more`
+  (migration `question_header_and_more`, with `header`), and the answer gives one choice for each, the next ones in
+  its `more`; the node passes the same shape, so a node or a control plane from before reads the first decision
+  and its answer, and a question asked before is one decision with no header. A worker still may send one
+  `question` with bare labels. The resumed worker is told each decision with its answer. The client API gives a
+  Gate the `summary` of the final report its worker stopped with, and the question card (`QuestionForm`) shows it
+  above the decisions, a few lines that open to the whole, then each decision under its header with each option's
+  description under its label, sent as one answer (Paperclip's card); the Task's panel, which shows the summary
+  under it, leaves it out. `hypomnema answer` takes one quoted answer for each decision.
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or

@@ -804,16 +804,30 @@ type Resource struct {
 	Custody string `json:"custody,omitempty"`
 }
 
-// Option is one choice of a question.
+// Option is one choice of a question. Description, one sentence on what
+// choosing it changes, came with issue #1219; a node or a control plane
+// before it leaves it out.
 type Option struct {
-	Label      string `json:"label"`
-	AllowsText bool   `json:"allows_text,omitempty"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	AllowsText  bool   `json:"allows_text,omitempty"`
+}
+
+// Part is one decision a question asks after its first (issue #1219).
+type Part struct {
+	Header  string   `json:"header,omitempty"`
+	Text    string   `json:"text"`
+	Options []Option `json:"options,omitempty"`
 }
 
 // Ask is the payload of a question report, and a Gate in a finished one.
+// Text and Options are its first decision, as before issue #1219, so a
+// control plane before it reads that one; Header and More came with it.
 type Ask struct {
+	Header  string   `json:"header,omitempty"`
 	Text    string   `json:"text"`
 	Options []Option `json:"options,omitempty"`
+	More    []Part   `json:"more,omitempty"`
 	// To is "coordinator" or "owner".
 	To string `json:"to"`
 }
@@ -869,6 +883,14 @@ type Reattach struct {
 type Answer struct {
 	Option *int   `json:"option,omitempty"`
 	Text   string `json:"text,omitempty"`
+	// More answers the question's more decisions, in their order (issue #1219).
+	More []Choice `json:"more,omitempty"`
+}
+
+// Choice is the answer to one of a question's more decisions.
+type Choice struct {
+	Option *int   `json:"option,omitempty"`
+	Text   string `json:"text,omitempty"`
 }
 
 // Question is the payload of an answer message: an answered question a
@@ -879,8 +901,10 @@ type Question struct {
 	DispatchID  string   `json:"dispatch_id"`
 	Mode        string   `json:"mode"`
 	AddressedTo string   `json:"addressed_to"`
+	Header      string   `json:"header,omitempty"`
 	Text        string   `json:"text"`
 	Options     []Option `json:"options"`
+	More        []Part   `json:"more,omitempty"`
 	Status      string   `json:"status"`
 	Answer      *Answer  `json:"answer,omitempty"`
 	AnsweredBy  string   `json:"answered_by,omitempty"`

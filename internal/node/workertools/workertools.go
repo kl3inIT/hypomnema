@@ -32,6 +32,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -146,13 +147,13 @@ func tools() []map[string]any {
 						},
 					},
 					"gate": map[string]any{
-						"type":        "object",
-						"description": "A decision the owner must make before the task can go on, such as a choice between designs.",
+						"type": "object",
+						"description": "A decision the owner must make before the task can go on, such as a choice between designs. " +
+							"He reads it on its own, without your report.",
 						"properties": map[string]any{
-							"question": map[string]any{"type": "string"},
-							"options":  optionsSchema("Choices to pick from. " + optionsHelp),
+							"questions": questionsSchema("The decisions, " + questionsHelp),
 						},
-						"required": []string{"question"},
+						"required": []string{"questions"},
 					},
 				},
 				"required": []string{"summary"},
@@ -266,27 +267,66 @@ func (s *server) workFolder() (string, error) {
 	return dir, nil
 }
 
-// optionsHelp says how an option takes text (issue #714, decision 8).
-const optionsHelp = "An option is its label, or {label, allows_text} when the answer may add text to it " +
-	"(such as \"Change first\", with what to change). At most 9: a last option \"Other\", with text, is added."
+// questionsHelp says how a question stands on its own (issue #1219,
+// decisions 1-3), after Codex's request_user_input ("Questions to show the
+// user. Prefer 1 and do not exceed 3", a header, "Single-sentence prompt";
+// codex-rs/core/src/tools/handlers/request_user_input_spec.rs:39-72) and
+// Gemini CLI's ask_user (each option's description, "to help the user
+// understand the implications of their choice"; packages/core/src/prompts/snippets.ts:633).
+const questionsHelp = "one decision each, at most 3, each understood without your report: " +
+	"name the case it is about."
 
-// optionsSchema is the schema of a question's options: a label, or a label
-// with allows_text, so that a plain string, which workers sent before issue
-// #714, is still accepted.
+// optionsHelp says what an option carries (issues #714 and #1219): its
+// description after Codex's ("One short sentence explaining impact/tradeoff if
+// selected", request_user_input_spec.rs:20-27), the recommended one first
+// after Codex's and opencode's ("make that the first option in the list and
+// add "(Recommended)" at the end of the label",
+// packages/core/src/tool/plugin/question.ts:21), the reference it is learned
+// from after this repository's "From" rule (AGENTS.md, "Do not invent logic").
+const optionsHelp = "Each option is {label, description}: the description says in one sentence what changes if " +
+	"it is chosen and which reference it is learned from, or that none does. Put the one you recommend first and " +
+	"end its label with \" (Recommended)\". allows_text: true lets the answer add text to it (such as \"Change " +
+	"first\", with what to change). At most 9: a last option \"Other\", with text, is added."
+
+// questionsSchema is the schema of a question's decisions, each with a
+// header, its text and options.
+func questionsSchema(description string) map[string]any {
+	return map[string]any{
+		"type":     "array",
+		"minItems": 1,
+		"maxItems": maxQuestions,
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"header": map[string]any{
+					"type":        "string",
+					"description": fmt.Sprintf("A short title of the decision, at most %d characters.", maxHeader),
+				},
+				"question": map[string]any{"type": "string", "description": "The decision, with what is needed to make it."},
+				"options":  optionsSchema("Choices to pick from; leave empty for a free answer. " + optionsHelp),
+			},
+			"required": []string{"header", "question"},
+		},
+		"description": description,
+	}
+}
+
+// optionsSchema is the schema of a question's options: a label with its
+// description, and allows_text. A plain string, which workers sent before
+// issue #714, and an option without a description, sent before issue #1219,
+// are still accepted, but not offered.
 func optionsSchema(description string) map[string]any {
 	return map[string]any{
 		"type": "array",
-		"items": map[string]any{"anyOf": []any{
-			map[string]any{"type": "string"},
-			map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"label":       map[string]any{"type": "string"},
-					"allows_text": map[string]any{"type": "boolean"},
-				},
-				"required": []string{"label"},
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"label":       map[string]any{"type": "string"},
+				"description": map[string]any{"type": "string"},
+				"allows_text": map[string]any{"type": "boolean"},
 			},
-		}},
+			"required": []string{"label", "description"},
+		},
 		"description": description,
 	}
 }
@@ -305,7 +345,7 @@ func (o *option) UnmarshalJSON(b []byte) error {
 
 	var full nodeproto.Option
 	if err := json.Unmarshal(b, &full); err != nil {
-		return fmt.Errorf("an option is a label or {label, allows_text}: %w", err)
+		return fmt.Errorf("an option is {label, description, allows_text}: %w", err)
 	}
 
 	*o = option(full)
@@ -331,6 +371,7 @@ func options(given []option) ([]nodeproto.Option, error) {
 
 	for _, o := range given {
 		if o.Label = strings.TrimSpace(o.Label); o.Label != "" && !strings.EqualFold(o.Label, otherLabel) {
+			o.Description = strings.TrimSpace(o.Description)
 			out = append(out, nodeproto.Option(o))
 		}
 	}
@@ -347,15 +388,91 @@ func options(given []option) ([]nodeproto.Option, error) {
 	return append(out, nodeproto.Option{Label: otherLabel, AllowsText: true}), nil
 }
 
+// maxQuestions and maxHeader are the control plane's MaxMoreQuestions + 1
+// and MaxQuestionHeader (issue #1219).
+const (
+	maxQuestions = 3
+	maxHeader    = 30
+)
+
+// question is one decision as the worker gives it, as Codex's
+// request_user_input question {header, question, options} without its id,
+// since the answers come back in the same order.
+type question struct {
+	Header   string   `json:"header"`
+	Question string   `json:"question"`
+	Options  []option `json:"options"`
+}
+
+// asked is what `ask` and `finish`'s gate take, the same shape (issue #1219):
+// the decisions, or one question with its options as before issue #1219,
+// which a worker may still send.
+type asked struct {
+	Questions []question `json:"questions"`
+	Question  string     `json:"question"`
+	Options   []option   `json:"options"`
+}
+
+// given reports whether a question was given at all.
+func (a asked) given() bool {
+	return len(a.Questions) > 0 || strings.TrimSpace(a.Question) != ""
+}
+
+// ask is the question for the control plane: its first decision, then the
+// more. Each decision needs a header in the new shape, and options end with
+// "Other".
+func (a asked) ask(to string) (nodeproto.Ask, error) {
+	if len(a.Questions) == 0 {
+		opts, err := options(a.Options)
+		if err != nil {
+			return nodeproto.Ask{}, err
+		}
+
+		return nodeproto.Ask{Text: strings.TrimSpace(a.Question), Options: opts, To: to}, nil
+	}
+
+	if len(a.Questions) > maxQuestions {
+		return nodeproto.Ask{}, fmt.Errorf("ask at most %d decisions at once; ask the rest after the answer", maxQuestions)
+	}
+
+	out := nodeproto.Ask{To: to}
+
+	for i, q := range a.Questions {
+		header, text := strings.TrimSpace(q.Header), strings.TrimSpace(q.Question)
+
+		switch {
+		case text == "":
+			return nodeproto.Ask{}, fmt.Errorf("question %d needs its question", i+1)
+		case header == "" || utf8.RuneCountInString(header) > maxHeader:
+			return nodeproto.Ask{}, fmt.Errorf("question %d needs a header of at most %d characters", i+1, maxHeader)
+		}
+
+		opts, err := options(q.Options)
+		if err != nil {
+			return nodeproto.Ask{}, fmt.Errorf("question %d: %w", i+1, err)
+		}
+
+		if i == 0 {
+			out.Header, out.Text, out.Options = header, text, opts
+
+			continue
+		}
+
+		out.More = append(out.More, nodeproto.Part{Header: header, Text: text, Options: opts})
+	}
+
+	return out, nil
+}
+
 func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int, message string),
 ) (map[string]any, error) {
 	var a struct {
-		Question string   `json:"question"`
-		Options  []option `json:"options"`
-		To       string   `json:"to"`
+		asked
+
+		To string `json:"to"`
 	}
 
-	if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Question) == "" {
+	if err := json.Unmarshal(raw, &a); err != nil || !a.given() {
 		return nil, errors.New("ask needs a question")
 	}
 
@@ -363,12 +480,12 @@ func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int
 		a.To = "owner"
 	}
 
-	opts, err := options(a.Options)
+	question, err := a.ask(a.To)
 	if err != nil {
 		return nil, err
 	}
 
-	seq, err := bridge.Ask(s.dir, nodeproto.Ask{Text: a.Question, Options: opts, To: a.To})
+	seq, err := bridge.Ask(s.dir, question)
 	if err != nil {
 		return nil, fmt.Errorf("recording the question: %w", err)
 	}
@@ -419,10 +536,7 @@ func ParseFinish(raw json.RawMessage) (bridge.Final, error) {
 	var f struct {
 		Summary  string               `json:"summary"`
 		Evidence []nodeproto.Evidence `json:"evidence"`
-		Gate     *struct {
-			Question string   `json:"question"`
-			Options  []option `json:"options"`
-		} `json:"gate"`
+		Gate     *asked               `json:"gate"`
 	}
 
 	if err := json.Unmarshal(raw, &f); err != nil || strings.TrimSpace(f.Summary) == "" {
@@ -430,13 +544,13 @@ func ParseFinish(raw json.RawMessage) (bridge.Final, error) {
 	}
 
 	final := bridge.Final{Summary: f.Summary, Evidence: f.Evidence}
-	if f.Gate != nil && strings.TrimSpace(f.Gate.Question) != "" {
-		opts, err := options(f.Gate.Options)
+	if f.Gate != nil && f.Gate.given() {
+		gate, err := f.Gate.ask("owner")
 		if err != nil {
 			return bridge.Final{}, err
 		}
 
-		final.Gate = &nodeproto.Ask{Text: f.Gate.Question, Options: opts, To: "owner"}
+		final.Gate = &gate
 	}
 
 	return final, nil

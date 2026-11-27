@@ -157,7 +157,7 @@ func (q *Queries) ForwardQuestion(ctx context.Context, arg ForwardQuestionParams
 }
 
 const gateOfDispatch = `-- name: GateOfDispatch :one
-SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at FROM questions WHERE dispatch_id = ?1 AND mode = 'gate'
+SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at, header, more FROM questions WHERE dispatch_id = ?1 AND mode = 'gate'
 `
 
 func (q *Queries) GateOfDispatch(ctx context.Context, dispatchID string) (Question, error) {
@@ -181,12 +181,14 @@ func (q *Queries) GateOfDispatch(ctx context.Context, dispatchID string) (Questi
 		&i.RemindAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Header,
+		&i.More,
 	)
 	return i, err
 }
 
 const getQuestion = `-- name: GetQuestion :one
-SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at FROM questions WHERE id = ?1
+SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at, header, more FROM questions WHERE id = ?1
 `
 
 func (q *Queries) GetQuestion(ctx context.Context, id string) (Question, error) {
@@ -210,14 +212,17 @@ func (q *Queries) GetQuestion(ctx context.Context, id string) (Question, error) 
 		&i.RemindAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Header,
+		&i.More,
 	)
 	return i, err
 }
 
 const insertQuestion = `-- name: InsertQuestion :exec
-INSERT INTO questions (id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, remind_at,
-                       created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'open', ?9, ?10, ?10)
+INSERT INTO questions (id, dispatch_id, task_id, run_id, mode, addressed_to, header, text, options, more, status,
+                       remind_at, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'open', ?11,
+        ?12, ?12)
 `
 
 type InsertQuestionParams struct {
@@ -227,8 +232,10 @@ type InsertQuestionParams struct {
 	RunID       string
 	Mode        string
 	AddressedTo string
+	Header      string
 	Text        string
 	Options     string
+	More        string
 	RemindAt    sql.NullInt64
 	Now         int64
 }
@@ -241,8 +248,10 @@ func (q *Queries) InsertQuestion(ctx context.Context, arg InsertQuestionParams) 
 		arg.RunID,
 		arg.Mode,
 		arg.AddressedTo,
+		arg.Header,
 		arg.Text,
 		arg.Options,
+		arg.More,
 		arg.RemindAt,
 		arg.Now,
 	)
@@ -291,7 +300,7 @@ func (q *Queries) ListDueReminders(ctx context.Context, now int64) ([]ListDueRem
 }
 
 const listQuestions = `-- name: ListQuestions :many
-SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at FROM questions
+SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at, header, more FROM questions
 WHERE (CAST(?1 AS TEXT) = '' OR run_id = ?1)
   AND (CAST(?2 AS TEXT) = '' OR run_id IN (SELECT runs.id FROM runs WHERE runs.chat_id = ?2))
   AND (CAST(?3 AS TEXT) = '' OR task_id = ?3)
@@ -345,6 +354,8 @@ func (q *Queries) ListQuestions(ctx context.Context, arg ListQuestionsParams) ([
 			&i.RemindAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Header,
+			&i.More,
 		); err != nil {
 			return nil, err
 		}
@@ -360,7 +371,7 @@ func (q *Queries) ListQuestions(ctx context.Context, arg ListQuestionsParams) ([
 }
 
 const listUndeliveredAnswers = `-- name: ListUndeliveredAnswers :many
-SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at FROM questions
+SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at, header, more FROM questions
 WHERE dispatch_id = ?1 AND mode = 'wait' AND status = 'answered' AND delivered_at IS NULL
 ORDER BY created_at
 `
@@ -392,6 +403,8 @@ func (q *Queries) ListUndeliveredAnswers(ctx context.Context, dispatchID string)
 			&i.RemindAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Header,
+			&i.More,
 		); err != nil {
 			return nil, err
 		}
@@ -426,7 +439,7 @@ func (q *Queries) MarkDelivered(ctx context.Context, arg MarkDeliveredParams) (i
 }
 
 const openWaitQuestionOfDispatch = `-- name: OpenWaitQuestionOfDispatch :one
-SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at FROM questions WHERE dispatch_id = ?1 AND mode = 'wait' AND status = 'open'
+SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at, header, more FROM questions WHERE dispatch_id = ?1 AND mode = 'wait' AND status = 'open'
 `
 
 func (q *Queries) OpenWaitQuestionOfDispatch(ctx context.Context, dispatchID string) (Question, error) {
@@ -450,6 +463,8 @@ func (q *Queries) OpenWaitQuestionOfDispatch(ctx context.Context, dispatchID str
 		&i.RemindAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Header,
+		&i.More,
 	)
 	return i, err
 }
@@ -467,6 +482,41 @@ type SetRemindAtParams struct {
 func (q *Queries) SetRemindAt(ctx context.Context, arg SetRemindAtParams) error {
 	_, err := q.db.ExecContext(ctx, setRemindAt, arg.Now, arg.RemindAt, arg.ID)
 	return err
+}
+
+const summariesOfDispatches = `-- name: SummariesOfDispatches :many
+SELECT id, CAST(COALESCE(json_extract(result, '$.summary'), '') AS TEXT) AS summary FROM dispatches
+WHERE id IN (SELECT value FROM json_each(CAST(?1 AS TEXT))) AND result IS NOT NULL
+`
+
+type SummariesOfDispatchesRow struct {
+	ID      string
+	Summary string
+}
+
+// The summary of each settled Dispatch's final report, which the card of its Gate shows above the options (issue
+// #1219, decision 5).
+func (q *Queries) SummariesOfDispatches(ctx context.Context, ids string) ([]SummariesOfDispatchesRow, error) {
+	rows, err := q.db.QueryContext(ctx, summariesOfDispatches, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SummariesOfDispatchesRow{}
+	for rows.Next() {
+		var i SummariesOfDispatchesRow
+		if err := rows.Scan(&i.ID, &i.Summary); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const supersedeOpenGatesOfTask = `-- name: SupersedeOpenGatesOfTask :many

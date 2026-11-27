@@ -49,24 +49,49 @@ const (
 )
 
 // Option is one choice offered with a question; AllowsText lets the answer
-// add free text to it.
+// add free text to it. Description says, in a sentence, what choosing it
+// changes (issue #1219, decision 2; Codex's and Gemini CLI's option
+// description); an option asked before has none.
 type Option struct {
-	Label      string `json:"label"`
-	AllowsText bool   `json:"allows_text,omitempty"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	AllowsText  bool   `json:"allows_text,omitempty"`
 }
 
-// Ask is a question as the worker asks it. No options means a free-text answer.
+// Part is one decision asked after a question's first, on the same card
+// (issue #1219, decision 1): its header, text and options, as the first's.
+type Part struct {
+	Header  string   `json:"header,omitempty"`
+	Text    string   `json:"text"`
+	Options []Option `json:"options,omitempty"`
+}
+
+// Ask is a question as the worker asks it. No options means a free-text
+// answer. A question holds one decision, with its header, and up to
+// MaxMoreQuestions more, each answered in the same order (Codex's
+// request_user_input takes 1-3, request_user_input_spec.rs:72).
 type Ask struct {
+	Header  string    `json:"header,omitempty"`
 	Text    string    `json:"text"`
 	Options []Option  `json:"options,omitempty"`
+	More    []Part    `json:"more,omitempty"`
 	To      Addressee `json:"to"`
 }
 
-// Answer picks one option (by index) and may add text; a question without
-// options takes text alone.
-type Answer struct {
+// Choice is the answer to one decision: one option (by index), which may add
+// text; a decision without options takes text alone.
+type Choice struct {
 	Option *int   `json:"option,omitempty"`
 	Text   string `json:"text,omitempty"`
+}
+
+// Answer answers a question's first decision, and in More each of its more
+// decisions, in their order (opencode's answers, one a question;
+// packages/core/src/tool/plugin/question.ts:27-29).
+type Answer struct {
+	Option *int     `json:"option,omitempty"`
+	Text   string   `json:"text,omitempty"`
+	More   []Choice `json:"more,omitempty"`
 }
 
 // Question is a question with its state and answer.
@@ -77,8 +102,10 @@ type Question struct {
 	RunID        string         `json:"run_id"`
 	Mode         QuestionMode   `json:"mode"`
 	AddressedTo  Addressee      `json:"addressed_to"`
+	Header       string         `json:"header,omitempty"`
 	Text         string         `json:"text"`
 	Options      []Option       `json:"options"`
+	More         []Part         `json:"more,omitempty"`
 	Status       QuestionStatus `json:"status"`
 	CancelReason string         `json:"cancel_reason,omitempty"`
 	Answer       *Answer        `json:"answer,omitempty"`
@@ -87,6 +114,11 @@ type Question struct {
 	DeliveredAt  *time.Time     `json:"delivered_at,omitempty"`
 	RemindAt     *time.Time     `json:"remind_at,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
+	// Summary is, for a Gate, the summary of the final report the worker
+	// stopped with, which the owner reads above the options (issue #1219,
+	// decision 5). It is the client API's, not the node's: the JSON of a
+	// Question is what a node is sent.
+	Summary string `json:"-"`
 }
 
 // QuestionFilter selects questions; empty fields match everything.
@@ -152,6 +184,11 @@ func (s *Service) insertQuestion(ctx context.Context, q *store.Queries, now int6
 		return "", fmt.Errorf("encoding the options: %w", err)
 	}
 
+	more, err := json.Marshal(trimmedParts(a.More))
+	if err != nil {
+		return "", fmt.Errorf("encoding the more questions: %w", err)
+	}
+
 	remind := sql.NullInt64{}
 	if a.To == AddressOwner {
 		remind = sql.NullInt64{Int64: now + ReminderFirst.Milliseconds(), Valid: true}
@@ -161,7 +198,8 @@ func (s *Service) insertQuestion(ctx context.Context, q *store.Queries, now int6
 
 	if err := q.InsertQuestion(ctx, store.InsertQuestionParams{
 		ID: id, DispatchID: d.ID, TaskID: task.ID, RunID: task.RunID, Mode: string(mode), AddressedTo: string(a.To),
-		Text: strings.TrimSpace(a.Text), Options: string(options), RemindAt: remind, Now: now,
+		Header: strings.TrimSpace(a.Header), Text: strings.TrimSpace(a.Text), Options: string(options),
+		More: string(more), RemindAt: remind, Now: now,
 	}); err != nil {
 		return "", fmt.Errorf("inserting a question of %s: %w", d.ID, err)
 	}
@@ -242,7 +280,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, id string, by Addressee, a
 			return err
 		}
 
-		if err := validAnswer(question.Options, a); err != nil {
+		if err := validAnswer(question, a); err != nil {
 			return err
 		}
 
@@ -330,7 +368,17 @@ func (s *Service) GetQuestion(ctx context.Context, id string) (Question, error) 
 		return Question{}, notFound(err, "question", id)
 	}
 
-	return questionFromRow(row)
+	question, err := questionFromRow(row)
+	if err != nil {
+		return Question{}, err
+	}
+
+	out := []Question{question}
+	if err := s.withSummaries(ctx, out); err != nil {
+		return Question{}, err
+	}
+
+	return out[0], nil
 }
 
 // ListQuestions returns questions in the order they were asked. One call
@@ -356,31 +404,120 @@ func (s *Service) ListQuestions(ctx context.Context, f QuestionFilter) ([]Questi
 		out = append(out, question)
 	}
 
+	if err := s.withSummaries(ctx, out); err != nil {
+		return nil, err
+	}
+
 	return out, nil
 }
 
-func validAsk(a Ask) error {
-	text := strings.TrimSpace(a.Text)
+// withSummaries gives each Gate the summary of the final report its worker
+// stopped with, read in one query (issue #1219, decision 5).
+func (s *Service) withSummaries(ctx context.Context, questions []Question) error {
+	var ids []string
 
-	switch {
-	case text == "" || utf8.RuneCountInString(text) > MaxQuestionText:
-		return fmt.Errorf("%w: a question needs a text of at most %d characters", ErrInvalid, MaxQuestionText)
-	case len(a.Options) > MaxOptions:
-		return fmt.Errorf("%w: a question offers at most %d options", ErrInvalid, MaxOptions)
-	case a.To != AddressCoordinator && a.To != AddressOwner:
-		return fmt.Errorf("%w: a question is for the coordinator or the owner", ErrInvalid)
+	for _, q := range questions {
+		if q.Mode == QuestionGate {
+			ids = append(ids, q.DispatchID)
+		}
 	}
 
-	for _, o := range a.Options {
-		if strings.TrimSpace(o.Label) == "" {
-			return fmt.Errorf("%w: every option needs a label", ErrInvalid)
+	if len(ids) == 0 {
+		return nil
+	}
+
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return fmt.Errorf("encoding the dispatches of the gates: %w", err)
+	}
+
+	rows, err := s.read().SummariesOfDispatches(ctx, string(encoded))
+	if err != nil {
+		return fmt.Errorf("reading the summaries of the gates: %w", err)
+	}
+
+	summaries := make(map[string]string, len(rows))
+	for _, r := range rows {
+		summaries[r.ID] = r.Summary
+	}
+
+	for i, q := range questions {
+		if q.Mode == QuestionGate {
+			questions[i].Summary = summaries[q.DispatchID]
 		}
 	}
 
 	return nil
 }
 
-func validAnswer(options []Option, a Answer) error {
+func validAsk(a Ask) error {
+	if a.To != AddressCoordinator && a.To != AddressOwner {
+		return fmt.Errorf("%w: a question is for the coordinator or the owner", ErrInvalid)
+	}
+
+	if len(a.More) > MaxMoreQuestions {
+		return fmt.Errorf("%w: a question asks at most %d decisions", ErrInvalid, MaxMoreQuestions+1)
+	}
+
+	for _, p := range parts(a.Header, a.Text, a.Options, a.More) {
+		if err := validPart(p); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validPart(p Part) error {
+	text := strings.TrimSpace(p.Text)
+
+	switch {
+	case text == "" || utf8.RuneCountInString(text) > MaxQuestionText:
+		return fmt.Errorf("%w: a question needs a text of at most %d characters", ErrInvalid, MaxQuestionText)
+	case utf8.RuneCountInString(strings.TrimSpace(p.Header)) > MaxQuestionHeader:
+		return fmt.Errorf("%w: a question's header is at most %d characters", ErrInvalid, MaxQuestionHeader)
+	case len(p.Options) > MaxOptions:
+		return fmt.Errorf("%w: a question offers at most %d options", ErrInvalid, MaxOptions)
+	}
+
+	for _, o := range p.Options {
+		if strings.TrimSpace(o.Label) == "" {
+			return fmt.Errorf("%w: every option needs a label", ErrInvalid)
+		}
+
+		if utf8.RuneCountInString(o.Description) > MaxQuestionText {
+			return fmt.Errorf("%w: an option's description is at most %d characters", ErrInvalid, MaxQuestionText)
+		}
+	}
+
+	return nil
+}
+
+// parts is a question's decisions in order: the first, then the more.
+func parts(header, text string, options []Option, more []Part) []Part {
+	return append([]Part{{Header: header, Text: text, Options: options}}, more...)
+}
+
+// validAnswer checks an answer against the question's decisions: one
+// choice for each, the first's at the top and the others' in More.
+func validAnswer(q Question, a Answer) error {
+	more := q.More
+	if len(a.More) != len(more) {
+		return fmt.Errorf("%w: answer each of the %d decisions of this question", ErrInvalid, len(more)+1)
+	}
+
+	choices := append([]Choice{{Option: a.Option, Text: a.Text}}, a.More...)
+
+	for i, p := range parts(q.Header, q.Text, q.Options, more) {
+		if err := validChoice(p.Options, choices[i]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validChoice(options []Option, a Choice) error {
 	if utf8.RuneCountInString(a.Text) > MaxAnswerText {
 		return fmt.Errorf("%w: an answer's text is at most %d characters", ErrInvalid, MaxAnswerText)
 	}
@@ -412,10 +549,23 @@ func nonNilOptions(o []Option) []Option {
 	return o
 }
 
+// trimmedParts is the more decisions as stored: their header and text
+// trimmed, and each with its options listed, none being an empty list.
+func trimmedParts(more []Part) []Part {
+	out := make([]Part, 0, len(more))
+	for _, p := range more {
+		out = append(out, Part{
+			Header: strings.TrimSpace(p.Header), Text: strings.TrimSpace(p.Text), Options: nonNilOptions(p.Options),
+		})
+	}
+
+	return out
+}
+
 func questionFromRow(r store.Question) (Question, error) {
 	out := Question{
 		ID: r.ID, DispatchID: r.DispatchID, TaskID: r.TaskID, RunID: r.RunID, Mode: QuestionMode(r.Mode),
-		AddressedTo: Addressee(r.AddressedTo), Text: r.Text, Status: QuestionStatus(r.Status),
+		AddressedTo: Addressee(r.AddressedTo), Header: r.Header, Text: r.Text, Status: QuestionStatus(r.Status),
 		CancelReason: r.CancelReason.String, AnsweredBy: Addressee(r.AnsweredBy.String),
 		AnsweredAt: optionalTime(r.AnsweredAt), DeliveredAt: optionalTime(r.DeliveredAt),
 		RemindAt: optionalTime(r.RemindAt), CreatedAt: millis(r.CreatedAt),
@@ -423,6 +573,15 @@ func questionFromRow(r store.Question) (Question, error) {
 
 	if err := json.Unmarshal([]byte(r.Options), &out.Options); err != nil {
 		return Question{}, fmt.Errorf("decoding the options of %s: %w", r.ID, err)
+	}
+
+	// A question asked before issue #1219 has no more decisions ('[]').
+	if err := json.Unmarshal([]byte(r.More), &out.More); err != nil {
+		return Question{}, fmt.Errorf("decoding the more decisions of %s: %w", r.ID, err)
+	}
+
+	if len(out.More) == 0 {
+		out.More = nil
 	}
 
 	if r.Answer.Valid {

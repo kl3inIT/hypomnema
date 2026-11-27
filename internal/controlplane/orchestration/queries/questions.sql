@@ -1,7 +1,8 @@
 -- name: InsertQuestion :exec
-INSERT INTO questions (id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, remind_at,
-                       created_at, updated_at)
-VALUES (@id, @dispatch_id, @task_id, @run_id, @mode, @addressed_to, @text, @options, 'open', @remind_at, @now, @now);
+INSERT INTO questions (id, dispatch_id, task_id, run_id, mode, addressed_to, header, text, options, more, status,
+                       remind_at, created_at, updated_at)
+VALUES (@id, @dispatch_id, @task_id, @run_id, @mode, @addressed_to, @header, @text, @options, @more, 'open', @remind_at,
+        @now, @now);
 
 -- name: GetQuestion :one
 SELECT * FROM questions WHERE id = @id;
@@ -65,3 +66,9 @@ ORDER BY remind_at;
 
 -- name: SetRemindAt :exec
 UPDATE questions SET updated_at = @now, remind_at = @remind_at WHERE id = @id;
+
+-- name: SummariesOfDispatches :many
+-- The summary of each settled Dispatch's final report, which the card of its Gate shows above the options (issue
+-- #1219, decision 5).
+SELECT id, CAST(COALESCE(json_extract(result, '$.summary'), '') AS TEXT) AS summary FROM dispatches
+WHERE id IN (SELECT value FROM json_each(CAST(@ids AS TEXT))) AND result IS NOT NULL;

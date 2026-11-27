@@ -657,6 +657,80 @@ func TestAnswerAndStopArePushed(t *testing.T) {
 	assert.Equal(t, nodeproto.Stop{DispatchID: offer.DispatchID, Epoch: 1}, stop)
 }
 
+// Scenario: a worker asks two decisions at once, with headers and options
+// that say what they change (issue #1219). The control plane keeps them, and
+// pushes the answer with each decision's choice; a node before the issue,
+// which knows text, options and one answer, still reads the first decision
+// and its answer from the same message.
+func TestAQuestionOfTwoDecisionsCrossesTheWire(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	conn := p.connect()
+	p.task()
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	require.Equal(t, nodeproto.AckCommitted,
+		p.report(conn, nodeproto.Report{Kind: nodeproto.ReportAccept, DispatchID: offer.DispatchID}).Status)
+	require.Equal(t, nodeproto.AckCommitted, p.report(conn, nodeproto.Report{
+		Kind: nodeproto.ReportStarted, DispatchID: offer.DispatchID, Epoch: 1,
+		Payload: payload(t, nodeproto.Started{ProcessRef: "pid:42@1", CLISessionRef: "sess_1"}),
+	}).Status)
+
+	options := []nodeproto.Option{
+		{Label: "goth", Description: "A library. From: Gitea."}, {Label: "Other", AllowsText: true},
+	}
+	ack := p.report(conn, nodeproto.Report{
+		Kind: nodeproto.ReportQuestion, DispatchID: offer.DispatchID, Epoch: 1,
+		Payload: payload(t, nodeproto.Ask{
+			Header: "OAuth", Text: "goth or hand-written OAuth?", Options: options, To: "owner",
+			More: []nodeproto.Part{{Header: "Scope", Text: "Ask for email too?", Options: options}},
+		}),
+	})
+	require.Equal(t, nodeproto.AckCommitted, ack.Status, ack.Error)
+
+	var asked struct {
+		QuestionID string `json:"question_id"`
+	}
+	require.NoError(t, json.Unmarshal(ack.Response, &asked))
+
+	stored, err := p.svc.GetQuestion(t.Context(), asked.QuestionID)
+	require.NoError(t, err)
+	assert.Equal(t, "OAuth", stored.Header)
+	assert.Equal(t, "A library. From: Gitea.", stored.Options[0].Description)
+	require.Len(t, stored.More, 1)
+	assert.Equal(t, "Scope", stored.More[0].Header)
+
+	first, other := 0, 1
+	_, err = p.svc.AnswerQuestion(t.Context(), asked.QuestionID, orchestration.AddressOwner,
+		orchestration.Answer{Option: &first, More: []orchestration.Choice{{Option: &other, Text: "only the name"}}})
+	require.NoError(t, err)
+
+	pushed := p.next(conn, nodeproto.TypeAnswer).Payload
+
+	var answer nodeproto.Question
+	require.NoError(t, json.Unmarshal(pushed, &answer))
+	assert.Equal(t, []nodeproto.Part{{Header: "Scope", Text: "Ask for email too?", Options: options}}, answer.More)
+	assert.Equal(t, &nodeproto.Answer{Option: &first, More: []nodeproto.Choice{{Option: &other, Text: "only the name"}}},
+		answer.Answer)
+
+	var before struct {
+		Text    string `json:"text"`
+		Options []struct {
+			Label string `json:"label"`
+		} `json:"options"`
+		Answer struct {
+			Option *int   `json:"option"`
+			Text   string `json:"text"`
+		} `json:"answer"`
+	}
+	require.NoError(t, json.Unmarshal(pushed, &before))
+	assert.Equal(t, "goth or hand-written OAuth?", before.Text)
+	assert.Equal(t, "goth", before.Options[0].Label)
+	assert.Equal(t, &first, before.Answer.Option, "a node before issue #1219 reads the first decision's answer")
+}
+
 // Scenario: reports that can never apply are rejected for good, so the node
 // stops resending them.
 func TestReportsThatCannotApplyAreRejected(t *testing.T) {
