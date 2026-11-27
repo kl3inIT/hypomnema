@@ -1152,7 +1152,13 @@ sequenceDiagram
     default; words at most 80, 120 and 200 characters, one line), in an accent (#rrggbb, default #6c8cff). A card is
     the look's background painted on the video's whole size, its words an ASS file libass draws in the middle within
     78% of the width (aidemo's card: the accent's rule over the title at W/17 in Be Vietnam Pro Bold, the subtitle at
-    W/40 in Medium; agent-demo-video's URL in the accent), looped for its whole frames and faded in from and out to
+    W/40 in Medium; agent-demo-video's URL in the accent). Each of the three is fitted to that width by its font's
+    own advances (`cardfit.go`, agent-demo-video's hookLayout): wrapped at its spaces, shrunk about 5% at a time to
+    the subtitle's size, and a word still too wide (a store URL, up to 200 characters) broken where it reaches the
+    width; then, while the whole block (the rule's gap and every line at its Fontsize) is taller than half the
+    card, all three shrink together about 5% at a time (`cardLayout`, hookLayout's block bound), so the longest card
+    the API allows stays inside at 9:16 and 16:9. The lines are broken in the ASS and libass does not wrap them
+    again. The card is looped for its whole frames and faded in from and out to
     black over min(350 ms, a third of it). The cards and the framed picture are joined by one concat filter and
     encoded once; then the scenes' `OutStartMs` and rings move after the title card, so the voice (delayed by
     `adelay` and padded to the end), the duck and the captions start there, and the bed and its fade run under both
@@ -1360,7 +1366,9 @@ sequenceDiagram
     its title, a line under it, a URL and its seconds (0.5-10), and one accent colour; the section is sent as
     `{accent, title?, end?}` when changed, empty words left out. Over the look sample, Step, Title and End (the
     cards that are on) choose what it draws: a card is asked with `card` and the cards section, the picture without
-    the cards, and a card with no title yet is not asked for.
+    the cards, and a card with no title yet is not asked for. A card's sample carries that card alone, as the
+    contract's `card` says to send it (the contract checks every card sent and refuses one with no title, 400), and
+    the service draws only the card shown.
     Make video's first field is its Template (#1230 row 5, `template-picker.tsx`, `template-state.ts`; a picker is
     an inference, as no reference has one): None or one of `GET /videos/templates`, with the chosen one's use case,
     length, shapes, captions and cards and its sections with their words and seconds. Picking one sets the shape to

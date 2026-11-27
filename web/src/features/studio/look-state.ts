@@ -169,11 +169,22 @@ export const backgroundName = (id: string) =>
 // the take's picture is a still, which neither changes and the server does not read (videos/preview.go), so
 // choosing a track or typing a card's words asks no new sample of the picture.
 export function sampleOf(body: VideoPreview): VideoPreview {
-  const drop = body.look && (body.look.music || (body.look.cards && !body.card))
+  const drop = body.look && (body.look.music || body.look.cards)
   if (!drop || !body.look) return body
 
   const { music: _music, cards, ...rest } = body.look
-  const look = body.card && cards ? { ...rest, cards } : rest
+  // A card's sample carries that card alone: the other one may be on and not titled yet (the review of #1242).
+  const drawn = body.card && cards?.[body.card]
+  const look =
+    body.card && cards
+      ? {
+          ...rest,
+          cards: {
+            ...(cards.accent ? { accent: cards.accent } : {}),
+            ...(drawn ? { [body.card]: drawn } : {}),
+          },
+        }
+      : rest
   const { look: _look, ...out } = body
 
   return Object.keys(look).length > 0 ? { ...out, look } : out

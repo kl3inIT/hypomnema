@@ -1386,7 +1386,16 @@ test("Make video sends the cards, and the sample draws a card chosen", async ({ 
   await expect(look.getByTestId("look-sample")).toContainText("Give the card a title to see it.")
   await cards.getByLabel("Title", { exact: true }).first().fill("SecondBite")
   await cards.getByLabel("Seconds").first().fill("2.5")
-  await expect.poll(() => (server.samples.at(-1)!.body as { card?: string }).card).toBe("title")
+  // The sample of the title card carries it alone (the review of #1242).
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({
+      take: takeId,
+      aspect: "9:16",
+      captions: true,
+      card: "title",
+      look: { cards: { accent: "#6c8cff", title: { title: "SecondBite", duration_ms: 2500 } } },
+    })
   await cards.scrollIntoViewIfNeeded()
   await shot(page, "studio-make-cards")
 
@@ -1500,10 +1509,29 @@ test("Change look starts from the revision's cards", async ({ page }) => {
     .click()
 
   const dialog = page.getByRole("dialog", { name: "Change the look" })
-  const cards = dialog.getByRole("region", { name: "Look" }).getByRole("group", { name: "Cards" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  const cards = look.getByRole("group", { name: "Cards" })
   await expect(cards.getByRole("switch", { name: "Title card" })).toBeChecked()
   await expect(cards.getByLabel("URL", { exact: true }).last()).toHaveValue("secondbite.vn")
+  await cards.scrollIntoViewIfNeeded()
+  await shot(page, "studio-change-look-cards")
+
+  // The revision's end card, unchanged, is drawn from the revision: the sample sends no look.
+  await look
+    .getByRole("group", { name: "What the sample shows" })
+    .getByRole("button", { name: "End" })
+    .click()
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({ take: takeId, aspect: "16:9", captions: false, rev: 1, card: "end" })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await showSample(look)
+  await shot(page, "studio-change-look-card-sample")
+
   await cards.getByRole("switch", { name: "End card" }).click()
+  await expect(
+    look.getByRole("group", { name: "What the sample shows" }).getByRole("button", { name: "End" }),
+  ).toHaveCount(0)
   await dialog.getByRole("button", { name: "Change look" }).click()
 
   await expect(dialog).toBeHidden()

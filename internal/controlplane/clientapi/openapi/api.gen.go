@@ -7899,7 +7899,7 @@ type VideoPreview struct {
 	// Captions Absent: the template's, else true.
 	Captions *bool `json:"captions,omitempty"`
 
-	// Card A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict.
+	// Card A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
 	Card *VideoPreviewCard `json:"card,omitempty"`
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
@@ -7913,7 +7913,7 @@ type VideoPreview struct {
 	Template *string `json:"template,omitempty"`
 }
 
-// VideoPreviewCard A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict.
+// VideoPreviewCard A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
 type VideoPreviewCard string
 
 // VideoProgress While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.

@@ -152,11 +152,32 @@ func checkPreview(req PreviewRequest) (PreviewRequest, *Template, error) {
 		return req, nil, fmt.Errorf("%w: a sample's card is title or end", ErrInvalid)
 	}
 
+	req.Look = onlyCard(req.Look, req.Card)
+
 	if _, err := resolveLook(req.Look, DefaultLook()); err != nil {
 		return req, nil, err
 	}
 
 	return req, tpl, nil
+}
+
+// onlyCard is the look a sample of one card resolves: the sent cards section holding that card alone, so the other
+// one, turned on and not titled yet, is not checked (the review of #1242). Any other sample's look is as sent.
+func onlyCard(in *LookInput, card string) *LookInput {
+	if card == "" || in == nil || in.Cards == nil {
+		return in
+	}
+
+	look, cards := *in, *in.Cards
+	if card == CardTitle {
+		cards.End = nil
+	} else {
+		cards.Title = nil
+	}
+
+	look.Cards = &cards
+
+	return &look
 }
 
 // previewPlan is what a look sample draws.
