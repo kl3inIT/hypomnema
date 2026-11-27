@@ -941,36 +941,39 @@ test.describe("iPhone Home Screen layout", () => {
 
   test("the top band clears both Inbox headers and the item actions fit on one row", async ({
     page,
-    context,
     isMobile,
   }) => {
     test.skip(!isMobile, "iPhone layout")
     await world({ triage: true }).serve(page)
-    const cdp = await context.newCDPSession(page)
-    const standalone = (enabled: boolean) =>
-      cdp.send("Emulation.setEmulatedMedia", {
-        features: [{ name: "display-mode", value: enabled ? "standalone" : "browser" }],
-      })
     const band = page.locator("body > .ios-top-edge-band")
     const menu = list(page).getByRole("button", { name: "Menu", exact: true })
     const detailHeader = item(page).locator("header").first()
     const reply = "/inbox?item=todo%3Atdo_reply"
 
-    await standalone(true)
+    // Map standalone to a media feature Chromium can emulate. Keep the WebKit
+    // feature query in place until the simulated iOS visits.
+    let ios = false
+    await page.route("**/assets/*.css", async (route) => {
+      const response = await route.fetch()
+      let body = (await response.text()).replace(
+        /display-mode\s*:\s*standalone/g,
+        "prefers-reduced-motion: reduce",
+      )
+      if (ios) {
+        body = body.replace(
+          /-webkit-touch-callout\s*:\s*none(?=\)\s*{\s*\.ios-top-edge-band)/g,
+          "display: block",
+        )
+      }
+      await route.fulfill({ response, body })
+    })
+    await page.emulateMedia({ reducedMotion: "reduce" })
     await page.goto("/inbox")
     await expect(menu).toBeVisible()
     await expect(band).toBeHidden()
     const tabMenuTop = (await menu.boundingBox())!.y
 
-    // Chromium emulates display-mode natively. Substitute only the WebKit feature query.
-    await page.route("**/assets/*.css", async (route) => {
-      const response = await route.fetch()
-      const body = (await response.text()).replace(
-        /-webkit-touch-callout\s*:\s*none/g,
-        "display: block",
-      )
-      await route.fulfill({ response, body })
-    })
+    ios = true
     for (const theme of ["light", "dark"] as const) {
       await page.evaluate((choice) => globalThis.localStorage.setItem("theme", choice), theme)
       await page.goto("/inbox")
@@ -1004,7 +1007,7 @@ test.describe("iPhone Home Screen layout", () => {
       await shot(page, `inbox-standalone-item-${theme}`)
     }
 
-    await standalone(false)
+    await page.emulateMedia({ reducedMotion: "no-preference" })
     await page.goto("/inbox")
     await expect(menu).toBeVisible()
     await expect(band).toBeHidden()
