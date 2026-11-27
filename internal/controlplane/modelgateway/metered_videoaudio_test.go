@@ -50,7 +50,7 @@ func (usageMovieMaker) Burn(_ context.Context, _ ffmpeg.Tools, video, _, _ strin
 	return video, nil
 }
 
-func (usageMovieMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string) error {
+func (usageMovieMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string, _ int64) error {
 	return os.WriteFile(out, []byte("thumbnail"), 0o600)
 }
 

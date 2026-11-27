@@ -259,6 +259,8 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 		Work: filepath.Join(work, "compose"), Out: filepath.Join(work, "composed.mp4"), Progress: stage,
 		// The look as stored: a revision made before the looks is full, with no frame, as it was (issue #908).
 		Frame: rev.Look.Frame, Background: background(rev.Look),
+		// Its cards on that background (issue #1230, row 1).
+		Cards: rev.Look.Cards,
 	}
 	if take.Screen != nil {
 		in.Screen = compose.Size{Width: take.Screen.Width, Height: take.Screen.Height}
@@ -307,7 +309,7 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 	}
 
 	thumb := filepath.Join(work, thumbFile)
-	if err := s.cfg.Maker.Thumbnail(ctx, tools, final, thumb); err != nil {
+	if err := s.cfg.Maker.Thumbnail(ctx, tools, final, thumb, made.ThumbnailAtMs()); err != nil {
 		return nil, 0, at(last, fmt.Errorf("taking the first frame: %w", err))
 	}
 

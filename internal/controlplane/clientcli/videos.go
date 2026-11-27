@@ -155,6 +155,83 @@ func lookFlags(fs *flag.FlagSet) {
 	fs.Bool("safe-top", false, "a status strip of bezel above the picture, for a device")
 	fs.String("background", "", "the background, from `videos looks` (default midnight)")
 	fs.String("background-colors", "", "two colors as #rrggbb,#rrggbb, in place of a background")
+	cardFlags(fs)
+}
+
+// cardFlags are the flags of a look's cards (issue #1230, row 1): the cards section is sent when one is given, with
+// each card whose title is given; -no-cards sends it with none, which takes the cards away.
+func cardFlags(fs *flag.FlagSet) {
+	for _, c := range []struct{ name, ms string }{{"title", "2600"}, {"end", "3000"}} {
+		fs.String(c.name+"-card", "", "the "+c.name+" card's title; the card is drawn on the background")
+		fs.String(c.name+"-card-subtitle", "", "a line under the "+c.name+" card's title")
+		fs.String(c.name+"-card-url", "", "a URL on the "+c.name+" card, in the accent")
+		fs.Int(c.name+"-card-ms", 0, "how long the "+c.name+" card lasts, 500-10000 ms (default "+c.ms+")")
+	}
+
+	fs.String("card-accent", "", "the cards' accent as #rrggbb (default #6c8cff)")
+	fs.Bool("no-cards", false, "no title or end card")
+}
+
+// cardsArg is the cards section the flags give, nil when no card flag is.
+func cardsArg(fs *flag.FlagSet, set map[string]bool) (*openapi.VideoCardsInput, error) {
+	var (
+		cards openapi.VideoCardsInput
+		given bool
+	)
+
+	for _, side := range []struct {
+		name string
+		to   **openapi.VideoCardInput
+	}{{"title", &cards.Title}, {"end", &cards.End}} {
+		n := side.name + "-card"
+		for _, f := range []string{n, n + "-subtitle", n + "-url", n + "-ms"} {
+			given = given || set[f]
+		}
+
+		if !set[n] {
+			if set[n+"-subtitle"] || set[n+"-url"] || set[n+"-ms"] {
+				return nil, fmt.Errorf("%w: the %s card's flags need -%s, its title", ErrUsage, side.name, n)
+			}
+
+			continue
+		}
+
+		card := &openapi.VideoCardInput{Title: str(fs, n)}
+		if set[n+"-subtitle"] {
+			card.Subtitle = ref(str(fs, n+"-subtitle"))
+		}
+
+		if set[n+"-url"] {
+			card.CtaUrl = ref(str(fs, n+"-url"))
+		}
+
+		if set[n+"-ms"] {
+			ms, err := strconv.ParseInt(str(fs, n+"-ms"), 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%w: -%s-ms is a number of ms", ErrUsage, n)
+			}
+
+			card.DurationMs = &ms
+		}
+
+		*side.to = card
+	}
+
+	if set["card-accent"] {
+		given = true
+		cards.Accent = ref(str(fs, "card-accent"))
+	}
+
+	switch {
+	case set["no-cards"] && given:
+		return nil, fmt.Errorf("%w: -no-cards takes no other card flag", ErrUsage)
+	case set["no-cards"]:
+		return &openapi.VideoCardsInput{}, nil
+	case given:
+		return &cards, nil
+	}
+
+	return nil, nil //nolint:nilnil // No flag is no cards, and no error.
 }
 
 // lookArg is the look the flags give: a section only when one of its flags is given, a field only when its flag
@@ -234,7 +311,14 @@ func lookArg(fs *flag.FlagSet) (*openapi.VideoLookInput, error) {
 		}
 	}
 
-	if look.Captions == nil && look.Frame == nil && look.Background == nil && look.Music == nil {
+	cards, err := cardsArg(fs, set)
+	if err != nil {
+		return nil, err
+	}
+
+	look.Cards = cards
+
+	if look.Captions == nil && look.Frame == nil && look.Background == nil && look.Music == nil && look.Cards == nil {
 		return nil, nil //nolint:nilnil // No flag is no look, and no error.
 	}
 
@@ -273,6 +357,17 @@ func lookLine(l openapi.VideoLook) string {
 
 	if l.Music != nil {
 		line += ", " + musicLine(*l.Music)
+	}
+
+	if c := l.Cards; c != nil {
+		for _, k := range []struct {
+			name string
+			card *openapi.VideoCard
+		}{{"title card", c.Title}, {"end card", c.End}} {
+			if k.card != nil {
+				line += fmt.Sprintf(", %s %q %.1f s", k.name, k.card.Title, float64(k.card.DurationMs)/1000)
+			}
+		}
 	}
 
 	return line
@@ -398,6 +493,11 @@ func videosPreview(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 
 		body.Rev = &rev
+	}
+
+	if c := str(fs, "card"); c != "" {
+		card := openapi.VideoPreviewCard(c)
+		body.Card = &card
 	}
 
 	look, err := lookArg(fs)
