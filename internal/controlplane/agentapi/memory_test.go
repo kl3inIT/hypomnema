@@ -61,14 +61,15 @@ func toolNames(tools []agenttool.BrowserTool) []string {
 // the control plane's one route, and a call of one reaches the browser in the
 // agent's own tab: a worker's its Dispatch's, a Bot's pi's its chat's, so the
 // pi that follows goes on in the same tab (issue #536, step 4). The
-// coordinator token, which has no tools server, is offered no browser there.
+// coordinator token, which has no tools server, is offered the browser's
+// tools alone there, in a tab of its own (issue #1220).
 func TestWorkersAndBotsUseTheBrowserOnTheOneRoute(t *testing.T) {
 	t.Parallel()
 
 	w, _, _ := gatewayWorld(t, true, map[string]string{"d_1": "codex"})
 	ctx := t.Context()
 
-	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	token, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
 	worker, err := w.svc.AddAgentSession(ctx, "d_1", nil)
@@ -86,14 +87,15 @@ func TestWorkersAndBotsUseTheBrowserOnTheOneRoute(t *testing.T) {
 	status, text, _ = w.use(pi, "agent_browser_open", `{"url":"https://go.dev"}`)
 	require.Equal(t, http.StatusOK, status, text)
 
-	assert.NotContains(t, toolNames(w.tools(coordinator)), "agent_browser_open")
+	assert.Equal(t, []string{"agent_browser_open"}, toolNames(w.tools(coordinator)))
 
-	status, _, _ = w.use(coordinator, "agent_browser_open", `{"url":"https://go.dev"}`)
-	assert.Equal(t, http.StatusNotFound, status)
+	status, text, _ = w.use(coordinator, "agent_browser_open", `{"url":"https://go.dev"}`)
+	require.Equal(t, http.StatusOK, status, text)
 
 	assert.Equal(t, []string{
 		`d-d_1 agent_browser_open {"url":"https://go.dev"}`,
 		`b-` + chat.ID + ` agent_browser_open {"url":"https://go.dev"}`,
+		`c-` + token.ID + ` agent_browser_open {"url":"https://go.dev"}`,
 	}, w.browser.calls)
 	assert.Contains(t, w.logs.String(), "bot "+orchestration.DefaultBotID+" in chat "+chat.ID)
 }

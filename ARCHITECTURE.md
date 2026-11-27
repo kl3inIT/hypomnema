@@ -632,7 +632,9 @@ sequenceDiagram
     no tab for 5 minutes (T3 Code's rules); the sign-ins stay in the profile. Chrome found gone is started again,
     and the tabs it held are not used again. A Chrome left by an earlier control plane is closed at the first call.
   - A worker and a Bot's pi find the browser's tools on the agent API's `GET /agent/v1/tools` and call one on
-    `POST /agent/v1/tools/call` (see "An agent's tools"; a Bot's since issue #536, step 4); the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
+    `POST /agent/v1/tools/call` (see "An agent's tools"; a Bot's since issue #536, step 4), and so do the coordinator
+    token and a Routine's script, each in a tab of its own (`c-<token>`, `r-<routine>`), the browser's tools alone
+    (issue #1220 moved them there from `/agent/v1/browser/*`); a read run gets none. The answer is the tool's result as MCP has it, `content` and `isError`, and nothing
     of how the engine is set up. Which agent used which tool is logged, never the arguments.
   - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
     select, scroll, back, forward, reload, the waits, screenshot, get text, URL and title, eval. Tabs, `close`,

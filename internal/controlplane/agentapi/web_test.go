@@ -152,7 +152,7 @@ func (w *world) toolNames(key string) []string {
 // Scenario: each worker is offered the gateway's tools its runtime gets,
 // before the browser's: a Codex worker web_fetch and generate_image, its own
 // search being the gateway's; Claude Code, omp and opencode all three, their
-// own being off (issue #492). A coordinator gets none: a Bot has its CLI.
+// own being off (issue #492). A coordinator gets none, only its own tab of the browser: a Bot has its CLI.
 func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
 	t.Parallel()
 
@@ -175,7 +175,7 @@ func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
 
 	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
-	assert.Empty(t, w.toolNames(coordinator))
+	assert.Equal(t, []string{"agent_browser_open"}, w.toolNames(coordinator), "its own tab, and no other tool")
 
 	var list agenttool.BrowserToolList
 
@@ -408,8 +408,8 @@ func TestABotsPiIsOfferedTheGatewaysTools(t *testing.T) {
 
 	_, _ = call(codex, "web_search", `{"query":"go"}`) // the browser's to refuse: the fake one runs anything
 
-	status, _ = call(script, "web_search", `{"query":"go"}`)
-	assert.Equal(t, http.StatusNotFound, status)
+	// A script keeps a tab of its own, so the call goes to the browser, which has no web_search; never the gateway.
+	_, _ = call(script, "web_search", `{"query":"go"}`)
 	assert.Len(t, web.calls, 1, "a Codex worker's search is its own, and a script has none")
 
 	status, _ = w.call(http.MethodGet, agenttool.PathTools, "", nil)

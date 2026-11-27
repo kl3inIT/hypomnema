@@ -122,9 +122,11 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	return out
 }
 
-// hasBrowser says whether the caller gets its own tab when the control plane has a browser.
+// hasBrowser says whether the caller gets its own tab when the control plane has a browser: every agent with tools,
+// and the coordinator token and a Routine's script, each in a tab of its own (c-, r-), as the browser's own routes
+// gave every agent but a read run before issue #1220 moved them here.
 func (s *Server) hasBrowser(a agent) bool {
-	return s.browser != nil && a.hasAgentTools()
+	return s.browser != nil && (a.hasAgentTools() || (a.coordinator && !a.readRun))
 }
 
 // listTools lists the agent's tools (PathTools).

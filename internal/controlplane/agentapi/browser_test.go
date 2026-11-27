@@ -53,7 +53,7 @@ func (w *world) browse(key, tool, arguments string) (int, string) {
 	return status, string(body)
 }
 
-// Scenario: two workers and two chats' pis use the browser. Each call
+// Scenario: two workers, the coordinator token and two chats' pis use the browser. Each call
 // reaches the browser under a name of the caller's own, so each has its own
 // tab: a worker's is its Dispatch's. The tool's answer is passed on as it
 // is. Which agent used which tool is logged, and never what it typed.
@@ -73,7 +73,7 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 	listed, labels := w.get(second, "notion")
 	require.Equal(t, http.StatusOK, listed)
 	assert.Empty(t, labels)
-	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	pi, piKey, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
 	status, body := w.call(http.MethodGet, agenttool.PathTools, first, nil)
@@ -92,6 +92,11 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 	status, _ = w.browse(second, "agent_browser_get_url", `{}`)
 	require.Equal(t, http.StatusOK, status)
 
+	// The coordinator token lists and calls the browser on the one route, in a tab of its own (issue #1220).
+	assert.Contains(t, toolNames(w.tools(piKey)), "agent_browser_open")
+	status, _ = w.browse(piKey, "agent_browser_get_url", `{}`)
+	require.Equal(t, http.StatusOK, status)
+
 	// Each chat's pi has its own token under the same coordinator token (issue #260), and its chat's tab.
 	for _, title := range []string{"invoices", "maps"} {
 		chat, err := w.svc.CreateChat(ctx, "", title)
@@ -108,7 +113,8 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 	assert.Equal(t, []string{
 		`d-dsp_1 agent_browser_fill {"selector":"#password","text":"hunter2"}`,
 		`d-dsp_2 agent_browser_get_url {}`,
-	}, w.browser.calls[:2])
+		`c-` + pi.ID + ` agent_browser_get_url {}`,
+	}, w.browser.calls[:3], "the coordinator token keeps a tab of its own")
 
 	assert.Contains(t, w.logs.String(), "dsp_1")
 	assert.Contains(t, w.logs.String(), "agent_browser_fill")
@@ -119,7 +125,7 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 
 	status, _ = w.browse("", "agent_browser_get_url", `{}`)
 	assert.Equal(t, http.StatusUnauthorized, status)
-	assert.Len(t, w.browser.calls, 4, "a call without a credential does not reach the browser")
+	assert.Len(t, w.browser.calls, 5, "a call without a credential does not reach the browser")
 
 	require.NoError(t, w.svc.RevokeAgentSessions(ctx, "dsp_1"))
 
