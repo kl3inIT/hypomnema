@@ -6191,6 +6191,8 @@ Node (`internal/node`):
         `verifier.md:23` and pstack's `interrogate/SKILL.md:19`);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
+    - for every worker on a GitHub repository, including read-only roles, how to check quota after a rate limit,
+      wait for the reset or honor the secondary limit's `Retry-After`, and report the wait (issue #1259);
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
       of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`, where base is the
@@ -6220,8 +6222,8 @@ Node (`internal/node`):
          a merge, then `finish` at once, saying whether it merged or "auto-merge on at <sha>", without waiting for
          the checks: the control plane follows the pull request to merged and sends a follow-up when it goes red
          or conflicts (issue #1053, after pstack's `shipping.md:8-9`); without auto-merge the worker waits for the
-         required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`) only when the Task
-         needs their result; without the token (the node's own login, which the control plane cannot read the
+         required checks (`gh pr checks <url> --required --watch --interval 60`, `glab ci status --live`) only when
+         the Task needs their result; without the token (the node's own login, which the control plane cannot read the
          request with), waiting for the required checks with that command, fixing the red ones its diff causes and
          rerunning a flake once, then `finish`, as before #1053;
     - `Task (<profile>):` and the Task's spec;
