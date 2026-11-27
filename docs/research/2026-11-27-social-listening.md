@@ -106,6 +106,42 @@ Where they differ:
   diacritic folding. A lexical cluster will be weak for Vietnamese; embeddings, as obsei uses, are the likely fix
   (inferred).
 
+## 3b. More to learn than the sources
+
+**Threads, free.** Muse first: whether Meta AI reads Threads is reported both ways, so test it once Muse is signed in
+again. Then `site:threads.com` web search. Then the official keyword search once Meta grants `threads_keyword_search`;
+without that grant it finds only the account's own posts. last30days reads Threads through ScrapeCreators
+(`scripts/lib/threads.py`), which is paid.
+
+**Other sources the references read** (last30days `scripts/lib/`). Each is listed with the free route where there is
+one:
+
+| Source | What it shows | Where it is read |
+|---|---|---|
+| Meta Ad Library | What a brand pays to say, with video scripts. The public Ad Library page is readable in a browser (inferred). | `meta_ads.py`, through ScrapeCreators |
+| Job posts | What a competitor hires for, which hints at what it builds | `jobs.py`, `hiring_signals.py` |
+| Patents | Long-term technology direction | `patents.py` |
+| News timeline | Events, and who reported them | radar-intelligence (Google News, GDELT); `techmeme.py` |
+| Telegram public channels | Channel posts. The public preview at `t.me/s/<channel>` is readable (inferred). | `telegram.py`, through ScrapeCreators |
+| App Store and Trustpilot reviews | App and company reviews | `trustpilot.py`; obsei |
+| Hacker News, Bluesky, GitHub | Developer discussion, keyless | last30days, harken, obsei |
+
+**Logic worth taking:**
+
+| Idea | Learned from |
+|---|---|
+| A pre-flight check for keyword traps: rewrite the query or ask one question before running | runbook step 0.45 |
+| Resolve where people talk before searching: handles, communities, channels, competitors, found with 2-3 web searches | runbook 0.5-0.55, `competitors.py` |
+| Snowball: mine new handles and hashtags from the first results and search again | `entity_extract.py` |
+| Query intent sets the subqueries, the clustering and the supplements | `planner.py`; radar's five decision profiles |
+| Retry thin sources with a simpler query | `_retry_thin_sources` |
+| 2-3 capped web-search supplements after collection | runbook step 2 |
+| Count before filtering; cap confidence on partial sampling | radar `sampling-contract.md` |
+| Quote tags: pain, trigger, outcome, objection, competitor | marketingskills `source-guides.md` |
+| History across runs before any trend claim; a cross-platform hot board | `--store`; cn `--hot`; radar |
+| Ask over the stored items with citations, plus a judge model | obsei `ask.py` |
+| A daily live test per backend, and a "regressed" flag | Agent-Reach `check`, `regressed()` |
+
 ## 4. How it maps onto Hypomnema
 
 Hypomnema already has three gateway capabilities backed by pools:
