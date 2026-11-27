@@ -4989,7 +4989,9 @@ its client API, its CLI and the Bots' tools.
   folder, as a reply's `MEDIA:` lines name them; one outside it refused) and 5 Artifacts, each one the Bot showed
   (another Bot's refused, as Gitea's `validateAttachmentForIssue`), kept in the comment's event as `after.files`,
   `after.artifacts` and `after.chat`, the chat the files are read through: the item's own chat when it is that
-  Bot's, else the chat the Bot commented from. The wake-up of a handed item tells the Bot to post the result there
+  Bot's, else the chat the Bot commented from. Once that chat is deleted, the item's history reads `after.chat` as
+  a chat of the same Bot still there, its main chat first (`liveChats`, `GetBotLiveChat`), since every chat of a Bot
+  reads its one folder; the event keeps the chat it named. The wake-up of a handed item tells the Bot to post the result there
   (a file, an Artifact, a report), not only in its chat, as Linear's agent ends with a response shown as a comment.
 - Waiting on others (`inboxstore/waiting.go`; issue #1142, the owner's rules of 2026-11-25: an item is his when he
   is asked, tagged or written to or he promised; waiting on someone when he gave the work to a person, a person
@@ -6447,7 +6449,8 @@ Node (`internal/node`):
     `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment); under a Bot's text, its files as the
     chat's `ReplyFiles` chips, downloaded from the Bot's folder through `after.chat` (red with the server's message
     when refused), and its Artifacts as the chat's `ArtifactCard`, read by `GET /artifacts/{id}`, opening full
-    screen (issue #1207). Under them a link to the item's chat
+    screen, where Escape closes only the Artifact (it takes the key first and marks it handled; issue #1207). A
+    chip's error wraps, read whole (`components/ui/attachment.tsx`). Under them a link to the item's chat
     and the chat's composer (Enter sends): on an item no Bot has it reads "Message Hypo…" and **Hand to Hypo**
     hands it to the main Bot with the text as its prompt (`POST /inbox/{id}/hand`); on one a Bot has, Send
     comments (`POST /inbox/{id}/comments`), or hands it to that Bot again when the item has no chat; on a closed
