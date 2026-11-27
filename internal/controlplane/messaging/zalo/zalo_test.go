@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,13 +134,18 @@ func TestFakeBridge(t *testing.T) {
 			}
 
 			write(map[string]any{"id": req.ID, "result": map[string]any{"next": "", "messages": []any{}}})
-		// A send answers an id that says what it was given: a quote, and a file there at the time.
+		// A send answers an id that says what it was given: a quote, mentions, and a file there at the time.
 		case "send":
 			var p struct {
 				Params struct {
-					Path  string          `json:"path"`
-					Quote json.RawMessage `json:"quote"`
-					Group bool            `json:"group"`
+					Path     string          `json:"path"`
+					Quote    json.RawMessage `json:"quote"`
+					Group    bool            `json:"group"`
+					Mentions []struct {
+						Pos int    `json:"pos"`
+						UID string `json:"uid"`
+						Len int    `json:"len"`
+					} `json:"mentions"`
 				} `json:"params"`
 			}
 			_ = json.Unmarshal(in.Bytes(), &p)
@@ -150,6 +157,10 @@ func TestFakeBridge(t *testing.T) {
 
 			if len(p.Params.Quote) > 0 {
 				id += "-quote"
+			}
+
+			for _, m := range p.Params.Mentions {
+				id += fmt.Sprintf("-tag:%d:%s:%d", m.Pos, m.UID, m.Len)
 			}
 
 			result := map[string]any{"textId": id}
@@ -533,6 +544,47 @@ func TestTheAccountSendsAsTheOwnerAndKeepsIt(t *testing.T) {
 
 	_, err = acc.Send(ctx, messaging.Outgoing{Chat: "nobody", Text: "hi"})
 	require.ErrorIs(t, err, orchestration.ErrNotFound, "a chat not kept is said so")
+}
+
+// Scenario: issue #1200. A text the owner sends in a group tags the members it names: each goes to zca-js where
+// the text writes "@" and his name, counted in UTF-16 units as JavaScript counts a string, beside the quote of the
+// message it answers. A direct chat tags nobody (zca-js tags only in a group), and a tag the text does not write is
+// refused before anything is sent.
+func TestATextTagsTheMembersItNamesInAGroup(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	require.NoError(t, svc.mirror.saveSession(ctx, "100", "Owner", []byte(`{"imei":"i1"}`)))
+
+	acc, err := svc.Open(ctx, "100")
+	require.NoError(t, err)
+	t.Cleanup(acc.Close)
+
+	eventually(t, "the group and the direct chat kept", func() bool {
+		group, err := acc.Messages(ctx, messaging.Query{Chat: "g1", ID: "m1"})
+		direct, derr := acc.Messages(ctx, messaging.Query{Chat: "u9"})
+
+		return err == nil && derr == nil && len(group) == 1 && len(direct) > 0
+	})
+
+	lan := messaging.Tag{ID: "200", At: 0, Len: len("@Lan Anh"), Name: "Lan Anh"}
+
+	sent, err := acc.Send(ctx, messaging.Outgoing{Chat: "g1", Text: "@Lan Anh dạ vâng chị", ReplyTo: "m1",
+		Tags: []messaging.Tag{lan}})
+	require.NoError(t, err)
+	assert.Equal(t, "s-group-quote-tag:0:200:8", sent.ID, "@Lan Anh at 0, 8 long, with the quote")
+
+	text := "Dạ 😀 @Lan Anh"
+	sent, err = acc.Send(ctx, messaging.Outgoing{Chat: "g1", Text: text,
+		Tags: []messaging.Tag{{ID: "200", At: strings.Index(text, "@"), Len: len("@Lan Anh"), Name: "Lan Anh"}}})
+	require.NoError(t, err)
+	assert.Equal(t, "s-group-tag:6:200:8", sent.ID, "ạ is one UTF-16 unit and 😀 two, not their bytes")
+
+	sent, err = acc.Send(ctx, messaging.Outgoing{Chat: "u9", Text: "@Lan Anh dạ", Tags: []messaging.Tag{lan}})
+	require.NoError(t, err)
+	assert.Equal(t, "s", sent.ID, "a direct chat tags nobody")
+
+	_, err = acc.Send(ctx, messaging.Outgoing{Chat: "g1", Text: "Lan Anh dạ", Tags: []messaging.Tag{lan}})
+	require.Error(t, err, "a tag where the text writes no @ is refused")
 }
 
 // A file that went before its text failed is said, with its id, so that it is not sent again (review of #683).

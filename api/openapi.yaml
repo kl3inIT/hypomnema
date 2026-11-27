@@ -9438,14 +9438,21 @@ components:
           description: When the vendor gave this reading.
         unavailable:
           type: string
-          enum: [not_given, sign_in, resting, failed, verification]
+          enum: [not_given, sign_in, resting, refused, failed, verification]
           description: >-
-            Why there are no windows: this kind of account says none; the
-            account has no sign-in here that can ask; the vendor asked to wait;
-            the call failed; Google wants the account verified first.
+            Why there are no windows, or, beside windows, why they are an
+            earlier reading than now (read_at says when): this kind of account
+            says none; the account has no sign-in here that can ask; the vendor
+            asked to wait; the vendor refused the account's token (401 or 403:
+            signed out, or the account disabled); the call failed; Google wants
+            the account verified first.
         detail:
           type: string
-          description: What went wrong, in the server's words, when the call failed.
+          description: What went wrong, in the server's words, when the call failed or was refused.
+        retry_at:
+          type: string
+          format: date-time
+          description: When the vendor is asked again, when unavailable is resting.
         verification_url:
           type: string
           description: >-

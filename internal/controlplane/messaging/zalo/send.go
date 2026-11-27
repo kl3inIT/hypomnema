@@ -1,10 +1,11 @@
 package zalo
 
 // Sending as the owner (issue #680, step 3 of #613): the bridge's send, with zca-js's sendMessage. Whether it may
-// be sent is decided before, by the owner's approval (agentapi, zalo.send). A file is written beside zalo.db for
-// the call, as zca-js sends files by path (the Hermes Zalo plugin sends them so), and removed after. What is sent
-// is kept as the owner's, as WhatsApp's keepSent keeps it; the listener, which hears the owner's own messages
-// (selfListen), brings it back too, and it is kept once.
+// be sent is decided before, by the owner's approval (agentapi, zalo.send) or his own Send in the Inbox, which
+// alone tags members (issue #1200). A file is written beside zalo.db for the call, as zca-js sends files by path
+// (the Hermes Zalo plugin sends them so), and removed after. What is sent is kept as the owner's, as WhatsApp's
+// keepSent keeps it; the listener, which hears the owner's own messages (selfListen), brings it back too, and it is
+// kept once.
 
 import (
 	"context"
@@ -13,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -31,6 +34,43 @@ type quote struct {
 	Text  string `json:"text"`
 }
 
+// mention is a member a group's message tags, as zca-js's sendMessage takes it (src/apis/sendMessage.ts, Mention):
+// where the text writes "@" and his name and how long that is, counted as JavaScript counts a string, in UTF-16
+// code units (issue #1200).
+type mention struct {
+	Pos int    `json:"pos"`
+	UID string `json:"uid"`
+	Len int    `json:"len"`
+}
+
+// mentions are a text's tags as zca-js takes them. A tag the text does not write is refused rather than sent on the
+// wrong words.
+func mentions(text string, tags []messaging.Tag) ([]mention, error) {
+	out := make([]mention, 0, len(tags))
+
+	for _, t := range tags {
+		end := t.At + t.Len
+		if t.ID == "" || t.At < 0 || t.Len < 2 || end > len(text) || text[t.At] != '@' ||
+			!utf8.ValidString(text[t.At:end]) || (end < len(text) && !utf8.RuneStart(text[end])) {
+			return nil, fmt.Errorf("zalo: the text does not write the tag of %s where it says", t.ID)
+		}
+
+		out = append(out, mention{Pos: utf16Len(text[:t.At]), UID: t.ID, Len: utf16Len(text[t.At:end])})
+	}
+
+	return out, nil
+}
+
+// utf16Len is how many UTF-16 code units a string takes.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16.RuneLen(r)
+	}
+
+	return n
+}
+
 // Send sends a message, or a file with its caption, in a chat as the owner, and keeps it.
 func (a *account) Send(ctx context.Context, out messaging.Outgoing) (messaging.Message, error) {
 	b := a.current()
@@ -45,6 +85,15 @@ func (a *account) Send(ctx context.Context, out messaging.Outgoing) (messaging.M
 	}
 
 	params := map[string]any{"chat": out.Chat, "group": kind == "group", "text": out.Text}
+
+	if kind == "group" && len(out.Tags) > 0 {
+		tagged, err := mentions(out.Text, out.Tags)
+		if err != nil {
+			return messaging.Message{}, err
+		}
+
+		params["mentions"] = tagged
+	}
 
 	if out.ReplyTo != "" {
 		q, err := a.svc.mirror.quoteOf(ctx, a.uid, out.Chat, out.ReplyTo)

@@ -123,8 +123,8 @@ func (e *env) printChain(w *openapi.WebSearch) {
 // restText says why and until when a way rests.
 func restText(why *openapi.WebSearchRest, until *time.Time) string {
 	words := map[openapi.WebSearchRest]string{
-		openapi.RateLimit: "rate limited", openapi.NoCredits: "out of credits",
-		openapi.Refused: "refused", openapi.DailyLimit: "at its daily limit",
+		openapi.WebSearchRestRateLimit: "rate limited", openapi.WebSearchRestNoCredits: "out of credits",
+		openapi.WebSearchRestRefused: "refused", openapi.WebSearchRestDailyLimit: "at its daily limit",
 	}
 
 	out := "resting"

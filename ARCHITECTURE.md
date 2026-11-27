@@ -3163,7 +3163,10 @@ flowchart LR
       (NeedsCare: it asks the owner); the bridge sends with zca-js's `sendMessage`, a file by a path written for the
       call under `zalo-outgoing/` and removed after, an image with the size read from its header (adapted from the
       Hermes Zalo plugin, `third_party/hermes-zalo-plugin`), a reply quoting the kept message. What is sent is kept
-      as the owner's.
+      as the owner's. The bridge's `send` takes `mentions` `[{pos, uid, len}]`, zca-js's `Mention`, in a group only;
+      `messaging.Outgoing.Tags` (byte offsets of `@` and a name in the text) become them in UTF-16 units, as
+      JavaScript counts a string, and a tag the text does not write is refused. Only the Inbox's Send tags
+      ([issue #1200](https://github.com/kl3inIT/hypomnema/issues/1200)); `zalo_send` does not.
     - **The past from the phone** ([issue #697](https://github.com/kl3inIT/hypomnema/issues/697), step 4): Zalo's
       servers give a web session none of the past (step 2 walks empty pages), so `POST …/phone-sync` asks the
       owner's phone for it as Zalo PC's "Sync messages" does, ported from softtyos/zca-js
@@ -5045,7 +5048,17 @@ its client API, its CLI and the Bots' tools.
   names none; `POST /open-apis/im/v1/messages?receive_id_type=chat_id`), and a reply in the Gmail thread to the
   Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
   `replyToEmail`), header values kept on one line; the evidence is a `zalo_sent`, `whatsapp_sent`, `lark_sent` or
-  `mail` link. `Todo.chat_id` is the item's chat, and `Todo.passed_by` the Bot it was passed through (issue #1118).
+  `mail` link. Issue #1200: the reply answers the item's own message (its `message` link): Zalo's quote and
+  WhatsApp's `ContextInfo` of the message when the server keeps it (else it goes unquoted, as the Hermes Zalo
+  plugin sends a reply whose quote it lacks), Lark's `POST /open-apis/im/v1/messages/:message_id/reply`. In a group
+  (not a direct chat), a draft that writes `@` and a member's name tags him (`messaging.FindTags`, from zaloclaw's
+  `parseOutboundMentions` and the Hermes Zalo plugin's `_build_outbound_mentions`): the longest name first, in any
+  case, ending where a word ends (`@Duy` is not found in `@Duyên`), among the names the chat gives its members now
+  (`Sent.Members`), the names their 500 latest kept messages give the senders (Zalo, WhatsApp; a WhatsApp person
+  by his number and his LID is one, `messaging.Members.People`, tagged by the id he wrote last by) or Lark's list of
+  the chat's members. A name nobody or two people go by stays text, and so does every name when the members cannot
+  be read. Zalo sends the tag in `Outgoing.Tags`; WhatsApp writes `@` and the number with the id in
+  `Outgoing.Mentions` (issue #852); Lark writes `<at user_id="ou_…">Name</at>` in the text message. `Todo.chat_id` is the item's chat, and `Todo.passed_by` the Bot it was passed through (issue #1118).
   Issue #1157: `Todo.priority`, `priority_reason` and `project_id`, a department's id (issue #1188), given in
   `POST /inbox` and `PATCH /inbox/{id}` (an empty `project_id` takes the item out); `GET /inbox?project=<id>|none`.
   The projects are read from `GET /departments`; the Inbox has no list of its own.
@@ -5130,9 +5143,12 @@ its client API, its CLI and the Bots' tools.
   carry the secretary's rules. `triage` reads only, every 15 minutes, behind its check `new-messages.mjs`, so its
   runs send nothing; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark chat with the Bot. A check past its cap keeps the rest of a span by what it read, never by a position: the second it
   stopped in and the messages of it counted (Zalo, WhatsApp), the mails read (Gmail), the chats read and the one it
-  stopped in (Lark, whose cap is checked at each page); issue #1071. A run gets at most 15 conversations (`perRun`),
-  direct chats and those that tag or name the owner first, then groups, mail and meetings; the rest is carried in the
-  check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
+  stopped in (Lark, whose cap is checked at each page); issue #1071. The check counts the owner's own new messages
+  (Zalo, WhatsApp, Lark, his sent Gmail) apart from others' and wakes the Bot on them too, so that his short yes to a
+  request for work is read; `triage.md` reads a reply against the ask it answers, an accepted or promised job being
+  an open `promised` item (issue #1182). A run gets at most 15 conversations (`perRun`), direct chats and those that
+  tag or name the owner first, then groups, chats with only his own new messages, mail and meetings; the rest is
+  carried in the check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
   Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
   and its tools' schemas name none (issue #1124). After the batch, `triage` gives a priority with its reason and a
   project to each open or proposed item of its own that has none (those added before #1157; the store lets a Bot
@@ -5143,7 +5159,8 @@ its client API, its CLI and the Bots' tools.
   with its source and any contradiction with an earlier one said, never a line added to its notes; an id is written
   once, in parentheses after the words it shows (issue #1186). `deploy/thu-ky/triage.test.mjs` runs the prompt with
   a real Claude Code against `triage-world.mjs`, the Bot's tools as an MCP server, only when
-  `HYPOMNEMA_TEST_CLAUDE` names it. The Routine's
+  `HYPOMNEMA_TEST_CLAUDE` names it; `triage.eval.mjs` runs the cases of `triage-cases.json` so, only with
+  `THU_KY_EVAL=1` (issue #1182). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
@@ -5582,7 +5599,9 @@ The owner's commands:
     token to `api.anthropic.com/api/oauth/usage` or `chatgpt.com/backend-api/wham/usage`, neither a published
     API; for Antigravity each group's five hours and week, such as `5 hours (Gemini)` and `week (Claude & GPT)`,
     from Cloud Code's `v1internal:retrieveUserQuotaSummary` (issue #576, as 9router-go and 9router read it); the service keeps a reading for 60 seconds, does not ask for 3 minutes after a 429 (or the wait it
-    names, up to 15 minutes) and gives the last reading when a call fails; a token the vendor refuses (401 or 403,
+    names, up to 15 minutes) and gives the last reading when a call fails, with why it is not fresh (resting with
+    when it is asked again, refused or failed; issue #1198) and a WARN `subscription.limits_failed` (account,
+    status, reason) each time the reason of a failed call changes; a token the vendor refuses (401 or 403,
     as a Claude token pasted by hand is) is not sent again until it changes, and the refusal is said in the
     vendor's words; the limits are then what the headers of the account's last answer through the gateway said
     (`anthropic-ratelimit-unified-5h|7d|7d_oi-utilization` and `-reset`, after omp), kept in the server's memory,
@@ -6750,8 +6769,11 @@ Node (`internal/node`):
       window (5 hours, week, a model's own week) with the part used, the Machines page's meter, and when the
       window starts again; a button asks the vendor now. `GET /accounts/{id}/limits` (the owner's; `fresh` asks
       now) gives the reading the subscription service keeps for a minute. An account with nothing to show is
-      answered without windows and with the reason (`unavailable`: `not_given`, `sign_in`, `resting`, `failed`),
-      and the page then shows no bars, or one line when the reading failed.
+      answered without windows and with the reason (`unavailable`: `not_given`, `sign_in`, `resting`, `refused`,
+      `failed`, `verification`), and the page then shows no bars, or one line when the reading failed. An earlier
+      reading given because the call failed has its windows and the reason together, `retry_at` for `resting`
+      (issue #1198, after CLIProxyAPI's `status_message` and `next_retry`); the page says it on a line under "read
+      … ago", the server's `detail` on hover.
   - `/settings/skills` (under Agents, [issue #21](https://github.com/kl3inIT/hypomnema/issues/21)) lists the added
     skills and the built-in ones as two sections of cards or a table, chosen as on the Machines page, with a search
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill

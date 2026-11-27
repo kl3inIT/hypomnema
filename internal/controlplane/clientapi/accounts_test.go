@@ -370,6 +370,67 @@ func TestTheOwnerReadsAnAccountsLimits(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
 }
 
+// Scenario (issue #1198): an account read once is not read again: the vendor
+// asked to wait, refused its token, or the call failed. Its last windows are
+// answered with why they are not fresh, beside them: the kind, the server's
+// words and, for a rest, when the vendor is asked again.
+func TestAnEarlierReadingOfLimitsSaysWhy(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	read := time.Date(2026, 11, 26, 11, 0, 0, 0, time.UTC)
+	retry := time.Date(2026, 11, 27, 2, 30, 0, 0, time.UTC)
+	refusal := fmt.Errorf("%w (401): OAuth token has been revoked", subscription.ErrLimitsRefused)
+	failure := errors.New("the vendor answered 500 to the limits call")
+
+	fake := &signedIn{svc: w.svc, states: map[string]subscription.State{}, removed: map[string]bool{},
+		limits: map[string]subscription.Limits{}}
+
+	ids := map[string]string{}
+	for label, why := range map[string]error{
+		"resting": &subscription.LimitsRestingError{Until: retry}, "refused": refusal, "failed": failure,
+	} {
+		a, err := w.svc.AddAccount(ctx, "claude", label)
+		require.NoError(t, err)
+
+		ids[label] = a.ID
+		fake.limits[a.ID] = subscription.Limits{
+			ReadAt: read, Windows: []subscription.Window{{Name: "5 hours", UsedPercent: 40}}, Stale: why,
+		}
+	}
+
+	w.srv.WithAccounts(fake)
+
+	owner, _ := w.token("web", bearertoken.Owner)
+
+	limitsOf := func(label string) openapi.AccountLimits {
+		t.Helper()
+
+		got, err := owner.GetAccountLimitsWithResponse(ctx, ids[label], nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, got.StatusCode(), string(got.Body))
+		require.Len(t, got.JSON200.Windows, 1, "the last windows are kept")
+		assert.Equal(t, read, val(got.JSON200.ReadAt))
+
+		return *got.JSON200
+	}
+
+	resting := limitsOf("resting")
+	assert.Equal(t, openapi.AccountLimitsUnavailableResting, val(resting.Unavailable))
+	assert.Equal(t, retry, val(resting.RetryAt))
+
+	refused := limitsOf("refused")
+	assert.Equal(t, openapi.AccountLimitsUnavailableRefused, val(refused.Unavailable))
+	assert.Contains(t, val(refused.Detail), "revoked")
+	assert.Nil(t, refused.RetryAt)
+
+	failed := limitsOf("failed")
+	assert.Equal(t, openapi.AccountLimitsUnavailableFailed, val(failed.Unavailable))
+	assert.Equal(t, failure.Error(), val(failed.Detail))
+}
+
 // Scenario (issue #822): Google wants an Antigravity account verified. The account's limits answer says so, with
 // Google's link for the Verify button, and the accounts list gives the link, when Google asked and the next try.
 func TestTheOwnerSeesAnAccountGoogleWantsVerified(t *testing.T) {

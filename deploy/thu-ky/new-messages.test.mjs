@@ -128,17 +128,14 @@ test("nothing new wakes no model", async () => {
   assert.equal(got.state.sources["zalo:main"].mark, now.toISOString());
 });
 
-test("the owner's own messages, official accounts, lists and no-reply senders are left out", async () => {
+test("official accounts, lists, no-reply senders and apps' messages are left out", async () => {
   const w = world({
     chats: [
       { ID: "g_pmo", Kind: "group", Name: "PMO", LastMessageAt: "2026-11-21T01:55:00Z" },
       { ID: "oa_1", Kind: "dm", Name: "Zalo Pay", LastMessageAt: "2026-11-21T01:56:00Z" },
     ],
     messages: {
-      g_pmo: [
-        { ID: "m1", At: "2026-11-21T01:55:00Z", FromMe: true, SenderName: "Đạt", Text: "để em check" },
-        { ID: "m0", At: "2026-11-21T01:40:00Z", FromMe: false, SenderName: "Lan", Text: "older" },
-      ],
+      g_pmo: [{ ID: "m0", At: "2026-11-21T01:40:00Z", FromMe: false, SenderName: "Lan", Text: "older" }],
       oa_1: [{ ID: "m2", At: "2026-11-21T01:56:00Z", FromMe: false, SenderName: "Zalo Pay", Text: "Ưu đãi" }],
     },
     mail: [
@@ -149,10 +146,84 @@ test("the owner's own messages, official accounts, lists and no-reply senders ar
       chats: [{ chat_id: "oc_core", name: "VMAP core" }],
       messages: {
         oc_core: [
-          { create_time: String(Date.parse("2026-11-21T01:58:00Z")), sender: { id: "ou_me", sender_type: "user" } },
           { create_time: String(Date.parse("2026-11-21T01:59:00Z")), sender: { id: "cli_bot", sender_type: "app" } },
         ],
       },
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.equal(got.wake, false, got.text);
+});
+
+// Issue #1182: on 2026-11-26 the owner answered a request for work with "dạ oki chị" and nothing read it, since the
+// check counted only others' messages. His own new messages are counted apart, and wake the Bot by themselves.
+test("his own short yes in a chat wakes the Bot, counted apart", async () => {
+  const w = world({
+    chats: [{ ID: "g_mdoc", Kind: "group", Name: "MDOC", LastMessageAt: "2026-11-21T01:55:00Z" }],
+    messages: {
+      g_mdoc: [
+        { ID: "m1", At: "2026-11-21T01:55:00Z", FromMe: true, SenderName: "Đạt", Text: "dạ oki chị" },
+        { ID: "m0", At: "2026-11-21T01:40:00Z", FromMe: false, SenderName: "Linh", Text: "em update báo cáo nhé" },
+      ],
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.equal(got.wake, true, got.text);
+  assert.match(got.text, /zalo:main chat "MDOC" \(id g_mdoc\): 1 of his own, latest 2026-11-21T01:55:00Z/);
+  assert.match(got.text, /the owner's own messages are counted apart/);
+});
+
+test("a chat with others' new messages and his own keeps their rank and says both", async () => {
+  const w = world({
+    chats: [{ ID: "u_lan", Kind: "dm", Name: "Lan", LastMessageAt: "2026-11-21T01:57:00Z" }],
+    messages: {
+      u_lan: [
+        { ID: "m3", At: "2026-11-21T01:57:00Z", FromMe: true, SenderName: "Đạt", Text: "dạ chiều em gửi" },
+        { ID: "m2", At: "2026-11-21T01:56:00Z", FromMe: false, SenderName: "Lan", Text: "gửi chị file nhé" },
+        { ID: "m1", At: "2026-11-21T01:50:00Z", FromMe: false, SenderName: "Lan", Text: "em ơi" },
+      ],
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.match(got.text, /zalo:main chat "Lan" \(id u_lan\): 2 new from Lan and 1 of his own, latest 2026-11-21T01:57:00Z/);
+});
+
+test("his own Lark message wakes the Bot; an app's still does not", async () => {
+  const lark = (sender) => ({
+    chats: [{ chat_id: "oc_core", name: "VMAP core", chat_mode: "group" }],
+    messages: { oc_core: [{ create_time: String(Date.parse("2026-11-21T01:58:00Z")), sender }] },
+  });
+  const mine = await check({ tools, call: world({ lark: lark({ id: "ou_me", sender_type: "user" }) }).call, state, now });
+  assert.equal(mine.wake, true, mine.text);
+  assert.match(mine.text, /lark:me chat "VMAP core" \(id oc_core\): 1 of his own/);
+
+  const app = await check({ tools, call: world({ lark: lark({ id: "cli_bot", sender_type: "app" }) }).call, state, now });
+  assert.equal(app.wake, false, app.text);
+});
+
+test("his sent mail in a thread wakes the Bot; a list's mail does not, and Gmail is searched with his own", async () => {
+  const sent = { ...mailOf("s", "Đạt <dat@example.com>"), labelIds: ["SENT"] };
+  const draft = { ...mailOf("d", "Đạt <dat@example.com>"), labelIds: ["DRAFT"] };
+  const w = world({
+    mail: [sent, draft, mailOf("l", "Substack <hello@substack.com>", [{ name: "List-Id", value: "<news.substack>" }])],
+  });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.equal(got.wake, true, got.text);
+  assert.match(got.text, /google:me mail thread "About s" \(thread t_s\): 1 of his own/);
+  assert.doesNotMatch(got.text, /t_l|t_d/, "a list's mail and a draft are left out");
+  const search = w.calls.find((c) => c.name === "account_read" && c.args.host === "gmail.googleapis.com");
+  assert.doesNotMatch(decodeURIComponent(search.args.path), /-from:me/);
+});
+
+test("a message of his he took back is not counted", async () => {
+  const w = world({
+    chats: [{ ID: "u_lan", Kind: "dm", Name: "Lan", LastMessageAt: "2026-11-21T01:55:00Z" }],
+    messages: {
+      u_lan: [{ ID: "m1", At: "2026-11-21T01:55:00Z", FromMe: true, Revoked: true, SenderName: "Đạt", Text: "" }],
     },
   });
   const got = await check({ tools, call: w.call, state, now });
@@ -355,7 +426,9 @@ test("a reply in a Lark thread without a tag counts as the group's, in a thread 
   ]);
 });
 
-test("the owner's own replies and an app's in a Lark thread are left out", async () => {
+// Issue #1182: the owner's own reply in a thread is counted apart, ranked after the others' conversations; an
+// app's is left out.
+test("the owner's own reply in a Lark thread is counted apart, and an app's left out", async () => {
   const w = world({
     lark: {
       chats: [{ chat_id: "oc_core", name: "VMAP core", chat_mode: "group" }],
@@ -371,9 +444,11 @@ test("the owner's own replies and an app's in a Lark thread are left out", async
       },
     },
   });
-  const got = await check({ tools, call: w.call, state, now });
+  const got = await check({ tools, call: w.call, state, now, config: { perRun: 0 } });
 
-  assert.equal(got.wake, false, got.text);
+  assert.deepEqual(got.state.carry.map((f) => [f.where, f.count, f.mine, f.rank]), [
+    ['lark:me chat "VMAP core" thread omt_1 (id oc_core)', 0, 1, ranks.mine],
+  ]);
 });
 
 test("a Lark search refused is named, and the threads of the span's roots are still read", async () => {

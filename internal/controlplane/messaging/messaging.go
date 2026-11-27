@@ -80,8 +80,10 @@ type Outgoing struct {
 	File     []byte
 	FileName string
 	// Mentions are the members it tags, by their ids as Messages gives a sender's; Text writes @ and each one's
-	// MentionUser (issue #852). Only WhatsApp tags.
+	// MentionUser (issue #852). WhatsApp tags by them.
 	Mentions []string
+	// Tags are the members it tags in a group where Text writes @ and their names (issue #1200). Zalo tags by them.
+	Tags []Tag
 }
 
 // Chat is one chat of the account, as kept.
@@ -193,6 +195,9 @@ type Members struct {
 	Name   string
 	Direct bool
 	IDs    []string
+	// People are IDs person by person, when the service knows a person by more than one id (WhatsApp); nil when each
+	// id is a person of its own (issue #1200).
+	People [][]string
 }
 
 // PhoneSyncer is an account whose past comes from the owner's phone, as Zalo PC's "Sync messages" brings it

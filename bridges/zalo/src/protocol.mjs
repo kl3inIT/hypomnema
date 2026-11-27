@@ -155,3 +155,14 @@ export function members(info) {
 
   return { name: typeof info?.name === "string" ? info.name : "", ids: [...new Set(ids)] };
 }
+
+// mentions are the members a group's text tags, as zca-js's sendMessage takes them (src/apis/sendMessage.ts,
+// Mention: {pos, uid, len}, in the text's UTF-16 units, which the control plane counts; issue #1200). A mention
+// that is not whole is left out, as zca-js's handleMentions leaves it out.
+export function mentions(list) {
+  if (!Array.isArray(list)) return [];
+
+  return list
+    .map((m) => ({ pos: Number(m?.pos), uid: typeof m?.uid === "string" ? m.uid : "", len: Number(m?.len) }))
+    .filter((m) => Number.isInteger(m.pos) && m.pos >= 0 && m.uid !== "" && Number.isInteger(m.len) && m.len > 0);
+}

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { imageSize } from "../src/imagemeta.mjs";
-import { closed, failure, media, members, message, older, parseRequest, rejected } from "../src/protocol.mjs";
+import { closed, failure, media, members, mentions, message, older, parseRequest, rejected } from "../src/protocol.mjs";
 
 test("a line that is no request is said so, and a request keeps its id", () => {
   assert.equal(parseRequest("{").error, "not JSON");
@@ -97,4 +97,11 @@ test("a group's members are every id Zalo names them by, once each", () => {
     { name: "Nhóm dự án", ids: ["200", "300", "400", "500"] },
   );
   assert.deepEqual(members(undefined), { name: "", ids: [] });
+});
+
+// zca-js's Mention (src/apis/sendMessage.ts): {pos, uid, len}; one that is not whole is not sent (issue #1200).
+test("a group's mentions go to zca-js as {pos, uid, len}, and one that is not whole is left out", () => {
+  assert.deepEqual(mentions([{ pos: 0, uid: "u1", len: 8 }, { pos: 12, uid: "", len: 4 }, { pos: -1, uid: "u2", len: 3 },
+    { pos: 3, uid: "u3", len: 0 }, null]), [{ pos: 0, uid: "u1", len: 8 }]);
+  assert.deepEqual(mentions(undefined), []);
 });
