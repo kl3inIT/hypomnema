@@ -243,4 +243,14 @@ describe("the cards a look sends (#1230, row 1)", () => {
     })
     expect(sampleCards({ accent: "#6c8cff", end: newCard("end") })).toEqual(["end"])
   })
+
+  test("the sample of a card carries that card alone, the other one maybe not titled yet (#1242)", () => {
+    const cards = { accent: "#ff3366", title: { title: "SecondBite" }, end: { title: "" } }
+
+    expect(sampleOf({ take, card: "title", look: { cards } })).toEqual({
+      take,
+      card: "title",
+      look: { cards: { accent: "#ff3366", title: { title: "SecondBite" } } },
+    })
+  })
 })

@@ -3,10 +3,13 @@ package compose
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"image/jpeg"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +33,44 @@ const (
 )
 
 var accentPink = [3]int{0xff, 0x33, 0x66}
+
+// storeURL is a store link as an end card carries one, longer than a line of the card at its URL's size.
+const storeURL = "https://play.google.com/store/apps/details?id=vn.secondbite.app"
+
+// assertClearMargins checks that a card's frame shows only its background in the outer 6% of its width on each
+// side, the card's words all inside: ground is the background painted on the frame's size.
+func assertClearMargins(t *testing.T, px []byte, size Size, ground *image.NRGBA, name string) {
+	t.Helper()
+
+	margin := size.Width * 6 / 100
+	worst := 0
+
+	for y := range size.Height {
+		for _, x := range []int{margin - 1, size.Width - margin} {
+			for dx := range margin {
+				xx := x - dx
+				if x > size.Width/2 {
+					xx = x + dx
+				}
+
+				got, i := pixel(px, size, xx, y), 4*(y*size.Width+xx)
+				for k := range 3 {
+					worst = max(worst, abs(got[k]-int(ground.Pix[i+k])))
+				}
+			}
+		}
+	}
+
+	assert.LessOrEqual(t, worst, 24, "%s: only the background within %d px of its sides", name, margin)
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+
+	return v
+}
 
 // cardsTake writes a take of one red segment of 3 s with two steps, and their voices: tones of voiceHz, 1.5 s each.
 func cardsTake(t *testing.T, tools ffmpeg.Tools, dir string) []string {
@@ -96,7 +137,7 @@ func TestTheCardsOpenAndCloseTheVideo(t *testing.T) {
 	cards := &Cards{
 		Accent: "#ff3366",
 		Title:  &Card{Title: "SecondBite", Subtitle: "Đặt món trong 30 giây", DurationMs: designTitleMs},
-		End:    &Card{Title: "Tải SecondBite", CTAURL: "secondbite.vn", DurationMs: designEndMs},
+		End:    &Card{Title: "Tải SecondBite", CTAURL: storeURL, DurationMs: designEndMs},
 	}
 
 	out := filepath.Join(dir, "v.mp4")
@@ -141,6 +182,9 @@ func TestTheCardsOpenAndCloseTheVideo(t *testing.T) {
 	for _, at := range []int64{designTitleMs + 200, endAt - 200} {
 		assert.True(t, near(pixel(frameAt(t, tools, out, at, size), size, 360, 640), red, 12), "the take at %d ms", at)
 	}
+
+	// The whole of the end card's URL is inside the card (the review of #1242: a store link ran off both sides).
+	assertClearMargins(t, frameAt(t, tools, out, endAt+designEndMs/2, size), size, img, "the end card")
 
 	// The end card's URL is in the accent: it has more of it than the title card's rule.
 	assert.Greater(t, accentPixels(frameAt(t, tools, out, endAt+designEndMs/2, size)),
@@ -271,4 +315,45 @@ func TestACardStill(t *testing.T) {
 	}
 
 	assert.Greater(t, n, 200, "the rule and the URL in the accent")
+}
+
+// A store link and a URL of the API's 200 characters fit the card at 9:16 and 16:9, whole: smaller, then broken
+// over lines, never past its sides (the review of #1242).
+func TestALongURLFitsTheCard(t *testing.T) {
+	t.Parallel()
+
+	tools := tools(t)
+	long := "https://example.com/" + strings.Repeat("secondbite", 18)
+	require.Len(t, long, MaxCardURL)
+
+	for _, c := range []struct {
+		name   string
+		aspect Aspect
+		url    string
+	}{{"store 9:16", Portrait, storeURL}, {"200 9:16", Portrait, long}, {"200 16:9", Landscape, long}} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			bg := Background{Preset: DefaultBackground}
+			require.NoError(t, CardStill(t.Context(), tools, CardStillInput{
+				Card:   Card{Title: "Tải SecondBite", CTAURL: c.url, DurationMs: designEndMs},
+				Accent: DefaultAccent, Background: bg, Aspect: c.aspect,
+				Work: filepath.Join(dir, "work"), Out: filepath.Join(dir, "card.jpg"),
+			}))
+
+			size, err := c.aspect.Size()
+			require.NoError(t, err)
+
+			ground := newCanvas(size.Width, size.Height)
+			paintBackground(ground, bg)
+
+			//nolint:gosec // The test's ffmpeg.
+			raw, err := exec.CommandContext(t.Context(), tools.FFmpeg, "-v", "error", "-i",
+				filepath.Join(dir, "card.jpg"), "-f", "rawvideo", "-pix_fmt", "rgb24", "-").Output()
+			require.NoError(t, err)
+			require.Len(t, raw, 3*size.Width*size.Height)
+			assertClearMargins(t, raw, size, ground.image(), c.name)
+		})
+	}
 }

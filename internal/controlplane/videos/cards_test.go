@@ -109,4 +109,16 @@ func TestTheLookSampleOfACard(t *testing.T) {
 
 	_, err = r.svc.Preview(t.Context(), PreviewRequest{Take: takeID, Look: look, Card: "middle"})
 	require.ErrorIs(t, err, ErrInvalid)
+
+	// The sample of a card draws that card alone: the other one, turned on and not titled yet, is not refused
+	// (the review of #1242); a make with it is.
+	both := &LookInput{Cards: &CardsInput{Title: &CardInput{Title: ""}, End: look.Cards.End}}
+	_, err = r.svc.Preview(t.Context(), PreviewRequest{Take: takeID, Look: both, Card: CardEnd})
+	require.NoError(t, err)
+
+	_, err = r.svc.Preview(t.Context(), PreviewRequest{Take: takeID, Look: both, Card: CardTitle})
+	require.ErrorIs(t, err, ErrInvalid, "the card drawn is checked")
+
+	_, _, err = r.ownerMake(t, "", both)
+	require.ErrorIs(t, err, ErrInvalid)
 }
