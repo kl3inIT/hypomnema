@@ -936,6 +936,87 @@ const group = (page: Page, name: string) => list(page).getByRole("region", { nam
 const rowsOf = (page: Page, name: string) => group(page, name).getByTestId("inbox-row")
 const item = (page: Page) => page.getByRole("article", { name: "Item" })
 
+test.describe("iPhone Home Screen layout", () => {
+  test.use({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1 })
+
+  test("the top band clears both Inbox headers and the item actions fit on one row", async ({
+    page,
+    context,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, "iPhone layout")
+    await world({ triage: true }).serve(page)
+    const cdp = await context.newCDPSession(page)
+    const standalone = (enabled: boolean) =>
+      cdp.send("Emulation.setEmulatedMedia", {
+        features: [{ name: "display-mode", value: enabled ? "standalone" : "browser" }],
+      })
+    const band = page.locator("body > .ios-top-edge-band")
+    const menu = list(page).getByRole("button", { name: "Menu", exact: true })
+    const detailHeader = item(page).locator("header").first()
+    const reply = "/inbox?item=todo%3Atdo_reply"
+
+    await standalone(true)
+    await page.goto("/inbox")
+    await expect(menu).toBeVisible()
+    await expect(band).toBeHidden()
+    const tabMenuTop = (await menu.boundingBox())!.y
+
+    // Chromium emulates display-mode natively. Substitute only the WebKit feature query.
+    await page.route("**/assets/*.css", async (route) => {
+      const response = await route.fetch()
+      const body = (await response.text()).replace(
+        /-webkit-touch-callout\s*:\s*none/g,
+        "display: block",
+      )
+      await route.fulfill({ response, body })
+    })
+    for (const theme of ["light", "dark"] as const) {
+      await page.evaluate((choice) => globalThis.localStorage.setItem("theme", choice), theme)
+      await page.goto("/inbox")
+      await expect(menu).toBeVisible()
+      await expect(band).toHaveCSS("position", "fixed")
+      await expect(band).toHaveCSS("pointer-events", "none")
+      const pageColor = await page.evaluate<string>(
+        "getComputedStyle(document.body).backgroundColor",
+      )
+      await expect(band).toHaveCSS("background-color", pageColor)
+      await expect(page.locator("html")).toHaveCSS("background-color", pageColor)
+      expect(await band.boundingBox()).toEqual({ x: 0, y: 0, width: 393, height: 12 })
+      expect((await menu.boundingBox())!.y).toBeGreaterThanOrEqual(30)
+      await expect(rowsOf(page, "Needs you").first()).toBeVisible()
+      await shot(page, `inbox-standalone-list-${theme}`)
+
+      await page.goto(reply)
+      const position = detailHeader.getByText(/\d+ of \d+ in Needs you/)
+      await expect(position).toBeVisible()
+      const positionBox = (await position.boundingBox())!
+      expect(positionBox.y).toBeGreaterThanOrEqual(30)
+      for (const name of ["Inbox", "Previous", "Next", "Snooze", "Drop", "Done"]) {
+        const button = detailHeader.getByRole("button", { name, exact: true })
+        await expect(button).toBeVisible()
+        const box = (await button.boundingBox())!
+        expect(box.y).toBeGreaterThanOrEqual(30)
+        expect(box.x + box.width).toBeLessThanOrEqual(393)
+        expect(box.y + box.height / 2).toBeCloseTo(positionBox.y + positionBox.height / 2, 0)
+      }
+      await expect(item(page).getByRole("heading", { name: "Reply to Kai Yong" })).toBeVisible()
+      await shot(page, `inbox-standalone-item-${theme}`)
+    }
+
+    await standalone(false)
+    await page.goto("/inbox")
+    await expect(menu).toBeVisible()
+    await expect(band).toBeHidden()
+    expect((await menu.boundingBox())!.y).toBe(tabMenuTop)
+    await page.goto(reply)
+    await expect(detailHeader.getByRole("button", { name: "Inbox" })).toBeVisible()
+    expect(
+      (await detailHeader.getByRole("button", { name: "Inbox" }).boundingBox())!.y,
+    ).toBeLessThan(30)
+  })
+})
+
 // Scenario: the owner opens the Inbox from the sidebar, whose count is what waits on him. Needs you lists the
 // Approval and the worker's question first, then the reply to Kai Yong, due today, with its draft, then the
 // account to log in again. He opens the reply, reads what Kai said, copies the draft, and marks it done: the next
