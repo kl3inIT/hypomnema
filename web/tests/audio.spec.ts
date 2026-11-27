@@ -25,8 +25,24 @@ const models: Record<string, string> = {
   "soniox-stt": "stt-async-v5",
   "elevenlabs-stt": "scribe_v2",
   "soniox-tts": "tts-rt-v2",
-  "elevenlabs-tts": "eleven_multilingual_v2",
+  "elevenlabs-tts": "eleven_v4",
 }
+
+// ElevenLabs's own lists, read with its key (issue #1283): its speech models with their languages, and its voices.
+const elevenLabsModels = [
+  { provider: "elevenlabs", id: "eleven_v4", name: "Eleven v4", languages: ["en", "vi", "ja"] },
+  { provider: "elevenlabs", id: "eleven_v3", name: "Eleven v3", languages: ["en", "vi"] },
+  {
+    provider: "elevenlabs",
+    id: "eleven_multilingual_v2",
+    name: "Eleven Multilingual v2",
+    languages: ["en", "ja"],
+  },
+]
+const elevenLabsVoices = [
+  { provider: "elevenlabs", id: "v-son", name: "Sơn Trần", language: "vi" },
+  { provider: "elevenlabs", id: "v-adam", name: "Adam", language: "en" },
+]
 
 const zero = { answered: 0, failed: 0, seconds: 0, characters: 0 }
 
@@ -53,14 +69,23 @@ function start() {
   }
 }
 
-async function fakeServer(page: Page) {
-  const world = start()
+async function fakeServer(page: Page, more: { elevenLabsKey?: boolean } = {}) {
+  const world = { ...start(), ttsModel: "" }
+  if (more.elevenLabsKey) {
+    world.providers = world.providers.map((l) =>
+      l.provider === "elevenlabs"
+        ? { ...l, state: "ready", keys: [{ name: "speech-elevenlabs", state: "ready" }] }
+        : l,
+    )
+  }
+  const keyed = (p: Provider) =>
+    world.providers.some((l) => l.provider === p && l.on && l.keys.length > 0)
   const calls: string[] = []
   const kind = (k: "stt" | "tts"): KindLink[] =>
     world[k].map((p) => ({
       provider: p,
       on: world.providers.find((l) => l.provider === p)!.on,
-      model: models[`${p}-${k}`],
+      model: (p === "elevenlabs" && k === "tts" && world.ttsModel) || models[`${p}-${k}`],
       usage:
         p === "soniox" && k === "stt"
           ? {
@@ -77,6 +102,14 @@ async function fakeServer(page: Page) {
     const call = `${request.method()} ${path}`
     const json = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+
+    if (request.method() === "PUT" && path.endsWith("/model")) {
+      const { model } = request.postDataJSON() as { model: string }
+      calls.push(`${call} ${JSON.stringify({ model })}`)
+      world.ttsModel = model
+
+      return json(answer())
+    }
 
     if (request.method() === "PUT" && path.endsWith("/voice")) {
       const provider = path.split("/")[4] as Provider
@@ -133,6 +166,15 @@ async function fakeServer(page: Page) {
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "GET /gateway/audio":
         return json(answer())
+      case "GET /gateway/audio/models":
+        return json({ models: keyed("elevenlabs") ? elevenLabsModels : [] })
+      case "GET /gateway/audio/voices":
+        return json({
+          voices: [
+            ...(keyed("soniox") ? [{ provider: "soniox", id: "Adrian", name: "Adrian" }] : []),
+            ...(keyed("elevenlabs") ? elevenLabsVoices : []),
+          ],
+        })
       case "GET /tasks":
         return json({ data: [], runs: [], after: 0 })
       case "GET /events/stream":
@@ -171,7 +213,7 @@ test("the owner sees the audio providers and each kind's order", async ({ page }
   await expect(sonioxSTT).toContainText("#1")
   await expect(sonioxSTT).toContainText("stt-async-v5")
   await expect(sonioxSTT).toContainText("Today 2 · this month 14 (+1 failed) · 1 h heard")
-  await expect(row(page, "ElevenLabs, text to speech")).toContainText("eleven_multilingual_v2")
+  await expect(row(page, "ElevenLabs, text to speech")).toContainText("eleven_v4")
   await expect(row(page, "ElevenLabs, text to speech")).toContainText("0 characters spoken")
 
   expect(await fits(page)).toBe(true)
@@ -228,26 +270,75 @@ test("the owner orders text to speech apart from speech to text", async ({ page,
   await shot(page, "audio-reordered")
 })
 
-// Scenario: the owner sets the voice Soniox speaks videos of takes with (issue #818): it is sent for Soniox only, and
-// ElevenLabs keeps its own default. The field fits a phone.
+// Scenario: the owner sets the voice Soniox speaks videos of takes with (issue #818), picked from its voices: it is
+// sent for Soniox only. ElevenLabs, which has no key, lists no voices, so its voice would be typed, and it keeps its
+// own default. The field fits a phone.
 test("the owner sets a provider's voice for videos", async ({ page }) => {
   const { calls, world } = await fakeServer(page)
   await page.goto("/settings/audio")
 
   const soniox = row(page, "Soniox, text to speech")
-  await soniox.getByRole("textbox", { name: "Voice for videos" }).fill("Linh")
-  await soniox.getByRole("button", { name: "Save Soniox's voice for videos" }).click()
+  await soniox.getByRole("combobox", { name: "Voice for videos" }).click()
+  await page.getByRole("option", { name: "Adrian" }).click()
 
-  await expect(page.getByText("Soniox speaks videos with Linh")).toBeVisible()
-  expect(calls).toContain(`PUT /gateway/audio/providers/soniox/voice {"voice":"Linh"}`)
+  await expect(page.getByText("Soniox speaks videos with Adrian")).toBeVisible()
+  expect(calls).toContain(`PUT /gateway/audio/providers/soniox/voice {"voice":"Adrian"}`)
   expect(world.providers.find((l) => l.provider === "elevenlabs")?.voice).toBeUndefined()
   await expect(
     row(page, "ElevenLabs, text to speech").getByRole("textbox", { name: "Voice for videos" }),
   ).toHaveValue("")
   await expect(
-    row(page, "Soniox, speech to text").getByRole("textbox", { name: "Voice for videos" }),
+    row(page, "Soniox, speech to text").getByRole("combobox", { name: "Voice for videos" }),
   ).toHaveCount(0)
 
   expect(await fits(page)).toBe(true)
   await shot(page, "audio-voice")
+})
+
+// Scenario: with an ElevenLabs key, its text-to-speech row has a model picker on its own speech models, eleven_v4
+// by default, and its voices by name (issue #1283). The owner picks Eleven v3, which is saved at once, then the
+// voice Sơn Trần, which is saved by its id. The page fits a phone, and reads on the light theme as on the dark.
+test("the owner picks ElevenLabs's model and a voice by name", async ({ page }) => {
+  const { calls } = await fakeServer(page, { elevenLabsKey: true })
+  await page.goto("/settings/audio")
+
+  const eleven = row(page, "ElevenLabs, text to speech")
+  const model = eleven.getByRole("combobox", { name: "Model" })
+  await expect(model).toContainText("Eleven v4")
+  await expect(eleven.getByRole("combobox", { name: "Voice for videos" })).toContainText(
+    "Its own default",
+  )
+  await eleven.scrollIntoViewIfNeeded()
+  await shot(page, "audio-elevenlabs")
+
+  await model.click()
+  await expect(page.getByRole("option", { name: /Eleven Multilingual v2/ })).toContainText(
+    "2 languages",
+  )
+  await shot(page, "audio-elevenlabs-models")
+  await page.getByRole("option", { name: /Eleven v3/ }).click()
+
+  await expect(page.getByText("ElevenLabs speaks with eleven_v3")).toBeVisible()
+  expect(calls).toContain(`PUT /gateway/audio/providers/elevenlabs/model {"model":"eleven_v3"}`)
+  await expect(eleven).toContainText("eleven_v3")
+  await expect(model).toContainText("Eleven v3")
+
+  await eleven.getByRole("combobox", { name: "Voice for videos" }).click()
+  await expect(page.getByRole("option", { name: /Adam/ })).toBeVisible()
+  await shot(page, "audio-elevenlabs-voices")
+  await page.getByRole("option", { name: /Sơn Trần/ }).click()
+
+  await expect(page.getByText("ElevenLabs speaks videos with Sơn Trần")).toBeVisible()
+  expect(calls).toContain(`PUT /gateway/audio/providers/elevenlabs/voice {"voice":"v-son"}`)
+  await expect(eleven.getByRole("combobox", { name: "Voice for videos" })).toContainText("Sơn Trần")
+
+  expect(await fits(page)).toBe(true)
+  await shot(page, "audio-elevenlabs-chosen")
+
+  await page.evaluate(`localStorage.setItem("theme", "light")`)
+  await page.reload()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+  await expect(row(page, "ElevenLabs, text to speech")).toContainText("eleven_v3")
+  await row(page, "ElevenLabs, text to speech").scrollIntoViewIfNeeded()
+  await shot(page, "audio-elevenlabs-light")
 })
