@@ -659,3 +659,136 @@ func TestReviewHeldViewAfterOtherPaneCloses(t *testing.T) {
 		"the view left brings its tab to the front again")
 	assert.Equal(t, []string{front(OwnerTab), front("b-cht_1"), front(OwnerTab)}, chrome.activated())
 }
+
+// slowCall starts an agent's call of a second (the stand-in's `slow`) and returns where its answer comes, once the
+// call is running.
+func (r rig) slowCall(t *testing.T, agent, tool string) <-chan json.RawMessage {
+	t.Helper()
+
+	r.touch(t, "slow", "")
+
+	answered := make(chan json.RawMessage, 1)
+
+	go func() {
+		result, _ := r.Call(t.Context(), agent, tool, nil)
+		answered <- result
+	}()
+
+	require.Eventually(t, func() bool {
+		raw, _ := os.ReadFile(filepath.Join(r.bin, "log"))
+
+		return len(containing(strings.Split(string(raw), "\n"), "session="+sessionName(agent), tool)) > 0
+	}, 10*time.Second, 10*time.Millisecond, "the call is running")
+
+	return answered
+}
+
+func answer(t *testing.T, answered <-chan json.RawMessage) json.RawMessage {
+	t.Helper()
+
+	select {
+	case result := <-answered:
+		return result
+	case <-time.After(20 * time.Second):
+		t.Fatal("the call was not answered")
+
+		return nil
+	}
+}
+
+// Review round 2 of PR #1233: Bot A's call runs, and the owner opens Bot B's tab, whose move to the front waits for
+// it. Bot B calls meanwhile, its call queued behind the move, and the owner takes Bot B's tab before it runs. The
+// hold is checked when a call is about to run, not only when it is asked for: Bot B's call is refused and never
+// reaches agent-browser, and taking control does not wait for it.
+func TestReviewTakeWhileACallWaitsForTheFront(t *testing.T) {
+	r, chrome := frontRig(t)
+
+	_, err := r.Call(t.Context(), "b-cht_2", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+	r.stream(t, sessionName("b-cht_2"))
+
+	a := r.slowCall(t, "b-cht_1", "agent_browser_wait_for_text")
+
+	v := r.watch(t, "b-cht_2")
+
+	b := make(chan json.RawMessage, 1)
+
+	go func() {
+		result, _ := r.Call(t.Context(), "b-cht_2", "agent_browser_click", json.RawMessage(`{"selector":"#go"}`))
+		b <- result
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+
+	asked := time.Now()
+
+	do(t, v, `{"type":"takeControl"}`)
+	assert.Less(t, time.Since(asked), 500*time.Millisecond, "a call not yet running is not waited for")
+	assert.Equal(t, ControllerYou, next(t, v).Controller)
+
+	assert.False(t, isRefusal(t, answer(t, a)), "Bot A's own tab is not held")
+	assert.True(t, isRefusal(t, answer(t, b)))
+	assert.Empty(t, containing(r.runs(t), "session="+sessionName("b-cht_2"), "agent_browser_click"),
+		"Bot B's call never reached its tab once the owner held it")
+	require.Eventually(t, func() bool { return len(chrome.activated()) > 0 }, 10*time.Second, 10*time.Millisecond)
+}
+
+// Review round 2 of PR #1233: with Bot A's call running, the owner opens his tab and then Bot B's, both views open.
+// The moves replace each other: once the call ended, only the newest view's tab is brought to the front.
+func TestReviewOnlyTheNewestViewComesForward(t *testing.T) {
+	r, chrome := frontRig(t)
+
+	_, err := r.Call(t.Context(), "b-cht_2", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+	r.stream(t, sessionName("b-cht_2"))
+
+	first := r.watch(t, OwnerTab)
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 1 }, 10*time.Second, 10*time.Millisecond)
+
+	a := r.slowCall(t, "b-cht_1", "agent_browser_wait_for_text")
+
+	r.watch(t, "b-cht_1")
+	r.watch(t, "b-cht_2")
+
+	assert.False(t, isRefusal(t, answer(t, a)))
+	require.Eventually(t, func() bool { return len(chrome.activated()) >= 2 }, 10*time.Second, 10*time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
+
+	assert.Equal(t, []string{front(OwnerTab), front("b-cht_2")}, chrome.activated(),
+		"the move to Bot A's tab, replaced, is not made")
+
+	first.Close(t.Context())
+}
+
+// Review round 2 of PR #1233: the owner's tab is made the first time it is watched, and a tab that is made comes in
+// front of the others (agent-browser brings a new tab to the front). Making it is queued behind the agents' calls
+// running, as bringing a tab to the front is.
+func TestReviewMakingTheOwnersTabWaitsForRunningCalls(t *testing.T) {
+	r, _ := frontRig(t)
+
+	a := r.slowCall(t, "b-cht_1", "agent_browser_wait_for_text")
+
+	opened := make(chan error, 1)
+
+	go func() {
+		v, err := r.Watch(t.Context(), OwnerTab)
+		if err == nil {
+			t.Cleanup(func() { v.Close(context.WithoutCancel(t.Context())) })
+		}
+		opened <- err
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+
+	raw, err := os.ReadFile(filepath.Join(r.bin, "log"))
+	require.NoError(t, err)
+	assert.Empty(t, containing(strings.Split(string(raw), "\n"), "session=owner", "agent_browser_open"),
+		"the owner's tab is not made while the Bot's call runs")
+
+	assert.False(t, isRefusal(t, answer(t, a)))
+	require.NoError(t, <-opened)
+
+	raw, err = os.ReadFile(filepath.Join(r.bin, "log"))
+	require.NoError(t, err)
+	assert.NotEmpty(t, containing(strings.Split(string(raw), "\n"), "session=owner", "agent_browser_open"))
+}
