@@ -628,6 +628,20 @@ func TestASourceNamedByTheAccountsIDKeepsItsLabel(t *testing.T) {
 	}))
 	assert.True(t, failed, "the id of an account it was not given: %s", text)
 
+	// With no matching account or session ID, the phone number is not a label.
+	_, err = w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "main", Account: "+84911111111", Secret: "conn-whatsapp-main",
+	})
+	require.NoError(t, err)
+	delete(w.whatsapp.ids, "whatsapp:main")
+
+	_, text, failed = w.use(pi, agenttool.ToolInboxAdd, `{"title":"Reply to Kai",
+		"source":{"kind":"whatsapp","chat":"8491@s.whatsapp.net","account":"84369230426"},
+		"message":{"kind":"whatsapp_message","ref":"m_3"}}`)
+	assert.True(t, failed, text)
+	assert.Contains(t, text, "84369230426")
+	assert.Contains(t, text, "main")
+
 	_, err = w.svc.AddChatMessage(ctx, chat, orchestration.ChatOwner, "what is new on Zalo?")
 	require.NoError(t, err)
 

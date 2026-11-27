@@ -1273,6 +1273,39 @@ func TestABotRecordsWhatTheOwnerToldItInItsChat(t *testing.T) {
 	assert.Equal(t, &me, closed.DoneBy)
 }
 
+// The store accepts Connection labels even when the input bypasses the Bot tool's ID mapping.
+func TestWhatsAppSourceRequiresAConnectionLabel(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "main", Account: "+84369230426", Secret: "conn-whatsapp-main",
+	})
+	require.NoError(t, err)
+
+	n := inboxstore.NewTodo{
+		Title: "Reply to Kai", State: inboxstore.Proposed, Assignee: me,
+		Source: inboxstore.Source{Kind: inboxstore.FromWhatsApp, ID: "8491@s.whatsapp.net", Account: "84369230426",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "m1"}},
+	}
+	_, err = w.inbox.Create(ctx, bot(w.kai), n)
+	assert.ErrorIs(t, err, storeerr.ErrInvalid)
+	assert.ErrorContains(t, err, "main")
+
+	invalid := n.Source
+	n.Source.Account = "main"
+	item, err := w.inbox.Create(ctx, bot(w.kai), n)
+	require.NoError(t, err)
+	assert.Equal(t, "main", item.Source.Account)
+
+	for _, actor := range []inboxstore.Actor{owner, bot(w.kai)} {
+		_, err = w.inbox.Edit(ctx, by(actor, item), inboxstore.Edit{Source: &invalid})
+		assert.ErrorIs(t, err, storeerr.ErrInvalid)
+		assert.ErrorContains(t, err, "main")
+	}
+}
+
 // Scenario: a Zalo source names the owner's account, as the Zalo store keys a message by account, chat and id
 // (Codex review of #848, 2026-11-19): the same chat and message id in two accounts are two sources; a Zalo source
 // without its account, or another source with one, is refused.

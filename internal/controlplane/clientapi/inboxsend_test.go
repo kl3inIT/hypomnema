@@ -120,6 +120,33 @@ func TestTheOwnerSendsADraftToTheItemsOwnChatAndItCloses(t *testing.T) {
 	assert.Len(t, sender.replies(), 1)
 }
 
+// An item whose Connection was removed cannot send through another account of the same service.
+func TestSendNamesTheAvailableConnections(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newInboxWorld(t)
+	sender := &fakeSender{}
+	w.srv.WithInboxSender(sender)
+
+	for _, label := range []string{"me", "main"} {
+		_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+			Integration: "whatsapp", Label: label, Secret: "conn-whatsapp-" + label,
+		})
+		require.NoError(t, err)
+	}
+
+	item := w.kaiAsks(t)
+	_, err := w.svc.RemoveConnection(ctx, "whatsapp", "me")
+	require.NoError(t, err)
+
+	resp, err := w.owner.SendTodoDraftWithResponse(ctx, item.Id, openapi.TodoSend{Revision: item.Revision, Text: "Hi Kai"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode(), string(resp.Body))
+	assert.Contains(t, string(resp.Body), `Connections are: main`)
+	assert.Empty(t, sender.replies())
+}
+
 // Scenario: issue #1111, sections 1 and 2, over the API. The owner hands an item to the main Bot with a prompt: it
 // shows the Bot as assignee, its chat, and the prompt first in its thread. A Bot's token cannot hand an item over;
 // the Bot comments on its item, and a coordinator cannot comment.
