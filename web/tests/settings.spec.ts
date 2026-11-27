@@ -219,7 +219,7 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
         return json({ code: "invalid", message: "the vault has no key" }, 422)
       }
 
-      if (sub === "token") {
+      if (sub === "connections") {
         hosts = hosts.map((h) =>
           h.host === name
             ? {
@@ -239,7 +239,7 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
         ]
       }
 
-      return request.method() === "DELETE"
+      return request.method() === "DELETE" && sub !== "connections"
         ? route.fulfill({ status: 204 })
         : json(hosts.find((h) => h.host === name))
     }
@@ -751,7 +751,7 @@ test("the owner opens Settings and gives a host its token", async ({ page, isMob
   }
   await top(gitlab)
   await shot(page, "git-hosts-one-token")
-  expect(calls).toEqual(["PUT /hosts/gitlab.com/token"])
+  expect(calls).toEqual(["PUT /hosts/gitlab.com/connections/default"])
 })
 
 // Scenario: the owner adds a company's server from the GitLab card; one the server refuses says why in the

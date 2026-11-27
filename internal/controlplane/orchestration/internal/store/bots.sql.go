@@ -114,42 +114,6 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 	return i, err
 }
 
-const getBotByName = `-- name: GetBotByName :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots WHERE name = ?1
-`
-
-func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
-	row := q.db.QueryRowContext(ctx, getBotByName, name)
-	var i Bot
-	err := row.Scan(
-		&i.ID,
-		&i.Provider,
-		&i.Model,
-		&i.Effort,
-		&i.Persona,
-		&i.Memory,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Skills,
-		&i.SkillsOff,
-		&i.Connections,
-		&i.Workers,
-		&i.ToolDisplay,
-		&i.Name,
-		&i.Position,
-		&i.Tools,
-		&i.ToolsOff,
-		&i.ConnectionScopes,
-		&i.GuaranteedDispatches,
-		&i.Fallbacks,
-		&i.Preset,
-		&i.MainChat,
-		&i.Department,
-		&i.OwnerAccounts,
-	)
-	return i, err
-}
-
 const getDepartment = `-- name: GetDepartment :one
 SELECT id, name, position, created_at FROM departments WHERE id = ?1
 `

@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -307,18 +308,13 @@ type HelloRequest struct {
 	KVM bool `json:"kvm,omitempty"`
 	// DeviceState is the state of the phone the node holds; nil for none.
 	DeviceState *DeviceState `json:"device_state,omitempty"`
-	// StoreGuides says the node writes no guide of an Integration or of the
-	// phone itself: they come with an offer's skills (issue #536). A node of
-	// an earlier release, which writes them, does not say it and is sent
-	// none of the skills that require something (Skill.Requires).
-	StoreGuides bool `json:"store_guides,omitempty"`
 	// Held lists every Dispatch the node holds, when ListsHeld is set: the
 	// ones in Claims, and the ones whose accept or final report is still
 	// queued (Omnara's daemon claims its preparing and terminal processes too,
 	// daemonprotocol/protocol.go:559-562). The control plane then ends as lost
 	// a Dispatch of the node's that may still run and is in neither list
-	// (issue #590). A node of an earlier release does not set ListsHeld, and
-	// nothing is ended; a hello that only checks an install does not either.
+	// (issue #590). A hello that only checks an install does not set
+	// ListsHeld, and nothing is ended.
 	Held      []string `json:"held,omitempty"`
 	ListsHeld bool     `json:"lists_held,omitempty"`
 	// Takes are the takes the node holds when ListsTakes is set (issue #817): the control plane ends one it
@@ -329,6 +325,11 @@ type HelloRequest struct {
 	// directory as /tmp and /var/tmp (issue #895); nil: a node of an earlier
 	// release, which does not say.
 	TempIsolation *TempIsolation `json:"temp_isolation,omitempty"`
+	// QuestionParts says the node tells its worker every decision of a
+	// question and each one's answer (issue #1219). A node of an earlier
+	// release does not say it, and is sent a question of several decisions
+	// folded into one, its text and its answer's text holding them all.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // TempIsolation is whether a node runs its workers with their Dispatch's
@@ -595,6 +596,12 @@ type HelloResponse struct {
 	// EndTakes are takes the node is to end, and DropTakes ones it is to remove, of those it said it holds.
 	EndTakes  []TakeEnd `json:"end_takes,omitempty"`
 	DropTakes []string  `json:"drop_takes,omitempty"`
+	// QuestionParts says this control plane keeps a question's several
+	// decisions (issue #1219), as its offers do. The node folds a question it
+	// sends on a connection whose hello did not say it into one
+	// (Ask.OneQuestion): a Dispatch offered by a later control plane may
+	// report to an earlier one after a reconnect.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.
@@ -623,7 +630,6 @@ type Offer struct {
 	OwnerMemory string `json:"owner_memory,omitempty"`
 	// MemoryNotes lists the notes of the agent's memory (issue #589), each its
 	// path and size, which the worker reads with the memory's tool when needed.
-	// A node of an earlier release ignores it.
 	MemoryNotes []string `json:"memory_notes,omitempty"`
 	Spec        string   `json:"spec"`
 	Repo        string   `json:"repo,omitempty"`
@@ -640,7 +646,7 @@ type Offer struct {
 	// the node gives them to the worker and the repository's setup script as
 	// GIT_AUTHOR_NAME/EMAIL and GIT_COMMITTER_NAME/EMAIL, which git takes over
 	// the node user's ~/.gitconfig. Empty when no account is known; nothing is
-	// set then. A node of an earlier release ignores them.
+	// set then.
 	GitName  string `json:"git_name,omitempty"`
 	GitEmail string `json:"git_email,omitempty"`
 	// RepoSSHURL is where the node clones and fetches Repo from over SSH,
@@ -658,7 +664,7 @@ type Offer struct {
 	ModelAPI string `json:"model_api,omitempty"`
 	// ModelContextWindow and ModelMaxOutput are the gateway's sizes of the offer's model, in tokens, when it knows
 	// them (issue #1019): the worker's CLI is told them, so it compacts before the window is full rather than at a
-	// size it guesses. Zero when unknown; a node of an earlier release ignores them.
+	// size it guesses. Zero when unknown.
 	ModelContextWindow int64 `json:"model_context_window,omitempty"`
 	ModelMaxOutput     int64 `json:"model_max_output,omitempty"`
 	// Uses are the Connections the Run's workers may use ("google:work");
@@ -693,8 +699,13 @@ type Offer struct {
 	// profile's switches, and the commands it reaches an account with
 	// through the service proxy (issue #723, decision 2.3; issue #789): the
 	// node writes the "Tools" block of its rules from them
-	// (agenttool.ToolGuide). A node of an earlier release ignores them.
+	// (agenttool.ToolGuide).
 	Tools []string `json:"tools,omitempty"`
+	// QuestionParts says the control plane keeps a question's several
+	// decisions, their headers and their options' descriptions (issue #1219):
+	// the node then lets the worker ask them. A control plane of an earlier
+	// release does not say it, and its workers ask one question as before.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // Skill is one skill a worker is given, at one revision; its digest names
@@ -704,9 +715,7 @@ type Skill struct {
 	Revision int    `json:"revision"`
 	Digest   string `json:"digest"`
 	// Requires is what the agent had to have to be given it
-	// ("integration:superset", issue #536): an Integration's guide is one. A
-	// node that writes guides of its own is not sent one
-	// (HelloRequest.StoreGuides).
+	// ("integration:superset", issue #536): an Integration's guide is one.
 	Requires []string `json:"requires,omitempty"`
 }
 
@@ -718,20 +727,18 @@ type Stop struct {
 
 // Report kinds: the node calls of the orchestration core (issue #19).
 const (
-	ReportAccept          = "accept"
-	ReportLowDisk         = "low_disk"
-	ReportStarted         = "started"
-	ReportHeartbeat       = "heartbeat"
-	ReportEffect          = "effect"
-	ReportPublishedHead   = "published_head"
-	ReportResource        = "resource"
-	ReportReleaseResource = "release_resource"
-	ReportQuestion        = "question"
-	ReportAnswerAck       = "answer_ack"
-	ReportFinished        = "finished"
-	ReportExited          = "exited"
-	ReportStopped         = "stopped"
-	ReportReattach        = "reattach"
+	ReportAccept        = "accept"
+	ReportLowDisk       = "low_disk"
+	ReportStarted       = "started"
+	ReportHeartbeat     = "heartbeat"
+	ReportEffect        = "effect"
+	ReportPublishedHead = "published_head"
+	ReportQuestion      = "question"
+	ReportAnswerAck     = "answer_ack"
+	ReportFinished      = "finished"
+	ReportExited        = "exited"
+	ReportStopped       = "stopped"
+	ReportReattach      = "reattach"
 )
 
 // PublishedHead reports a branch update performed by the node for this Dispatch.
@@ -797,25 +804,87 @@ type Effect struct {
 	Payload string `json:"payload,omitempty"`
 }
 
-// Resource is the payload of a resource or release_resource report.
-type Resource struct {
-	Kind    string `json:"kind"`
-	Ref     string `json:"ref"`
-	Custody string `json:"custody,omitempty"`
+// Option is one choice of a question. Description, one sentence on what
+// choosing it changes, came with issue #1219; a node or a control plane
+// before it leaves it out.
+type Option struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	AllowsText  bool   `json:"allows_text,omitempty"`
 }
 
-// Option is one choice of a question.
-type Option struct {
-	Label      string `json:"label"`
-	AllowsText bool   `json:"allows_text,omitempty"`
+// Part is one decision a question asks after its first (issue #1219).
+type Part struct {
+	Header  string   `json:"header,omitempty"`
+	Text    string   `json:"text"`
+	Options []Option `json:"options,omitempty"`
 }
 
 // Ask is the payload of a question report, and a Gate in a finished one.
+// Text and Options are its first decision, as before issue #1219, so a
+// control plane before it reads that one; Header and More came with it.
 type Ask struct {
+	Header  string   `json:"header,omitempty"`
 	Text    string   `json:"text"`
 	Options []Option `json:"options,omitempty"`
+	More    []Part   `json:"more,omitempty"`
 	// To is "coordinator" or "owner".
 	To string `json:"to"`
+}
+
+// OneQuestion is the question as a control plane before issue #1219 keeps
+// it, which stores one question's text and options' labels only: the header
+// before the text and each option's description after it. A question of
+// several decisions becomes one free-text question that lists each with its
+// options, to be answered in turn, since that control plane would keep only
+// the first decision and its choice; nothing is lost either way.
+func (a Ask) OneQuestion() Ask {
+	if len(a.More) == 0 {
+		var b strings.Builder
+
+		b.WriteString(titled(a.Header, a.Text))
+
+		options := make([]Option, len(a.Options))
+		for i, o := range a.Options {
+			if o.Description != "" {
+				b.WriteString("\n" + strconv.Itoa(i+1) + ". " + o.Label + ": " + o.Description)
+			}
+
+			options[i] = Option{Label: o.Label, AllowsText: o.AllowsText}
+		}
+
+		if len(a.Options) == 0 {
+			options = nil
+		}
+
+		return Ask{Text: b.String(), Options: options, To: a.To}
+	}
+
+	var b strings.Builder
+
+	b.WriteString("Answer each decision in turn:")
+
+	for i, p := range append([]Part{{Header: a.Header, Text: a.Text, Options: a.Options}}, a.More...) {
+		b.WriteString("\n" + strconv.Itoa(i+1) + ". " + titled(p.Header, p.Text))
+
+		for _, o := range p.Options {
+			b.WriteString("\n   - " + o.Label)
+
+			if o.Description != "" {
+				b.WriteString(": " + o.Description)
+			}
+		}
+	}
+
+	return Ask{Text: b.String(), To: a.To}
+}
+
+func titled(header, text string) string {
+	if header == "" {
+		return text
+	}
+
+	return header + ": " + text
 }
 
 // AnswerAck is the payload of an answer_ack report.
@@ -869,6 +938,14 @@ type Reattach struct {
 type Answer struct {
 	Option *int   `json:"option,omitempty"`
 	Text   string `json:"text,omitempty"`
+	// More answers the question's more decisions, in their order (issue #1219).
+	More []Choice `json:"more,omitempty"`
+}
+
+// Choice is the answer to one of a question's more decisions.
+type Choice struct {
+	Option *int   `json:"option,omitempty"`
+	Text   string `json:"text,omitempty"`
 }
 
 // Question is the payload of an answer message: an answered question a
@@ -879,8 +956,10 @@ type Question struct {
 	DispatchID  string   `json:"dispatch_id"`
 	Mode        string   `json:"mode"`
 	AddressedTo string   `json:"addressed_to"`
+	Header      string   `json:"header,omitempty"`
 	Text        string   `json:"text"`
 	Options     []Option `json:"options"`
+	More        []Part   `json:"more,omitempty"`
 	Status      string   `json:"status"`
 	Answer      *Answer  `json:"answer,omitempty"`
 	AnsweredBy  string   `json:"answered_by,omitempty"`

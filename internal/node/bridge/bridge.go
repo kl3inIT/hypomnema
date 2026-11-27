@@ -190,8 +190,7 @@ type Agent struct {
 	Key string `json:"key"`
 	// Worktree is the folder the worker works in, where show_artifact reads
 	// the path it names (issue #536): the server's own working folder is
-	// whatever its CLI starts it in, which no CLI promises. Empty in a file of
-	// an earlier release.
+	// whatever its CLI starts it in, which no CLI promises.
 	Worktree string `json:"worktree,omitempty"`
 }
 

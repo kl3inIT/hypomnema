@@ -155,7 +155,7 @@ func (q *Queries) GetRunWithBot(ctx context.Context, id string) (GetRunWithBotRo
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base, model_unresolved FROM tasks WHERE id = ?1
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks WHERE id = ?1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -186,7 +186,6 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.PushBranch,
 		&i.StartFrom,
 		&i.PrBase,
-		&i.ModelUnresolved,
 	)
 	return i, err
 }
@@ -318,7 +317,7 @@ func (q *Queries) InsertTaskDep(ctx context.Context, arg InsertTaskDepParams) er
 }
 
 const listBoardTasks = `-- name: ListBoardTasks :many
-SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base, model_unresolved FROM tasks
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks
 WHERE tasks.run_id IN (SELECT r.id FROM runs r WHERE r.status = 'open') OR tasks.updated_at >= ?1
 ORDER BY tasks.updated_at DESC, tasks.id DESC
 LIMIT ?2
@@ -364,7 +363,6 @@ func (q *Queries) ListBoardTasks(ctx context.Context, arg ListBoardTasksParams) 
 			&i.PushBranch,
 			&i.StartFrom,
 			&i.PrBase,
-			&i.ModelUnresolved,
 		); err != nil {
 			return nil, err
 		}
@@ -559,7 +557,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 }
 
 const listTasksByRun = `-- name: ListTasksByRun :many
-SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base, model_unresolved FROM tasks WHERE run_id = ?1 ORDER BY position
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks WHERE run_id = ?1 ORDER BY position
 `
 
 func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, error) {
@@ -596,7 +594,6 @@ func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, err
 			&i.PushBranch,
 			&i.StartFrom,
 			&i.PrBase,
-			&i.ModelUnresolved,
 		); err != nil {
 			return nil, err
 		}
@@ -838,7 +835,7 @@ func (q *Queries) SetTaskWaitingReason(ctx context.Context, arg SetTaskWaitingRe
 }
 
 const succeededTasksOfOpenRuns = `-- name: SucceededTasksOfOpenRuns :many
-SELECT t.id, t.run_id, t.position, t.profile, t.spec, t.runtime, t.model, t.effort, t.status, t.blocked_reason, t.failure_count, t.result, t.created_at, t.updated_at, t.finished_at, t.not_before, t.cancel_requested_at, t.waiting_reason, t.kind, t.author_vendor, t.continues, t.push_branch, t.start_from, t.pr_base, t.model_unresolved FROM tasks t JOIN runs r ON r.id = t.run_id
+SELECT t.id, t.run_id, t.position, t.profile, t.spec, t.runtime, t.model, t.effort, t.status, t.blocked_reason, t.failure_count, t.result, t.created_at, t.updated_at, t.finished_at, t.not_before, t.cancel_requested_at, t.waiting_reason, t.kind, t.author_vendor, t.continues, t.push_branch, t.start_from, t.pr_base FROM tasks t JOIN runs r ON r.id = t.run_id
 WHERE r.status = 'open' AND t.status = 'succeeded'
 ORDER BY t.run_id, t.position
 `
@@ -878,7 +875,6 @@ func (q *Queries) SucceededTasksOfOpenRuns(ctx context.Context) ([]Task, error) 
 			&i.PushBranch,
 			&i.StartFrom,
 			&i.PrBase,
-			&i.ModelUnresolved,
 		); err != nil {
 			return nil, err
 		}

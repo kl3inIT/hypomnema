@@ -47,13 +47,13 @@ func (b *sharedBrowser) Call(
 func (w *world) browse(key, tool, arguments string) (int, string) {
 	w.t.Helper()
 
-	status, body := w.call(http.MethodPost, agenttool.PathBrowserCall, key,
+	status, body := w.call(http.MethodPost, agenttool.PathToolsCall, key,
 		agenttool.BrowserCall{Tool: tool, Arguments: json.RawMessage(arguments)})
 
 	return status, string(body)
 }
 
-// Scenario: two workers and the coordinator use the browser. Each call
+// Scenario: two workers, the coordinator token and two chats' pis use the browser. Each call
 // reaches the browser under a name of the caller's own, so each has its own
 // tab: a worker's is its Dispatch's. The tool's answer is passed on as it
 // is. Which agent used which tool is logged, and never what it typed.
@@ -76,14 +76,14 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 	pi, piKey, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	status, body := w.call(http.MethodGet, agenttool.PathBrowserTools, first, nil)
+	status, body := w.call(http.MethodGet, agenttool.PathTools, first, nil)
 	require.Equal(t, http.StatusOK, status)
 
 	var tools agenttool.BrowserToolList
 	require.NoError(t, json.Unmarshal(body, &tools))
-	require.Len(t, tools.Data, 1)
-	assert.Equal(t, "agent_browser_open", tools.Data[0].Name)
-	assert.JSONEq(t, `{"type":"object"}`, string(tools.Data[0].InputSchema))
+	open := tools.Data[len(tools.Data)-1]
+	assert.Equal(t, "agent_browser_open", open.Name, "the browser's tools come last")
+	assert.JSONEq(t, `{"type":"object"}`, string(open.InputSchema))
 
 	status, answer := w.browse(first, "agent_browser_fill", `{"selector":"#password","text":"hunter2"}`)
 	require.Equal(t, http.StatusOK, status)
@@ -92,6 +92,8 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 	status, _ = w.browse(second, "agent_browser_get_url", `{}`)
 	require.Equal(t, http.StatusOK, status)
 
+	// The coordinator token lists and calls the browser on the one route, in a tab of its own (issue #1220).
+	assert.Contains(t, toolNames(w.tools(piKey)), "agent_browser_open")
 	status, _ = w.browse(piKey, "agent_browser_get_url", `{}`)
 	require.Equal(t, http.StatusOK, status)
 
@@ -118,7 +120,7 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 	assert.Contains(t, w.logs.String(), "agent_browser_fill")
 	assert.NotContains(t, w.logs.String(), "hunter2")
 
-	status, _ = w.call(http.MethodGet, agenttool.PathBrowserTools, "", nil)
+	status, _ = w.call(http.MethodGet, agenttool.PathTools, "", nil)
 	assert.Equal(t, http.StatusUnauthorized, status)
 
 	status, _ = w.browse("", "agent_browser_get_url", `{}`)
@@ -162,13 +164,13 @@ func TestABrowserCallThatFailsSaysWhy(t *testing.T) {
 
 	assert.NotContains(t, w.logs.String(), "an agent used the browser", "a call that failed is not logged as made")
 
-	status, body := w.call(http.MethodPost, agenttool.PathBrowserCall, key, map[string]string{"arguments": "x"})
+	status, body := w.call(http.MethodPost, agenttool.PathToolsCall, key, map[string]string{"arguments": "x"})
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, string(body), "name the tool")
 }
 
 // A control plane whose browser is turned off (HYPOMNEMA_BROWSER=0) lists no
-// tool and runs none, and says so to an agent that asks.
+// browser tool and runs none.
 func TestAControlPlaneWithNoBrowserSaysSo(t *testing.T) {
 	t.Parallel()
 
@@ -183,13 +185,10 @@ func TestAControlPlaneWithNoBrowserSaysSo(t *testing.T) {
 	w.srv = httptest.NewServer(mux)
 	t.Cleanup(w.srv.Close)
 
-	status, body := w.call(http.MethodGet, agenttool.PathBrowserTools, key, nil)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
-	assert.Contains(t, string(body), "no browser")
+	assert.NotContains(t, toolNames(w.tools(key)), "agent_browser_open")
 
-	status, answer := w.browse(key, "agent_browser_open", `{"url":"example.com"}`)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
-	assert.Contains(t, answer, "no browser")
+	status, _ := w.browse(key, "agent_browser_open", `{"url":"example.com"}`)
+	assert.Equal(t, http.StatusNotFound, status)
 	assert.Empty(t, w.browser.calls)
 }
 

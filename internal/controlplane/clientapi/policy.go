@@ -125,8 +125,6 @@ var policies = map[string]policy{
 	"ListGitHosts":                {},
 	"PutGitHost":                  {scope: scopeOwner},
 	"DeleteGitHost":               {scope: scopeOwner},
-	"PutGitHostToken":             {scope: scopeOwner},
-	"DeleteGitHostToken":          {scope: scopeOwner},
 	"ListIntegrations":            {},
 	"ListSkills":                  {},
 	"GetSkill":                    {},

@@ -140,29 +140,6 @@ func (s *Server) DeleteGitHostConnection(ctx context.Context, req openapi.Delete
 	return openapi.DeleteGitHostConnection200JSONResponse(h), nil
 }
 
-// PutGitHostToken keeps a token as the host's Connection "default": the
-// form of before a host could have several.
-func (s *Server) PutGitHostToken(ctx context.Context, req openapi.PutGitHostTokenRequestObject,
-) (openapi.PutGitHostTokenResponseObject, error) {
-	h, err := s.connect(ctx, req.Host, orchestration.DefaultConnection, val(req.Body.Token))
-	if err != nil {
-		return nil, err
-	}
-
-	return openapi.PutGitHostToken200JSONResponse(h), nil
-}
-
-// DeleteGitHostToken forgets the host's Connection "default".
-func (s *Server) DeleteGitHostToken(ctx context.Context, req openapi.DeleteGitHostTokenRequestObject,
-) (openapi.DeleteGitHostTokenResponseObject, error) {
-	h, err := s.disconnect(ctx, req.Host, orchestration.DefaultConnection)
-	if err != nil {
-		return nil, err
-	}
-
-	return openapi.DeleteGitHostToken200JSONResponse(h), nil
-}
-
 // ListRepos returns the registered repositories.
 func (s *Server) ListRepos(ctx context.Context, _ openapi.ListReposRequestObject,
 ) (openapi.ListReposResponseObject, error) {

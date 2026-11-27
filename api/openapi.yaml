@@ -1107,41 +1107,6 @@ paths:
         "204":
           description: The host is forgotten.
         default: { $ref: "#/components/responses/Error" }
-  /hosts/{host}/token:
-    parameters:
-      - name: host
-        in: path
-        required: true
-        schema: { type: string, minLength: 3, maxLength: 255 }
-    put:
-      operationId: PutGitHostToken
-      summary: Keep a token as the git host's Connection "default"; only the owner
-      description: >-
-        The form of before a host could have several Connections. The token
-        goes into the vault and is never returned. A worker of a Run on this
-        host gets it for its git, gh and glab.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/NewGitHostToken" }
-      responses:
-        "200":
-          description: The host, now with a token.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/GitHost" }
-        default: { $ref: "#/components/responses/Error" }
-    delete:
-      operationId: DeleteGitHostToken
-      summary: Forget the git host's Connection "default"; only the owner
-      responses:
-        "200":
-          description: The host, now without a token.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/GitHost" }
-        default: { $ref: "#/components/responses/Error" }
   /hosts/{host}/connections/{label}:
     parameters:
       - name: host
@@ -2463,8 +2428,8 @@ paths:
       operationId: GetGatewayToolConfig
       summary: The file that points a tool at the gateway with an owner-made key; only the owner
       description: >-
-        Settings → Connect a tool (issue #907). The file names one of the
-        models the key may use from the tool (Codex: those /v1/responses
+        The Connect a tool button on Gateway keys opens the page that requests this file.
+        The file names one of the models the key may use from the tool (Codex: those /v1/responses
         serves), the one asked for or else the first, and holds the key's
         value when it is stored; else a placeholder, and `key_stored` is
         false. Not cached: it may hold the key.
@@ -4095,9 +4060,7 @@ paths:
       operationId: RestoreProfileVersion
       summary: Apply one of a profile's versions again; the owner, or the main Bot from its chat
       description: >-
-        Applies that version's own source again, as ApplyProfile does. A model its YAML names
-        without a provider, as versions before issue #1002 were written, runs under the provider
-        that version recorded, never one another version recorded for the same YAML.
+        Applies that version's own source again, as ApplyProfile does.
       responses:
         "200":
           description: The version equals the current one, which is returned.
@@ -6427,14 +6390,42 @@ components:
       required: [label]
       properties:
         label: { type: string }
+        description:
+          type: string
+          description: >-
+            One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option
+            asked before has none.
         allows_text: { type: boolean }
-    Answer:
+    QuestionPart:
+      type: object
+      description: One decision a question asks after its first, on the same card (issue #1219).
+      required: [text, options]
+      properties:
+        header: { type: string, description: "A short title of the decision, at most 30 characters." }
+        text: { type: string }
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/Option" }
+    Choice:
       type: object
       additionalProperties: false
-      description: Pick one option by index, and add text when it allows; a question without options takes text.
+      description: The answer to one of a question's more decisions, as the first's.
       properties:
         option: { type: integer, minimum: 0 }
         text: { type: string, maxLength: 20000 }
+    Answer:
+      type: object
+      additionalProperties: false
+      description: >-
+        Pick one option by index, and add text when it allows; a question without options takes text. A question
+        with more decisions takes one choice for each in more, in their order.
+      properties:
+        option: { type: integer, minimum: 0 }
+        text: { type: string, maxLength: 20000 }
+        more:
+          type: array
+          maxItems: 2
+          items: { $ref: "#/components/schemas/Choice" }
     Question:
       type: object
       required: [id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, created_at]
@@ -6445,10 +6436,24 @@ components:
         run_id: { type: string }
         mode: { $ref: "#/components/schemas/QuestionMode" }
         addressed_to: { $ref: "#/components/schemas/Addressee" }
+        header:
+          type: string
+          description: "A short title of the first decision (issue #1219); none on a question asked before."
         text: { type: string }
         options:
           type: array
           items: { $ref: "#/components/schemas/Option" }
+        more:
+          type: array
+          description: >-
+            The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the
+            answer's more at the same place.
+          items: { $ref: "#/components/schemas/QuestionPart" }
+        summary:
+          type: string
+          description: >-
+            For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with,
+            shown above the options; none for a Gate asked before, which reads as it did.
         status: { $ref: "#/components/schemas/QuestionStatus" }
         cancel_reason: { type: string }
         answer: { $ref: "#/components/schemas/Answer" }
@@ -9075,7 +9080,7 @@ components:
             The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
     GatewayTool:
       type: string
-      description: A tool Settings → Connect a tool writes a file for.
+      description: A tool that can be configured from the Connect a tool button on Gateway keys.
       enum: [claude_code, codex, omp, opencode]
     GatewayToolFile:
       type: object

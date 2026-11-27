@@ -39,9 +39,6 @@ type CaptionsLook struct {
 	Position captions.Position `json:"position,omitempty"`
 }
 
-// legacyLook is the look of every revision made before the looks, as the migration wrote it.
-var legacyLook = Look{Captions: CaptionsLook{Preset: captions.Legacy}, Frame: compose.Frame{Chrome: compose.ChromeFull}}
-
 // LookInput is a look as a request sends it: each section, and each field of a section, may be left out.
 type LookInput struct {
 	Captions   *CaptionsInput   `json:"captions,omitempty"`

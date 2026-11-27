@@ -691,11 +691,8 @@ func revisionOf(r store.VideoRevision) Revision {
 	_ = json.Unmarshal([]byte(r.Lines), &out.Lines)
 	_ = json.Unmarshal([]byte(r.Warnings), &out.Warnings)
 
-	if l, err := parseLook(r.Look); err == nil {
-		out.Look = l
-	} else {
-		out.Look = legacyLook
-	}
+	// Every revision keeps its look since the looks' migration wrote one for those before (issue #937).
+	out.Look, _ = parseLook(r.Look)
 
 	if r.PinProvider != "" {
 		out.pin = &voicePin{provider: r.PinProvider, voice: r.PinVoice}

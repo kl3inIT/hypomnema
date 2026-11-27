@@ -9,12 +9,10 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
@@ -63,61 +61,14 @@ var skillFiles = ownSkills
 const defaultSkill = "hypomnema-coordinator"
 
 // releasedStubs holds the SHA-256 of every SKILL.md stub a release shipped,
-// per skill. `skills install` replaces an installed stub only when its
-// digest is one of these, so a copy the owner edited is left alone (Orca's
-// releasedDigests). A changed stub adds its digest here
-// (TestShippedStubsAreReleased).
+// per skill, since every install took the current one (issue #1220).
+// `skills install` replaces an installed stub only when its digest is one of
+// these, so a copy the owner edited is left alone (Orca's releasedDigests).
+// A changed stub adds its digest here (TestShippedStubsAreReleased).
 var releasedStubs = map[string][]string{
 	"hypomnema-coordinator": {
-		"a47e4460588d8d58dfc994b34b6aaf8cad11dd7ec13c9151d9188f2c2d587e2a",
 		"f35f29bba09f26acf8be84321b0c0998b6a76b9853c03a8a5e5737528cc4b5f8", // #672: the description says when to use it
 	},
-}
-
-// retiredStubs holds, as releasedStubs does, the digests of the stubs of the
-// skills a release shipped and this binary no longer does. `skills install`
-// removes an installed copy whose digest is one of these, as Codex replaces
-// its whole system skills folder at an update (codex-rs skills/src/lib.rs,
-// install_system_skills) and OpenMausBot takes a switched-off skill's links
-// out of each engine's folder (server/skills.ts); a copy the owner edited is
-// left, as an edited stub always is. web-search and images became the tools
-// web_search, web_fetch and generate_image of a Bot's pi (issue #492); the
-// guides' stubs, which ran `hypomnema skills get`, gave way to the guides
-// themselves in the skills store (issue #536).
-var retiredStubs = map[string][]string{
-	"web-search":       {"cdf4d06decd3d71394b4353a8a34b98853765b5f8c88b7e1712159d6cf9be35b"},
-	"images":           {"d5914e30a9da434727d0ce057216b1c48a1b3104f23b9c7072f3feeda31e4971"},
-	"google-workspace": {"129a8091fdeb9d028e8b0550625f2efd54c3eb27b38eba618407d68b82fdd894"},
-	"lark": {
-		"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774",
-		"f3acc3af4bb9045de0285f5b2fc2ce7a648117f89f3aeaedb0577578951a6c88",
-	},
-	"superset": {
-		"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef",
-		"d224bf62df9bbc768f84b90d9b261db118c46889f8b643f9967655c227193a61", // #536: the superset_* tools
-	},
-	"aws": {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
-	"android-device": {
-		"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127",
-		"354020b3fc5f96ee9be92432902284298b21164c8cc37c3510906f1f6efe7df4", // #536: Bots have the phone too
-	},
-}
-
-// releasedFolders holds the folderDigest of every release of a skill an
-// earlier release installed as a whole folder in ~/.agents/skills, as
-// releasedStubs does for stubs (Hermes's .bundled_manifest origin hashes,
-// tools/skills_sync.py): `skills install` removes an installed copy only when
-// its digest is one of these, now that the store places them (storeSkills).
-var releasedFolders = map[string][]string{
-	"pages": {
-		"4d876aa95c82401380832a67a0a51d435845bcfc70b27d543330b617bc32a2b1", // #423
-		"c9c4d76decceacba2d9ef276cde823ed9296e4a39f142d09d4a26935498e2ed7", // #536: the show_artifact tool
-	},
-	"pdf": {
-		"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b", // #458
-		"5a21174acf72f04f8a75d55451d35094ff66a46117f42ce6f77202ce3dd0f020", // #474: JSON samples, pdf_read modes, a TTF for Vietnamese
-	},
-	"slides": {"ae1d255cf5ebc308b35005cffa50c005e9f70495347388ce89fb8b06861e1f6f"}, // #479
 }
 
 // storeSkills are the whole-folder skills that reach every agent kind
@@ -126,7 +77,7 @@ var releasedFolders = map[string][]string{
 // its bundled skills to every agent, Claude CLI runs included
 // (src/agents/cli-runner/claude-skills-plugin.ts), and OpenMausBot its
 // library's skills to every engine (server/skill-library.ts, everyBot).
-// `skills install` no longer installs them; it removes a copy it installed.
+// `skills install` does not install them.
 // Only a skill that names no command an agent may lack goes here, and every
 // whole-folder skill is one (TestEveryFolderSkillIsInTheStore); a guide
 // names its Integration's command, which every agent given a Connection of
@@ -312,170 +263,18 @@ func skillsInstall(_ context.Context, e *env, fset *flag.FlagSet) error {
 	slices.Sort(agents)
 
 	for _, agent := range agents {
-		for _, name := range slices.Sorted(maps.Keys(retiredStubs)) {
-			if err := removeRetired(e, fset, agent, filepath.Join(roots[agent], name), name); err != nil {
-				return err
-			}
-		}
-
 		for _, name := range skillNames() {
-			var err error
-
-			switch {
-			case slices.Contains(storeSkills, name):
-				// A guide was a stub, taken out with retiredStubs above.
-				if agent == "agents" && len(releasedFolders[name]) > 0 {
-					err = removeRetiredFolder(e, fset, agent, filepath.Join(roots[agent], name), name)
-				}
-			case !folderSkill(name):
-				err = installStub(e, fset, agent, filepath.Join(roots[agent], name), name)
+			if slices.Contains(storeSkills, name) || folderSkill(name) {
+				continue
 			}
 
-			if err != nil {
+			if err := installStub(e, fset, agent, filepath.Join(roots[agent], name), name); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
-}
-
-// removeRetired takes out the installed stub of a skill this binary no
-// longer ships, and its folder when nothing else is in it, unless the stub
-// was edited.
-func removeRetired(e *env, fset *flag.FlagSet, agent, dir, name string) error {
-	target := filepath.Join(dir, "SKILL.md")
-
-	old, err := os.ReadFile(target) //nolint:gosec // the path is the agent's own skill folder
-
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return nil
-	case err != nil:
-		return fmt.Errorf("reading %s: %w", target, err)
-	case !slices.Contains(retiredStubs[name], digest(old)):
-		e.printf("%s: %s was edited; left as it is, though this binary no longer ships %s\n", agent, target, name)
-
-		return nil
-	case boolean(fset, "dry-run"):
-		e.printf("%s: would remove %s, which this binary no longer ships\n", agent, target)
-
-		return nil
-	}
-
-	if err := os.Remove(target); err != nil {
-		return fmt.Errorf("removing %s: %w", target, err)
-	}
-
-	// A folder the owner put other files in stays with them.
-	if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
-		if err := os.Remove(dir); err != nil {
-			return fmt.Errorf("removing %s: %w", dir, err)
-		}
-	}
-
-	e.printf("%s: removed %s, which this binary no longer ships\n", agent, target)
-
-	return nil
-}
-
-// removeRetiredFolder takes out a whole-folder skill an earlier release
-// installed and the skills store now places (storeSkills), while its digest
-// is a released one (releasedFolders), as removeRetired does a stub: an
-// edited copy is left and named, as Hermes's skills_sync.py skips a
-// user-modified skill (tools/skills_sync.py).
-func removeRetiredFolder(e *env, fset *flag.FlagSet, agent, dir, name string) error {
-	info, err := os.Lstat(dir)
-
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return nil
-	case err != nil:
-		return fmt.Errorf("reading %s: %w", dir, err)
-	}
-
-	have := ""
-	if info.IsDir() {
-		if have, err = folderDigest(os.DirFS(dir)); err != nil {
-			return fmt.Errorf("reading %s: %w", dir, err)
-		}
-	}
-
-	switch {
-	case !slices.Contains(releasedFolders[name], have):
-		e.printf("%s: %s was edited; left as it is, though %s now comes from the skills store\n", agent, dir, name)
-
-		return nil
-	case boolean(fset, "dry-run"):
-		e.printf("%s: would remove %s, which now comes from the skills store\n", agent, dir)
-
-		return nil
-	}
-
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("removing %s: %w", dir, err)
-	}
-
-	e.printf("%s: removed %s, which now comes from the skills store\n", agent, dir)
-
-	return nil
-}
-
-// runtimeCaches are folders a skill's scripts leave behind when they run,
-// which say nothing of an edit (Hermes's _RUNTIME_CACHE_DIRS).
-var runtimeCaches = []string{"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
-
-// folderDigest is the SHA-256 of a skill folder's files, each by its path
-// and its content with line endings normalized, in path order; runtime
-// caches are left out (Hermes's dir_hash and _is_runtime_cache).
-func folderDigest(skill fs.FS) (string, error) {
-	h := sha256.New()
-
-	err := fs.WalkDir(skill, ".", func(name string, d fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			return err
-		case d.IsDir() && slices.Contains(runtimeCaches, d.Name()):
-			return fs.SkipDir
-		case d.IsDir():
-			return nil
-		case bytecode(skill, name):
-			return nil
-		case !d.Type().IsRegular():
-			h.Write([]byte(name + "\x00not a file\x00"))
-
-			return nil
-		}
-
-		b, err := fs.ReadFile(skill, name)
-		if err != nil {
-			return err
-		}
-
-		b = []byte(strings.ReplaceAll(string(b), "\r\n", "\n"))
-		h.Write([]byte(name + "\x00" + strconv.Itoa(len(b)) + "\x00"))
-		h.Write(b)
-
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// bytecode says whether a file is Python's compiled copy of a source beside it.
-func bytecode(skill fs.FS, name string) bool {
-	ext := path.Ext(name)
-
-	return (ext == ".pyc" || ext == ".pyo") && exists(skill, strings.TrimSuffix(name, ext)+".py")
-}
-
-func exists(fsys fs.FS, name string) bool {
-	_, err := fs.Stat(fsys, name)
-
-	return err == nil
 }
 
 // installStub writes one skill's stub into dir, unless an edited copy is

@@ -351,9 +351,8 @@ func routineSpec(a agent, have *routinestore.Routine, in agenttool.RoutineCall) 
 	}
 
 	if in.Script != nil && in.ScriptText == nil {
-		// A tools server of an earlier release sends the path without reading it.
-		return spec, fmt.Errorf("%w: this tools server cannot send a script yet; wait for its update",
-			orchestration.ErrUnavailable)
+		// The tools server reads the script's file into script_text; a call without it has nothing to run.
+		return spec, fmt.Errorf("%w: the script's path came without its text", orchestration.ErrInvalid)
 	}
 
 	// What runs is given whole: a prompt, a script, or both, a prompt whose script checks first (issue #656).

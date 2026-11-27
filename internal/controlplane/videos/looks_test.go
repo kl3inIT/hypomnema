@@ -17,6 +17,9 @@ import (
 
 // The look of each revision (issue #908, rows 1-5, 11, 14 and 15; #937).
 
+// legacyLook is the Classic look, as the looks' migration wrote it for every revision made before them.
+var legacyLook = Look{Captions: CaptionsLook{Preset: captions.Legacy}, Frame: compose.Frame{Chrome: compose.ChromeFull}}
+
 func ptr[T any](v T) *T { return &v }
 
 // framedRig is a rig whose take can be framed (its segment's size is known) and whose default is the migration's:

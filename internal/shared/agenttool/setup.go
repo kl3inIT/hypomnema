@@ -13,7 +13,7 @@ import (
 // (issue #536, internal/controlplane/clientcli/skills): each requires its
 // Integration in its frontmatter and reaches a worker with its offer's
 // skills, only when its Run was given a Connection of it. A node writes no
-// guide of its own (HelloRequest.StoreGuides).
+// guide of its own.
 
 // Superset is the Integration whose tools are the control plane's own
 // superset_* tools (issue #536), not a command on the agent's PATH.

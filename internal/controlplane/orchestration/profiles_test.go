@@ -487,58 +487,6 @@ func TestAProviderAddsOnlyTheVersionsItsOwnerKeeps(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
-// Scenario (review of PR #1000, rounds 1 and 2): two versions from before issue #1002 have the same YAML, naming
-// their model without a provider, and recorded two providers for it. The owner restores the first: it runs under
-// the provider the first recorded, not the later one's. Applying that YAML as a new source is still refused.
-func TestARestoredVersionKeepsTheProviderItRecorded(t *testing.T) {
-	t.Parallel()
-
-	w := newWorld(t)
-	ctx := t.Context()
-
-	_, err := w.s.AddProviderModels(ctx, "opencode-go", []string{"claude-haiku-5-5"})
-	require.NoError(t, err)
-
-	apply := func(provider, model string) Profile {
-		p, _, err := w.s.ApplyProfile(ctx, "", "name: x\ndescription: d\nruntime: claude\n"+
-			"model: {provider: "+provider+", name: "+model+"}\n")
-		require.NoError(t, err)
-
-		return p
-	}
-
-	// As main stored them: the YAML as written, the provider checkModel found then.
-	bare := "name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n"
-	asWritten := func(p Profile) {
-		_, err := w.db.ExecContext(ctx, `UPDATE profile_versions SET source = ?, digest = ? WHERE id = ?`,
-			bare, sourceDigest(bare), p.VersionID)
-		require.NoError(t, err)
-	}
-
-	first := apply("claude-subscription", "claude-haiku-5-5")
-	asWritten(first)
-	apply("claude-subscription", "claude-opus-5-5")
-	second := apply("opencode-go", "claude-haiku-5-5")
-	asWritten(second)
-	apply("claude-subscription", "claude-opus-5-5")
-
-	restored, created, err := w.s.RestoreProfileVersion(ctx, "", "x", first.VersionID)
-	require.NoError(t, err)
-	assert.True(t, created)
-	assert.Equal(t, [2]string{"claude-subscription", "claude-haiku-5-5"}, [2]string{restored.Provider, restored.Model})
-
-	restored, _, err = w.s.RestoreProfileVersion(ctx, "", "x", second.VersionID)
-	require.NoError(t, err)
-	assert.Equal(t, "opencode-go", restored.Provider)
-
-	_, _, err = w.s.RestoreProfileVersion(ctx, "", "other", first.VersionID)
-	require.ErrorIs(t, err, ErrNotFound, "a version is restored under its own profile")
-
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: x\ndescription: other\nruntime: claude\n"+
-		"model: {name: claude-haiku-5-5}\n")
-	require.ErrorContains(t, err, "named without its provider")
-}
-
 // Scenario (review of PR #1000, round 3): a version from before migration 00123, whose YAML still writes the old
 // allowlist of web tools only, as 00123 left it beside the policy it re-expressed (every other family off). Restoring
 // it keeps node_exec off, as the page shows the version, and never widens the policy to the old YAML read anew.

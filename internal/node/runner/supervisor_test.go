@@ -535,7 +535,7 @@ func TestTheJournalIsReadOnceAcrossARestart(t *testing.T) {
 	require.Eventually(t, func() bool {
 		info, err := os.Stat(filepath.Join(dir, shim.JournalFile))
 
-		return err == nil && len(g.rt.last().seen()) == 2 && readOffset(dir) == info.Size()
+		return err == nil && len(g.rt.last().seen()) == 2 && checkpointOffset(dir) == info.Size()
 	}, 20*time.Second, 20*time.Millisecond, "the first two lines are read and the offset saved")
 
 	again := g.restart()
@@ -681,6 +681,21 @@ func TestRestartReclaimsTempBeforeShimPID(t *testing.T) {
 	require.ErrorContains(t, shim.Main(t.Context(), dir), "claiming permission")
 }
 
+// Scenario: issue #1219. An offer of a control plane that keeps a question's
+// several decisions lets the worker's tools take them.
+func TestAControlPlaneThatKeepsDecisionsLetsTheWorkerAskThem(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "ask")
+	d := g.dispatch()
+	d.Offer.QuestionParts = true
+
+	r := newReporter()
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
+	require.Eventually(t, func() bool { return r.asked() == 1 }, 20*time.Second, 20*time.Millisecond)
+	assert.True(t, bridge.QuestionPartsEnabled(bridge.Dir(g.sup.dir("dsp_1"))))
+}
+
 // Scenario: the worker asks the owner through its tool. The question is
 // reported, the control plane's id is recorded, the answer reaches the
 // waiting tool with the option's label, and it is acknowledged.
@@ -707,6 +722,8 @@ func TestAskIsRelayedAndAnswered(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, bridge.Agent{URL: "https://hypomnema.example", Key: "the-dispatch's-key",
 		Worktree: d.Offer.Worktree}, agent)
+	assert.False(t, bridge.QuestionPartsEnabled(bridge.Dir(g.sup.dir("dsp_1"))),
+		"a control plane that does not say it keeps several decisions is asked one question (issue #1219)")
 
 	g.sup.Asked("dsp_1", "rep_q", "q_1")
 
@@ -840,16 +857,22 @@ func TestReleaseWaitsForTheJournalReader(t *testing.T) {
 	assert.DirExists(t, dir, "releasing a worker leaves its journal in place")
 }
 
-// Scenario: a node takes a release while its workers run. The new daemon
-// reads on from the bare offset the earlier one wrote, with no turn state.
-func TestAnEarlierDaemonsOffsetIsRead(t *testing.T) {
+// checkpointOffset is how far the checkpoint in dir says the journal was read.
+func checkpointOffset(dir string) int64 {
+	n, _ := readCheckpoint(dir)
+
+	return n
+}
+
+// Scenario: a checkpoint is read back with the offset and the turn's state
+// it was written with; a missing one reads as nothing.
+func TestACheckpointIsReadBack(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, offsetFile), []byte("123"), 0o600))
 
 	n, state := readCheckpoint(dir)
-	assert.Equal(t, int64(123), n)
+	assert.Zero(t, n)
 	assert.Nil(t, state)
 
 	writeCheckpoint(dir, 456, []byte(`{"done":true}`))
@@ -906,6 +929,6 @@ func (g *rig) waitRead(n int) {
 	require.Eventually(g.t, func() bool {
 		info, err := os.Stat(filepath.Join(dir, shim.JournalFile))
 
-		return err == nil && len(g.rt.last().seen()) == n && readOffset(dir) == info.Size()
+		return err == nil && len(g.rt.last().seen()) == n && checkpointOffset(dir) == info.Size()
 	}, 20*time.Second, 20*time.Millisecond)
 }

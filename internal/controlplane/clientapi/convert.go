@@ -129,16 +129,22 @@ func toDispatch(d orchestration.Dispatch) openapi.Dispatch {
 }
 
 func toQuestion(q orchestration.Question) openapi.Question {
-	options := make([]openapi.Option, 0, len(q.Options))
-	for _, o := range q.Options {
-		options = append(options, openapi.Option{Label: o.Label, AllowsText: ptr(o.AllowsText)})
-	}
-
 	out := openapi.Question{
 		Id: q.ID, DispatchId: q.DispatchID, TaskId: q.TaskID, RunId: q.RunID, Mode: openapi.QuestionMode(q.Mode),
-		AddressedTo: openapi.Addressee(q.AddressedTo), Text: q.Text, Options: options,
+		AddressedTo: openapi.Addressee(q.AddressedTo), Header: ptr(q.Header), Text: q.Text,
+		Options: toOptions(q.Options), Summary: ptr(q.Summary),
 		Status: openapi.QuestionStatus(q.Status), CancelReason: ptr(q.CancelReason), AnsweredAt: q.AnsweredAt,
 		CreatedAt: q.CreatedAt,
+	}
+
+	// The more decisions of issue #1219; a question asked before has none, and none is listed.
+	if len(q.More) > 0 {
+		more := make([]openapi.QuestionPart, 0, len(q.More))
+		for _, p := range q.More {
+			more = append(more, openapi.QuestionPart{Header: ptr(p.Header), Text: p.Text, Options: toOptions(p.Options)})
+		}
+
+		out.More = &more
 	}
 
 	if q.AnsweredBy != "" {
@@ -147,6 +153,35 @@ func toQuestion(q orchestration.Question) openapi.Question {
 
 	if q.Answer != nil {
 		out.Answer = &openapi.Answer{Option: q.Answer.Option, Text: ptr(q.Answer.Text)}
+
+		if len(q.Answer.More) > 0 {
+			more := make([]openapi.Choice, 0, len(q.Answer.More))
+			for _, c := range q.Answer.More {
+				more = append(more, openapi.Choice{Option: c.Option, Text: ptr(c.Text)})
+			}
+
+			out.Answer.More = &more
+		}
+	}
+
+	return out
+}
+
+func toOptions(given []orchestration.Option) []openapi.Option {
+	out := make([]openapi.Option, 0, len(given))
+	for _, o := range given {
+		out = append(out, openapi.Option{Label: o.Label, Description: ptr(o.Description), AllowsText: ptr(o.AllowsText)})
+	}
+
+	return out
+}
+
+// answerOf is an answer for orchestration: the first decision's choice, and
+// the more's in their order.
+func answerOf(a openapi.Answer) orchestration.Answer {
+	out := orchestration.Answer{Option: a.Option, Text: val(a.Text)}
+	for _, c := range val(a.More) {
+		out.More = append(out.More, orchestration.Choice{Option: c.Option, Text: val(c.Text)})
 	}
 
 	return out

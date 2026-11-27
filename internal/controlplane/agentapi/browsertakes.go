@@ -40,9 +40,10 @@ func (s *Server) WithBrowserTakes(t BrowserTakes) *Server {
 // browserTakeTools are the tools' names.
 var browserTakeTools = []string{devicetool.BrowserVideoStart, devicetool.BrowserVideoSay, devicetool.BrowserVideoStop}
 
-// hasBrowserTakes says whether the caller gets them: an agent with its own tab.
+// hasBrowserTakes says whether the caller gets them: an agent with tools and its own tab; the coordinator token
+// and a Routine's script have a tab but film none.
 func (s *Server) hasBrowserTakes(a agent) bool {
-	return s.browserTakes != nil && s.hasBrowser(a)
+	return s.browserTakes != nil && s.browser != nil && a.hasAgentTools()
 }
 
 func browserTakeToolList() []agenttool.BrowserTool {
