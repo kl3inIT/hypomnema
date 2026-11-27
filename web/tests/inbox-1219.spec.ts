@@ -192,3 +192,21 @@ test("a long summary shows three lines and opens to the whole", async ({ page })
   expect(await text.evaluate((p) => p.scrollHeight <= p.clientHeight + 1)).toBe(true)
   await shot(page, "inbox-1219-long-summary-open")
 })
+
+// Scenario: review of PR #1228. A summary holding one long unbroken string, a SHA-256, wraps inside the card on a
+// phone instead of running past its edge, and opens to the whole when it runs past three lines.
+test("a summary with a long unbroken string wraps inside the card", async ({ page }) => {
+  const sha = "9f0fac2c88557f64cdbb4cc92cfd96192389403a" + "e3b0c44298fc1c149afbf4c8996fb924"
+  const summary = `Pushed ${sha}${sha} and checked it; the plan is in the issue.`
+  await serve(page, [{ ...twoDecisions, summary }])
+  await page.goto("/inbox?item=question%3Aqst_two")
+
+  const text = card(page).getByRole("region", { name: "The worker's summary" }).locator("p")
+  await expect(text).toContainText("Pushed")
+  expect(await text.evaluate((p) => p.scrollWidth <= p.clientWidth + 1)).toBe(true)
+
+  const overflows = await text.evaluate((p) => p.scrollHeight > p.clientHeight + 1)
+  await expect(card(page).getByRole("button", { name: "Show all" })).toHaveCount(overflows ? 1 : 0)
+  if ((page.viewportSize()?.width ?? 1280) < 600) expect(overflows).toBe(true)
+  await shot(page, "inbox-1219-long-string")
+})

@@ -491,7 +491,7 @@ func (a asked) ask(to string, parts bool) (nodeproto.Ask, error) {
 
 		out := nodeproto.Ask{Text: strings.TrimSpace(a.Question), Options: opts, To: to}
 		if !parts {
-			out = oneQuestion(out)
+			out = out.OneQuestion()
 		}
 
 		return out, nil
@@ -533,35 +533,12 @@ func (a asked) ask(to string, parts bool) (nodeproto.Ask, error) {
 	}
 
 	if !parts {
-		out = oneQuestion(out)
+		out = out.OneQuestion()
 	}
 
 	return out, nil
 }
 
-// oneQuestion is a question as a control plane before issue #1219 keeps it:
-// the header before the text, and each option's description listed after it,
-// since that control plane keeps neither.
-func oneQuestion(a nodeproto.Ask) nodeproto.Ask {
-	var b strings.Builder
-
-	if a.Header != "" {
-		b.WriteString(a.Header + ": ")
-	}
-
-	b.WriteString(a.Text)
-
-	for i, o := range a.Options {
-		if o.Description != "" {
-			fmt.Fprintf(&b, "\n%d. %s: %s", i+1, o.Label, o.Description)
-			a.Options[i].Description = ""
-		}
-	}
-
-	a.Header, a.Text = "", b.String()
-
-	return a
-}
 
 func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int, message string),
 ) (map[string]any, error) {

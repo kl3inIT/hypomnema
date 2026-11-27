@@ -444,6 +444,8 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		// The node looks for its release at once when this is newer than its own (issue #783).
 		ControlPlaneVersion: platform.Version,
 		EndTakes:            endTakes, DropTakes: dropTakes,
+		// This control plane keeps a question's several decisions (issue #1219).
+		QuestionParts: true,
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})

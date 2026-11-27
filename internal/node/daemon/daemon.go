@@ -179,6 +179,9 @@ type Daemon struct {
 	// version, both "" until the first hello; hellos is signaled after each hello (issue #783).
 	releaseURL          string
 	controlPlaneVersion string
+	// questionParts is what the control plane said at the last hello: it keeps a question's several decisions
+	// (issue #1219). A question reported on a connection without it is folded into one (oneQuestionOf).
+	questionParts bool
 	hellos              chan struct{}
 	// uploadNow has the takes' uploads tried at once (takes.go).
 	uploadNow chan struct{}
@@ -325,6 +328,7 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 	d.mu.Lock()
 	d.releaseURL = resp.ReleaseURL
 	d.controlPlaneVersion = resp.ControlPlaneVersion
+	d.questionParts = resp.QuestionParts
 	d.mu.Unlock()
 
 	d.settleTakes(ctx, resp)
@@ -720,10 +724,66 @@ func (d *Daemon) SendItems(b nodeproto.Items) bool {
 }
 
 func (d *Daemon) sendReport(r nodeproto.Report) {
+	d.mu.Lock()
+	parts := d.questionParts
+	d.mu.Unlock()
+
+	if !parts {
+		r = oneQuestionOf(r)
+	}
+
 	msg, err := nodeproto.Encode(nodeproto.TypeReport, r)
 	if err == nil {
 		d.send(msg)
 	}
+}
+
+// oneQuestionOf is a question or a final report's Gate as a control plane that did not say at hello that it keeps
+// several decisions takes it (issue #1219): folded into one by Ask.OneQuestion, so nothing is lost there. The
+// capability is the connection's, not the offer's: a Dispatch offered by a later control plane may report to an
+// earlier one after a reconnect (review of PR #1228). The outbox keeps the report as the worker made it, so a later
+// control plane is sent it whole.
+func oneQuestionOf(r nodeproto.Report) nodeproto.Report {
+	switch r.Kind {
+	case nodeproto.ReportQuestion:
+		var a nodeproto.Ask
+		if json.Unmarshal(r.Payload, &a) != nil || !needsFolding(a) {
+			return r
+		}
+
+		if raw, err := json.Marshal(a.OneQuestion()); err == nil {
+			r.Payload = raw
+		}
+	case nodeproto.ReportFinished:
+		var f nodeproto.Finished
+		if json.Unmarshal(r.Payload, &f) != nil || f.Gate == nil || !needsFolding(*f.Gate) {
+			return r
+		}
+
+		folded := f.Gate.OneQuestion()
+		f.Gate = &folded
+
+		if raw, err := json.Marshal(f); err == nil {
+			r.Payload = raw
+		}
+	}
+
+	return r
+}
+
+// needsFolding reports whether a question holds what a control plane before issue #1219 does not keep.
+func needsFolding(a nodeproto.Ask) bool {
+	if a.Header != "" || len(a.More) > 0 {
+		return true
+	}
+
+	for _, o := range a.Options {
+		if o.Description != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // submit queues a durable report in the outbox and sends it.

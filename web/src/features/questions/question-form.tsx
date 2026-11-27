@@ -168,9 +168,11 @@ function Summary({ text }: { text: string }) {
     const el = ref.current
     if (!el || typeof ResizeObserver === "undefined") return
 
-    // Measured only while clamped: open, the text is whole and nothing overflows.
+    // Measured only while clamped: open, the text is whole and nothing overflows. Long strings wrap anywhere (a
+    // SHA, a URL), and any width left over still counts (review of PR #1228).
     const measure = () => {
-      if (el.classList.contains("line-clamp-3")) setOverflows(el.scrollHeight > el.clientHeight + 1)
+      if (el.classList.contains("line-clamp-3"))
+        setOverflows(el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)
     }
     const observer = new ResizeObserver(measure)
     observer.observe(el)
@@ -183,7 +185,7 @@ function Summary({ text }: { text: string }) {
       <p
         ref={ref}
         className={cn(
-          "text-sm leading-relaxed whitespace-pre-wrap text-foreground/80",
+          "text-sm leading-relaxed wrap-anywhere whitespace-pre-wrap text-foreground/80",
           !open && "line-clamp-3",
         )}
       >

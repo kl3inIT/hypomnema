@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -600,6 +601,12 @@ type HelloResponse struct {
 	// EndTakes are takes the node is to end, and DropTakes ones it is to remove, of those it said it holds.
 	EndTakes  []TakeEnd `json:"end_takes,omitempty"`
 	DropTakes []string  `json:"drop_takes,omitempty"`
+	// QuestionParts says this control plane keeps a question's several
+	// decisions (issue #1219), as its offers do. The node folds a question it
+	// sends on a connection whose hello did not say it into one
+	// (Ask.OneQuestion): a Dispatch offered by a later control plane may
+	// report to an earlier one after a reconnect.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.
@@ -840,6 +847,61 @@ type Ask struct {
 	More    []Part   `json:"more,omitempty"`
 	// To is "coordinator" or "owner".
 	To string `json:"to"`
+}
+
+// OneQuestion is the question as a control plane before issue #1219 keeps
+// it, which stores one question's text and options' labels only: the header
+// before the text and each option's description after it. A question of
+// several decisions becomes one free-text question that lists each with its
+// options, to be answered in turn, since that control plane would keep only
+// the first decision and its choice; nothing is lost either way.
+func (a Ask) OneQuestion() Ask {
+	if len(a.More) == 0 {
+		var b strings.Builder
+
+		b.WriteString(titled(a.Header, a.Text))
+
+		options := make([]Option, len(a.Options))
+		for i, o := range a.Options {
+			if o.Description != "" {
+				b.WriteString("\n" + strconv.Itoa(i+1) + ". " + o.Label + ": " + o.Description)
+			}
+
+			options[i] = Option{Label: o.Label, AllowsText: o.AllowsText}
+		}
+
+		if len(a.Options) == 0 {
+			options = nil
+		}
+
+		return Ask{Text: b.String(), Options: options, To: a.To}
+	}
+
+	var b strings.Builder
+
+	b.WriteString("Answer each decision in turn:")
+
+	for i, p := range append([]Part{{Header: a.Header, Text: a.Text, Options: a.Options}}, a.More...) {
+		b.WriteString("\n" + strconv.Itoa(i+1) + ". " + titled(p.Header, p.Text))
+
+		for _, o := range p.Options {
+			b.WriteString("\n   - " + o.Label)
+
+			if o.Description != "" {
+				b.WriteString(": " + o.Description)
+			}
+		}
+	}
+
+	return Ask{Text: b.String(), To: a.To}
+}
+
+func titled(header, text string) string {
+	if header == "" {
+		return text
+	}
+
+	return header + ": " + text
 }
 
 // AnswerAck is the payload of an answer_ack report.
