@@ -4071,10 +4071,13 @@ capabilities do not exist yet.
   key's accounts in the request's context (`modelgateway.KeyAccounts`), and the control plane's wiring gives them
   to the subscriptions (`subscription.WithAccounts`), whose `Token`, `TokenFor` and `FirstFree` take only them, by
   every rule of the global order among them; when each is at its limit the request is answered 429 with
-  `Retry-After` and no other account is tried. A model whose every target's provider has none of the key's
-  accounts is refused 403 (`model_not_allowed`) and left out of its `/v1/models`; a provider served without
-  accounts is not limited. An account added later is not added; a key whose accounts are all removed keeps
-  `own_accounts` and uses none. Its own search order: `/v1/search` and `/v1/alpha/search` search with
+  `Retry-After` and no other account is tried. Such a 429 speaks for the key's accounts alone: it writes no
+  `gateway_model_cooling` row, which the scheduler reads for every worker; the key's round-robin turn is its own
+  cursor; the accounts' lists of models are read only of its accounts; an image asked of no provider goes only to
+  the image providers it has accounts of, so their wait is its answer. A model whose every target's provider has
+  none of the key's accounts is refused 403 (`model_not_allowed`) and left out of its `/v1/models`; a provider
+  served without accounts is not limited. An account added later is not added; a key whose accounts are all
+  removed keeps `own_accounts` and uses none, and its sheet saves a new name without touching that. Its own search order: `/v1/search` and `/v1/alpha/search` search with
   `websearch.Scope`, its providers first in its order and the others after in the chain's; a provider off stays off,
   Codex's and Claude's searches go under the key's accounts, and the cache and a subscription's rest are kept apart
   for a key with its own accounts. A Dispatch's or a chat's key has none, so the agent API's searches are unchanged.
