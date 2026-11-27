@@ -709,8 +709,8 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, evidence []
 // ownersChatMessage says whether a chat_message Link is a message the owner wrote (role owner and no sender, as
 // ownersMessage reads it); one that does not exist is not his.
 func ownersChatMessage(ctx context.Context, q *store.Queries, l Link) (bool, error) {
-	seq, err := strconv.ParseInt(l.Ref, 10, 64)
-	if err != nil {
+	seq, ok := number(l.Ref)
+	if !ok {
 		return false, nil
 	}
 
@@ -726,10 +726,17 @@ func ownersChatMessage(ctx context.Context, q *store.Queries, l Link) (bool, err
 	return m.Role == "owner" && !m.SenderID.Valid, nil
 }
 
+// number is a reference that is a number, such as a chat message's seq or an item's revision.
+func number(ref string) (int64, bool) {
+	n, err := strconv.ParseInt(ref, 10, 64)
+
+	return n, err == nil
+}
+
 // ownersComment says whether a comment Link is the owner's comment on the item, by the revision it made.
 func ownersComment(ctx context.Context, q *store.Queries, cur store.Todo, l Link) (bool, error) {
-	revision, err := strconv.ParseInt(l.Ref, 10, 64)
-	if err != nil {
+	revision, ok := number(l.Ref)
+	if !ok {
 		return false, nil
 	}
 
