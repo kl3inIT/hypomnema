@@ -130,8 +130,7 @@ type ArtifactRevision struct {
 type ArtifactShare struct {
 	ID              string
 	ArtifactID      string
-	TokenHash       sql.NullString
-	Token           sql.NullString
+	TokenHash       string
 	SecretVersionID sql.NullString
 	Label           string
 	CreatedAt       int64
@@ -410,15 +409,6 @@ type DispatchItem struct {
 	Kind       string
 	Data       string
 	CreatedAt  int64
-}
-
-type DispatchResource struct {
-	DispatchID string
-	Kind       string
-	Ref        string
-	Custody    string
-	CreatedAt  int64
-	ReleasedAt sql.NullInt64
 }
 
 type DispatchSkill struct {
@@ -718,22 +708,6 @@ type MemoryNote struct {
 type Model struct {
 	Provider string
 	Name     string
-}
-
-type ModelNameChange struct {
-	TaskID string
-	Model  string
-}
-
-type ModelNameConversion struct {
-	Done int64
-}
-
-type ModelProviderChange struct {
-	Record   string
-	ID       string
-	Model    string
-	Provider string
 }
 
 type Node struct {
@@ -1058,11 +1032,6 @@ type SetupChange struct {
 	UndoneAt  sql.NullInt64
 }
 
-type ShareTokenScrub struct {
-	ID    int64
-	Since int64
-}
-
 type Skill struct {
 	Name      string
 	Everyone  int64
@@ -1109,7 +1078,6 @@ type Task struct {
 	PushBranch        sql.NullString
 	StartFrom         sql.NullString
 	PrBase            sql.NullString
-	ModelUnresolved   int64
 }
 
 type TaskDep struct {

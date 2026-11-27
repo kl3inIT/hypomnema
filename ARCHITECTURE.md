@@ -319,7 +319,7 @@ main is numbered (`00143_inbox.sql`); a new one is made with `make migration-cre
 (`YYYYMMDDHHMMSS_name.sql`, which sorts after every number), and `make migration-fix` (goose `fix`) numbers it after
 main's last right before its pull request is merged; a push to main refuses one named by its time (issue #954). The
 schema
-holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
+holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects, account
 cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
@@ -413,7 +413,7 @@ sequenceDiagram
   hello again, as Omnara's daemon registers again when its heartbeat is refused (`machinedaemon/client.go:147-170`):
   the hello renews the lease, or offers the reattach once the Dispatch was marked unknown; it sends no heartbeat for
   a Dispatch whose reattach is still queued. Nothing else ends an unknown Dispatch: no timer
-  does, and `SettleUnknown` and `AbandonDispatch` in orchestration have no route or command. A cancel stops the Dispatch and cancels the Task only once
+  does, and no route or command settles one. A cancel stops the Dispatch and cancels the Task only once
   the stop is confirmed. Worker errors, failed launches and lost Dispatches count toward a breaker of three with a
   back-off before each retry; rate limits cool the account (runtime, account) down on every node and are not counted; a login
   that is needed blocks the Task. Every node call carries a request id and is answered once (receipts).
@@ -1457,15 +1457,7 @@ sequenceDiagram
     random bytes in base64url, kept as a credential is (issue #996, [Credentials](#credentials)): its SHA-256 finds
     the link, and a copy sealed in the vault (a generic secret named after the link, as an owner-made gateway key's
     value is) lets the owner copy it again; the lists open it. Without a vault's keys no link is made (503): none is
-    kept by its hash alone. A link made before (its token in plaintext until migration `credential_state`) is moved
-    as the control plane starts, before anything is served (`MoveShareTokens`, with `secure_delete` on), so its URL
-    keeps working; then the files are cleared (`ScrubShareTokens`: `VACUUM`, and `wal_checkpoint(TRUNCATE)`, whose
-    busy column must say it was done), so no plaintext is left in the database's files or its log. The migration
-    records what the files owe (`share_token_scrub`), cleared only once they are clear: a stop in between, or a
-    reader holding an older snapshot, leaves it, the start tries again every 30 s, and no link or file of one is served meanwhile
-    (503). Without the vault's keys an old link is neither moved, served, nor read back from its plaintext, which
-    is kept only until a start with the keys seals it, since the owner could never read it again otherwise; the
-    start logs how many wait. Only the owner
+    kept by its hash alone. Only the owner
     makes, lists and revokes links (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has
     no tool for it). Revoking marks the row with the reason and deletes its sealed copy; the Vault names a link as
     its copy's user and refuses to delete it. Deleting the artifact with its chat deletes its links
@@ -2291,30 +2283,10 @@ flowchart LR
   when the Task is made and when it is dispatched, with the names it could be written as ("name it
   <provider>/<model>, such as …", as omniroute's "Use provider/model prefix" and LiteLLM's "Pass model as E.g.
   huggingface/starcoder"); it is never resolved by which provider offers it, so a provider added later (OpenCode
-  Zen, #965) changes no meaning. A migration gave each Task's stored bare model the provider the code before
-  dispatched it under, read the way that code read it (`orchestration/model_names.go`, run by `Migrate` right
-  after `*_models_named_with_provider.sql` and before any later migration): the role-chain entry its last Dispatch
-  recorded, else the one provider that offers the whole name, slash and all, to the Task's runtime (its own, its
-  last Dispatch's version's, its role chain's first entry's, or its profile's), among the kinds before OpenCode
-  Zen; each change is kept in `model_name_changes`. A name it would not have placed is left as it was and marked
-  (`tasks.model_unresolved`): it is read whole, never at a slash it has, and refused when the Task is dispatched, as
-  the code before refused it; such a Task waits with the reason (the form to write the model in) and the owner is
-  told, and the other Tasks of the scheduler's pass go on. The way back restores each changed model and gives every
-  other Task named with its provider, one made after the upgrade too, its model's own name where the code before
-  would place that name at the same provider, among its runtime's kinds then, which have no Zen; for a role Task,
-  whose runtime the role chain's YAML picks, only when every runtime taking the provider's kind would; it keeps the
-  provider where it would not, so a provider of Zen's kind under any name keeps it. Zen's way back splits a Bot's
-  fallbacks at their commas, never as JSON, as a model's name may hold a quote. The migration also gives a profile version, a Bot or a chat that names a model without a provider the one
-  provider that offers it to its runtime (the version's, pi's for a Bot and a chat), among the kinds before Zen,
-  recorded in `model_provider_changes`; the way back leaves each without it again while it still names what the
-  conversion left it with. One two providers or none offer is left, and is refused with the form to write it in
-  wherever it would be used: at dispatch (`resolveVersion`), for the coordinator (`PiModel`) and on an edit that
-  leaves it alone (`keptModel`), so no bare model reaches a worker or pi. An edit that leaves a model with a single
-  provider alone (a Bot's persona, a chat's effort, an undone setup change) is accepted and stores that provider;
-  a new model needs its provider.
+  Zen, #965) changes no meaning.
   A profile version is restored by its id (`POST /profiles/{name}/versions/{version_id}/restore`, the profile page's
   Restore): its own source as the page shows it, with its tool policy as migration 00123 re-expressed it (never the
-  old allowlist its YAML still writes), and the provider that version recorded for a model the source names without one; the
+  old allowlist its YAML still writes); the
   same YAML under another provider is a new version. A name with an empty part (`opencode-go/`, `/`) is refused. The gateway itself already takes only `<provider>/<model>` or a name of its own
   table, and every worker and Bot is given those names. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against

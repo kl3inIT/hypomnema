@@ -100,9 +100,6 @@ WHERE id = @id AND (last_used_at IS NULL OR last_used_at <= CAST(@before AS INTE
 -- name: CountActiveDispatchesOfNode :one
 SELECT count(*) FROM dispatches WHERE node_id = @node_id AND status IN (sqlc.slice(statuses));
 
--- name: CountActiveDispatches :one
-SELECT count(*) FROM dispatches WHERE status IN (sqlc.slice(statuses));
-
 -- name: CountActiveDispatchesPerNode :many
 -- The unsettled Dispatches of each node, with the sum of their requests (issue #731).
 SELECT node_id, count(*) AS n, CAST(sum(cpu_millis) AS INTEGER) AS cpu_millis,

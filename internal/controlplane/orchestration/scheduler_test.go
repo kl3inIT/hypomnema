@@ -464,43 +464,6 @@ func TestABareModelHoldsOnlyItsOwnTask(t *testing.T) {
 		"name it <provider>/<model>, such as claude-subscription/claude-haiku-5-5 or opencode-go/claude-haiku-5-5")
 }
 
-// Scenario (review of PR #1000, round 2): two Tasks from before issue #1002 whose model has a slash and that the
-// migration could not place: opencode-go/twice, which two providers offer, and opencode-go/bar, which none does. Each
-// waits, refused as the code before refused it, and is never dispatched to Go's twice or bar; a third Task of the
-// same pass is dispatched.
-func TestALegacyUnresolvedModelIsNotReadAtItsSlash(t *testing.T) {
-	t.Parallel()
-
-	w := newWorld(t)
-	_, _, err := w.s.ApplyProfile(t.Context(), "",
-		"name: implementer\ndescription: d\nruntime: claude\n"+
-			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
-	require.NoError(t, err)
-	_, err = w.s.AddProviderModels(t.Context(), "opencode-go", []string{"opencode-go/twice", "twice", "bar"})
-	require.NoError(t, err)
-	_, err = w.s.AddProviderModels(t.Context(), "claude-subscription", []string{"opencode-go/twice"})
-	require.NoError(t, err)
-
-	w.gatewayAccount("claude")
-	w.gatewayAccount(OpenCodeGoRuntime)
-	tasks := w.tasks(
-		NewTask{Ref: "twice", Profile: "implementer", Spec: "twice"},
-		NewTask{Ref: "bar", Profile: "implementer", Spec: "bar"},
-		NewTask{Ref: "next", Profile: "implementer", Spec: "next"},
-	)
-	for id, model := range map[string]string{tasks[0].ID: "opencode-go/twice", tasks[1].ID: "opencode-go/bar"} {
-		_, err = w.db.ExecContext(t.Context(), `UPDATE tasks SET model = ?, model_unresolved = 1 WHERE id = ?`,
-			model, id)
-		require.NoError(t, err)
-	}
-
-	created := w.schedule().Created
-	require.Len(t, created, 1, "only the third Task is dispatched")
-	assert.Equal(t, tasks[2].ID, w.dispatchOf(created[0]).TaskID)
-	assert.Contains(t, w.task(tasks[0].ID).WaitingReason, `model "opencode-go/twice" is named without its provider`)
-	assert.Contains(t, w.task(tasks[1].ID).WaitingReason, `model "opencode-go/bar" is named without its provider`)
-}
-
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is
 // told once, with the reason; a Task with a runtime but no usable account
 // gets the other reason.

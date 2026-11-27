@@ -718,20 +718,18 @@ type Stop struct {
 
 // Report kinds: the node calls of the orchestration core (issue #19).
 const (
-	ReportAccept          = "accept"
-	ReportLowDisk         = "low_disk"
-	ReportStarted         = "started"
-	ReportHeartbeat       = "heartbeat"
-	ReportEffect          = "effect"
-	ReportPublishedHead   = "published_head"
-	ReportResource        = "resource"
-	ReportReleaseResource = "release_resource"
-	ReportQuestion        = "question"
-	ReportAnswerAck       = "answer_ack"
-	ReportFinished        = "finished"
-	ReportExited          = "exited"
-	ReportStopped         = "stopped"
-	ReportReattach        = "reattach"
+	ReportAccept        = "accept"
+	ReportLowDisk       = "low_disk"
+	ReportStarted       = "started"
+	ReportHeartbeat     = "heartbeat"
+	ReportEffect        = "effect"
+	ReportPublishedHead = "published_head"
+	ReportQuestion      = "question"
+	ReportAnswerAck     = "answer_ack"
+	ReportFinished      = "finished"
+	ReportExited        = "exited"
+	ReportStopped       = "stopped"
+	ReportReattach      = "reattach"
 )
 
 // PublishedHead reports a branch update performed by the node for this Dispatch.
@@ -795,13 +793,6 @@ type Effect struct {
 	Ref     string `json:"ref"`
 	Phase   string `json:"phase"`
 	Payload string `json:"payload,omitempty"`
-}
-
-// Resource is the payload of a resource or release_resource report.
-type Resource struct {
-	Kind    string `json:"kind"`
-	Ref     string `json:"ref"`
-	Custody string `json:"custody,omitempty"`
 }
 
 // Option is one choice of a question.

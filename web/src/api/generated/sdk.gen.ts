@@ -2485,7 +2485,7 @@ export const listProfileVersions = <ThrowOnError extends boolean = true>(options
 /**
  * Apply one of a profile's versions again; the owner, or the main Bot from its chat
  *
- * Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+ * Applies that version's own source again, as ApplyProfile does.
  */
 export const restoreProfileVersion = <ThrowOnError extends boolean = true>(options: Options<RestoreProfileVersionData, ThrowOnError>): RequestResult<RestoreProfileVersionResponses, RestoreProfileVersionErrors, ThrowOnError> => (options.client ?? client).post<RestoreProfileVersionResponses, RestoreProfileVersionErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

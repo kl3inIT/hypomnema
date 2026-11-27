@@ -4271,7 +4271,7 @@ export const listProfileVersionsOptions = (options: Options<ListProfileVersionsD
 /**
  * Apply one of a profile's versions again; the owner, or the main Bot from its chat
  *
- * Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+ * Applies that version's own source again, as ApplyProfile does.
  */
 export const restoreProfileVersionMutation = (options?: Partial<Options<RestoreProfileVersionData>>): UseMutationOptions<RestoreProfileVersionResponse, RestoreProfileVersionError, Options<RestoreProfileVersionData>> => {
   const mutationOptions: UseMutationOptions<RestoreProfileVersionResponse, RestoreProfileVersionError, Options<RestoreProfileVersionData>> = {

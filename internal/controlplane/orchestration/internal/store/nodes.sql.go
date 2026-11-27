@@ -97,27 +97,6 @@ func (q *Queries) CountAccountsFreeAfter(ctx context.Context, arg CountAccountsF
 	return count, err
 }
 
-const countActiveDispatches = `-- name: CountActiveDispatches :one
-SELECT count(*) FROM dispatches WHERE status IN (/*SLICE:statuses*/?)
-`
-
-func (q *Queries) CountActiveDispatches(ctx context.Context, statuses []string) (int64, error) {
-	query := countActiveDispatches
-	var queryParams []interface{}
-	if len(statuses) > 0 {
-		for _, v := range statuses {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:statuses*/?", strings.Repeat(",?", len(statuses))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:statuses*/?", "NULL", 1)
-	}
-	row := q.db.QueryRowContext(ctx, query, queryParams...)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countActiveDispatchesOfNode = `-- name: CountActiveDispatchesOfNode :one
 SELECT count(*) FROM dispatches WHERE node_id = ?1 AND status IN (/*SLICE:statuses*/?)
 `

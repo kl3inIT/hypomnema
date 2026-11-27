@@ -26,9 +26,6 @@ UPDATE bots SET name = @name, updated_at = @now WHERE id = @id;
 -- name: GetBot :one
 SELECT * FROM bots WHERE id = @id;
 
--- name: GetBotByName :one
-SELECT * FROM bots WHERE name = @name;
-
 -- name: ToolDisplayOfChat :one
 -- What the chat's Bot shows of its tool calls (issue #441).
 SELECT b.tool_display FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = @chat_id;

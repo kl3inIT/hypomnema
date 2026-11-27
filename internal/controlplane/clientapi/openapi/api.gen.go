@@ -11881,7 +11881,7 @@ type ClientInterface interface {
 
 	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 	RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -18003,7 +18003,7 @@ func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors 
 
 // RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 func (c *Client) RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -36434,7 +36434,7 @@ type ClientWithResponsesInterface interface {
 
 	// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -55860,7 +55860,7 @@ func (c *ClientWithResponses) ListProfileVersionsWithResponse(ctx context.Contex
 
 // RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Returns a wrapper object for the known response body format(s).
 //

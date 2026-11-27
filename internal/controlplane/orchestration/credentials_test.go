@@ -1,11 +1,8 @@
 package orchestration
 
 import (
-	"bytes"
 	"database/sql"
-	"errors"
 	"io/fs"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,8 +15,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // credentialWorld is a world wired as the control plane wires it for credentials (issue #996): the gateway's
@@ -99,14 +94,11 @@ func TestAShareLinkIsKeptHashedAndSealedNeverInPlaintext(t *testing.T) {
 	require.Len(t, sh.Token, 43)
 
 	var (
-		token          sql.NullString
 		hash, version  string
 		inPlainSecrets int
 	)
 	require.NoError(t, w.db.QueryRowContext(ctx,
-		"SELECT token, token_hash, secret_version_id FROM artifact_shares WHERE id = ?", sh.ID).
-		Scan(&token, &hash, &version))
-	assert.False(t, token.Valid, "no plaintext token")
+		"SELECT token_hash, secret_version_id FROM artifact_shares WHERE id = ?", sh.ID).Scan(&hash, &version))
 	assert.Equal(t, bearertoken.Hash(sh.Token), hash)
 	assert.NotEmpty(t, version, "a sealed copy")
 
@@ -149,258 +141,6 @@ func TestAShareLinkIsKeptHashedAndSealedNeverInPlaintext(t *testing.T) {
 	assert.Empty(t, listed)
 
 	require.ErrorIs(t, w.s.DeleteArtifactShare(ctx, sh.ID), ErrNotFound)
-}
-
-// legacyLinkDB makes a database that holds a link from before tokens were hashed, its token in plaintext, migrated
-// since and closed, as `hypomnema migrate` leaves it before the control plane starts. It returns the file, the link,
-// and the keyring its vault seals with.
-func legacyLinkDB(t *testing.T) (string, ArtifactShare, *vault.Keyring) {
-	t.Helper()
-
-	ctx := t.Context()
-	path := sqlitetest.Migrated(t, Migrate)
-	keys := testKeys(t)
-
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: path})
-	require.NoError(t, err)
-
-	s := New(db, &fakeClock{now: t0}, platform.NewID).WithShareVault(testVaultWith(db, keys).Copies())
-
-	chat, err := s.CreateChat(ctx, "", "")
-	require.NoError(t, err)
-	a, _, err := s.ShowArtifact(ctx, ArtifactMaker{Bot: chat.Bot, Chat: chat.ID},
-		ShowArtifact{Title: "Sales", Pack: page(t, "<p>sales")})
-	require.NoError(t, err)
-	sh, err := s.CreateArtifactShare(ctx, a.ID, "Laura")
-	require.NoError(t, err)
-
-	// The link as the schema before kept it: the migration's way down keeps a link whose plaintext it still has.
-	_, err = db.ExecContext(ctx, "UPDATE artifact_shares SET token = ? WHERE id = ?", sh.Token, sh.ID)
-	require.NoError(t, err)
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.DownTo(ctx, credentialStateBefore(t))
-	require.NoError(t, err)
-
-	var old string
-	require.NoError(t, db.QueryRowContext(ctx, "SELECT token FROM artifact_shares WHERE id = ?", sh.ID).Scan(&old))
-	require.Equal(t, sh.Token, old, "the link from before, in plaintext")
-
-	// Up to the credential migration only: a later migration may rewrite the pages that still hold the plaintext,
-	// and what these tests look at is what this one left (main gained 00152_video_looks after it).
-	_, err = p.UpTo(ctx, credentialState(t))
-	require.NoError(t, err)
-	require.NoError(t, db.Close())
-
-	return path, sh, keys
-}
-
-// onDisk reports whether the database's files hold the bytes: the file itself, its write-ahead log and its index.
-func onDisk(t *testing.T, path, value string) bool {
-	t.Helper()
-
-	for _, name := range []string{path, path + "-wal", path + "-shm"} {
-		data, err := os.ReadFile(name) //nolint:gosec // the test's own database
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-
-		require.NoError(t, err)
-
-		if bytes.Contains(data, []byte(value)) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// openLegacy opens the database legacyLinkDB made, with a Service whose vault seals with keys (none for nil).
-func openLegacy(t *testing.T, path string, keys *vault.Keyring) (*sql.DB, *Service) {
-	t.Helper()
-
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: path})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	return db, New(db, &fakeClock{now: t0}, platform.NewID).WithShareVault(testVaultWith(db, keys).Copies())
-}
-
-// Scenario (issue #996): a database holds a link from before tokens were hashed. The control plane starts on it
-// after `hypomnema migrate` closed it, moves the link and clears the files: its URL still opens, the owner reads it
-// from the vault, and its plaintext is nowhere in the database's files any more, though it was there before (the
-// migration's rebuild and the write-ahead log kept it). A second move finds nothing.
-func TestALinkFromBeforeStillOpensAfterTheMigrationAndTheMove(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-	path, sh, keys := legacyLinkDB(t)
-	require.True(t, onDisk(t, path, sh.Token), "the plaintext is in the file before the move")
-
-	db, s := openLegacy(t, path, keys)
-
-	move, err := s.MoveShareTokens(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, ShareTokenMove{Moved: 1}, move)
-
-	done, err := s.ScrubShareTokens(ctx)
-	require.NoError(t, err)
-	assert.True(t, done)
-	assert.False(t, onDisk(t, path, sh.Token), "no plaintext is left in the files after the move")
-
-	shown, err := s.SharedArtifact(ctx, sh.Token)
-	require.NoError(t, err)
-	assert.Equal(t, sh.ID, shown.ShareID, "its URL still opens")
-
-	listed, err := s.ListArtifactShares(ctx, sh.ArtifactID)
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Equal(t, sh.Token, listed[0].Token, "read again from the vault")
-
-	move, err = s.MoveShareTokens(ctx)
-	require.NoError(t, err)
-	assert.Zero(t, move)
-
-	require.NoError(t, db.Close())
-	assert.False(t, onDisk(t, path, sh.Token), "nor once it is closed")
-}
-
-// Scenario (issue #996, review of #999): the control plane stops after the move's commit and before it clears the
-// files. The next start finds nothing to move, but what the files owe is recorded: no link is served until it clears
-// them, which it then does.
-func TestAStopBetweenTheMoveAndTheClearingIsFinishedAtTheNextStart(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-	path, sh, keys := legacyLinkDB(t)
-
-	db, s := openLegacy(t, path, keys)
-	move, err := s.MoveShareTokens(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 1, move.Moved)
-	require.NoError(t, db.Close(), "stopped before the clearing")
-	require.True(t, onDisk(t, path, sh.Token), "the plaintext is still in the files")
-
-	_, s = openLegacy(t, path, keys)
-
-	move, err = s.MoveShareTokens(ctx)
-	require.NoError(t, err)
-	assert.Zero(t, move, "nothing is left to move")
-
-	_, err = s.SharedArtifact(ctx, sh.Token)
-	require.ErrorIs(t, err, ErrUnavailable, "no link is served while the files owe their clearing")
-
-	done, err := s.ScrubShareTokens(ctx)
-	require.NoError(t, err)
-	assert.True(t, done)
-	assert.False(t, onDisk(t, path, sh.Token))
-
-	_, err = s.SharedArtifact(ctx, sh.Token)
-	require.NoError(t, err)
-}
-
-// Scenario (issue #996, review of #999): another connection holds a read of an older snapshot while the files are
-// cleared. The log cannot be written back, so the clearing is not done and no link is served; once the reader ends,
-// the next try clears the files.
-func TestAReaderHoldingASnapshotDelaysTheClearing(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-	path, sh, keys := legacyLinkDB(t)
-
-	_, s := openLegacy(t, path, keys)
-	move, err := s.MoveShareTokens(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 1, move.Moved)
-
-	other, err := sqlite.Open(ctx, sqlite.Config{Path: path})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = other.Close() })
-
-	reader, err := other.Conn(ctx)
-	require.NoError(t, err)
-	_, err = reader.ExecContext(ctx, "BEGIN DEFERRED")
-	require.NoError(t, err)
-
-	var n int
-	require.NoError(t, reader.QueryRowContext(ctx, "SELECT count(*) FROM artifact_shares").Scan(&n))
-
-	done, _ := s.ScrubShareTokens(ctx)
-	assert.False(t, done, "the checkpoint is busy")
-
-	_, err = s.SharedArtifact(ctx, sh.Token)
-	require.ErrorIs(t, err, ErrUnavailable)
-
-	_, err = reader.ExecContext(ctx, "COMMIT")
-	require.NoError(t, err)
-	require.NoError(t, reader.Close())
-
-	done, err = s.ScrubShareTokens(ctx)
-	require.NoError(t, err)
-	assert.True(t, done)
-	assert.False(t, onDisk(t, path, sh.Token))
-
-	_, err = s.SharedArtifact(ctx, sh.Token)
-	require.NoError(t, err)
-}
-
-// Scenario (issue #996): the control plane starts without its vault's keys on a database with a link from before.
-// The link is not served and its plaintext is not read back to the owner: it is kept only until a vault seals it,
-// since without a sealed copy he could never read it again; the move says it waits. A new link is refused rather
-// than kept by its hash alone. Once the keys are back, the next start moves it and clears the files.
-func TestWithoutTheVaultALinkFromBeforeWaitsAndNoLinkIsMade(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-	path, sh, keys := legacyLinkDB(t)
-
-	db, s := openLegacy(t, path, nil)
-
-	move, err := s.MoveShareTokens(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, ShareTokenMove{Waiting: 1}, move)
-
-	done, err := s.ScrubShareTokens(ctx)
-	require.NoError(t, err)
-	assert.False(t, done, "nothing is cleared while a token waits")
-
-	var plain sql.NullString
-	require.NoError(t, db.QueryRowContext(ctx, "SELECT token FROM artifact_shares WHERE id = ?", sh.ID).Scan(&plain))
-	assert.Equal(t, sh.Token, plain.String, "kept until it can be sealed")
-
-	_, err = s.SharedArtifact(ctx, sh.Token)
-	require.ErrorIs(t, err, ErrUnavailable, "not served from its plaintext")
-
-	listed, err := s.ListArtifactShares(ctx, sh.ArtifactID)
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Empty(t, listed[0].Token, "nor read back from it")
-
-	_, err = s.CreateArtifactShare(ctx, sh.ArtifactID, "Huy")
-	require.ErrorIs(t, err, ErrUnavailable, "no link is kept by its hash alone")
-
-	all, err := s.ListSharedLinks(ctx)
-	require.NoError(t, err)
-	assert.Len(t, all, 1, "the refused link was not made")
-
-	s = New(db, &fakeClock{now: t0}, platform.NewID).WithShareVault(testVaultWith(db, keys).Copies())
-
-	move, err = s.MoveShareTokens(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, ShareTokenMove{Moved: 1}, move)
-
-	done, err = s.ScrubShareTokens(ctx)
-	require.NoError(t, err)
-	assert.True(t, done)
-
-	_, err = s.SharedArtifact(ctx, sh.Token)
-	require.NoError(t, err, "served once sealed")
-
-	listed, err = s.ListArtifactShares(ctx, sh.ArtifactID)
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Equal(t, sh.Token, listed[0].Token, "read from the vault now")
 }
 
 // credentialStateBefore returns the version of the migration before this one, which `make migration-fix` renumbers

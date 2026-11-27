@@ -430,7 +430,7 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 	b := before.bot(r.Name)
 
 	// What it was may no longer be served or exist: say so rather than put back a Bot that cannot run.
-	provider, err := keptModel(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
+	provider, err := checkModel(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
 	if err != nil {
 		return err
 	}
@@ -473,7 +473,7 @@ func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, 
 		return notFound(err, "profile", r.Name)
 	}
 
-	if _, err := keptModel(ctx, q, before.Runtime, before.Provider.String, before.Model.String,
+	if _, err := checkModel(ctx, q, before.Runtime, before.Provider.String, before.Model.String,
 		before.Effort.String); err != nil {
 		return fmt.Errorf("profile %s as it was: %w", r.Name, err)
 	}
