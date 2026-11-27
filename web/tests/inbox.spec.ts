@@ -505,6 +505,14 @@ function world({
   return {
     sent,
     files,
+    give(id: string, bot: string, chat: string) {
+      const t = todos.find((each) => each.id === id)!
+      Object.assign(t, {
+        assignee: { kind: "bot", name: bot },
+        chat_id: chat,
+        revision: t.revision + 1,
+      })
+    },
     hold() {
       held = new Promise((done) => (release = done))
     },
@@ -573,6 +581,10 @@ function world({
 
               return json({ path: up.path, sha256: "x" })
             }
+            case "file":
+              files.delete(url.searchParams.get("path") ?? "")
+
+              return route.fulfill({ status: 204 })
             case "raw": {
               const file = files.get(url.searchParams.get("path") ?? "")
 
@@ -1468,6 +1480,52 @@ test("the Inbox hands over files and shows a pasted screenshot in an owner comme
   })
   await preview.click()
   await expect(page.getByRole("dialog").getByRole("img", { name: "image.png" })).toBeVisible()
+})
+
+// The detail refetches while the owner is writing. Both a Hand in another tab
+// and a subsequent pass change the destination of the same unsent draft.
+test("a Hand in another tab and a pass keep the Inbox draft", async ({ page }) => {
+  const w = world()
+  await w.serve(page)
+  await page.clock.install()
+  await page.goto("/inbox?item=todo%3Atdo_invoice")
+  const comments = item(page).getByRole("region", { name: "Comments" })
+  const box = comments.getByRole("textbox", { name: "Message" })
+  const picker = comments.getByLabel("Files to attach")
+  const chips = comments.getByLabel("Files to send")
+  const bytes = Buffer.from("Check the November rate")
+  await expect(picker).toBeAttached()
+  await box.fill("Please check this rate.")
+  await picker.setInputFiles({ name: "rate.txt", mimeType: "text/plain", buffer: bytes })
+  await expect.poll(() => w.files.size).toBe(1)
+
+  for (const [chat, bot, label] of [
+    ["cht_other_tab", "bot_main", "Hypo"],
+    ["cht_passed", "bot_beyond", "BeyondPilot"],
+  ] as const) {
+    w.give("tdo_invoice", bot, chat)
+    await page.clock.fastForward(11_000)
+    await expect(
+      comments.getByRole("link", { name: `Open ${label}'s chat for this item` }),
+    ).toHaveAttribute("href", `/chats/${chat}`, { timeout: 15_000 })
+    await expect(box).toHaveValue("Please check this rate.")
+    await expect(chips.getByText("rate.txt")).toBeVisible()
+    await expect.poll(() => w.files.get(`attachments/${chat}/rate.txt`)?.bytes).toEqual(bytes)
+    await expect.poll(() => [...w.files.keys()]).toEqual([`attachments/${chat}/rate.txt`])
+  }
+
+  await comments.getByRole("button", { name: "Send", exact: true }).click()
+  await expect
+    .poll(() => w.sent[0])
+    .toMatchObject({
+      path: "/inbox/tdo_invoice/comments",
+      body: {
+        text: "Please check this rate.",
+        attachments: [{ path: "attachments/cht_passed/rate.txt" }],
+      },
+    })
+  await expect(comments.getByRole("link", { name: "Download rate.txt" })).toBeVisible()
+  expect(w.files.get("attachments/cht_passed/rate.txt")?.bytes).toEqual(bytes)
 })
 
 // Scenario: issue #1143, Logic 6. Hypo closed the fix as done: its line is the violet "closed it as done" with its

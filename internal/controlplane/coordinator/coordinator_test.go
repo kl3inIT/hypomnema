@@ -824,7 +824,8 @@ func TestPiIsGivenThePathsOfTheOwnersFiles(t *testing.T) {
 		"- attachments/cht_1/notes (file, 5 bytes)",
 		"\n\n",
 		"The owner attached these files, in your working directory:\n",
-		"- attachments/cht_1/a.png (image/png, 3 bytes)"), got)
+		"- attachments/cht_1/a.png (image/png, 3 bytes)\n",
+		"Use the read tool to view the attached images."), got)
 }
 
 func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
