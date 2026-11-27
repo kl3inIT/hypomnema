@@ -841,6 +841,7 @@ type PullRequestCi struct {
 	Failed     string
 	ReadAt     int64
 	Version    int64
+	Completed  string
 	UpdatedAt  int64
 }
 

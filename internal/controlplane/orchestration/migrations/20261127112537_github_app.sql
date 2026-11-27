@@ -42,6 +42,9 @@ CREATE TABLE pull_request_ci (
     failed     TEXT    NOT NULL DEFAULT '',
     read_at    INTEGER NOT NULL DEFAULT 0,
     version    INTEGER NOT NULL DEFAULT 0,
+    -- When the head's last check ended, as GitHub says it (RFC 3339, UTC); '' while none did, or when an event set
+    -- the row. Of two reads of a head that ended, the later end is kept (review round 4).
+    completed  TEXT    NOT NULL DEFAULT '',
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (repository, number)
 ) STRICT;

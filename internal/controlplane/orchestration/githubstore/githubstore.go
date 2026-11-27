@@ -193,6 +193,9 @@ type CI struct {
 	// Version grows with each change of the row: a read of GitHub's that began at one keeps what it found only while
 	// the row is still at it (KeepRead).
 	Version int64
+	// Completed is when the head's last check ended, as GitHub says it (RFC 3339, UTC); "" while none did, or when an
+	// event set the CI. Of two reads of a head that ended, the later end is kept (KeepRead).
+	Completed string
 }
 
 // WatchCI starts keeping the CI of a pull request, unless it is kept already, and returns it. Pull
@@ -233,7 +236,7 @@ func (s *Store) CIOf(ctx context.Context, repository string, number int) (CI, bo
 
 	ci := CI{
 		Repository: r.Repository, Number: int(r.Number), Head: r.Head, State: CIState(r.State),
-		UpdatedAt: time.UnixMilli(r.UpdatedAt), Version: r.Version,
+		UpdatedAt: time.UnixMilli(r.UpdatedAt), Version: r.Version, Completed: r.Completed,
 	}
 	if r.Failed != "" {
 		ci.Failed = strings.Split(r.Failed, "\n")
@@ -263,7 +266,8 @@ func (s *Store) SetCI(ctx context.Context, ci CI, read bool) (bool, error) {
 
 		n, err := q.SetPullRequestCI(ctx, store.SetPullRequestCIParams{
 			Head: strings.ToLower(ci.Head), State: string(ci.State), Failed: strings.Join(ci.Failed, "\n"),
-			ReadAt: readAt, Now: now, Repository: strings.ToLower(ci.Repository), Number: int64(ci.Number),
+			ReadAt: readAt, Completed: ci.Completed, Now: now, Repository: strings.ToLower(ci.Repository),
+			Number: int64(ci.Number),
 		})
 		kept = n == 1
 
@@ -279,15 +283,18 @@ func (s *Store) SetCI(ctx context.Context, ci CI, read bool) (bool, error) {
 // KeepRead keeps what a read of GitHub's found of a pull request's CI, read now, when its row is still at the version
 // the read began from, and says whether it was kept. An event that changed the row while GitHub was read, such as a
 // new head's reset, wins: the read found the old head (issue #1262, review round 2). One exception: a read that found
-// the row's own head ended (passed, failed, merged or closed) while the row says pending is newer, and is kept even
-// if another read of that head was kept first (review round 3).
+// the row's own head passed or failed is kept when the row says pending (review round 3) or ended earlier by GitHub's
+// completed time, a rerun (review round 4). A read that found the pull request merged or closed never wins so: a
+// reopen's pending stands, and only the pull_request events, or a read with nothing changed since it began, close
+// it (review round 4).
 func (s *Store) KeepRead(ctx context.Context, ci CI, version int64) (bool, error) {
 	var kept bool
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		n, err := q.SetPullRequestCIIfUnchanged(ctx, store.SetPullRequestCIIfUnchangedParams{
 			Head: strings.ToLower(ci.Head), State: string(ci.State), Failed: strings.Join(ci.Failed, "\n"), Now: now,
-			Repository: strings.ToLower(ci.Repository), Number: int64(ci.Number), Version: version,
+			Completed: ci.Completed, Repository: strings.ToLower(ci.Repository), Number: int64(ci.Number),
+			Version: version,
 		})
 		kept = n == 1
 

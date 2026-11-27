@@ -539,7 +539,7 @@ func (a *App) readCI(ctx context.Context, repo string, number int, token string,
 		return githubstore.CI{}, errors.New(strings.ReplaceAll(err.Error(), token, "[token]"))
 	}
 
-	ci := githubstore.CI{Repository: repo, Number: number, Head: st.Head, State: ciStateOf(st)}
+	ci := githubstore.CI{Repository: repo, Number: number, Head: st.Head, State: ciStateOf(st), Completed: st.Completed}
 	if ci.State == githubstore.CIFailed {
 		ci.Failed = st.Failing
 	}

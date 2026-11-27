@@ -2628,8 +2628,10 @@ flowchart LR
       `reopened` resets that wait to pending at the new head, unread, so the next ask reads the new head's checks;
       each change of the row grows its `version`, and a read of GitHub's keeps what it found only when the row is
       still at the version the read began from, so a read of the old head that ends after the reset never
-      overwrites it, and the wait answers from the row as kept; a read that found the row's own head ended, while
-      the row says pending, is newer and is kept even when another read of that head was kept first;
+      overwrites it, and the wait answers from the row as kept; a read that found the row's own head passed or
+      failed is kept even when another write came first, if the row says pending or ended earlier by the checks'
+      `completedAt` (a rerun of the head: the later end wins), but a read that found the pull request merged or
+      closed never wins so, and a reopen's pending stands;
       `pull_request` `closed` marks it merged or closed and settles a followed pull request (#1053) without reading
       GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
     - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks

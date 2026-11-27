@@ -43,6 +43,10 @@ type RequestState struct {
 	Checks  int
 	Pending []string
 	Failing []string
+	// Completed is when the last of those checks ended, as GitHub says it (a check run's completedAt, a status's
+	// createdAt), RFC 3339 in UTC; "" while none ended. A rerun on the same head ends later (issue #1262, review round
+	// 4).
+	Completed string
 }
 
 // ErrNoRequest says a branch has no open pull request (yet).
@@ -246,7 +250,7 @@ func githubReadRequest(ctx context.Context, client *http.Client, r Request, toke
 	}
 
 	state.Failed = failedRequired(checks)
-	state.Checks, state.Pending, state.Failing = ciOf(checks)
+	state.Checks, state.Pending, state.Failing, state.Completed = ciOf(checks)
 
 	return state, nil
 }
@@ -301,7 +305,7 @@ const githubRequestGraphQL = `query($owner: String!, $name: String!, $number: In
                   __typename
                   ... on StatusContext { context state createdAt isRequired(pullRequestNumber: $number) }
                   ... on CheckRun {
-                    name status conclusion startedAt isRequired(pullRequestNumber: $number)
+                    name status conclusion startedAt completedAt isRequired(pullRequestNumber: $number)
                     checkSuite { workflowRun { event workflow { name } } }
                   }
                 }
@@ -349,15 +353,16 @@ func githubRequestQuery(ctx context.Context, r Request, after string) (*http.Req
 
 // githubCheck is a CheckRun or a StatusContext of the rollup.
 type githubCheck struct {
-	Name       string `json:"name"`
-	Context    string `json:"context"`
-	State      string `json:"state"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	StartedAt  string `json:"startedAt"`
-	CreatedAt  string `json:"createdAt"`
-	IsRequired bool   `json:"isRequired"`
-	CheckSuite struct {
+	Name        string `json:"name"`
+	Context     string `json:"context"`
+	State       string `json:"state"`
+	Status      string `json:"status"`
+	Conclusion  string `json:"conclusion"`
+	StartedAt   string `json:"startedAt"`
+	CompletedAt string `json:"completedAt"`
+	CreatedAt   string `json:"createdAt"`
+	IsRequired  bool   `json:"isRequired"`
+	CheckSuite  struct {
 		WorkflowRun struct {
 			Event    string `json:"event"`
 			Workflow struct {
@@ -498,7 +503,7 @@ func failedRequired(checks []githubCheck) []string {
 // failed, each check by its newest run, in gh's buckets (aggregate.go:38-120): a check run not COMPLETED or a status
 // PENDING or EXPECTED is pending; a failure, an error, a time-out, an action required or a cancel fails. The required checks
 // are looked at, or every check when none is required.
-func ciOf(checks []githubCheck) (int, []string, []string) {
+func ciOf(checks []githubCheck) (int, []string, []string, string) {
 	newest := newestRuns(checks)
 
 	looked := make([]githubCheck, 0, len(newest))
@@ -512,7 +517,10 @@ func ciOf(checks []githubCheck) (int, []string, []string) {
 		looked = newest
 	}
 
-	var pending, failing []string
+	var (
+		pending, failing []string
+		completed        string
+	)
 
 	for _, c := range looked {
 		name := c.Name
@@ -531,15 +539,25 @@ func ciOf(checks []githubCheck) (int, []string, []string) {
 		switch state {
 		case "PENDING", "EXPECTED", "":
 			pending = append(pending, name)
+
+			continue
 		case "ERROR", "FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "CANCELLED": //nolint:misspell // GitHub's value
 			failing = append(failing, name)
 		}
+
+		ended := c.CompletedAt
+		if c.Context != "" {
+			ended = c.CreatedAt
+		}
+
+		// RFC 3339 times in UTC, as GitHub gives them, compare as strings.
+		completed = max(completed, ended)
 	}
 
 	slices.Sort(pending)
 	slices.Sort(failing)
 
-	return len(looked), pending, failing
+	return len(looked), pending, failing, completed
 }
 
 // newestRuns keeps each check's newest run (gh's eliminateDuplicates, aggregate.go:96-120).
