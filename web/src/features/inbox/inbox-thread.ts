@@ -34,7 +34,18 @@ const priorityNames = ["No priority", "Urgent", "High", "Medium", "Low"]
 // a comment to @copilot does on GitHub; Send is pressed by the owner on a draft, as inbox-zero's and Zero Mail's.
 
 export type ThreadEntry =
-  | { kind: "comment"; id: number; at: string; actor: TodoEvent["actor"]; text: string }
+  | {
+      kind: "comment"
+      id: number
+      at: string
+      actor: TodoEvent["actor"]
+      text: string
+      // What a Bot's comment carries (issue #1207): the paths of its files in the Bot's folder, read through chat,
+      // and the ids of its Artifacts.
+      files: string[]
+      chat?: string
+      artifacts: string[]
+    }
   | { kind: "activity"; id: number; at: string; event: TodoEvent }
   | {
       kind: "steps"
@@ -133,10 +144,19 @@ export function threadOf(events: readonly TodoEvent[] = []): ThreadEntry[] {
   }
 
   for (const event of events) {
-    const text = (event.after as Record<string, unknown>).text
-    if (event.kind === "commented" && typeof text === "string") {
+    const after = event.after as Record<string, unknown>
+    if (event.kind === "commented" && typeof after.text === "string") {
       flush()
-      entries.push({ kind: "comment", id: event.id, at: event.at, actor: event.actor, text })
+      entries.push({
+        kind: "comment",
+        id: event.id,
+        at: event.at,
+        actor: event.actor,
+        text: after.text,
+        files: strings(after.files),
+        chat: typeof after.chat === "string" && after.chat ? after.chat : undefined,
+        artifacts: strings(after.artifacts),
+      })
       continue
     }
     if (alone(event)) {
@@ -151,6 +171,13 @@ export function threadOf(events: readonly TodoEvent[] = []): ThreadEntry[] {
   flush()
 
   return entries
+}
+
+// strings is a list of strings an event holds, nothing for anything else.
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === "string" && v !== "")
+    : []
 }
 
 // ReportPart is a piece of a comment: Markdown shown as it is, or a section folded under its title.

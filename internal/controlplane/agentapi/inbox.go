@@ -232,11 +232,22 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"id": id, "revision": revision, "evidence": evidence, "reason": reason,
 			"for_owner": map[string]any{"type": "boolean", "description": "The owner did it; you record it."},
 		}, []string{"id", "evidence"}},
+		// A comment carries the work's result (issue #1207): files and Artifacts, drawn under its text.
 		{agenttool.ToolInboxComment, "Post a comment in a to-do's thread, which the owner reads on the item: " +
 			"what you started, the Run's link, the pull request, what you need from him, done. Use it on an item " +
-			"you added or were given, to tell him where its work is; his comments on it reach you in its chat.",
-			map[string]any{"id": id, "text": map[string]any{"type": "string", "maxLength": inboxstore.MaxComment}},
-			[]string{"id", "text"}},
+			"you added or were given, to tell him where its work is; his comments on it reach you in its chat. " +
+			"Post the work's result on it: a file you made goes in files, which he downloads from the comment, and " +
+			"an Artifact you showed in artifacts, whose card he opens there; an Artifact's id written in text " +
+			"(art_…) shows as a link named by its title.", map[string]any{
+			"id":   id,
+			"text": map[string]any{"type": "string", "maxLength": inboxstore.MaxComment},
+			"files": map[string]any{"type": "array", "maxItems": inboxstore.MaxCommentFiles,
+				"items": map[string]any{"type": "string"}, "description": "Files to download, each a path in " +
+					"your folder, relative to it, as a MEDIA: line names it, such as exports/report.xlsx."},
+			"artifacts": map[string]any{"type": "array", "maxItems": inboxstore.MaxCommentArtifacts,
+				"items": map[string]any{"type": "string"}, "description": "Ids of Artifacts you showed with " +
+					"show_artifact, art_…."},
+		}, []string{"id", "text"}},
 		{agenttool.ToolInboxDrop, "Drop a to-do the owner said is not needed, with his message as evidence and " +
 			"the reason. Use it only on his word.", map[string]any{"id": id, "revision": revision, "reason": reason, "evidence": evidence},
 			[]string{"id", "reason", "evidence"}},
@@ -325,8 +336,10 @@ type inboxArgs struct {
 	Message *inboxstore.Link `json:"message"`
 	// inbox_add and inbox_update: whom the owner waits on (issue #1142).
 	WaitingOn *inboxWaitingArgs `json:"waiting_on"`
-	// inbox_comment.
-	Text string `json:"text"`
+	// inbox_comment: its text, and the files and Artifacts it carries (issue #1207).
+	Text      string   `json:"text"`
+	Files     []string `json:"files"`
+	Artifacts []string `json:"artifacts"`
 	// inbox_release, inbox_done, inbox_drop.
 	Reason   string            `json:"reason"`
 	Evidence []inboxstore.Link `json:"evidence"`
@@ -542,7 +555,8 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 		out, err = s.inboxAdd(ctx, a, c, in)
 	case agenttool.ToolInboxComment:
 		var t inboxstore.Todo
-		if t, err = s.store.Inbox().Comment(ctx, c.actor, strings.TrimSpace(in.ID), in.Text); err == nil {
+		att := inboxstore.Attached{Files: in.Files, Artifacts: in.Artifacts, From: a.chatID}
+		if t, err = s.store.Inbox().CommentWith(ctx, c.actor, strings.TrimSpace(in.ID), in.Text, att); err == nil {
 			out, err = s.todoViewOf(ctx, t, true)
 		}
 	default:

@@ -12,6 +12,7 @@ import { defaultComponents, type Components } from "streamdown"
 
 import "@/api/client"
 import {
+  getArtifactOptions,
   getChatOptions,
   getMeetingOptions,
   getRunOptions,
@@ -74,6 +75,8 @@ const components: Components = {
         return <RunLink id={ref.id} />
       case "tdo":
         return <ItemLink id={ref.id} />
+      case "art":
+        return <ArtifactLink id={ref.id} />
       case "lark_chat":
         return <LarkChatLink id={ref.id} />
       case "message":
@@ -186,6 +189,28 @@ function ItemLink({ id }: { id: string }) {
   return (
     <Link to="/inbox" search={{ item: `todo:${id}` }} title={id} data-id={id} className={linkClass}>
       {item.data ? firstLine(item.data.title, 80) : id}
+    </Link>
+  )
+}
+
+// ArtifactLink opens an Artifact on its own page, named by its title (issue #1207), as a chat's id is named by its
+// chat's: what the Artifact's own ↗ opens.
+function ArtifactLink({ id }: { id: string }) {
+  const artifact = useQuery({
+    ...getArtifactOptions({ path: { artifact_id: id } }),
+    staleTime: namesFor,
+    retry: false,
+  })
+
+  return (
+    <Link
+      to="/artifacts/$artifactId"
+      params={{ artifactId: id }}
+      title={id}
+      data-id={id}
+      className={linkClass}
+    >
+      {artifact.data ? firstLine(artifact.data.title, 80) : id}
     </Link>
   )
 }
