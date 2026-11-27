@@ -5497,6 +5497,99 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/InboxNeedsYou" }
         default: { $ref: "#/components/responses/Error" }
+  /inbox/chat-sources:
+    get:
+      operationId: ListInboxChatSources
+      summary: The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+      description: >-
+        Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read,
+        skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a
+        chat he never set takes, the same for every source.
+      responses:
+        "200":
+          description: The sources.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InboxChatSourceList" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/chat-sources/moves:
+    post:
+      operationId: MoveInboxDropChats
+      summary: Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+      description: >-
+        Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts
+        switches that chat off as his choice, unless he set it already, so that running it again changes nothing.
+        The answer names what was moved, what was set already, the ids no account has, the default patterns and
+        the patterns that are not one chat's id. A Bot without the file moves nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InboxChatMove" }
+      responses:
+        "200":
+          description: What was moved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InboxChatMoved" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/chat-sources/{integration}/{label}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    get:
+      operationId: ListInboxChats
+      summary: An account's chats with whether the secretary reads each and why; only the owner
+      description: >-
+        Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a
+        state. counts are the whole account's, search_counts are for q alone, and matched is how many all the
+        filters keep, of which at most limit are given.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: kind
+          in: query
+          schema: { $ref: "#/components/schemas/InboxChatKind" }
+        - name: state
+          in: query
+          schema: { $ref: "#/components/schemas/InboxChatState" }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 2000 }
+      responses:
+        "200":
+          description: The chats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InboxChatList" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/chat-sources/{integration}/{label}/{chat}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: chat
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 200 }
+    put:
+      operationId: SetInboxChat
+      summary: Set whether the secretary reads one chat; only the owner
+      description: >-
+        Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is
+        still kept and read when he asks a Bot; only the triage's check skips it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InboxChatChoice" }
+      responses:
+        "200":
+          description: The choice.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InboxChatSet" }
+        default: { $ref: "#/components/responses/Error" }
   /inbox/{todo_id}:
     parameters:
       - $ref: "#/components/parameters/TodoID"
@@ -11957,6 +12050,137 @@ components:
         data: { type: array, items: { $ref: "#/components/schemas/Todo" } }
         total: { type: integer, description: "How many items the filter matches, every page together." }
         next_cursor: { type: string, description: Present when more items follow. }
+    InboxChatKind:
+      type: string
+      description: A direct chat, a group, or a bot's or an official account's chat.
+      enum: [direct, group, bot]
+      x-enum-varnames: [InboxChatDirect, InboxChatGroup, InboxChatBot]
+    InboxChatState:
+      type: string
+      description: Whether the secretary reads the chat or skips it.
+      enum: [read, skipped]
+      x-enum-varnames: [InboxChatRead, InboxChatSkipped]
+    InboxChatSetBy:
+      type: string
+      description: Why the chat is in its state, its kind's default or the owner's choice.
+      enum: [default, owner]
+      x-enum-varnames: [InboxChatByDefault, InboxChatByOwner]
+    InboxChatCounts:
+      type: object
+      required: [all, read, skipped, direct, group, bot]
+      properties:
+        all: { type: integer }
+        read: { type: integer }
+        skipped: { type: integer }
+        direct: { type: integer }
+        group: { type: integer }
+        bot: { type: integer }
+    InboxChatDefaults:
+      type: object
+      description: >-
+        Whether a chat the owner never set is read, by its kind, the same for every source; bot_patterns name a
+        bot's or an official account's chat by its name or id (regular expressions, in any case).
+      required: [direct, group, bot, bot_patterns]
+      properties:
+        direct: { type: boolean }
+        group: { type: boolean }
+        bot: { type: boolean }
+        bot_patterns:
+          type: array
+          items: { type: string }
+    InboxChatSource:
+      type: object
+      required: [integration, label, account]
+      properties:
+        integration: { type: string, description: "zalo, whatsapp or lark." }
+        label: { type: string }
+        account: { type: string, description: "The account as the owner knows it: a number, a name." }
+        counts: { $ref: "#/components/schemas/InboxChatCounts" }
+        problem: { type: string, description: "Why its chats cannot be listed now." }
+    InboxChatSourceList:
+      type: object
+      required: [data, defaults]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/InboxChatSource" }
+        defaults: { $ref: "#/components/schemas/InboxChatDefaults" }
+    InboxChat:
+      type: object
+      required: [id, name, kind, reads, set_by]
+      properties:
+        id: { type: string, description: "The service's id of the chat." }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/InboxChatKind" }
+        last_message_at: { type: string, format: date-time, description: "When its latest kept message was sent; Lark gives none." }
+        reads: { type: boolean, description: "Whether the triage's check reads it." }
+        set_by: { $ref: "#/components/schemas/InboxChatSetBy" }
+        set_at: { type: string, format: date-time, description: "When the owner set it." }
+    InboxChatList:
+      type: object
+      required: [data, counts, matched]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/InboxChat" }
+        counts: { $ref: "#/components/schemas/InboxChatCounts" }
+        search_counts:
+          $ref: "#/components/schemas/InboxChatCounts"
+          description: Counts for a non-empty search, before kind, state and limit are applied.
+        matched: { type: integer, description: "How many chats the filters keep." }
+    InboxChatChoice:
+      type: object
+      required: [reads]
+      properties:
+        reads: { type: boolean }
+    InboxChatSet:
+      type: object
+      required: [integration, label, chat, reads, set_at]
+      properties:
+        integration: { type: string }
+        label: { type: string }
+        chat: { type: string }
+        reads: { type: boolean }
+        set_at: { type: string, format: date-time }
+    InboxChatMove:
+      type: object
+      properties:
+        bot: { type: string, description: "The Bot's id, whose folder holds thu-ky/filters.json; the main Bot when left out." }
+    InboxChatRef:
+      type: object
+      required: [integration, label, chat]
+      properties:
+        integration: { type: string }
+        label: { type: string }
+        chat: { type: string }
+    InboxChatMoved:
+      type: object
+      required: [moved, kept, unknown, left, defaults, not_read]
+      properties:
+        moved:
+          type: array
+          description: The chats switched off as the owner's choice now.
+          items: { $ref: "#/components/schemas/InboxChatRef" }
+        kept:
+          type: array
+          description: The chats the owner had set already, left as they are.
+          items: { $ref: "#/components/schemas/InboxChatRef" }
+        unknown:
+          type: array
+          description: The chat ids none of his accounts has.
+          items: { type: string }
+        left:
+          type: array
+          description: The patterns that are not one chat's id, not moved.
+          items: { type: string }
+        defaults:
+          type: array
+          description: The default patterns, which the bot default holds.
+          items: { type: string }
+        not_read:
+          type: array
+          description: The accounts whose chats could not be listed, with why.
+          items: { type: string }
     InboxNeedsYou:
       type: object
       required: [count]

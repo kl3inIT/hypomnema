@@ -112,7 +112,7 @@ function world({
       assignee: { kind: "person", name: "Lan" },
       source: {
         kind: "zalo",
-        id: "2261258766901429891",
+        id: "1000000000000000001",
         account: "main",
         ref: { kind: "zalo_message", ref: "z1" },
       },
@@ -847,7 +847,7 @@ function world({
           case "/integrations/zalo/connections/main/chats":
             return json({
               data: [
-                { id: "2261258766901429891", kind: "dm", name: "Lan", last_message_at: at(-day) },
+                { id: "1000000000000000001", kind: "dm", name: "Lan", last_message_at: at(-day) },
               ],
             })
           case "/integrations/whatsapp/connections/main/messages":
@@ -878,7 +878,7 @@ function world({
                   ? [
                       {
                         id: "z2",
-                        chat: "2261258766901429891",
+                        chat: "1000000000000000001",
                         chat_name: "Lan",
                         sender: "lan",
                         sender_name: "Lan Phạm",
@@ -1544,7 +1544,7 @@ test("the Inbox hands over files and shows a pasted screenshot in an owner comme
   })()`)
   await expect(chips.getByText("notes.txt")).toBeVisible()
   await expect(chips.getByText("image.png")).toBeVisible()
-  await expect(chips.locator("img")).toBeVisible()
+  await expect(chips.locator("img[src^=\"blob:\"]")).toBeVisible()
   await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
   await send.scrollIntoViewIfNeeded()
   await shot(page, "inbox-1245-chips")

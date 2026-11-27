@@ -334,7 +334,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 
 	switch call.Tool {
 	case m.chats:
-		chats, err := s.messaging.Chats(ctx, m.integration, label, in.Limit)
+		chats, err := s.messaging.Chats(ctx, m.integration, label, min(in.Limit, messaging.MaxPage))
 		s.messagingSignIn(ctx, a, m, label, err)
 		s.answerJSON(w, r, map[string]any{"note": untrusted, "account": label, "chats": chats}, err)
 	case m.messages:

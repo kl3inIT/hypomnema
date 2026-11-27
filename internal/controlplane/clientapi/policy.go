@@ -388,6 +388,11 @@ var policies = map[string]policy{
 	"HandTodo":      {scope: scopeOwner},
 	"CommentTodo":   {scope: scopeActor},
 	"SendTodoDraft": {scope: scopeOwner},
+	// Which chats the secretary reads (issue #1270): the owner's own accounts' chats, his alone. A list pages Lark.
+	"ListInboxChatSources": {scope: scopeOwner, long: true},
+	"ListInboxChats":       {scope: scopeOwner, long: true},
+	"SetInboxChat":         {scope: scopeOwner},
+	"MoveInboxDropChats":   {scope: scopeOwner, long: true},
 }
 
 var (
