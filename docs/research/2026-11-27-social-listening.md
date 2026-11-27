@@ -65,19 +65,21 @@ platforms only.
 
 | Platform | Free routes, in order |
 |---|---|
-| Facebook | Muse, then `site:facebook.com` web search |
+| Facebook | Muse with a fixed template (each post with its link, date and a verbatim quote; asked again per group for depth), then `site:facebook.com` web search |
 | Instagram | Muse |
 | Threads | The official keyword search, then Muse |
-| TikTok, X | `site:` web search (twscrape is free but its accounts were suspended from 2026-11-21) |
+| TikTok | davidteather/TikTok-Api (MIT, 6.8k stars, pushed 2026-11-14; unofficial, a browser and an `ms_token` cookie), then yt-dlp, then `site:tiktok.com` web search |
+| X | The owner's API key when he has one, or the signed-in Grok CLI's X search tools (last30days `scripts/lib/grok_x.py`: no X account, no xAI key), then `site:x.com` web search |
 | YouTube | Data API, then yt-dlp |
 | Reddit | Keyless JSON, then the official API |
 | LinkedIn | A signed-in account, then `site:linkedin.com/posts` web search |
 | Google Play | google-play-scraper |
 | Forums | Web search, then a fetch of the thread |
 
-As a result, Facebook, Instagram and TikTok have no item-level evidence with engagement, only Muse's summary and
-search snippets. Reading Facebook groups through a signed-in account is done by no reference, so it is left out
-unless the owner asks for it.
+Muse returns links when asked (owner, 2026-11-27), so Facebook and Instagram get item-level evidence through it.
+Items found by a model (Muse, Grok) are checked before they count: the link is opened and must hold the quote, and
+the date is checked (grok_x validates each post's date from its snowflake id, `_validate_items`, because "its output
+can be confidently wrong"). An item that fails stays as "unverified". Engagement counts are missing on that route.
 
 ## 3. What the references agree on
 
@@ -157,7 +159,7 @@ UI: Settings ▸ Listening — one card per platform, its backends in order, sta
 | Ranking and clusters | RRF plus normalized engagement. Clusters tagged `single-source` and `thin-evidence`. Embedding similarity for Vietnamese. | last30days; obsei (embeddings) |
 | Planning and writing | The Bot's model plans the subqueries and writes the report. The tool does no prose. | last30days LAW 7 |
 | Report | Answer first with at most 3 actions. Then what was read and what is missing. Then 1 to 3 findings, each with support and counter-evidence, a High/Medium/Low confidence and what it cannot show. Then verbatim quotes with link and date. Then risks and next focus. Each claim is labelled fact, extraction or judgment. One reviewer pass. | radar, marketingskills, BettaFish template, last30days synthesis |
-| Muse's role | Lead finding (groups, themes), and the only free route into Facebook groups and Instagram. Its claims stay "unverified" until an item backs them. | #781 risks; agent study §2 |
+| Muse and Grok | Asked with a fixed template for items (link, date, verbatim quote). Each item is checked by opening its link and its date; one that fails stays "unverified". | #781 step 2 (the Muse template); last30days `grok_x.py` |
 | Signed-in accounts | A cookie jar in the vault and its own Chrome context. One call at a time, a minimum gap per site, and a 24-hour stop after a challenge. Sign-in through the owner's tab. | Muse pool, linkedin `AGENTS.md:209-223`, Agent-Reach |
 | Screen | A card per platform, after the Muse and web-search screens, with postiz's states (needs sign-in, reconnect, off). Adds last success, last error and items this week. | postiz, harken, BettaFish `crawling_tasks`, the Machines page cards |
 | Saved topics (later) | A cursor per (topic, source), moved after the store writes. Items in Postgres, retention in days, a weekly Routine. | obsei, harken, openmagpie |
