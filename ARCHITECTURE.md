@@ -4969,11 +4969,13 @@ its client API, its CLI and the Bots' tools.
   its current attempt asked, whatever chat or Run it came from (`LinkApproval`) and back
   to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
-  Bot closes as its own (`done_by` itself) only work it did (issue #1206; owner, 2026-11-27, `botsWork`): never an
-  `asked_directly` item from his Lark, Zalo, WhatsApp or Gmail, which only his answer or a person's closes, and only
-  with evidence of its work, a `run`, `pull_request`, `url`, `mail`, a `*_message` it sent (no account and chat) or
-  a `chat_message` that is not the owner's; his comment, a message he sent, his message in a chat, a person's
-  message or a meeting's line alone is refused, as GitHub records the person who merged and the pull request; the
+  Bot closes as its own (`done_by` itself) only work it did, whatever the item's `why_open` (issue #1206; owner,
+  2026-11-27, `botsWork`), with evidence of that work: a `run`, `pull_request`, `url`, a `chat_message` that is not
+  the owner's, or a `*_message` naming the account and chat that the store reads (`Sent`) as sent from the owner's
+  account after a send of the item was approved (an event from review to doing; `botSent`); his comment, a message
+  he sent, his message in a chat, a person's message, a mail, a message without its account and chat or a meeting's
+  line alone is refused, so his answer stays his and work he handed to the Bot closes as the Bot's with what it
+  made, as GitHub records the person who merged and the pull request; the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
   as evidence (his `comment` on the item, an event `commented` of his at that revision, which the wake-up of his
   comment names; a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source

@@ -209,7 +209,7 @@ func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 		"started, the Run's link, the pull request, done. Post the work's result on the item, not only in this " +
 		"chat: a file you made in inbox_comment's files, an Artifact you showed in its artifacts, a report in its " +
 		"text. End by closing it with inbox_done and evidence (a pull " +
-		"request, a message sent), or by giving it back to the owner with inbox_update hand_back, with a draft " +
+		"request, a message you sent with its account and chat), or by giving it back to the owner with inbox_update hand_back, with a draft " +
 		"for him to send when it needs a reply. Never send a message to a client or a boss yourself.\n")
 	b.WriteString(rule)
 

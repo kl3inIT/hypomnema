@@ -221,12 +221,13 @@ var ToolFamilies = []ToolFamily{
 			"from; one you only infer is proposed. One ask is one item, from the ask to the work to done (look with " +
 			"inbox_list first, and never add a second for it): due today when he is asked, since everyone gets an " +
 			"answer the same day; when he accepts or promises the work, change that item with inbox_update " +
-			"why_open promised and his due (due_date none when he gave none). " +
+			"why_open promised and the due he gave, else the asker's, else due_date none. " +
 			"Waiting on someone is an item given to that person, due the day to chase them (2 days when none is " +
 			"said). For a reply, draft it in his voice, attach it with inbox_update draft and hand_back, so it " +
 			"waits in Needs you: never send a message to a client or a boss yourself. Close an item with " +
 			"inbox_done and evidence of what was done: as your own only work you did (a Run, a pull request, a " +
-			"file); an ask to him only with his own message, recorded for him (for_owner): in this chat, his " +
+			"file, a message you sent); his answer to an ask only with his own message, recorded for him " +
+			"(for_owner): in this chat, his " +
 			"comment on the item, or the one he sent in the item's Zalo, WhatsApp or Lark chat after it was made " +
 			"(zalo_sent, whatsapp_sent, lark_sent). Edit and close only your own items. An item given to you wakes " +
 			"you in its own chat: post your progress there with inbox_comment (started, the Run, the pull request, " +

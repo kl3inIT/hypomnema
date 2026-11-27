@@ -29,7 +29,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     case "tools/call": {
       const args = params.arguments ?? {};
       const result = world.call(params.name, args);
-      appendFileSync(log, `${JSON.stringify({ name: params.name, args, refused: result?.error })}\n`);
+      appendFileSync(log, `${JSON.stringify({ name: params.name, args, id: result?.id, refused: result?.error })}\n`);
       if (end) writeFileSync(end, JSON.stringify(world.items));
       send({ id, result: { content: [{ type: "text", text: JSON.stringify(result) }], isError: Boolean(result?.error) } });
       break;

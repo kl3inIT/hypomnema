@@ -73,8 +73,9 @@ func TestABotRecordsTheOwnersCommentThatHeAnsweredTheAsk(t *testing.T) {
 	item, err := w.svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: bot.ID}, inboxstore.NewTodo{
 		Title: "Trả lời Hà My: tổng hợp dashboard quý 3", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly,
 		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
-		Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_guild", Quote: "anh tổng hợp giúp em các dashboard quý 3 nhé",
-			Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_ask"}},
+		Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_guild",
+			Quote: "anh tổng hợp giúp em các dashboard quý 3 nhé",
+			Ref:   &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_ask"}},
 	})
 	require.NoError(t, err)
 

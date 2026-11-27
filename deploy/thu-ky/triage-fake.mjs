@@ -26,8 +26,6 @@ export const served = JSON.parse(readFileSync(join(here, "triage-tools.json"), "
 const bot = "bot bot_main";
 const sentKinds = ["zalo_sent", "whatsapp_sent", "lark_sent"];
 const messageKinds = ["zalo_message", "whatsapp_message", "lark_message"];
-// The sources of a message to the owner from someone, whose ask only an answer closes (inboxstore.answeredInPerson).
-const answeredInPerson = ["lark", "zalo", "whatsapp", "gmail"];
 const closed = (state) => ["done", "dropped", "duplicate"].includes(state);
 const refuse = (error) => ({ error });
 
@@ -70,7 +68,7 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
   const find = (id) => items.find((i) => i.id === id);
   // view is an item as a tool answers it: with its history in inbox_get, and in a list of changes since a moment.
   const view = (item, history = true) => {
-    const { added_with: _, history: h, ...rest } = item;
+    const { added_with: _, key: __, history: h, ...rest } = item;
     return history ? { ...rest, history: h.slice(-20) } : rest;
   };
   const event = (item, kind, after) => {
@@ -114,9 +112,16 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
       return item ? view(item) : refuse(`not found: no to-do ${args.id}`);
     },
     inbox_add(args) {
-      // The same call again is the same item: the model retried it.
-      const again = items.find((i) => i.added_with === JSON.stringify(args));
-      if (again) return view(again, false);
+      // As the server: without a key each call is a new item; with a key, the same request is the first item again,
+      // and another request a conflict (inboxstore.Create).
+      if (args.key) {
+        const { key, ...request } = args;
+        const again = items.find((i) => i.key === key);
+        if (again && again.added_with !== JSON.stringify(request)) {
+          return refuse(`conflict: the key ${key} was used for another request`);
+        }
+        if (again) return view(again, false);
+      }
       added += 1;
       const at = now().toISOString();
       const waiting = args.waiting_on;
@@ -126,7 +131,8 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         assignee: waiting ? `person ${waiting.name}` : args.assignee_kind && args.assignee_kind !== "me"
           ? `${args.assignee_kind} ${args.assignee ?? ""}`.trim() : "me",
         due: dueOf(args) ?? undefined, priority: args.priority, priority_reason: args.priority_reason,
-        source: sourceOf(args), created_by: bot, created_at: at, updated_at: at, added_with: JSON.stringify(args),
+        source: sourceOf(args), created_by: bot, created_at: at, updated_at: at, key: args.key,
+        added_with: JSON.stringify((({ key: _, ...request }) => request)(args)),
         history: [{ at, revision: 1, by: bot, kind: "created", after: { title: args.title } }],
       };
       items.push(item);
@@ -201,12 +207,14 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         }
         doneBy = `person ${args.done_by}`;
       } else {
-        if (item.why_open === "asked_directly" && answeredInPerson.includes(item.source?.kind)) {
-          return refuse(`forbidden: someone asked the owner in to-do ${item.id}, which his own answer closes: record ` +
-            "it for him (for_owner) with his message (zalo_sent, whatsapp_sent, lark_sent) or his comment on the " +
-            "item (comment), or for the person who answered (done_by) with theirs");
-        }
         if (item.state !== "doing") return refuse("forbidden: a Bot closes as its own only the to-do it is doing");
+        // Its own work only, whatever the item's why_open (inboxstore botsWork); a read run sends nothing.
+        if (!evidence.some((l) => ["run", "pull_request", "url"].includes(l.kind))) {
+          return refuse("invalid request: a Bot closes as its own only what it did, with evidence of that work (a " +
+            "Run, a pull request, a link to a file, a message it sent, with the account and the chat, after the " +
+            "owner approved the send); the owner's message or comment shows that he did it (for_owner), a " +
+            "person's that they did (done_by)");
+        }
         doneBy = bot;
       }
       Object.assign(item, { state: "done", done_by: doneBy, close_reason: args.reason, evidence });

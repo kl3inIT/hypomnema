@@ -227,7 +227,8 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 				// One item from the ask to the work to done (issue #1206).
 				"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.Promised}, "description": "" +
 					"promised: the owner answered an ask you added (asked_directly, still his) by accepting or " +
-					"promising the work; the same item is now his promise, with his due (or none) and done_when."},
+					"promising the work; the same item is now his promise, with done_when and the due he gave, else " +
+					"the asker's, else due_date none."},
 			}), []string{"id"}},
 		{agenttool.ToolInboxStart, "Start an open to-do given to you: it is doing, here, until you close or " +
 			"release it. Use it before you work on one.", map[string]any{"id": id, "revision": revision}, []string{"id"}},
@@ -235,8 +236,8 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"when you cannot finish it.",
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
 		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did, only for work you did " +
-			"(a Run, a pull request, a link to a file, a message you sent), never an ask to him from his chats " +
-			"or mail; with for_owner, his own message that he did it (his comment on the item, comment by its " +
+			"(a Run, a pull request, a link to a file, a message you sent with its account and chat), never his " +
+			"answer to an ask; with for_owner, his own message that he did it (his comment on the item, comment by its " +
 			"revision; in this chat; or one he sent after it was made in the item's Zalo, " +
 			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
 			"zalo_sent, whatsapp_sent, lark_sent); or, with done_by, an open item you added that a person did, " +
@@ -940,7 +941,8 @@ func (s *Server) inboxWaitOn(ctx context.Context, ch inboxstore.Change, in inbox
 		return inboxstore.Todo{}, err
 	}
 
-	if given {
+	// due_date none is not a day: the due is left out, so the item is due the day to chase them (review of #1243).
+	if given && due.Kind != inboxstore.DueNone {
 		w.Due = &due
 	} else {
 		w.DueIn = inboxChase(inboxArgs{Timezone: in.Timezone})

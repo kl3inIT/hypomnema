@@ -44,7 +44,14 @@ test("the fake keeps the server's rules of who closes an ask and how it becomes 
   const w = fakeWorld(worldOf(c));
 
   const own = w.call("inbox_done", { id: "tdo_dashboards", evidence: [{ kind: "lark_message", ref: "om_ask" }] });
-  assert.match(own.error, /^invalid request: a Bot closes as its own only what it did/, "the asker's message is no work of the Bot's");
+  assert.match(own.error, /^forbidden: a Bot closes as its own only the to-do it is doing/);
+  const handed = { ...c, items: c.items.map((i) => ({ ...i, state: "doing", assignee: { kind: "bot", id: "bot_main" } })) };
+  const onAsk = fakeWorld(worldOf(handed)).call("inbox_done", { id: "tdo_dashboards",
+    evidence: [{ kind: "lark_message", ref: "om_ask" }] });
+  assert.match(onAsk.error, /^invalid request: a Bot closes as its own only what it did/, "the asker's message is no work");
+  const fixed = fakeWorld(worldOf(handed)).call("inbox_done", { id: "tdo_dashboards",
+    evidence: [{ kind: "pull_request", ref: "https://github.com/o/r/pull/1" }] });
+  assert.equal(fixed.done_by, "bot bot_main", "work handed to the Bot closes as its own with what it made");
   const notHis = w.call("inbox_done", { id: "tdo_dashboards", for_owner: true, evidence: [{ kind: "comment", ref: "1" }] });
   assert.match(notHis.error, /^invalid request/);
   const done = w.call("inbox_done", { id: "tdo_dashboards", for_owner: true, reason: "Anh: 'gửi rồi'",

@@ -577,6 +577,20 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 		}
 	}
 
+	// A message the Bot gives as its own work is read before the write too (issue #1206): one it sent itself.
+	botSent := false
+
+	if c.Actor.Kind == Bot && cl.DoneBy.Kind == ABot && slices.ContainsFunc(cl.Evidence, personsMessage) {
+		t, err := s.Get(ctx, c.ID)
+		if err != nil {
+			return Todo{}, err
+		}
+
+		if botSent, err = s.botSent(ctx, t, cl.Evidence); err != nil {
+			return Todo{}, err
+		}
+	}
+
 	if forPerson {
 		if err := checkReason(cl.Reason, true); err != nil {
 			return Todo{}, fmt.Errorf("%w: quote their message in the reason", err)
@@ -611,7 +625,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 			}
 
 			if c.Actor.Kind == Bot && cl.DoneBy.Kind == ABot {
-				if err := botsWork(ctx, q, cur, cl.Evidence); err != nil {
+				if err := botsWork(ctx, q, cl.Evidence, botSent); err != nil {
 					return nil, err
 				}
 			}
@@ -661,34 +675,25 @@ func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 	return fmt.Errorf("%w: a Bot records a to-do done by itself, by the owner or by a person", storeerr.ErrForbidden)
 }
 
-// answeredInPerson are the sources of a message to the owner from someone, whose ask only an answer closes: his own,
-// or a person's who answered in his place.
-var answeredInPerson = []string{FromLark, FromZalo, FromWhatsApp, FromGmail}
-
-// botsWork checks a Bot's own close of an item (issue #1206; owner, 2026-11-27): the Bot did the work, and its
-// evidence shows that work. An ask to the owner in his chat or his mail (AskedDirectly) is answered by him, or by a
-// person in his place, never by a Bot, whose work there is at most a draft he sends. Its evidence is a Run, a pull
-// request, a link (a file, a page, an Artifact), a mail or a message it sent, or its own message in a chat; the
-// owner's message (his comment on the item, a message he sent, his message in a chat) shows that he did it, a
-// person's that they did, and a meeting's line that it was said: each is recorded for whom it shows, not as the
-// Bot's. GitHub records the person who merged as the closer and the pull request as the evidence; inbox-zero makes a
-// thread actioned by the user's own sent message (outbound.ts:107-139); the model proposes and the code decides, as
-// Omi's open loops do (daily.py:205-232).
-func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, evidence []Link) error {
-	if cur.WhyOpen.String == AskedDirectly && slices.Contains(answeredInPerson, cur.SourceKind) {
-		return fmt.Errorf("%w: someone asked the owner in to-do %s, which his own answer closes: record it for him "+
-			"(for_owner) with his message (zalo_sent, whatsapp_sent, lark_sent) or his comment on the item "+
-			"(comment), or for the person who answered (done_by) with theirs", storeerr.ErrForbidden, cur.ID)
+// botsWork checks a Bot's own close of an item (issue #1206; owner, 2026-11-27): it follows the item's work, not
+// its why_open. The Bot closes as its own only what it did, with evidence of that work: a Run, a pull request, a link
+// (a file, a page, an Artifact), its own message in a chat, or a message it sent itself on the owner's account
+// (botSent). The owner's message (his comment on the item, a message he sent, his message in a chat) shows that he
+// did it, a person's that they did, and a meeting's line that it was said: each is recorded for whom it shows, not
+// as the Bot's; and a message or a mail the server cannot read as the Bot's send, such as the asker's, shows
+// nothing. So the owner's reply stays his whatever the item's status, and work he handed to the Bot (a fix, a
+// report) closes as the Bot's with what it made. GitHub records the person who merged as the closer and the pull
+// request as the evidence; inbox-zero makes a thread actioned by the user's own sent message (outbound.ts:107-139);
+// the model proposes and the code decides, as Omi's open loops do (daily.py:205-232).
+func botsWork(ctx context.Context, q *store.Queries, evidence []Link, botSent bool) error {
+	if botSent {
+		return nil
 	}
 
 	for _, l := range evidence {
 		switch l.Kind {
-		case LinkRun, LinkPullRequest, LinkURL, LinkMail:
+		case LinkRun, LinkPullRequest, LinkURL:
 			return nil
-		case LinkLarkMessage, LinkZaloMessage, LinkWhatsAppMessage:
-			if !personsMessage(l) {
-				return nil // a message it sent
-			}
 		case LinkChatMessage:
 			owners, err := ownersChatMessage(ctx, q, l)
 			if err != nil {
@@ -702,8 +707,56 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, evidence []
 	}
 
 	return fmt.Errorf("%w: a Bot closes as its own only what it did, with evidence of that work (a Run, a pull "+
-		"request, a link to a file, a message it sent); the owner's message or comment shows that he did it "+
-		"(for_owner), a person's that they did (done_by)", storeerr.ErrInvalid)
+		"request, a link to a file, a message it sent, with the account and the chat, after the owner approved the "+
+		"send); the owner's message or comment shows that he did it (for_owner), a person's that they did (done_by)",
+		storeerr.ErrInvalid)
+}
+
+// botSent says whether the evidence of a Bot's own close holds a message the Bot sent itself: a zalo_message,
+// whatsapp_message or lark_message naming the owner's account and the chat (personsMessage), which the server keeps
+// of that account or its API returns as sent from it (the Bot sends as the owner there), after the owner approved
+// a send of the item's attempt (an event from review to doing). What cannot be read is not evidence.
+func (s *Store) botSent(ctx context.Context, t Todo, evidence []Link) (bool, error) {
+	if s.sent == nil {
+		return false, nil
+	}
+
+	var approvedAt time.Time
+
+	for _, e := range t.Events {
+		var before, after struct {
+			State string `json:"state"`
+		}
+
+		if e.Kind == EventState && json.Unmarshal(e.Before, &before) == nil && json.Unmarshal(e.After, &after) == nil &&
+			before.State == Review && after.State == Doing {
+			approvedAt = e.At
+		}
+	}
+
+	if approvedAt.IsZero() {
+		return false, nil
+	}
+
+	for _, l := range evidence {
+		service := messageService[l.Kind]
+		if !personsMessage(l) {
+			continue
+		}
+
+		m, err := s.sent.SentMessage(ctx, service, l.Account, l.Chat, l.Ref)
+
+		switch {
+		case errors.Is(err, storeerr.ErrNotFound):
+			continue
+		case err != nil:
+			return false, err
+		case m.FromMe && m.Chat == l.Chat && !m.At.Before(approvedAt):
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // ownersChatMessage says whether a chat_message Link is a message the owner wrote (role owner and no sender, as

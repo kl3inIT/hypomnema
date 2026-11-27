@@ -28,11 +28,6 @@ const { cases } = JSON.parse(readFileSync(casesFile, "utf8"));
 const claude = process.env.HYPOMNEMA_TEST_CLAUDE || "claude";
 const model = process.env.HYPOMNEMA_TEST_CLAUDE_MODEL;
 
-// canonical is a value's JSON with its keys in order, so that one call made twice compares equal.
-const canonical = (v) => (v && typeof v === "object" && !Array.isArray(v)
-  ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`
-  : Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : JSON.stringify(v));
-
 // matches says whether an inbox_add's arguments are what a matcher of the case names.
 function matches(args, m) {
   const state = args.state ?? (args.why_open || args.waiting_on ? "open" : "proposed");
@@ -68,9 +63,10 @@ describe("the triage prompt's replay cases (issues #1182, #1206)", {
       const byId = new Map(items.map((i) => [i.id, i]));
       const said = `${lines.join("\n")}\nmodels: ${models.join(", ")}\n${JSON.stringify(calls.filter((x) =>
         x.name.startsWith("inbox_") && x.name !== "inbox_list" && x.name !== "inbox_get"), null, 1)}`;
-      // A call made again with the same arguments is one item: the model retried it (seen once in case 5).
-      const adds = [...new Map(calls.filter((x) => x.name === "inbox_add" && !x.refused)
-        .map((x) => [canonical(x.args), x.args])).values()];
+      // The items the run made, as the server makes them (review of PR #1243): an add without a key is a new item
+      // each time, so a retry counts twice; one with a key the server answered with its first item counts once.
+      const adds = [...new Map(calls.filter((x) => x.name === "inbox_add" && !x.refused && x.id)
+        .map((x) => [x.id, x.args])).values()];
       const e = c.expect;
 
       const [min, max] = Array.isArray(e.adds) ? e.adds : [e.adds ?? 0, e.adds ?? 0];
