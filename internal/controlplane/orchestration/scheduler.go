@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The scheduler (issue #19, PR 5): every ScheduleEvery, and whenever a commit
@@ -195,7 +196,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		// A Task whose own model or profile cannot be resolved (a model named without its provider, issue #1002, or
 		// one no provider offers now) waits with the reason, and the owner is told; the other Tasks of the pass go
 		// on, as a role entry that is unavailable does.
-		if errors.Is(err, errRoleEntry) || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
+		if errors.Is(err, profilestore.ErrRoleEntry) || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
 			return s.wait(ctx, q, now, task, err.Error(), out)
 		}
 		return err
@@ -442,7 +443,7 @@ func placeHandoff(p *placement, conv store.Conversation, b resolved, host where)
 		return nil, ""
 	}
 
-	account := GatewayAccountRef
+	account := profilestore.GatewayAccountRef
 	if !b.gateway {
 		account, _ = p.pickAccount(b.runtime)
 	}
@@ -533,7 +534,7 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 
 	if open {
 		// A Conversation begun under a node's Claude account before issue #381 does not go on.
-		if gatewayOnly(conv.Runtime) && conv.AccountRef != GatewayAccountRef {
+		if profilestore.GatewayOnly(conv.Runtime) && conv.AccountRef != profilestore.GatewayAccountRef {
 			return nil, ReasonNeedsGateway, nil
 		}
 
@@ -582,7 +583,7 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 	}
 	runtime := r.runtime
 
-	if !r.gateway && gatewayOnly(runtime) {
+	if !r.gateway && profilestore.GatewayOnly(runtime) {
 		return nil, ReasonNeedsGateway
 	}
 
@@ -624,7 +625,7 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 	}
 
 	// A model the gateway serves needs no account on a node (issue #107).
-	account, cooling := GatewayAccountRef, false
+	account, cooling := profilestore.GatewayAccountRef, false
 	if !r.gateway {
 		account, cooling = p.pickAccount(runtime)
 	}

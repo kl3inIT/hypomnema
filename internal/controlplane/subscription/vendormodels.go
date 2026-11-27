@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The subscription providers' models: each is given the models its vendor serves (issues #623, #639, #814, #854,
@@ -16,11 +17,11 @@ import (
 
 // providerRuntimes is the runtime of the accounts of each kind of subscription provider.
 var providerRuntimes = map[string]string{
-	orchestration.ProviderCodexSubscription:       "codex",
-	orchestration.ProviderClaudeSubscription:      "claude",
-	orchestration.ProviderAntigravitySubscription: "antigravity",
-	orchestration.ProviderOpenCodeGo:              orchestration.OpenCodeGoRuntime,
-	orchestration.ProviderOpenCodeZen:             orchestration.OpenCodeZenRuntime,
+	profilestore.ProviderCodexSubscription:       "codex",
+	profilestore.ProviderClaudeSubscription:      "claude",
+	profilestore.ProviderAntigravitySubscription: "antigravity",
+	profilestore.ProviderOpenCodeGo:              orchestration.OpenCodeGoRuntime,
+	profilestore.ProviderOpenCodeZen:             orchestration.OpenCodeZenRuntime,
 }
 
 // ProviderRuntime is the runtime of the accounts of a subscription provider of kind; ok is false for a kind that is
@@ -47,7 +48,7 @@ type servedNames interface {
 
 // providerModels lists the providers and adds models to one (orchestration.Service).
 type providerModels interface {
-	ListProviders(ctx context.Context) ([]orchestration.Provider, error)
+	ListProviders(ctx context.Context) ([]profilestore.Provider, error)
 	AddProviderModels(ctx context.Context, name string, models []string) ([]string, error)
 	SetProviderModels(ctx context.Context, name string, models []string) (added, removed []string, err error)
 	RemoveProviderModel(ctx context.Context, name, model string) (bool, error)

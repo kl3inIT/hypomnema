@@ -188,9 +188,10 @@ func newWorld(t *testing.T) *world {
 	require.NoError(t, err)
 
 	// A Claude Code worker runs through the model gateway (issue #381).
-	_, err = svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	_, err = svc.Profiles().ApplyProvider(t.Context(), "",
+		"name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
 	require.NoError(t, err)
-	_, _, err = svc.ApplyProfile(t.Context(), "",
+	_, _, err = svc.Profiles().ApplyProfile(t.Context(), "",
 		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\n")
 	require.NoError(t, err)
 

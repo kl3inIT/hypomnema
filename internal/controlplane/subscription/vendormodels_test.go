@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 type fakeServed map[string][]string
@@ -36,7 +36,7 @@ func (r *readings) ServedList(_ context.Context, runtime string) ([]string, time
 }
 
 type fakeProviders struct {
-	list  []orchestration.Provider
+	list  []profilestore.Provider
 	asked map[string][]string
 	fail  string
 	// pinned are models a profile uses, which are not removed; removed are the provider and model of each removal.
@@ -44,7 +44,7 @@ type fakeProviders struct {
 	removed []string
 }
 
-func (f *fakeProviders) ListProviders(context.Context) ([]orchestration.Provider, error) {
+func (f *fakeProviders) ListProviders(context.Context) ([]profilestore.Provider, error) {
 	return f.list, nil
 }
 
@@ -79,11 +79,11 @@ func (f *fakeProviders) AddProviderModels(_ context.Context, name string, models
 // cannot be written is logged, and the next goes on.
 func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 	providers := &fakeProviders{
-		list: []orchestration.Provider{
-			{Name: "codex-subscription", Kind: orchestration.ProviderCodexSubscription},
-			{Name: "claude-subscription", Kind: orchestration.ProviderClaudeSubscription},
-			{Name: "antigravity-subscription", Kind: orchestration.ProviderAntigravitySubscription},
-			{Name: "router", Kind: orchestration.ProviderOpenAICompatible},
+		list: []profilestore.Provider{
+			{Name: "codex-subscription", Kind: profilestore.ProviderCodexSubscription},
+			{Name: "claude-subscription", Kind: profilestore.ProviderClaudeSubscription},
+			{Name: "antigravity-subscription", Kind: profilestore.ProviderAntigravitySubscription},
+			{Name: "router", Kind: profilestore.ProviderOpenAICompatible},
 		},
 		asked: map[string][]string{},
 		fail:  "claude-subscription",
@@ -111,8 +111,8 @@ func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 // uses keeps only itself.
 func TestACodexModelLeftOutTwiceIsDropped(t *testing.T) {
 	providers := &fakeProviders{
-		list: []orchestration.Provider{{
-			Name: "codex-subscription", Kind: orchestration.ProviderCodexSubscription,
+		list: []profilestore.Provider{{
+			Name: "codex-subscription", Kind: profilestore.ProviderCodexSubscription,
 			Models: []string{"gpt-6.1-terra", "gpt-gone", "gpt-pinned"},
 		}},
 		asked:  map[string][]string{},

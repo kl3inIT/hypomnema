@@ -626,7 +626,7 @@ func TestAnUnpublishedModelBelowTheVersionFloorIsNotServed(t *testing.T) {
 	})
 
 	orch := orchestration.New(chat.db, platform.SystemClock{}, platform.NewID)
-	_, err := orch.ApplyProvider(t.Context(), "antigravity-subscription", "name: antigravity-subscription\n"+
+	_, err := orch.Profiles().ApplyProvider(t.Context(), "antigravity-subscription", "name: antigravity-subscription\n"+
 		"kind: antigravity_subscription\nmin_versions: {gemini: \"3.8\"}\nmodels: [gemini-3.8-flash-high]\n")
 	require.NoError(t, err)
 

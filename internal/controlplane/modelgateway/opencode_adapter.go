@@ -53,14 +53,14 @@ import (
 //   - a 401 marks the key refused, on either provider.
 
 const (
-	// openCodeGoKind is the provider kind (orchestration.ProviderOpenCodeGo).
+	// openCodeGoKind is the provider kind (profilestore.ProviderOpenCodeGo).
 	openCodeGoKind = "opencode_go"
 	// openCodeGoRuntime is the runtime of a Go key's account.
 	openCodeGoRuntime = "opencode_go"
 	// openCodeGoBaseURL is Go's inference root (opencode go.mdx; litellm
 	// llms/opencode/common_utils.py).
 	openCodeGoBaseURL = "https://opencode.ai/inference/go"
-	// openCodeZenKind is the provider kind (orchestration.ProviderOpenCodeZen).
+	// openCodeZenKind is the provider kind (profilestore.ProviderOpenCodeZen).
 	openCodeZenKind = "opencode_zen"
 	// openCodeZenRuntime is the runtime of a Zen key's account.
 	openCodeZenRuntime = "opencode_zen"

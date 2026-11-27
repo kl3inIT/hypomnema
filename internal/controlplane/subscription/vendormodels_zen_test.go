@@ -40,10 +40,10 @@ func TestAZenModelInUseKeepsOnlyItselfWhenItsListDropsIt(t *testing.T) {
 	require.NoError(t, err)
 
 	served := &zenReadings{names: []string{"new-paid-model"}, read: readAt}
-	v := NewVendorModels(served, orch, slog.New(slog.DiscardHandler))
+	v := NewVendorModels(served, orch.Profiles(), slog.New(slog.DiscardHandler))
 
 	models := func() []string {
-		p, err := orch.GetProvider(ctx, "opencode-zen")
+		p, err := orch.Profiles().GetProvider(ctx, "opencode-zen")
 		require.NoError(t, err)
 
 		return p.Models

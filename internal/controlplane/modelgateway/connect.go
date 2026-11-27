@@ -134,7 +134,7 @@ func (s *Service) ToolConfig(ctx context.Context, keyID string, tool Tool, model
 
 // describe gives the gateway's view of a model what a tool is told of it: its window, largest output and whether
 // it reasons (as pi is told them, clientcli/pimodels.go), and its subscription's own wire for a name
-// "<subscription>/<model>" (as a worker's offer chooses it, orchestration modelAPI).
+// "<subscription>/<model>" (as a worker's offer chooses it, profilestore ModelAPITx).
 func (s *Service) describe(ctx context.Context, m Model, gw *agentconfig.Gateway) error {
 	r, err := s.Resolve(ctx, m)
 	if err != nil {

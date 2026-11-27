@@ -16,6 +16,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/meetingstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/userstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
@@ -46,6 +47,9 @@ type Service struct {
 	meetings *meetingstore.Store
 	// inbox is the domain store of the Inbox's to-dos (issue #845).
 	inbox *inboxstore.Store
+	// profiles is the domain store of the profiles, the role routing, and the
+	// providers and models they name (issue #1241).
+	profiles *profilestore.Store
 	// gatewayKeys revokes the gateway keys of what ends here (issues #405, #996).
 	gatewayKeys GatewayKeys
 	// shareVault keeps the sealed copies of share links' tokens (issue #996); nil keeps none.
@@ -120,6 +124,7 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 	s.meetings = meetingstore.New(s.db, s.clock, s.newID, s.notify.signal)
 	s.inbox = inboxstore.New(s.db, s.clock, s.newID, s.notify.signal).WithWaker(inboxWaker{s}).
 		WithMainBot(DefaultBotID)
+	s.profiles = profilestore.New(s.db, s.clock, s.newID, s.notify.signal).WithPlacement(profilePlacement{s})
 
 	return s
 }
@@ -448,7 +453,7 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 
 	for i, nt := range tasks {
 		if nt.Profile == "" {
-			nt.Profile = DefaultProfile
+			nt.Profile = profilestore.DefaultProfile
 		}
 		nt.Kind = or(nt.Kind, "broad")
 
@@ -514,7 +519,7 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 
 func validNewTask(nt NewTask, byRef map[string]string) error {
 	switch {
-	case !validTaskKind(nt.Kind):
+	case !profilestore.ValidTaskKind(nt.Kind):
 		return fmt.Errorf("%w: task kind must be broad, narrow or quick", ErrInvalid)
 	case nt.Ref == "":
 		return fmt.Errorf("%w: a task needs a ref", ErrInvalid)
@@ -991,6 +996,15 @@ func nullMillis(t *time.Time) sql.NullInt64 {
 }
 
 func millis(ms int64) time.Time { return storeutil.Millis(ms) }
+
+// splitNames reads names stored in order, separated by commas.
+func splitNames(stored string) []string {
+	if stored == "" {
+		return nil
+	}
+
+	return strings.Split(stored, ",")
+}
 
 func optionalTime(v sql.NullInt64) *time.Time { return storeutil.OptionalMillis(v) }
 

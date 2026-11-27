@@ -790,7 +790,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// The subscription providers are given the models their vendors serve (issue #623), and again as soon as an
 	// account's first list of models is read (issue #814).
 	vendorModelsDone := make(chan struct{})
-	vendor := subscription.NewVendorModels(subscriptions, svc, logger)
+	vendor := subscription.NewVendorModels(subscriptions, svc.Profiles(), logger)
 
 	subscriptions.OnFirstList(func(string) { vendor.Update(ctx) })
 

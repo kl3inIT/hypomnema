@@ -10,28 +10,10 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-func checkTools(preset string, on, off []string) error {
-	switch agenttool.DefaultPreset(preset) {
-	case agenttool.PresetFull, agenttool.PresetReport:
-	default:
-		return fmt.Errorf("%w: preset %q must be full or report", ErrInvalid, preset)
-	}
-
-	if err := agenttool.CheckToolSwitches(on, off); err != nil {
-		return fmt.Errorf("%w: tools: %w", ErrInvalid, err)
-	}
-
-	return nil
-}
-
 // ToolSwitches are the tool switches of a Bot's pi: its Bot's, read now, so
 // a change reaches a pi already running at its next call.
 func (b Bot) ToolSwitches() agenttool.ToolSwitches {
 	return agenttool.ToolSwitches{Preset: b.Preset, On: b.Tools, Off: b.ToolsOff}
-}
-
-func (p Profile) ToolSwitches() agenttool.ToolSwitches {
-	return agenttool.ToolSwitches{Preset: p.Preset, On: p.Tools, Off: p.ToolsOff}
 }
 
 // ToolSwitchesOfDispatch reads the immutable profile policy and, for a Bot Run, caps it by the Bot's current policy.
