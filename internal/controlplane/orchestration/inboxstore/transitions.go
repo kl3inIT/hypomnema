@@ -525,8 +525,9 @@ type Closing struct {
 }
 
 // Done closes an open or doing to-do as done. The owner closes any; closing a doing item fences its attempt. A Bot
-// closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did, done by
-// him, with his message as evidence.
+// closes the item of its own attempt, done by itself, with evidence; records for the owner what he did, done by
+// him, with his message as evidence; or records an open item a person did, done by them, with their message as
+// evidence and its words in the reason (issue #1204).
 func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 	cl.DoneBy.Name = strings.TrimSpace(cl.DoneBy.Name)
 
@@ -554,6 +555,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 	}
 
 	forOwner := c.Actor.Kind == Bot && cl.DoneBy.Kind == Me
+	forPerson := c.Actor.Kind == Bot && cl.DoneBy.Kind == Person
 
 	evidence, err := json.Marshal(nonNil(cl.Evidence))
 	if err != nil {
@@ -571,6 +573,21 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 		}
 
 		if answeredIn, sent, err = s.ownerSent(ctx, t, cl.Evidence); err != nil {
+			return Todo{}, err
+		}
+	}
+
+	if forPerson {
+		if err := checkReason(cl.Reason, true); err != nil {
+			return Todo{}, fmt.Errorf("%w: quote their message in the reason", err)
+		}
+
+		t, err := s.readFor(ctx, c)
+		if err != nil {
+			return Todo{}, err
+		}
+
+		if answeredIn, err = s.personSent(ctx, t, cl.Evidence); err != nil {
 			return Todo{}, err
 		}
 	}
@@ -599,11 +616,18 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 				}
 			}
 
+			// A person's work is recorded on an open item only: a doing one is a Bot's attempt, closed by that Bot.
+			if forPerson && cur.State != Open {
+				return nil, fmt.Errorf("%w: a Bot records as a person's only an open to-do, not a %s one",
+					storeerr.ErrConflict, cur.State)
+			}
+
 			next.State = Done
 			next.DoneByKind, next.DoneBy = nullString(cl.DoneBy.Kind), nullString(cl.DoneBy.Name)
 			closeFields(next, c.Actor, cl.How, cl.Reason, string(evidence), now)
 
-			// The chat he answered in, when it is not the item's own, so that its activity says where (issue #1163).
+			// The chat he answered in, or the person did it in, when it is not the item's own, so that its activity
+			// says where (issues #1163, #1204).
 			if answeredIn != "" {
 				return map[string]any{"answered_in": answeredIn}, nil
 			}
@@ -612,7 +636,8 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 		})
 }
 
-// botCloses is who a Bot may close a to-do as: itself, with evidence of its work, or the owner, with his message.
+// botCloses is who a Bot may close a to-do as: itself, with evidence of its work, the owner, with his message, or a
+// person, with theirs (issue #1204).
 func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 	switch {
 	case doneBy.Kind == ABot && doneBy.Name == actor.ID:
@@ -623,9 +648,133 @@ func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 		return nil
 	case doneBy.Kind == Me:
 		return nil // ownersMessage checks his message against the item.
+	case doneBy.Kind == Person:
+		return nil // personSent checks their message against the item.
 	}
 
-	return fmt.Errorf("%w: a Bot records a to-do done by itself or by the owner", storeerr.ErrForbidden)
+	return fmt.Errorf("%w: a Bot records a to-do done by itself, by the owner or by a person", storeerr.ErrForbidden)
+}
+
+// readFor reads the item a Bot records a person's message on, before the write, since the message is read from
+// a store or an API outside this database: at the revision the change is made at, so that what the message is
+// checked against (its source, when it was made, whom it waits on) is what the change writes over; and never one
+// the owner added himself, which stays his to record (issue #1204).
+func (s *Store) readFor(ctx context.Context, c Change) (Todo, error) {
+	t, err := s.Get(ctx, c.ID)
+
+	switch {
+	case err != nil:
+		return Todo{}, err
+	case t.Revision != c.Revision:
+		return Todo{}, fmt.Errorf("%w: to-do %s is at revision %d, not %d", storeerr.ErrConflict, c.ID, t.Revision,
+			c.Revision)
+	case t.CreatedBy.Kind == Owner:
+		return Todo{}, fmt.Errorf("%w: the owner added to-do %s himself; he records it, not a Bot on a person's "+
+			"message", storeerr.ErrForbidden, c.ID)
+	}
+
+	return t, nil
+}
+
+// personsMessage says whether a Link is a person's message given as evidence: a LinkZaloMessage,
+// LinkWhatsAppMessage or LinkLarkMessage that names its account and chat (issue #1204).
+func personsMessage(l Link) bool { return messageService[l.Kind] != "" && l.Chat != "" }
+
+// personSent checks the evidence a Bot gives that a person did an item, or took the work of a proposal it added
+// (issue #1204; owner, 2026-11-27): a person's message (personsMessage) of the item's own account at its service,
+// that the server keeps of that account or the service's API returns, that the owner did not send, that a person
+// sent and that is later than the item; in the item's own chat, in another chat of that account where the person
+// who asked is a member when it is read (askerIn, as for the owner's answer, issue #1163), or, for an item waiting
+// on a person, anywhere on that account when its sender is the sender of the message that shows whom it waits on.
+// For a message in another chat it says that chat. What cannot be read is not evidence. inbox-zero resolves a thread
+// that another participant fully handled (determine-thread-status, handle-conversation-status.ts:124-158); the
+// model proposes and code decides, as Omi's open loops do (daily.py:205-232).
+func (s *Store) personSent(ctx context.Context, t Todo, evidence []Link) (doneIn string, err error) {
+	if s.sent == nil {
+		return "", fmt.Errorf("%w: the messages of the owner's accounts cannot be read on this control plane",
+			storeerr.ErrUnavailable)
+	}
+
+	waited, readWaited := "", false
+
+	for _, l := range evidence {
+		service := messageService[l.Kind]
+		if !personsMessage(l) || t.Source.Kind != service || t.Source.Account == "" || l.Account != t.Source.Account {
+			continue
+		}
+
+		m, err := s.sent.SentMessage(ctx, service, l.Account, l.Chat, l.Ref)
+
+		switch {
+		case errors.Is(err, storeerr.ErrNotFound):
+			continue
+		case err != nil:
+			return "", err
+		case m.FromMe || m.Sender == "" || m.Chat != l.Chat || !m.At.After(t.CreatedAt):
+			continue
+		case l.Chat == t.Source.ID:
+			return "", nil
+		}
+
+		if t.WhyOpen == Waiting {
+			if !readWaited {
+				waited, readWaited = s.waitedOn(ctx, t), true
+			}
+
+			if waited != "" && m.Sender == waited {
+				return s.chatName(ctx, service, l.Account, l.Chat), nil
+			}
+		}
+
+		if name, ok := s.askerIn(ctx, t, service, l.Chat); ok {
+			return name, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: a Bot recording a person's work gives as evidence their message (zalo_message, "+
+		"whatsapp_message or lark_message, with the account and the chat) sent after the to-do was made, in its own "+
+		"chat, in another chat of that account where the person who asked is a member, or, for a to-do waiting on "+
+		"them, anywhere on that account", storeerr.ErrInvalid)
+}
+
+// waitedOn is the id of the person an item waits on: the sender of the message that shows it, the latest
+// waiting_on of its history, read in the item's own chat (checkWaitingOn); empty when it cannot be read or the owner
+// sent it ("Đức Anh làm nhé"), whose sender is not the person.
+func (s *Store) waitedOn(ctx context.Context, t Todo) string {
+	service := t.Source.Kind
+
+	for i := len(t.Events) - 1; i >= 0; i-- {
+		var after struct {
+			WaitingOn *WaitingOn `json:"waiting_on"`
+		}
+
+		if json.Unmarshal(t.Events[i].After, &after) != nil || after.WaitingOn == nil {
+			continue
+		}
+
+		ref := after.WaitingOn.Ref
+		if ref.Kind != sourceMessage[service] {
+			return ""
+		}
+
+		m, err := s.sent.SentMessage(ctx, service, t.Source.Account, t.Source.ID, ref.Ref)
+		if err != nil || m.FromMe || m.Chat != t.Source.ID {
+			return ""
+		}
+
+		return m.Sender
+	}
+
+	return ""
+}
+
+// chatName is a chat's name for the item's activity, else its id.
+func (s *Store) chatName(ctx context.Context, service, account, chat string) string {
+	if in, err := s.sent.Members(ctx, service, account, chat); err == nil && in.Name != "" {
+		return in.Name
+	}
+
+	return chat
 }
 
 // ownersMessage is the evidence a Bot recording for the owner gives: a chat_message Link whose ref is the seq of a
@@ -760,7 +909,8 @@ func notAnotherBots(cur store.Todo, bot Actor) error {
 }
 
 // Drop closes a proposed, open or doing to-do as dropped, with its reason; the owner does, or a Bot recording it
-// for him with his message as evidence.
+// for him with his message as evidence, or a Bot dropping a proposal it added that a person took, with their
+// message as evidence (personSent; issue #1204).
 func (s *Store) Drop(ctx context.Context, c Change, reason string, evidence []Link) (Todo, error) {
 	if err := checkReason(reason, true); err != nil {
 		return Todo{}, err
@@ -775,6 +925,24 @@ func (s *Store) Drop(ctx context.Context, c Change, reason string, evidence []Li
 		return Todo{}, fmt.Errorf("writing the evidence: %w", err)
 	}
 
+	// A person's message is read before the write, as Done reads it; the change is made at the revision read.
+	taken := c.Actor.Kind == Bot && slices.ContainsFunc(evidence, personsMessage)
+	if taken {
+		t, err := s.readFor(ctx, c)
+		if err != nil {
+			return Todo{}, err
+		}
+
+		if t.State != Proposed || t.CreatedBy != c.Actor {
+			return Todo{}, fmt.Errorf("%w: a Bot drops on a person's message only a proposal it added",
+				storeerr.ErrForbidden)
+		}
+
+		if _, err := s.personSent(ctx, t, evidence); err != nil {
+			return Todo{}, err
+		}
+	}
+
 	return s.change(ctx, c, EventState,
 		func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
 			if c.Actor.Kind == Bot {
@@ -782,8 +950,10 @@ func (s *Store) Drop(ctx context.Context, c Change, reason string, evidence []Li
 					return nil, err
 				}
 
-				if err := ownersMessage(ctx, q, c, cur, evidence); err != nil {
-					return nil, err
+				if !taken {
+					if err := ownersMessage(ctx, q, c, cur, evidence); err != nil {
+						return nil, err
+					}
 				}
 			}
 
