@@ -1437,8 +1437,17 @@ test("the Inbox hands over files and shows a pasted screenshot in an owner comme
   await expect(comments.getByRole("alert")).toContainText("The Bot's folder is full.")
   expect(w.sent).toHaveLength(1)
   await chips.getByRole("button", { name: "Remove blocked.txt" }).click()
+  await comments.getByRole("button", { name: "Dismiss" }).click()
 
   await pasteImage(page)
+  await page.evaluate(`(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(["November rate"], "notes.txt", { type: "text/plain" }))
+    document.querySelector('textarea[aria-label="Message"]').dispatchEvent(
+      new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }),
+    )
+  })()`)
+  await expect(chips.getByText("notes.txt")).toBeVisible()
   await expect(chips.getByText("image.png")).toBeVisible()
   await expect(chips.locator("img")).toBeVisible()
   await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
@@ -1452,7 +1461,10 @@ test("the Inbox hands over files and shows a pasted screenshot in an owner comme
   await shot(page, "inbox-1245-comment")
   expect(w.sent[1]?.body).toMatchObject({
     text: "",
-    attachments: [{ name: "image.png", path: `${folder}/image.png`, type: "image/png" }],
+    attachments: [
+      { name: "image.png", path: `${folder}/image.png`, type: "image/png" },
+      { name: "notes.txt", path: `${folder}/notes.txt`, type: "text/plain" },
+    ],
   })
   await preview.click()
   await expect(page.getByRole("dialog").getByRole("img", { name: "image.png" })).toBeVisible()

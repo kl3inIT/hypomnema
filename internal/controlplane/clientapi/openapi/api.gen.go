@@ -7320,9 +7320,11 @@ type TodoChange struct {
 	Revision int `json:"revision"`
 }
 
-// TodoComment defines model for TodoComment.
+// TodoComment The text may be empty when the owner sends files.
 type TodoComment struct {
-	Text string `json:"text"`
+	// Attachments The owner's files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+	Text        string            `json:"text"`
 }
 
 // TodoDone defines model for TodoDone.
@@ -7400,7 +7402,7 @@ type TodoEvent struct {
 	Before map[string]interface{} `json:"before"`
 	Id     int64                  `json:"id"`
 
-	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
 	Kind string `json:"kind"`
 
 	// Revision The revision the change made.
@@ -7409,10 +7411,16 @@ type TodoEvent struct {
 
 // TodoHand defines model for TodoHand.
 type TodoHand struct {
+	// Attachments Files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+
 	// Bot The Bot's id; absent, the main Bot.
 	Bot *string `json:"bot,omitempty"`
 
-	// Prompt What the owner asks of the Bot, its first comment; optional.
+	// ChatId The chat id reserved before uploading files when the item has no chat with this Bot.
+	ChatId *string `json:"chat_id,omitempty"`
+
+	// Prompt What the owner asks of the Bot, its first comment; may be empty when it carries files.
 	Prompt   *string `json:"prompt,omitempty"`
 	Revision int     `json:"revision"`
 }

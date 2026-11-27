@@ -285,7 +285,10 @@ export class AttachmentDraft {
 
     const failed = this.items.find((item) => item.state === "failed")
     if (failed) {
-      throw { message: `${failed.name} was not uploaded. Remove it, or attach it again.` }
+      throw {
+        message:
+          failed.problem ?? `${failed.name} was not uploaded. Remove it, or attach it again.`,
+      }
     }
 
     return this.items.map((item) => ({

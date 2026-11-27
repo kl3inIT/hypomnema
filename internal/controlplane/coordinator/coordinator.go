@@ -456,7 +456,16 @@ func promptText(msgs []orchestration.ChatMessage) string {
 		case continued(m):
 			resumed = true
 		default:
-			wakes = append(wakes, "- "+m.Text)
+			text := ownerText(m)
+			for _, file := range m.Attachments {
+				if strings.HasPrefix(file.Type, "image/") {
+					// Pi's read tool gives the vision model image content (pi core/tools/read.ts).
+					text += "\nUse the read tool to view the attached images."
+					break
+				}
+			}
+
+			wakes = append(wakes, "- "+text)
 		}
 	}
 
