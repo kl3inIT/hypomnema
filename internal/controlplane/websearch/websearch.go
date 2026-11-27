@@ -291,6 +291,10 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 
 // Scope is what one caller sets of a search's chain (issue #1277): a gateway key's own order, and a name for the
 // accounts its subscription searches may use. The zero Scope is the owner's chain as Settings has it.
+//
+// A search asked with a context from KeylessOnly uses the keyless providers only, never the owner's keys or
+// subscriptions: social listening's rule (owner, 2026-11-27: no paid services; last30days reads Reddit through its
+// keyless web rungs, reddit_discover.py:322-350).
 type Scope struct {
 	// Order are the providers asked first, in this order, by a search that names none; the others follow in the
 	// chain's order. A provider switched off stays off. OmniRoute's preferred_connections: the next eligible one
@@ -299,6 +303,8 @@ type Scope struct {
 	// Accounts names the accounts the caller's subscription searches go to, empty for every account: its searches
 	// are kept apart from the others' in the cache, and a subscription that rests for them rests for them alone.
 	Accounts string
+	// Keyless: only the providers asked without a key (KeylessOnly).
+	Keyless bool
 }
 
 // first puts the routes of the scope's providers first, in its order; the others keep theirs.
@@ -324,6 +330,10 @@ func (sc Scope) first(routes []route) []route {
 // SearchIn is Search with a caller's own Scope.
 func (s *Service) SearchIn(ctx context.Context, scope Scope, query string, limit int, provider string,
 ) (Answer, error) {
+	if keyless, _ := ctx.Value(keylessKey{}).(bool); keyless {
+		scope.Keyless = true
+	}
+
 	query = strings.TrimSpace(query)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 
@@ -413,6 +423,11 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 	routes, failures := s.routes(ctx, provider, set, true, scope.Accounts)
 	routes = scope.first(routes)
 
+	if scope.Keyless {
+		routes = slices.DeleteFunc(routes, func(r route) bool { return r.source != SourcePublic })
+		failures = nil
+	}
+
 	var (
 		tried     bool
 		asked     int
@@ -485,7 +500,16 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		s.use(r.id)
 
 		rep, err := s.ask(ctx, r, query, limit)
+
+		// The route's rest is stored before its turn ends, so a search waiting for the turn sees it: Agent-Reach
+		// records a backend's failure inside its slot, before the slot is left (runtime/dispatch.py:247-274).
+		keyFailure := false
+		if err != nil && ctx.Err() == nil && !errors.Is(err, ErrNoAccount) {
+			keyFailure = s.failed(r, err)
+		}
+
 		done()
+
 		if errors.Is(err, ErrNoAccount) {
 			// A subscription with no account is not in the chain; named, it cannot be asked.
 			if provider != "" {
@@ -513,7 +537,7 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 
 			failures = append(failures, Failure{Provider: r.provider, Reason: r.label + reasonOf(err)})
 
-			if !s.failed(r, err) && r.source == SourceKey {
+			if !keyFailure && r.source == SourceKey {
 				skipKeys[r.provider] = true
 			}
 
@@ -578,6 +602,13 @@ func (e *FailedError) Is(target error) bool {
 type Pace func(ctx context.Context, route string) (func(), error)
 
 type paceKey struct{}
+
+type keylessKey struct{}
+
+// KeylessOnly makes the searches asked with ctx use the keyless providers only.
+func KeylessOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, keylessKey{}, true)
+}
 
 // WithPace makes the searches asked with ctx wait for each route's turn.
 func WithPace(ctx context.Context, p Pace) context.Context {
@@ -694,7 +725,3 @@ func (s *Service) ask(ctx context.Context, r route, query string, limit int) (re
 
 	return r.ask(s, ctx, r, query, limit)
 }
-
-// KeylessOnly will make the searches asked with ctx use the keyless providers only (review round 2 of PR #1303);
-// declared here for the tests written first.
-func KeylessOnly(ctx context.Context) context.Context { return ctx }

@@ -4917,7 +4917,8 @@ writes no prose (last30days SKILL.md LAW 7).
   score, comments, author and date (a score under 36 hours old is left out; threads the archive cannot fill, or
   while it rests, stay as the search showed them), then those dated in the window, then those whose title names the
   topic (last30days' topic bar: the topic's first word when longer than three letters and not generic), then cut at
-  the stream's limit; the detail counts the threads dropped. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
+  the stream's limit; the detail counts the threads dropped. When the archive could not be read and the bar leaves
+  none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
   `web_arctic` was added for that (owner, 2026-11-27).
 - A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
   refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
@@ -4930,7 +4931,8 @@ writes no prose (last30days SKILL.md LAW 7).
   `x-ratelimit-reset`) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
 - Pacing: one call at a time per host, Reddit's at least 1 s apart, Arctic Shift's 400 ms (`Pacer`), whoever asks.
   The web searches a plan makes wait in the chain for their route's turn, one call at a time per key or keyless
-  provider and 1 s apart (`websearch.WithPace`), and a route that came to rest meanwhile is skipped. Reddit's
+  provider and 1 s apart (`websearch.WithPace`); a provider's rest is stored before its turn ends, and a route that
+  came to rest meanwhile is skipped. A source's `Retry-After` counts from when its answer arrived. Reddit's
   `/search.json` and Arctic Shift's `/api/posts/ids` each rest on their own as paths, checked again once a call has
   its turn, so a search queued behind a 403 or a 429 sends nothing.
 - The web search chain's failure keeps each route's rest (`websearch.FailedError`: rests, providers asked, empty,
@@ -4953,9 +4955,9 @@ writes no prose (last30days SKILL.md LAW 7).
   or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
   test on Vietnamese posts (`listening/cluster_test.go`).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
-  are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain, so a paid
-  key the owner added there is asked first (its cost recorded); with none, the chain's providers are keyless, and
-  Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
+  are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
+  `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
+  search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
   with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
 - Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
   (issues #1288 to #1295).

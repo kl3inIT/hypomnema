@@ -348,15 +348,19 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 
 			detail := "web search " + answeredBy(a)
 
+			var archiveFailed *SourceError
+
 			switch {
 			case err != nil:
 				f := AsFailure(err)
+				archiveFailed = &SourceError{Code: f.Code, Detail: "arctic-shift not read: " + f.Detail, Until: f.Until}
 				detail += "; arctic-shift not read: " + f.Error()
 
 				if !f.Until.IsZero() {
 					detail += " until " + f.Until.UTC().Format(time.RFC3339)
 				}
 			case archived.Data == nil:
+				archiveFailed = Fail(CodeBroken, "arctic-shift not read: %s", oneLine(archived.Error))
 				detail += "; arctic-shift not read: " + oneLine(archived.Error)
 			default:
 				detail += fmt.Sprintf("; arctic-shift filled %d of %d", len(byID), len(threads))
@@ -384,6 +388,15 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 			if dropped := len(inWindow) - len(named); dropped > 0 {
 				// last30days BarResult.note (reddit_discover.py:125-135).
 				detail += fmt.Sprintf("; %d of %d threads dropped for not naming the topic", dropped, len(inWindow))
+			}
+
+			// With the archive not read, a title the bar refuses is the search's, not the thread's: that the bar
+			// leaves nothing says the threads were not read, never that nobody talked (issue #1287's coverage rule;
+			// last30days judges threads after hydrating them, reddit_hydrate.py:467-510).
+			if len(named) == 0 && len(inWindow) > 0 && archiveFailed != nil {
+				archiveFailed.Detail = detail
+
+				return Result{}, archiveFailed
 			}
 
 			return Result{Items: named[:min(len(named), r.Limit)], Detail: detail}, nil
@@ -495,14 +508,14 @@ func fetchJSON(ctx context.Context, client *http.Client, r Request, slowDown boo
 	defer resp.Body.Close() //nolint:errcheck // A read body's close has nothing to report.
 
 	if resp.StatusCode == http.StatusUnprocessableEntity && slowDown {
-		f := HTTPFailure(http.StatusTooManyRequests, resp.Header, r.To)
+		f := HTTPFailure(http.StatusTooManyRequests, resp.Header, r.now())
 		f.Detail = "HTTP 422 slow down"
 
 		return f
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return HTTPFailure(resp.StatusCode, resp.Header, r.To)
+		return HTTPFailure(resp.StatusCode, resp.Header, r.now())
 	}
 
 	if media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); !strings.Contains(media, "json") {

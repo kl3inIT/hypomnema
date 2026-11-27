@@ -1146,7 +1146,9 @@ func (u *slowUsage) RecordSearch(context.Context, websearch.Use) error {
 	return nil
 }
 
-func (u *slowUsage) SearchCounts(context.Context, time.Time) ([]websearch.Count, error) { return nil, nil }
+func (u *slowUsage) SearchCounts(context.Context, time.Time) ([]websearch.Count, error) {
+	return nil, nil
+}
 
 // Scenario (review round 2 of PR #1303): two paced searches on the default keyless chain; Exa answers the first with
 // 429 and Retry-After 120 while its usage row is still being written. The rest is stored before the turn ends, so the
@@ -1206,5 +1208,6 @@ func TestAKeylessOnlySearchNeverAsksAKey(t *testing.T) {
 
 	_, err = w.svc.Search(t.Context(), "keyless only", 0, "")
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), w.exa.calls.Load(), "without KeylessOnly the key is asked first, and the answer is not shared")
+	assert.Equal(t, int32(1), w.exa.calls.Load(),
+		"without KeylessOnly the key is asked first, and the answer is not shared")
 }

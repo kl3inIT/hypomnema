@@ -66,6 +66,17 @@ type Request struct {
 	// as Agent-Reach checks a cooldown again inside its slot (runtime/dispatch.py:247-257).
 	Resting func(path string) *SourceError
 	Rest    func(path string, f *SourceError) time.Time
+	// Now is the clock: a source's wait (Retry-After) counts from when its answer arrived, as last30days'
+	// retry_delay_from_headers is read when the 429 comes back (lib/http.py:77-119); nil: the wall clock.
+	Now func() time.Time
+}
+
+func (r Request) now() time.Time {
+	if r.Now == nil {
+		return time.Now()
+	}
+
+	return r.Now()
 }
 
 // Attempt is one backend tried for a stream, as Agent-Reach's meta.attempts (runtime/dispatch.py:255-290): its

@@ -29,8 +29,8 @@ func normalizeQuery(query string) string {
 }
 
 func cacheKey(query, provider string, limit int, set Settings, scope Scope) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%q %q %d %q %q %q %q", normalizeQuery(query), provider, limit,
-		slices.Sorted(slices.Values(set.Off)), set.order(), scope.Order, scope.Accounts))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%q %q %d %q %q %q %q %t", normalizeQuery(query), provider, limit,
+		slices.Sorted(slices.Values(set.Off)), set.order(), scope.Order, scope.Accounts, scope.Keyless))
 
 	return hex.EncodeToString(sum[:])
 }

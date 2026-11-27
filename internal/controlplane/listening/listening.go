@@ -222,6 +222,9 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 
 	// The web searches a plan makes wait for their route's turn, one call at a time per key or keyless provider and
 	// webGap apart, where the chain knows the route (websearch.WithPace).
+	// Listening asks only the keyless providers, never the owner's keys or subscriptions: no paid service (owner,
+	// 2026-11-27), as last30days reads Reddit through keyless web search (reddit_discover.py:322-350).
+	ctx = websearch.KeylessOnly(ctx)
 	ctx = websearch.WithPace(ctx, func(ctx context.Context, route string) (func(), error) {
 		return s.pacer.Wait(ctx, "web:"+route, webGap)
 	})
@@ -254,7 +257,7 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 			for _, sq := range labels {
 				req := Request{
 					Query: sq.Query, Topic: plan.topic(), Limit: plan.MaxResults, From: from, To: now, Web: web,
-					Pace:    s.pacer.Wait,
+					Pace: s.pacer.Wait, Now: s.now,
 					Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
 					Rest:    func(path string, f *SourceError) time.Time { return s.rest("path:"+path, f) },
 				}
