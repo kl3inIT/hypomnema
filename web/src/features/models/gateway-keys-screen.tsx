@@ -1,5 +1,3 @@
-import { useForm } from "@tanstack/react-form"
-import { useMutation } from "@tanstack/react-query"
 import {
   columnFilteringFeature,
   createFilteredRowModel,
@@ -20,63 +18,24 @@ import {
   Cable,
   Check,
   Copy,
-  AudioLines,
   Eye,
   EyeOff,
-  FileText,
-  Globe,
-  ImageIcon,
   KeyRound,
-  Pencil,
-  Plus,
   Search,
   Trash2,
-  type LucideIcon,
 } from "lucide-react"
 import { Link } from "@tanstack/react-router"
-import { useId, useState, type ReactNode } from "react"
-import { z } from "zod"
+import { useState, type ReactNode } from "react"
 
 import "@/api/client"
-import {
-  createGatewayKeyMutation,
-  updateGatewayKeyMutation,
-} from "@/api/generated/@tanstack/react-query.gen"
 import { getGatewayKeyValue, revokeGatewayKey } from "@/api/generated/sdk.gen"
-import type { CreatedGatewayKey, GatewayEndpoint, GatewayKey } from "@/api/generated/types.gen"
+import type { GatewayEndpoint, GatewayKey } from "@/api/generated/types.gen"
+import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-  FieldTitle,
-} from "@/components/ui/field"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "@/components/ui/input-group"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Table,
@@ -89,58 +48,17 @@ import {
 import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorAlert } from "@/components/error-alert"
-import { TextField } from "@/components/text-field"
 import { SettingsPage } from "@/components/settings-page"
 import { said } from "@/lib/said"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 
-import { pickGroups } from "./gateway-keys-state"
-import { GatewayModelPicker } from "./gateway-model-picker"
-import { useGatewayKeys, useGatewayModels, useProviders, useRefreshGatewayKeys } from "./use-models"
+import { CopyButton, KeySheet } from "./gateway-key-sheet"
+import { endpointKinds, routingBadges } from "./gateway-keys-state"
+import { useGatewayKeys, useRefreshGatewayKeys } from "./use-models"
 
 // The name the gateway gives to "every model".
 const every = "*"
-
-// What a key may use besides chat (issue #664), in the order shown, as OmniRoute's key Access page lists its
-// endpoint categories with a checkbox each. Search, images and audio carry the icons of their pages in the Settings
-// menu (settings-page.tsx).
-const endpointKinds: {
-  id: GatewayEndpoint
-  title: string
-  shortLabel: string
-  description: string
-  icon: LucideIcon
-}[] = [
-  {
-    id: "search",
-    title: "Web search",
-    shortLabel: "Search",
-    description: "/v1/search, and the Codex CLI's own search.",
-    icon: Globe,
-  },
-  {
-    id: "fetch",
-    title: "Reading a web page",
-    shortLabel: "Read pages",
-    description: "/v1/web/fetch.",
-    icon: FileText,
-  },
-  {
-    id: "images",
-    title: "Making and editing images",
-    shortLabel: "Images",
-    description: "/v1/images/generations and /edits.",
-    icon: ImageIcon,
-  },
-  {
-    id: "audio",
-    title: "Speech to text and text to speech",
-    shortLabel: "Audio",
-    description: "/v1/audio/transcriptions, /speech and /voices.",
-    icon: AudioLines,
-  },
-]
 
 const features = tableFeatures({
   columnFilteringFeature,
@@ -176,9 +94,12 @@ const columns: ColumnDef<typeof features, GatewayKey>[] = [
     filterFn: "includesString",
     header: ({ column }) => <SortHead column={column} label="Name" />,
     cell: ({ row }) => (
-      <span className="block max-w-28 truncate font-medium sm:max-w-40" title={row.original.name}>
-        {row.original.name}
-      </span>
+      <div className="flex flex-col items-start gap-1">
+        <span className="block max-w-28 truncate font-medium sm:max-w-40" title={row.original.name}>
+          {row.original.name}
+        </span>
+        <RoutingBadges gatewayKey={row.original} />
+      </div>
     ),
   },
   {
@@ -254,7 +175,7 @@ export function GatewayKeysScreen() {
             <Cable data-icon="inline-start" />
             Connect a tool
           </Link>
-          <KeyDialog />
+          <KeySheet />
         </>
       }
     >
@@ -314,26 +235,6 @@ function BaseURL() {
   )
 }
 
-function CopyButton({ value, label, done }: { value: string; label: string; done: string }) {
-  const [copied, setCopied] = useState(false)
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      said(done)
-    } catch {
-      // No clipboard (an insecure page): the value stays selectable.
-    }
-  }
-
-  return (
-    <InputGroupButton size="icon-xs" aria-label={label} onClick={() => void copy()}>
-      {copied ? <Check /> : <Copy />}
-    </InputGroupButton>
-  )
-}
-
 function KeyValue({ gatewayKey }: { gatewayKey: GatewayKey }) {
   const [shown, setShown] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -357,7 +258,7 @@ function KeyValue({ gatewayKey }: { gatewayKey: GatewayKey }) {
               </p>
             </PopoverContent>
           </Popover>
-          <KeyDialog gatewayKey={gatewayKey} />
+          <KeySheet gatewayKey={gatewayKey} />
         </div>
       </div>
     )
@@ -414,7 +315,7 @@ function KeyValue({ gatewayKey }: { gatewayKey: GatewayKey }) {
         >
           {copied ? <Check /> : <Copy />}
         </Button>
-        <KeyDialog gatewayKey={gatewayKey} />
+        <KeySheet gatewayKey={gatewayKey} />
       </div>
       <ErrorAlert error={error} />
     </div>
@@ -500,6 +401,23 @@ function KeysTable({ keys }: { keys: GatewayKey[] }) {
         </Table>
       </div>
     </div>
+  )
+}
+
+// RoutingBadges mark a key with its own routing (issue #1277) under its name: the accounts it is limited to and its
+// own search order.
+function RoutingBadges({ gatewayKey }: { gatewayKey: GatewayKey }) {
+  const badges = routingBadges(gatewayKey)
+  if (badges.length === 0) return null
+
+  return (
+    <span className="flex flex-wrap gap-1" aria-label="Own routing">
+      {badges.map((badge) => (
+        <Badge key={badge} variant="outline">
+          {badge}
+        </Badge>
+      ))}
+    </span>
   )
 }
 
@@ -638,289 +556,5 @@ function KeyActions({ gatewayKey }: { gatewayKey: GatewayKey }) {
         done={`${gatewayKey.name} was revoked`}
       />
     </span>
-  )
-}
-
-const keySchema = z
-  .object({
-    name: z
-      .string()
-      .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "Lower-case letters, digits and dashes, 63 at most."),
-    scope: z.enum(["every", "some"]),
-    models: z.array(z.string()),
-    endpoints: z.array(z.enum(["search", "fetch", "images", "audio"])),
-  })
-  .refine((value) => value.scope === "every" || value.models.length > 0, {
-    message: "Choose a model, or every model.",
-    path: ["models"],
-  })
-
-function KeyDialog({ gatewayKey }: { gatewayKey?: GatewayKey }) {
-  const refresh = useRefreshGatewayKeys()
-  const [open, setOpen] = useState(false)
-  const [made, setMade] = useState<CreatedGatewayKey | null>(null)
-  const providers = useProviders()
-  const formId = useId()
-
-  const models = useGatewayModels({ enabled: open })
-  const groups = pickGroups(models.data ?? [], providers.data ?? [])
-
-  const create = useMutation({
-    ...createGatewayKeyMutation(),
-    gcTime: 0,
-    onSuccess: async (created) => {
-      setMade(created)
-      await refresh()
-    },
-  })
-  const update = useMutation({
-    ...updateGatewayKeyMutation(),
-    onSuccess: async (key) => {
-      await refresh()
-      said(`${key.name} was updated`)
-      change(false)
-    },
-  })
-  const selectedModels = gatewayKey?.models.filter((model) => model !== every) ?? []
-  const action = gatewayKey ? "Save changes" : "Create key"
-  const pending = create.isPending || update.isPending
-
-  const form = useForm({
-    defaultValues: {
-      name: gatewayKey?.name ?? "",
-      scope: (gatewayKey && !gatewayKey.models.includes(every) ? "some" : "every") as
-        | "every"
-        | "some",
-      models: selectedModels,
-      endpoints: gatewayKey?.endpoints ?? endpointKinds.map((kind) => kind.id),
-    },
-    validators: { onSubmit: keySchema },
-    onSubmit: ({ value, formApi }) => {
-      const access = { name: value.name, models: value.scope === "every" ? [] : value.models }
-      const everyEndpoint = value.endpoints.length === endpointKinds.length
-      if (gatewayKey) {
-        const sameEndpoints =
-          gatewayKey.endpoints.length === value.endpoints.length &&
-          gatewayKey.endpoints.every((kind) => value.endpoints.includes(kind))
-        update.mutate({
-          path: { key_id: gatewayKey.id },
-          body: {
-            ...access,
-            ...((!sameEndpoints ||
-              (everyEndpoint && formApi.getFieldMeta("endpoints")?.isDirty)) && {
-              endpoints: everyEndpoint ? ["*"] : value.endpoints,
-            }),
-          },
-        })
-        return
-      }
-      create.mutate({
-        body: {
-          ...access,
-          // Every kind is sent as none named, so that a kind added later is given too.
-          ...(!everyEndpoint && { endpoints: value.endpoints }),
-        },
-      })
-    },
-  })
-
-  function change(next: boolean) {
-    setOpen(next)
-    if (!next) {
-      setMade(null)
-      form.reset()
-      create.reset()
-      update.reset()
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={change}>
-      <DialogTrigger
-        render={
-          gatewayKey ? (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Edit ${gatewayKey.name}`}
-              title="Edit key"
-            >
-              <Pencil />
-            </Button>
-          ) : (
-            <Button>
-              <Plus data-icon="inline-start" />
-              Create key
-            </Button>
-          )
-        }
-      />
-      <DialogContent>
-        {made ? (
-          <div className="flex flex-col gap-4">
-            <DialogHeader>
-              <DialogTitle>Copy the key of {made.key.name}</DialogTitle>
-              <DialogDescription>
-                Give this key to the tool as its API key.{" "}
-                {made.key.masked_value
-                  ? "You can copy it again from the list."
-                  : "Copy it now: its value is not stored."}
-              </DialogDescription>
-            </DialogHeader>
-            <InputGroup>
-              <InputGroupInput readOnly aria-label="The new key" value={made.secret} />
-              <InputGroupAddon align="inline-end">
-                <CopyButton value={made.secret} label="Copy the key" done="The key was copied" />
-              </InputGroupAddon>
-            </InputGroup>
-            <DialogFooter>
-              <DialogClose render={<Button />}>Done</DialogClose>
-            </DialogFooter>
-          </div>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>
-                {gatewayKey ? `Edit ${gatewayKey.name}` : "New gateway key"}
-              </DialogTitle>
-              <DialogDescription>
-                {gatewayKey
-                  ? "Change what the key can do without replacing the value used by your tool."
-                  : "For one tool on one machine, so that it can be revoked alone."}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogPanel>
-              <form
-                id={formId}
-                autoComplete="off"
-                noValidate
-                className="flex flex-col gap-4"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  void form.handleSubmit()
-                }}
-              >
-                <FieldGroup>
-                  <form.Field name="name">
-                    {(field) => (
-                      <TextField
-                        field={field}
-                        label="Name"
-                        placeholder="opencode-laptop"
-                        description="Lower-case letters, digits and dashes."
-                      />
-                    )}
-                  </form.Field>
-                  <FieldSet>
-                    <FieldLegend variant="label">Models it may use</FieldLegend>
-                    <form.Field name="scope">
-                      {(field) => (
-                        <RadioGroup
-                          value={field.state.value}
-                          onValueChange={(next) => field.handleChange(next as "every" | "some")}
-                        >
-                          <FieldLabel htmlFor="scope-every">
-                            <Field orientation="horizontal">
-                              <RadioGroupItem id="scope-every" value="every" />
-                              <FieldContent>
-                                <FieldTitle>Every model</FieldTitle>
-                                <FieldDescription>Also the models added later.</FieldDescription>
-                              </FieldContent>
-                            </Field>
-                          </FieldLabel>
-                          <FieldLabel htmlFor="scope-some">
-                            <Field orientation="horizontal">
-                              <RadioGroupItem id="scope-some" value="some" />
-                              <FieldContent>
-                                <FieldTitle>Only these models</FieldTitle>
-                                <FieldDescription>
-                                  A model added later is not allowed until you make a new key.
-                                </FieldDescription>
-                              </FieldContent>
-                            </Field>
-                          </FieldLabel>
-                        </RadioGroup>
-                      )}
-                    </form.Field>
-                    <form.Subscribe selector={(state) => state.values.scope}>
-                      {(scope) =>
-                        scope === "some" && (
-                          <form.Field name="models">
-                            {(field) => (
-                              <Field>
-                                {models.isPending ? (
-                                  <Spinner />
-                                ) : (
-                                  <GatewayModelPicker
-                                    groups={groups}
-                                    chosen={field.state.value}
-                                    onChange={field.handleChange}
-                                  />
-                                )}
-                                {!field.state.meta.isValid && (
-                                  <FieldError errors={field.state.meta.errors} />
-                                )}
-                              </Field>
-                            )}
-                          </form.Field>
-                        )
-                      }
-                    </form.Subscribe>
-                  </FieldSet>
-                  <FieldSet>
-                    <FieldLegend variant="label">Besides chat, it may use</FieldLegend>
-                    <form.Field name="endpoints">
-                      {(field) => (
-                        <FieldGroup data-slot="checkbox-group">
-                          {endpointKinds.map((kind) => (
-                            <FieldLabel key={kind.id} htmlFor={`${formId}-${kind.id}`}>
-                              <Field orientation="horizontal">
-                                <Checkbox
-                                  id={`${formId}-${kind.id}`}
-                                  checked={field.state.value.includes(kind.id)}
-                                  onCheckedChange={(checked) =>
-                                    field.handleChange(
-                                      endpointKinds
-                                        .map((k) => k.id)
-                                        .filter((id) =>
-                                          id === kind.id ? checked : field.state.value.includes(id),
-                                        ),
-                                    )
-                                  }
-                                />
-                                <FieldContent>
-                                  <FieldTitle>
-                                    <kind.icon className="size-4 shrink-0 text-muted-foreground" />
-                                    {kind.title}
-                                  </FieldTitle>
-                                  <FieldDescription>{kind.description}</FieldDescription>
-                                </FieldContent>
-                              </Field>
-                            </FieldLabel>
-                          ))}
-                        </FieldGroup>
-                      )}
-                    </form.Field>
-                  </FieldSet>
-                </FieldGroup>
-              </form>
-            </DialogPanel>
-            <ErrorAlert error={create.error ?? update.error} />
-            <DialogFooter>
-              <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-              <Button
-                type="submit"
-                form={formId}
-                focusableWhenDisabled={pending}
-                disabled={pending}
-              >
-                {pending && <Spinner data-icon="inline-start" />}
-                {action}
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   )
 }

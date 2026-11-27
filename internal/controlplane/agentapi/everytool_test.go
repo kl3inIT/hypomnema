@@ -42,7 +42,8 @@ func (b *fullBrowser) Tools(context.Context) ([]browser.Tool, error) {
 var (
 	expectedPiTools = slices.Concat([]string{
 		"memory", "show_artifact", "routines", "chat_search", "inbox_list", "inbox_get", "inbox_add", "inbox_update",
-		"inbox_start", "inbox_release", "inbox_done", "inbox_comment", "inbox_drop", "meeting_list", "meeting_get",
+		"inbox_start", "inbox_release", "inbox_done", "inbox_comment", "inbox_drop", "inbox_chats", "meeting_list",
+		"meeting_get",
 		"web_search", "web_fetch", "generate_image", "audio_transcribe", "audio_speak", "muse_ask", "muse_chats",
 		"muse_messages", "whatsapp_chats", "whatsapp_messages", "whatsapp_media", "whatsapp_history", "whatsapp_send",
 		"zalo_chats", "zalo_messages", "zalo_media", "zalo_history", "zalo_send", "node_exec", "node_process",
