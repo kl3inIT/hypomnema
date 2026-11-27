@@ -79,7 +79,7 @@ func newAppWorld(t *testing.T) *appWorld {
 
 	w := &appWorld{t: t, gh: githubapptest.New(t), logs: &lockedBuffer{}}
 	w.svc = orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	w.vault = vault.New(db, platform.SystemClock{}, platform.NewID, keys, w.svc.ProvidersUsingKeyRef)
+	w.vault = vault.New(db, platform.SystemClock{}, platform.NewID, keys, w.svc.Profiles().ProvidersUsingKeyRef)
 
 	logger := slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	w.app = githubapp.New(w.svc, w.vault, "https://hypomnema.example", w.gh.Client(), logger)

@@ -37,7 +37,7 @@ func registered(t *testing.T, path string, gh *githubapptest.GitHub) *githubapp.
 	require.NoError(t, err)
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, keys, svc.ProvidersUsingKeyRef)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, keys, svc.Profiles().ProvidersUsingKeyRef)
 	app := githubapp.New(svc, secrets, "https://hypomnema.example", gh.Client(), slog.New(slog.DiscardHandler))
 
 	registration, _, err := app.StartRegistration()
