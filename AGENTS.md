@@ -77,9 +77,10 @@
   comment on that issue.
 - Before pushing, once, after the last edit or merge: `make verify-static` and the unit tests of what the change
   touched (`go test` on the changed packages; for the web client, `pnpm --dir web exec vitest related --run` on the
-  changed files, and `pnpm --dir web typecheck` and `lint`). Do not run the whole suite locally: CI's Unit, Race and
-  browser jobs are the full proof (t3code `AGENTS.md:102,111`, OpenClaw `AGENTS.md:86`, Orca `AGENTS.md:8`, Coder
-  `AGENTS.md:46`; owner, 2026-11-19).
+  changed files, and `pnpm --dir web typecheck` and `lint`). Do not run the whole suite locally (t3code
+  `AGENTS.md:102,111`, OpenClaw `AGENTS.md:86`, Orca `AGENTS.md:8`, Coder `AGENTS.md:46`; owner, 2026-11-19).
+  CI runs the full Unit and browser suites and sharded Race on code PRs. The orchestration package's Race shard
+  runs on main ([CI runbook](docs/ci.md)).
 - Do not merge main into a branch only because main advanced. Merge it for a conflict, for a red check whose cause
   is on main, or for a migration. After a merge, rerun only the checks it affects (OpenClaw `AGENTS.md:46`).
 - A migration is made with `make migration-create NAME=what_it_does`, which names it by its time, so branches open

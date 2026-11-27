@@ -128,10 +128,12 @@ migration-check: ## Fail when a migration on main changed, two share a number, o
 unit: ## Unit tests
 	$(GO) test -count=1 ./...
 
+RACE_PACKAGES ?= ./...
+
 # -race also turns on checkptr in every package. In modernc.org/sqlite, C translated to Go, it took a third of a
 # race run's time and checks code that is not ours, so it is off there only (issue #517).
 race: ## Unit tests with the race detector (needs cgo)
-	CGO_ENABLED=1 $(GO) test -race -count=1 -gcflags='modernc.org/...=-d=checkptr=0' ./...
+	CGO_ENABLED=1 $(GO) test -race -count=1 -gcflags='modernc.org/...=-d=checkptr=0' $(RACE_PACKAGES)
 
 govulncheck: ## Known vulnerabilities in what the code calls
 	$(GOVULNCHECK) ./...

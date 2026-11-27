@@ -7152,16 +7152,8 @@ and the node in the control plane binary.
   itself for what only its answers show (issue #737): `web/tests/server` (`go run`, after the build, so that it
   embeds it) migrates a temporary database, adds an owner, a chat and the artifacts of its `pages/` folder as a Bot
   shows them, then runs `controlplane.Serve`. A CDN a page loads is answered in the browser by the test.
-- CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
-  and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
-  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`, with Go for the control plane its browser tests
-  run). `Unit` first sets the runner up as the
-  coordinator's machine is (`deploy/coordinator/setup-box.sh`) and sets `HYPOMNEMA_BOX_TEST=required`, so the Bots'
-  box tests fail rather than skip when a box cannot be made. Each Go job keeps its own build cache. A first
-  job, `Changes`, finds whether anything but documentation changed (`docs/**`, `*.md`); when nothing did, the four
-  are skipped. A last job, `Required`, passes when none of them failed and is the one check to wait for. Chromium
-  for the browser tests is cached by the Playwright version, as t3code's CI does. `make verify` is still the three
-  Go targets in a row, for a laptop.
+- CI runs on pull requests and pushes to `main`. The [CI runbook](docs/ci.md) describes what `Required` checks,
+  how the Race and browser jobs are split, and how to rehearse the main path.
 - A test that needs a migrated database opens a copy of one: `internal/shared/sqlite/sqlitetest` runs the migrations
   once in a test process and hands each test a copy of that file (issue #129, as Coder and Omnara copy a Postgres
   template). Migrating took 1.5 s for each test under the race detector. A test of a migration starts from a copy
