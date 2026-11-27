@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"strconv"
 	"strings"
@@ -326,4 +327,154 @@ func TestTheMigrationQueuesEachPullRequestsLatestVerdict(t *testing.T) {
 	assert.Equal(t, statusNewHead, h.posted[0].Head)
 	assert.Equal(t, later.ID, h.posted[0].TaskID)
 	assert.Equal(t, 1, h.reads, "only the latest verdict is queued")
+}
+
+// quickWorld is a world with a quick Task that succeeded without naming its pull request, in a Run of
+// kl3inIT/hypomnema the coordinator finished.
+func quickWorld(t *testing.T) (*world, Task) {
+	t.Helper()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	var err error
+
+	w.run, err = w.s.CreateRun(ctx, NewRun{Objective: "Rename it", CreatedBy: "pi", Repo: "kl3inIT/hypomnema"})
+	require.NoError(t, err)
+
+	quick := w.tasks(NewTask{Ref: "quick", Profile: "implementer", Kind: "quick", Spec: "rename the setting"})[0]
+	_, c := w.start(quick.ID)
+	done := success("Opened the pull request.")
+	done.Result.Evidence = nil
+	require.NoError(t, w.finish(c, done))
+	require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
+
+	return w, quick
+}
+
+// pullRequestOne is a host whose branch has pull request 1, open at *head, or none while *head is "".
+func pullRequestOne(head *string) ReadPullRequest {
+	repo := githost.Repo{Host: "github.com", Path: "kl3inIT/hypomnema"}
+
+	return func(_ context.Context, f FollowedRequest) (githost.Request, githost.RequestState, error) {
+		if *head == "" {
+			return githost.Request{}, githost.RequestState{}, githost.ErrNoRequest
+		}
+
+		return githost.Request{Repo: repo, Number: 1},
+			githost.RequestState{Status: githost.RequestOpen, Head: *head, Branch: f.Branch}, nil
+	}
+}
+
+// Scenario (issue #1279, review round 2): a narrow Task continues the quick Task's pull request from a new Run.
+// From then on the heads it pushes need their review: no "no review needed" is posted on them, neither from the
+// next lookup nor from one queued before the narrow Task was made.
+func TestAQuickPullRequestContinuedByANarrowTaskNeedsItsReview(t *testing.T) {
+	t.Parallel()
+
+	w, quick := quickWorld(t)
+	ctx := t.Context()
+
+	head := statusHead
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen}, find: pullRequestOne(&head)}
+	h.state.Head = head
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	require.Len(t, h.posted, 1, "the quick Task's own head needs no review")
+
+	failing := h.host()
+	failing.Post = func(context.Context, ReviewStatus) error { return errors.New("GitHub answered HTTP 502") }
+	head, h.state.Head = statusNewHead, statusNewHead
+	require.Error(t, w.s.PostReviewStatuses(ctx, failing), "the new head's status is queued, not posted")
+
+	next, err := w.s.CreateRun(ctx, NewRun{Objective: "Fix the rename", CreatedBy: "pi", Repo: "kl3inIT/hypomnema"})
+	require.NoError(t, err)
+	_, err = w.s.CreateTasks(ctx, next.ID, []NewTask{{Ref: "fix", Profile: "implementer", Kind: "narrow",
+		Spec: "fix the rename's callers", Continues: quick.ID}})
+	require.NoError(t, err)
+
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	assert.Len(t, h.posted, 1, "a head the narrow Task pushed gets no \"no review needed\"")
+
+	head, h.state.Head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	assert.Len(t, h.posted, 1)
+}
+
+// Scenario (issue #1279, review round 2): a quick Task's pull request whose Task succeeded before the control
+// plane took this change is kept by the migration, with the pull request it found, and gets its status.
+func TestTheMigrationKeepsAQuickTaskThatSucceededBefore(t *testing.T) {
+	t.Parallel()
+
+	w, quick := quickWorld(t)
+	ctx := t.Context()
+
+	d, err := w.s.read().LastDispatchOfTask(ctx, quick.ID)
+	require.NoError(t, err)
+
+	before, own := reviewStatusVersions(t)
+	p, err := provider(w.db)
+	require.NoError(t, err)
+
+	_, err = p.DownTo(ctx, before)
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, `INSERT INTO pull_request_lookups (dispatch_id, url, since) VALUES (?, ?, ?)`,
+		d.ID, "https://github.com/kl3inIT/hypomnema/pull/1", w.clock.now.UnixMilli())
+	require.NoError(t, err)
+
+	_, err = p.UpTo(ctx, own)
+	require.NoError(t, err)
+	_, err = p.Up(ctx)
+	require.NoError(t, err)
+
+	head := statusHead
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead}}
+	h.find = func(ctx context.Context, f FollowedRequest) (githost.Request, githost.RequestState, error) {
+		require.NotNil(t, f.Hint, "the pull request it found is the hint")
+		assert.Equal(t, 1, f.Hint.Number)
+
+		return pullRequestOne(&head)(ctx, f)
+	}
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	require.Len(t, h.posted, 1)
+	assert.Equal(t, "no review needed: quick Task "+quick.ID, h.posted[0].Description)
+}
+
+// Scenario (issue #1279, review round 2): a worker opens the quick Task's pull request well after the Task
+// succeeded. Its branch is looked up every pass for the first minutes, then less often, for a day: the late pull
+// request still gets its status, and a branch that never gets one is let go after the day.
+func TestALatePullRequestOfAQuickTaskStillGetsItsStatus(t *testing.T) {
+	t.Parallel()
+
+	w, _ := quickWorld(t)
+	ctx := t.Context()
+
+	head := ""
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead},
+		find: pullRequestOne(&head)}
+
+	for range 5 {
+		require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+		w.advance(time.Minute)
+	}
+
+	assert.Len(t, h.finds, 5, "looked up every pass at first")
+
+	w.advance(30 * time.Minute)
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	w.advance(time.Minute)
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	assert.Len(t, h.finds, 6, "then less often")
+
+	head = statusHead
+	w.advance(20 * time.Minute)
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	require.Len(t, h.posted, 1, "a pull request opened late gets its status")
+
+	other, _ := quickWorld(t)
+	none := ""
+	g := &statusHost{find: pullRequestOne(&none)}
+	other.advance(reviewStatusWindow + time.Minute)
+	require.NoError(t, other.s.PostReviewStatuses(ctx, g.host()))
+	require.NoError(t, other.s.PostReviewStatuses(ctx, g.host()))
+	assert.Empty(t, g.finds, "a branch without one for a day is let go")
 }
