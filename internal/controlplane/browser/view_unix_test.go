@@ -804,27 +804,39 @@ func TestReviewMakingTheOwnersTabWaitsForRunningCalls(t *testing.T) {
 // request still gets the focus after the owner's tab is made.
 func TestReviewALaterViewRequestKeepsItsTurnAfterTheOwnersTabIsMade(t *testing.T) {
 	r, chrome := frontRig(t)
-	r.focus.wait = 100 * time.Millisecond
+	r.focus.wait = 500 * time.Millisecond
+
+	_, err := r.Call(t.Context(), "b-cht_2", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+	r.stream(t, sessionName("b-cht_2"))
 
 	a := r.slowCall(t, "b-cht_1", "agent_browser_wait_for_text")
 
-	owner := make(chan *View, 1)
+	opened := make(chan error, 1)
 	go func() {
 		v, err := r.Watch(t.Context(), OwnerTab)
-		require.NoError(t, err)
-		owner <- v
+		if err == nil {
+			t.Cleanup(func() { v.Close(context.WithoutCancel(t.Context())) })
+		}
+		opened <- err
 	}()
 
-	time.Sleep(20 * time.Millisecond)
-	b := r.watch(t, "b-cht_1")
+	require.Eventually(t, func() bool {
+		r.focus.mu.Lock()
+		defer r.focus.mu.Unlock()
+
+		return r.focus.queued != nil
+	}, 10*time.Second, time.Millisecond, "the owner's tab is waiting to be made")
+	b := r.watch(t, "b-cht_2")
 
 	assert.False(t, isRefusal(t, answer(t, a)))
-	ownerView := <-owner
-	t.Cleanup(func() { ownerView.Close(context.WithoutCancel(t.Context())) })
+	require.NoError(t, <-opened)
 
-	require.Eventually(t, func() bool { return len(chrome.activated()) >= 2 }, 10*time.Second, 10*time.Millisecond)
-	activated := chrome.activated()
-	assert.Equal(t, front("b-cht_1"), activated[len(activated)-1], "the later request keeps the focus")
+	require.Eventually(t, func() bool { return len(chrome.activated()) > 0 }, 10*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []string{front("b-cht_2")}, chrome.activated(), "the later request keeps the focus")
 
 	b.Close(t.Context())
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 2 }, 10*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []string{front("b-cht_2"), front(OwnerTab)}, chrome.activated(),
+		"closing the later pane restores the earlier one")
 }

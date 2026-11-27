@@ -135,9 +135,10 @@ type streamMessage struct {
 
 // View is the owner's view of one tab.
 type View struct {
-	e   *Engine
-	s   *session
-	tab string
+	e     *Engine
+	s     *session
+	tab   string
+	order uint64
 	// hold is who drives the tab (control.go).
 	hold *ownerhold.Hold
 	conn *websocket.Conn
@@ -171,8 +172,9 @@ func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
 	if !ok {
 		return nil, ErrTooManyViews
 	}
+	order, deadline := e.focus.request(tab == OwnerTab)
 
-	v, err := e.watch(ctx, tab, hold)
+	v, err := e.watch(ctx, tab, hold, order, deadline)
 	if err != nil {
 		e.holds.unopened(hold)
 
@@ -182,8 +184,11 @@ func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
 	return v, nil
 }
 
-func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold) (*View, error) {
-	s, err := e.viewed(ctx, tab)
+func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold, order uint64, deadline time.Time) (*View, error) {
+	s, err := e.viewed(ctx, tab, deadline)
+	if tab == OwnerTab {
+		e.focus.prepared()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +218,7 @@ func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold) (*
 	conn.SetReadLimit(maxStreamMessage)
 
 	v := &View{
-		e: e, s: s, tab: tab, hold: hold, conn: conn, life: streaming, stop: stop,
+		e: e, s: s, tab: tab, order: order, hold: hold, conn: conn, life: streaming, stop: stop,
 		messages: make(chan streamMessage, 8), again: make(chan struct{}, 1),
 	}
 
@@ -222,14 +227,14 @@ func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold) (*
 	// Chrome paints only the tab in front (front.go).
 	e.focus.opened(v)
 
-	go e.front(v)
+	go e.front(v, deadline)
 
 	return v, nil
 }
 
 // viewed returns the tab's session with a view counted on it, so that it is
 // not closed as idle. The owner's own tab is made when it is not there.
-func (e *Engine) viewed(ctx context.Context, tab string) (*session, error) {
+func (e *Engine) viewed(ctx context.Context, tab string, deadline time.Time) (*session, error) {
 	if tab == OwnerTab {
 		s, cdp, _, err := e.attach(ctx, OwnerTab)
 		if err != nil {
@@ -243,7 +248,7 @@ func (e *Engine) viewed(ctx context.Context, tab string) (*session, error) {
 		// A tab that is made comes in front of the others: making it is queued behind the agents' calls running,
 		// as bringing a tab to the front is (front.go; review of PR #1233).
 		if !opened {
-			err := e.focus.alone(ctx, func() error {
+			err := e.focus.alone(ctx, deadline, func() error {
 				s.mu.Lock()
 				defer s.mu.Unlock()
 
@@ -607,7 +612,7 @@ func (v *View) Close(ctx context.Context) {
 	v.closing.Do(func() {
 		// The view opened before this one brings its tab back to the front (front.go).
 		if before := v.e.focus.closed(v); before != nil {
-			go v.e.front(before)
+			go v.e.front(before, time.Now().Add(v.e.focus.waitFor()))
 		}
 
 		v.stop()

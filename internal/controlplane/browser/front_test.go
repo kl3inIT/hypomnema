@@ -39,10 +39,16 @@ func TestReviewReplacingMovesShareOneDeadline(t *testing.T) {
 		}
 
 		var wg sync.WaitGroup
+		open := func(name string) {
+			order, deadline := f.request(false)
+			v := &View{life: t.Context(), order: order}
+			f.opened(v)
+			wg.Go(func() { f.move(v, deadline, bring(name)) })
+		}
 
-		wg.Go(func() { f.move(t.Context(), bring("older")) })
+		open("older")
 		time.Sleep(5 * time.Second)
-		wg.Go(func() { f.move(t.Context(), bring("newer")) })
+		open("newer")
 
 		time.Sleep(time.Minute)
 		synctest.Wait()
@@ -51,5 +57,47 @@ func TestReviewReplacingMovesShareOneDeadline(t *testing.T) {
 		defer mu.Unlock()
 
 		assert.Equal(t, []string{"newer at " + TakeoverWait.String()}, brought)
+	})
+}
+
+// A call outlasting the wait must not cause a second wait after tab creation.
+func TestReviewMakingAndFrontingShareOneDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var f focus
+
+		if err := f.enter(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		defer f.leave()
+
+		start := time.Now()
+		_, ownerDeadline := f.request(true)
+		made := make(chan time.Duration, 1)
+
+		go func() {
+			err := f.alone(t.Context(), ownerDeadline, func() error {
+				made <- time.Since(start)
+
+				return nil
+			})
+			f.prepared()
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+
+		time.Sleep(5 * time.Second)
+		order, deadline := f.request(false)
+		bot := &View{life: t.Context(), order: order}
+		f.opened(bot)
+
+		var fronted time.Duration
+
+		f.move(bot, deadline, func(context.Context) {
+			fronted = time.Since(start)
+		})
+
+		assert.Equal(t, TakeoverWait, <-made, "the owner's tab waits for running calls")
+		assert.Equal(t, TakeoverWait, fronted, "the later pane uses the same deadline")
 	})
 }

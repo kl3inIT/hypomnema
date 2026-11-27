@@ -27,7 +27,7 @@ import (
 // (OpenMausBot's takeoverMs). Moves asked for while one waits replace it and
 // share its wait: only the newest view's tab is brought forward, at the end of
 // the first one's wait. Making the owner's tab, which comes in front as it is
-// made, waits in the same queue (view.go, viewed).
+// made, shares that wait with moves requested while it is being prepared.
 
 // focus says who may move the focus: the agents' calls running, and the work
 // queued in front of them, a move to the front or the making of a tab. The
@@ -45,17 +45,59 @@ type focus struct {
 	moving bool
 	want   *wanted
 	wake   chan struct{}
+	// Owner views reserve their place before attaching to Chrome. Moves wait
+	// for the tab to be made, since making it also moves focus.
+	owners        int
+	preparing     chan struct{}
+	ownerDeadline time.Time
+	requested     uint64
 	// wait is how long queued work waits for the calls running: TakeoverWait when zero.
 	wait time.Duration
-	// views are the open views, the one opened last at the end.
+	// views are the open views in request order.
 	views []*View
 }
 
-// wanted is a move to the front asked for: bring makes it, and gone is closed
-// once it is no longer wanted (its view closed).
+// wanted is a move to the front asked for by a view.
 type wanted struct {
-	gone  <-chan struct{}
-	bring func()
+	view     *View
+	bring    func()
+	deadline time.Time
+}
+
+func (f *focus) request(owner bool) (uint64, time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	deadline := time.Now().Add(f.waitFor())
+	if f.want != nil {
+		deadline = f.want.deadline
+	}
+	if f.preparing != nil && f.ownerDeadline.Before(deadline) {
+		deadline = f.ownerDeadline
+	}
+
+	if owner {
+		if f.owners == 0 {
+			f.preparing = make(chan struct{})
+			f.ownerDeadline = deadline
+		}
+		f.owners++
+	}
+
+	f.requested++
+
+	return f.requested, deadline
+}
+
+func (f *focus) prepared() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.owners--
+	if f.owners == 0 {
+		close(f.preparing)
+		f.preparing = nil
+	}
 }
 
 func (f *focus) waitFor() time.Duration {
@@ -111,15 +153,24 @@ func (f *focus) idled() chan struct{} {
 	return f.idle
 }
 
-// queue puts work in front of the agents' calls once the work queued before it ended; false when ctx ended
-// first. The caller holds mu, which queue may let go of while it waits.
-func (f *focus) queue(ctx context.Context) bool {
-	for f.queued != nil {
-		queued := f.queued
+// queue puts work in front of the agents' calls. A move also waits for
+// pending owner tabs to be prepared. The caller holds mu, which queue may
+// let go of while it waits.
+func (f *focus) queue(ctx context.Context, making bool) bool {
+	for {
+		blocked := f.queued
+		if !making && f.preparing != nil {
+			blocked = f.preparing
+		}
+		if blocked == nil {
+			f.queued = make(chan struct{})
+
+			return true
+		}
 
 		f.mu.Unlock()
 		select {
-		case <-queued:
+		case <-blocked:
 		case <-ctx.Done():
 			f.mu.Lock()
 
@@ -127,10 +178,6 @@ func (f *focus) queue(ctx context.Context) bool {
 		}
 		f.mu.Lock()
 	}
-
-	f.queued = make(chan struct{})
-
-	return true
 }
 
 // unqueue ends the queued work: the calls waiting go on. The caller holds mu.
@@ -141,10 +188,10 @@ func (f *focus) unqueue() {
 
 // alone runs do in front of the agents' calls: once those running have ended,
 // or after the wait, with the calls asked for meanwhile waiting for it.
-func (f *focus) alone(ctx context.Context, do func() error) error {
+func (f *focus) alone(ctx context.Context, deadline time.Time, do func() error) error {
 	f.mu.Lock()
 
-	if !f.queue(ctx) {
+	if !f.queue(ctx, true) {
 		f.mu.Unlock()
 
 		return ctx.Err()
@@ -154,15 +201,14 @@ func (f *focus) alone(ctx context.Context, do func() error) error {
 		idle := f.idled()
 		f.mu.Unlock()
 
-		wait := time.NewTimer(f.waitFor())
-
+		wait := time.NewTimer(time.Until(deadline))
 		select {
 		case <-idle:
 		case <-wait.C:
 		case <-ctx.Done():
 		}
-
 		wait.Stop()
+
 		f.mu.Lock()
 	}
 
@@ -185,9 +231,21 @@ func (f *focus) alone(ctx context.Context, do func() error) error {
 // have ended, or after the wait, for as long as ctx lasts. A move asked for
 // while another waits replaces it: the newest is made, at the end of the
 // first one's wait (review of PR #1233).
-func (f *focus) move(ctx context.Context, bring func(context.Context)) {
+func (f *focus) move(v *View, deadline time.Time, bring func(context.Context)) {
 	f.mu.Lock()
-	f.want = &wanted{gone: ctx.Done(), bring: func() { bring(ctx) }}
+	if len(f.views) == 0 || f.views[len(f.views)-1] != v {
+		f.mu.Unlock()
+
+		return
+	}
+
+	if f.want != nil && f.want.deadline.Before(deadline) {
+		deadline = f.want.deadline
+	}
+	if f.preparing != nil && f.ownerDeadline.Before(deadline) {
+		deadline = f.ownerDeadline
+	}
+	f.want = &wanted{view: v, bring: func() { bring(v.life) }, deadline: deadline}
 
 	if f.moving {
 		select {
@@ -208,39 +266,39 @@ func (f *focus) move(ctx context.Context, bring func(context.Context)) {
 	}()
 
 	// The move outlives the view that asked for it: a newer one may replace it.
-	if !f.queue(context.WithoutCancel(ctx)) {
+	queueCtx := context.WithoutCancel(v.life)
+	if !f.queue(queueCtx, false) {
 		return
 	}
 	defer f.unqueue()
 
-	deadline := time.NewTimer(f.waitFor())
-	defer deadline.Stop()
+	for f.want != nil {
+		// An owner request can arrive after a move has already queued. Give
+		// tab creation the queue before moving to the newest view.
+		if f.preparing != nil {
+			f.unqueue()
+			f.queue(queueCtx, false)
+		}
 
-	late := false
-
-	for {
 		w := f.want
-
-		select {
-		case <-w.gone:
-			// Its view closed: nothing newer is wanted.
+		if len(f.views) == 0 || f.views[len(f.views)-1] != w.view || w.view.life.Err() != nil {
 			f.want = nil
 
 			return
-		default:
 		}
 
-		if f.running > 0 && !late {
+		if f.running > 0 && time.Until(w.deadline) > 0 {
 			idle, wake := f.idled(), f.wake
 
 			f.mu.Unlock()
+			wait := time.NewTimer(time.Until(w.deadline))
 			select {
 			case <-idle:
 			case <-wake:
-			case <-w.gone:
-			case <-deadline.C:
-				late = true
+			case <-w.view.life.Done():
+			case <-wait.C:
 			}
+			wait.Stop()
 			f.mu.Lock()
 
 			continue
@@ -250,21 +308,21 @@ func (f *focus) move(ctx context.Context, bring func(context.Context)) {
 		f.mu.Unlock()
 		w.bring()
 		f.mu.Lock()
-
-		// A move asked for while this one was made has a wait of its own.
-		if f.want == nil {
-			return
-		}
-
-		deadline.Reset(f.waitFor())
-		late = false
 	}
 }
 
-// opened counts a view in as the one opened last.
+// opened counts a view in at its original place in request order.
 func (f *focus) opened(v *View) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	for i, before := range f.views {
+		if before.order > v.order {
+			f.views = slices.Insert(f.views, i, v)
+
+			return
+		}
+	}
 
 	f.views = append(f.views, v)
 }
@@ -293,8 +351,8 @@ func (f *focus) closed(v *View) *View {
 // front brings a view's tab to the front, once the agents' calls running have
 // ended, for as long as the view is open. A tab not brought there leaves the
 // view as it was: it goes on.
-func (e *Engine) front(v *View) {
-	e.focus.move(v.life, func(ctx context.Context) {
+func (e *Engine) front(v *View, deadline time.Time) {
+	e.focus.move(v, deadline, func(ctx context.Context) {
 		if err := e.activate(ctx, v.s); err != nil {
 			e.cfg.Logger.WarnContext(ctx, "a tab could not be brought to the front",
 				slog.String("event", "browser.front_failed"), slog.String("tab", v.tab), slog.Any("err", err))
