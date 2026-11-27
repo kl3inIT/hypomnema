@@ -379,5 +379,6 @@ func TestAUsageLimitStillCoolsTheWholeAccountUntilItsReset(t *testing.T) {
 	status, _, body := g.respond(t, g.key, `{"model":"sol","input":"hi"}`)
 	require.Equal(t, http.StatusTooManyRequests, status, body)
 	assert.Equal(t, resets, subs.cooledUntil())
-	assert.Equal(t, "usage_limit_reached", subs.lastReason())
+	assert.Equal(t, modelgateway.CoolingUsageLimit, subs.lastCode())
+	assert.Equal(t, "The usage limit has been reached", subs.lastReason())
 }

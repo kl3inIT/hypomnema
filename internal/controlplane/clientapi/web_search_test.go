@@ -122,6 +122,53 @@ func (k *keptSecrets) keys(context.Context) ([]websearch.Key, error) {
 // and never come back; removes the first, and again, which is fine; cannot
 // remove a key under another provider's name; drags Tavily first; turns
 // Codex off and a search may no longer name it, then on again. A
+// restingAccounts stands for the gateway's search when every account of a subscription rests for its usage limit.
+type restingAccounts struct{}
+
+func (restingAccounts) Search(context.Context, string, string, int) ([]websearch.Result, error) {
+	return nil, websearch.AccountRefused(http.StatusTooManyRequests, time.Hour, "usage_limit",
+		"The usage limit has been reached")
+}
+
+// Scenario (review of PR #1307): every Codex account rests for its usage limit. The Web search page's Codex link
+// rests with the account's code and Codex's own words, as the account's card has them (issue #1305, row 6).
+func TestARestingSubscriptionsSearchSaysWhyItsAccountRests(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	g := gatewayOver(t, w.svc)
+
+	web := websearch.New(websearch.Config{Settings: g.SearchSettings}).WithSubscriptions(restingAccounts{})
+
+	codex, err := w.svc.AddAccount(ctx, "codex", "main")
+	require.NoError(t, err)
+
+	w.srv.WithAccounts(&signedIn{
+		svc: w.svc, states: map[string]subscription.State{codex.ID: subscription.StateActive},
+		removed: map[string]bool{},
+	}).WithWebSearch(webSearchOver{web: web, gateway: g})
+
+	_, err = web.Search(ctx, "go", 0, websearch.ProviderCodex)
+	require.Error(t, err)
+
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+
+	listed, err := pi.GetWebSearchWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
+
+	at := slices.IndexFunc(listed.JSON200.Chain, func(l openapi.WebSearchLink) bool {
+		return l.Provider == "codex" && l.Source == openapi.Subscription
+	})
+	require.GreaterOrEqual(t, at, 0)
+
+	link := listed.JSON200.Chain[at]
+	assert.Equal(t, openapi.WebSearchLinkStateResting, link.State)
+	assert.Equal(t, openapi.CoolingUsageLimit, val(link.CoolingCode))
+	assert.Equal(t, "The usage limit has been reached", val(link.CoolingReason))
+}
+
 // coordinator reads the chain and changes nothing.
 func TestTheOwnerSeesAndChangesTheWebSearchChain(t *testing.T) {
 	t.Parallel()

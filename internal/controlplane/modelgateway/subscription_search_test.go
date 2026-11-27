@@ -3,11 +3,13 @@ package modelgateway_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -141,6 +143,48 @@ func TestACodexUsageLimitRestsTheSearchNotTheAccount(t *testing.T) {
 	require.ErrorIs(t, err, websearch.ErrNoAccount, "a gateway without subscriptions has no account")
 }
 
+// Scenario (review of PR #1307): chat has made the only Codex account rest for its usage limit. A search does not
+// reach the backend; the web search's Codex link rests with the account's code and Codex's own words, not as a
+// plain rate limit, so its card says "Usage limit" as the account's card does (issue #1305, row 6).
+func TestASearchUnderARestingAccountSaysWhyItRests(t *testing.T) {
+	t.Parallel()
+
+	resets := time.Now().Add(time.Hour).Truncate(time.Second)
+	backend, got := codexBackend(t, plain(http.StatusTooManyRequests, fmt.Sprintf(
+		`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":%d}}`,
+		resets.Unix())))
+	subs := &accounts{}
+	g := newCodexGateway(t, backend, subs)
+
+	status, _, body := g.call(t, g.key, askSol+`}`)
+	require.Equal(t, http.StatusTooManyRequests, status, body)
+	require.Equal(t, modelgateway.CoolingUsageLimit, subs.codeOf("acc_1"))
+
+	web := websearch.New(websearch.Config{}).WithSubscriptions(
+		searchGateway(t, modelgateway.Config{Subscriptions: subs, CodexBaseURL: backend.URL}))
+
+	_, err := web.Search(t.Context(), "go", 0, websearch.ProviderCodex)
+	require.ErrorIs(t, err, websearch.ErrFailed)
+	assert.Equal(t, 1, got.calls(), "the resting account's search is not sent")
+
+	chain, err := web.Chain(t.Context())
+	require.NoError(t, err)
+
+	var codexLink websearch.Link
+
+	for _, l := range chain {
+		if l.Provider == websearch.ProviderCodex && l.Source == websearch.SourceSubscription {
+			codexLink = l
+		}
+	}
+
+	assert.Equal(t, websearch.RestRateLimited, codexLink.Rest, "it rests as a 429 does")
+	assert.Equal(t, "usage_limit", codexLink.CoolingCode)
+	assert.Equal(t, "The usage limit has been reached", codexLink.CoolingReason)
+	assert.WithinDuration(t, time.Now().Add(30*time.Minute), codexLink.RestingUntil, 5*time.Second,
+		"until the account is free, at most the 30 minutes a search believes")
+}
+
 const claudeSearchAnswer = `{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5",
 "content":[
  {"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"go 1.27"}},
@@ -239,6 +283,63 @@ const antigravitySearchAnswer = `{"response":{"candidates":[{"content":{"role":"
 // as 9router calls it: generateContent, not streamed, under the account's
 // project, the small Gemini model with Google Search grounding, in the IDE's
 // search envelope. Each page grounded is a result once, its snippet the
+// Scenario (review round 2 of PR #1307): Google refuses the search itself with a 429 whose ErrorInfo names why: the
+// credits balance spent, or the quota used up. The web search's Antigravity link rests with the code the shared
+// reading gives while that reason is still known (billing, usage_limit; omp packages/ai/test/
+// rate-limit-utils.test.ts:338-363), and Google's words, not as a plain rate limit.
+func TestAnAntigravitySearchRefusalKeepsGooglesReason(t *testing.T) {
+	t.Parallel()
+
+	for reason, code := range map[string]string{
+		"INSUFFICIENT_G1_CREDITS_BALANCE": "billing",
+		"QUOTA_EXHAUSTED":                 "usage_limit",
+		"RATE_LIMIT_EXCEEDED":             "rate_limit",
+	} {
+		t.Run(reason, func(t *testing.T) {
+			t.Parallel()
+
+			got := &seen{}
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1internal:generateContent" {
+					http.NotFound(w, r)
+
+					return
+				}
+
+				got.add(r)
+				plain(http.StatusTooManyRequests, `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED",`+
+					`"message":"Google says no","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",`+
+					`"reason":"`+reason+`"}]}}`)(w, r)
+			}))
+			t.Cleanup(backend.Close)
+
+			web := websearch.New(websearch.Config{}).WithSubscriptions(searchGateway(t, modelgateway.Config{
+				Subscriptions: &googleAccount{}, AntigravityBaseURL: backend.URL,
+				AntigravityManifestURL: backend.URL + "/manifest",
+			}))
+
+			_, err := web.Search(t.Context(), "go", 0, websearch.ProviderAntigravity)
+			require.ErrorIs(t, err, websearch.ErrFailed)
+			assert.Equal(t, 1, got.calls())
+
+			chain, err := web.Chain(t.Context())
+			require.NoError(t, err)
+
+			var link websearch.Link
+
+			for _, l := range chain {
+				if l.Provider == websearch.ProviderAntigravity && l.Source == websearch.SourceSubscription {
+					link = l
+				}
+			}
+
+			assert.Equal(t, websearch.RestRateLimited, link.Rest, "it rests as a 429 does")
+			assert.Equal(t, code, link.CoolingCode)
+			assert.Equal(t, "Google says no", link.CoolingReason)
+		})
+	}
+}
+
 // sentences it grounds; without grounding there is nothing.
 func TestAnAntigravityAccountSearchesTheWeb(t *testing.T) {
 	t.Parallel()

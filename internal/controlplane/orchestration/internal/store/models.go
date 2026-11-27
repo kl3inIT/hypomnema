@@ -37,6 +37,7 @@ type AccountCooldown struct {
 	AccountRef string
 	Until      int64
 	Reason     string
+	Code       string
 }
 
 type ActionPolicy struct {

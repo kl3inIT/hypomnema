@@ -84,6 +84,10 @@ var ErrTokenUnavailable = errors.New("the refused account token cannot be renewe
 // CoolingError says every account of a kind waits for a usage limit to end.
 type CoolingError struct {
 	Until time.Time
+	// Code is why the account free first rests (issue #1305); empty when nothing says. Reason is the provider's own
+	// words for it.
+	Code   CoolingCode
+	Reason string
 	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
 	// known yet (issue #814).
 	ListUnknown bool
@@ -101,13 +105,15 @@ type Subscriptions interface {
 	// conversation keeps one account) or round-robin when the session is empty;
 	// ErrNoAccount or a *CoolingError when none can.
 	Token(ctx context.Context, runtime, session string, skip ...string) (AccountToken, error)
-	FirstFree(ctx context.Context, runtime string, modelReset func(string) time.Time) (time.Time, error)
+	// FirstFree is when the first account of a runtime is free again and why it rests, a model's own rest
+	// (modelReset, by account) counted; zero when one is free now.
+	FirstFree(ctx context.Context, runtime string, modelReset func(string) Rest) (Rest, error)
 	// TokenAfterRefusal refreshes an account whose token the vendor refused
 	// and returns the new one.
 	TokenAfterRefusal(ctx context.Context, refused AccountToken) (AccountToken, error)
 	MarkTokenRefused(ctx context.Context, refused AccountToken) error
-	// CoolDown keeps an account out of use until its usage limit ends.
-	CoolDown(ctx context.Context, runtime, accountID string, until time.Time, reason string) error
+	// CoolDown keeps an account out of use until a time, with why (code) and the provider's own words (reason).
+	CoolDown(ctx context.Context, runtime, accountID string, until time.Time, code CoolingCode, reason string) error
 	// Quota asks the vendor what is left of an account's quota for each
 	// model, from 0 to 1; a model the vendor gives no quota for is absent.
 	Quota(ctx context.Context, accountID string) (map[string]float64, error)
@@ -304,7 +310,8 @@ func (s *Server) codexRefused(
 // most maxModelRest (issue #1159).
 func (s *Server) codexCool(ctx context.Context, token AccountToken, model string, failure *codex.Failure) {
 	if model == "" || !failure.ModelCapacity() {
-		s.cool(ctx, codexRuntime, token, failure.Status, failure.UsageLimit(), failure.ResetsAt, failure.Reason())
+		s.cool(ctx, codexRuntime, token, failure.Status, failure.UsageLimit(), failure.ResetsAt, codexCode(failure),
+			failure.Message)
 
 		return
 	}
@@ -340,9 +347,23 @@ func (s *Server) codexResting(token AccountToken, model string) *http.Response {
 		fmt.Sprintf("the Codex account rests for model %s after the backend refused it", model), until.Sub(now))
 }
 
-// codexModelReset is until when model rests on an account, for FirstFree.
-func (s *Server) codexModelReset(model string) func(string) time.Time {
-	return func(account string) time.Time { return s.accountState.restsUntil(account, model, s.svc.clock.Now()) }
+// codexModelReset is until when model rests on an account, for FirstFree: a lack of capacity for the model, so an
+// overload (codexCool).
+func (s *Server) codexModelReset(model string) func(string) Rest {
+	return func(account string) Rest {
+		until := s.accountState.restsUntil(account, model, s.svc.clock.Now())
+		if until.IsZero() {
+			return Rest{}
+		}
+
+		return Rest{Until: until, Code: CoolingOverloaded}
+	}
+}
+
+// codexCode is why a Codex refusal rests the account (classifyFailure): its type and code, then its status and its
+// words.
+func codexCode(failure *codex.Failure) CoolingCode {
+	return classifyFailure(failure.Status, []string{failure.Type, failure.Code}, failure.Message)
 }
 
 // codexAnswer turns the backend's event stream into the answer.

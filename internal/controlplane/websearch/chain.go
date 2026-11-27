@@ -62,6 +62,10 @@ type Link struct {
 	// when each of its keys does, until the first is free.
 	RestingUntil time.Time
 	Rest         string
+	// CoolingCode and CoolingReason are, for a subscription, why its account rests and the provider's own words for
+	// it (issue #1305); empty when its rest says no more than Rest.
+	CoolingCode   string
+	CoolingReason string
 	// Keys are a keyed provider's keys, in the order a search asks them now.
 	Keys []KeyState
 	// Usage is what was used without a key, or through the subscription.
@@ -145,6 +149,7 @@ func (s *Service) Chain(ctx context.Context) ([]Link, error) {
 
 		if rs, ok := s.restOf(r.id); ok {
 			l.RestingUntil, l.Rest = rs.until, rs.why
+			l.CoolingCode, l.CoolingReason = rs.code, rs.reason
 		}
 
 		out = append(out, l)

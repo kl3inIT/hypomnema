@@ -28,6 +28,27 @@ describe("an image provider", () => {
     const resting = imageState(link({ state: "resting", resting_until: rest }), now)
     expect(resting.label).toBe(`Rate limited until ${until(rest, now)}`)
     expect(resting.tone).toBe("warning")
+    // Why its account free first rests, when the server says (issue #1305).
+    const used = imageState(
+      link({ state: "resting", resting_until: rest, cooling_code: "usage_limit" }),
+      now,
+    )
+    expect(used.label).toBe(`Usage limit, resets ${until(rest, now)}`)
+    // Its title is the provider's words for the account free first (review of PR #1307).
+    const refused = imageState(
+      link({
+        state: "resting",
+        resting_until: rest,
+        cooling_code: "auth",
+        cooling_reason: "invalid key",
+      }),
+      now,
+    )
+    expect(refused).toMatchObject({
+      label: `Key refused until ${until(rest, now)}`,
+      tone: "destructive",
+      why: "invalid key",
+    })
 
     expect(imageState(link({ state: "not_set_up", accounts: 0 })).why).toContain("free plan")
     expect(imageState(link({ provider: "antigravity", state: "not_set_up" })).why).toBe(

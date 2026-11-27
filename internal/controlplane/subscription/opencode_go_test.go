@@ -115,7 +115,7 @@ func TestTwoGoKeysAreTwoAccountsThatRotate(t *testing.T) {
 	assert.Contains(t, []string{"sk-go-1", "sk-go-2"}, token.AccessToken)
 
 	require.NoError(t, w.subs.CoolDown(t.Context(), subscription.OpenCodeGoRuntime, first.ID,
-		t0.Add(13*24*time.Hour), "OpenCode Go usage limit"))
+		t0.Add(13*24*time.Hour), "usage_limit", "Monthly usage limit reached."))
 
 	for range 3 {
 		token, err = w.subs.Token(t.Context(), subscription.OpenCodeGoRuntime, "")

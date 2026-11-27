@@ -65,6 +65,26 @@ describe("a way of searching", () => {
     })
     expect(linkState(link({}), now)).toMatchObject({ label: "Ready", tone: "success" })
   })
+
+  // Review of PR #1307: a subscription whose account rests says why as the account's card does (issue #1305).
+  it("says why a subscription's account rests, with the provider's words", () => {
+    const rest = "2026-11-14T10:00:00Z"
+    const resting = link({
+      provider: "codex",
+      source: "subscription",
+      state: "resting",
+      rest: "rate_limit",
+      resting_until: rest,
+      cooling_code: "usage_limit",
+      cooling_reason: "The usage limit has been reached",
+    })
+
+    expect(linkState(resting, now)).toEqual({
+      label: `Usage limit, resets ${until(rest, now)}`,
+      tone: "warning",
+      why: "The usage limit has been reached",
+    })
+  })
 })
 
 describe("a key", () => {

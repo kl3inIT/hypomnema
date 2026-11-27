@@ -664,7 +664,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 }
 
 const listActiveCooldowns = `-- name: ListActiveCooldowns :many
-SELECT runtime, account_ref, until, reason FROM account_cooldowns WHERE until > ?1
+SELECT runtime, account_ref, until, reason, code FROM account_cooldowns WHERE until > ?1
 `
 
 func (q *Queries) ListActiveCooldowns(ctx context.Context, now int64) ([]AccountCooldown, error) {
@@ -681,6 +681,7 @@ func (q *Queries) ListActiveCooldowns(ctx context.Context, now int64) ([]Account
 			&i.AccountRef,
 			&i.Until,
 			&i.Reason,
+			&i.Code,
 		); err != nil {
 			return nil, err
 		}

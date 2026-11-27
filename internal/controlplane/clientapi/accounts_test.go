@@ -294,6 +294,47 @@ func TestTheOwnerManagesAccountsFromTheModelsPage(t *testing.T) {
 	}, models.JSON200.Data[0].Targets, "the targets come in the order they are tried")
 }
 
+// Scenario (issue #1305, row 5): an account rests. The list says why in the closed set (cooling_code) and keeps the
+// provider's own words (cooling_reason); a node's Dispatch that hit a limit rests its account as a rate limit.
+func TestAnAccountThatRestsSaysWhy(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	goKey, err := w.svc.AddAccount(ctx, orchestration.OpenCodeGoRuntime, "go")
+	require.NoError(t, err)
+	laptop, err := w.svc.AddAccount(ctx, "claude", "laptop")
+	require.NoError(t, err)
+	idle, err := w.svc.AddAccount(ctx, "codex", "idle")
+	require.NoError(t, err)
+
+	until := time.Date(2099, 1, 1, 0, 42, 0, 0, time.UTC)
+	require.NoError(t, w.svc.CoolAccount(ctx, orchestration.OpenCodeGoRuntime, goKey.ID, until, "usage_limit",
+		"5-hour usage limit reached. Resets in 2hr 15min."))
+	require.NoError(t, w.svc.CoolAccount(ctx, "claude", laptop.ID, until, orchestration.CoolingRateLimit,
+		"rate_limited"))
+
+	w.srv.WithAccounts(&signedIn{svc: w.svc, states: map[string]subscription.State{}, removed: map[string]bool{}})
+
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+
+	listed, err := pi.ListAccountsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
+
+	byID := map[string]openapi.Account{}
+	for _, a := range listed.JSON200.Data {
+		byID[a.Id] = a
+	}
+
+	assert.Equal(t, openapi.CoolingUsageLimit, val(byID[goKey.ID].CoolingCode))
+	assert.Equal(t, "5-hour usage limit reached. Resets in 2hr 15min.", val(byID[goKey.ID].CoolingReason))
+	assert.Equal(t, openapi.CoolingRateLimit, val(byID[laptop.ID].CoolingCode))
+	assert.Nil(t, byID[idle.ID].CoolingCode, "an account that does not rest has no code")
+	assert.Contains(t, string(listed.Body), `"cooling_code":"usage_limit"`)
+}
+
 // Scenario: the Models page asks for an account's limits (issue #199). The
 // owner gets each window with the part used and when it starts again; an
 // account with nothing to show is answered without windows and with the

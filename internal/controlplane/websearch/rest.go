@@ -57,6 +57,8 @@ const (
 type rest struct {
 	until time.Time
 	why   string
+	// code and reason are why a subscription's account rests and the provider's words for it (AccountRefused).
+	code, reason string
 	// level counts the 429s in a row; creditLevel the answers out of credits in a row.
 	level       int
 	creditLevel int
@@ -69,6 +71,8 @@ type providerError struct {
 	message    string
 	// noCredits says the answer says the account's credits are spent.
 	noCredits bool
+	// code and reason are why a subscription's account rests and the provider's words (AccountRefused).
+	code, reason string
 }
 
 func (e *providerError) Error() string {
@@ -249,6 +253,7 @@ func (s *Service) failed(r route, err error) bool {
 		}
 
 		rs.why, rs.until = RestRateLimited, now.Add(wait)
+		rs.code, rs.reason = refused.code, refused.reason
 	default:
 		return false
 	}

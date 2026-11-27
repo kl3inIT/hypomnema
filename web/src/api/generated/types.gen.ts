@@ -619,6 +619,11 @@ export type WebSearchLink = {
   state: 'ready' | 'resting' | 'not_set_up' | 'off';
   resting_until?: string;
   rest?: WebSearchRest;
+  cooling_code?: CoolingCode;
+  /**
+   * For a subscription that rests, the provider's own words for why its account rests.
+   */
+  cooling_reason?: string;
   /**
    * A keyed provider's keys, in the order a search asks them now.
    */
@@ -1033,6 +1038,11 @@ export type ImageProviderLink = {
    */
   state: 'ready' | 'resting' | 'not_set_up' | 'off';
   resting_until?: string;
+  cooling_code?: CoolingCode;
+  /**
+   * The provider's own words for why the account free first rests, while the provider rests.
+   */
+  cooling_reason?: string;
   /**
    * The one model it makes images with, as usage rows name it (image/<model>).
    */
@@ -2985,8 +2995,9 @@ export type Account = {
   status: 'active' | 'disabled';
   position: number;
   cooling_until?: string;
+  cooling_code?: CoolingCode;
   /**
-   * Why it rests, a rate limit or what the gateway recorded.
+   * The provider's own words for why it rests, while it rests; rate_limited for an account a node's run cooled after a limit.
    */
   cooling_reason?: string;
   email?: string;
@@ -3001,6 +3012,11 @@ export type Account = {
   token_expires_at?: string;
   verification?: AccountVerification;
 };
+
+/**
+ * Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+ */
+export type CoolingCode = 'usage_limit' | 'rate_limit' | 'billing' | 'auth' | 'overloaded' | 'unknown';
 
 /**
  * Google wants the account verified (issue #822): it answered a call under it with 403 VALIDATION_REQUIRED. The gateway passes the account over until next_try_at, then tries it again; a call that works, or signing in again, clears this.

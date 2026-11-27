@@ -612,6 +612,36 @@ func (e ConnectionRequestState) Valid() bool {
 	}
 }
 
+// Defines values for CoolingCode.
+const (
+	CoolingAuth       CoolingCode = "auth"
+	CoolingBilling    CoolingCode = "billing"
+	CoolingOverloaded CoolingCode = "overloaded"
+	CoolingRateLimit  CoolingCode = "rate_limit"
+	CoolingUnknown    CoolingCode = "unknown"
+	CoolingUsageLimit CoolingCode = "usage_limit"
+)
+
+// Valid indicates whether the value is a known member of the CoolingCode enum.
+func (e CoolingCode) Valid() bool {
+	switch e {
+	case CoolingAuth:
+		return true
+	case CoolingBilling:
+		return true
+	case CoolingOverloaded:
+		return true
+	case CoolingRateLimit:
+		return true
+	case CoolingUnknown:
+		return true
+	case CoolingUsageLimit:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceNodeDevice.
 const (
 	DeviceNodeDeviceAndroid DeviceNodeDevice = "android"
@@ -3056,7 +3086,10 @@ func (e ListStudioItemsParamsState) Valid() bool {
 
 // Account defines model for Account.
 type Account struct {
-	// CoolingReason Why it rests, a rate limit or what the gateway recorded.
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason The provider's own words for why it rests, while it rests; rate_limited for an account a node's run cooled after a limit.
 	CoolingReason *string    `json:"cooling_reason,omitempty"`
 	CoolingUntil  *time.Time `json:"cooling_until,omitempty"`
 	Email         *string    `json:"email,omitempty"`
@@ -4151,6 +4184,9 @@ type ConnectionUse struct {
 	Proxy *string `json:"proxy,omitempty"`
 }
 
+// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+type CoolingCode string
+
 // CreatedGatewayKey defines model for CreatedGatewayKey.
 type CreatedGatewayKey struct {
 	Key GatewayKey `json:"key"`
@@ -4897,6 +4933,12 @@ type ImageProviderChange struct {
 type ImageProviderLink struct {
 	// Accounts Its accounts that can make images, now or after their rest.
 	Accounts int `json:"accounts"`
+
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason The provider's own words for why the account free first rests, while the provider rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
 
 	// Model The one model it makes images with, as usage rows name it (image/<model>).
 	Model string `json:"model"`
@@ -8479,6 +8521,12 @@ type WebSearchKeyedProvider string
 
 // WebSearchLink defines model for WebSearchLink.
 type WebSearchLink struct {
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason For a subscription that rests, the provider's own words for why its account rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
+
 	// Keys A keyed provider's keys, in the order a search asks them now.
 	Keys *[]WebSearchKey `json:"keys,omitempty"`
 
