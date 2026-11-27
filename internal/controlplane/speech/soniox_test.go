@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/coder/websocket"
@@ -423,4 +424,39 @@ func TestATranscriptionsUploadIsAskedOnce(t *testing.T) {
 	require.ErrorIs(t, err, speech.ErrFailed)
 	assert.Equal(t, 1, posts)
 	assert.Empty(t, waits)
+}
+
+// A catalog read that hangs (review of #1302, round 2) holds a speech request only its own short time, then the
+// request is spoken as if the model supported what it asks: the speech answers within the catalog's 10 seconds, not
+// after the speech budget of two minutes.
+func TestReviewSonioxCatalogStallsSpeech(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Now()
+		svc := speech.New(speech.Config{Keys: sonioxKeys("speech-soniox"), Settings: sonioxOnly})
+
+		var asked []string
+
+		speech.SetTransport(svc, roundTrip(func(r *http.Request) (*http.Response, error) {
+			asked = append(asked, r.Method+" "+r.URL.Path)
+
+			if strings.HasSuffix(r.URL.Path, "/tts-models") {
+				<-r.Context().Done() // Soniox's catalog never answers.
+
+				return nil, r.Context().Err()
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("speech")),
+				Request: r,
+			}, nil
+		}))
+
+		out, err := svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi"})
+		require.NoError(t, err)
+		assert.Equal(t, "speech", string(out.Audio))
+		assert.Equal(t, []string{"GET /v1/tts-models", "POST /tts"}, asked)
+		assert.LessOrEqual(t, time.Since(start), 10*time.Second, "the catalog's own deadline, not the speech's")
+	})
 }
