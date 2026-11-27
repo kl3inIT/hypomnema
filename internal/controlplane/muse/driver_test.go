@@ -109,9 +109,11 @@ type museSite struct {
 	auth           map[string]any
 	session        map[string]any
 	// woken are the machines a wake was asked for; awake, when set, is the session read after one.
-	woken     []string
-	awake     map[string]any
-	usageText string
+	woken           []string
+	awake           map[string]any
+	usageText       string
+	usageReads      int
+	settingsMissing bool
 }
 
 func (m *museSite) eval(script string) (any, error) {
@@ -177,7 +179,14 @@ func (m *museSite) eval(script string) (any, error) {
 		m.woken = append(m.woken, script)
 
 		return map[string]any{"status": 200}, nil
-	case script == settingsEntry, script == settingsItem:
+	case script == settingsEntry:
+		m.usageReads++
+		if m.settingsMissing {
+			return nil, nil
+		}
+
+		return map[string]float64{"x": 1, "y": 2}, nil
+	case script == settingsItem:
 		return map[string]float64{"x": 1, "y": 2}, nil
 	case script == dialogText:
 		return m.usageText, nil
@@ -574,6 +583,17 @@ func TestTheResetIsKeptAsText(t *testing.T) {
 	none := ParseUsage("Usage\nFree plan\nLanguage")
 	assert.False(t, none.Found, "a plan alone is no reading")
 	assert.Equal(t, "unknown", none.Text())
+}
+
+func TestParseUsageFromTheVietnameseMuseDialog(t *testing.T) {
+	t.Parallel()
+
+	// Muse on zm, 2026-11-27, with account values replaced.
+	text := "Cài đặt\n[account details omitted]\nMức sử dụng\nGói miễn phí\n" +
+		"Giới hạn hàng tuần sẽ đặt lại vào 12 tháng 1\nĐã dùng 6.5%\nToken bổ sung\n" +
+		"Không bao giờ hết hạn\nĐã dùng 0% (còn 2\u00a0tỷ token)\nNâng cấp\nNgôn ngữ"
+	assert.Equal(t, Usage{Plan: "Gói miễn phí", UsedPercent: 6.5, Reset: "12 tháng 1",
+		ExtraLeft: "còn 2 tỷ token", Found: true}, ParseUsage(text))
 }
 
 func TestThreadIDs(t *testing.T) {
