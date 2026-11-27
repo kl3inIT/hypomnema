@@ -301,3 +301,32 @@ func TestATurnGivenAgainKeepsItsRecall(t *testing.T) {
 	require.Len(t, pi.prompts, 2)
 	assert.Equal(t, pi.prompts[0], pi.prompts[1], "the turn is given as it was")
 }
+
+// Scenario: review of PR #1227, row 1. pi refuses the owner's turn, then the owner switches vmap's chats family off
+// before the supervisor gives the turn again: the turn is given without the recall it had, as a new turn would be.
+func TestATurnGivenAgainAfterChatsIsSwitchedOffRecallsNothing(t *testing.T) {
+	t.Parallel()
+
+	svc, vmap, _ := recallWorld(t)
+	ctx := t.Context()
+
+	other, err := svc.CreateChat(ctx, vmap.ID, "")
+	require.NoError(t, err)
+	_, err = svc.AddChatMessage(ctx, other.ID, orchestration.ChatOwner, "What does the revenue dashboard count?")
+	require.NoError(t, err)
+
+	sup, _, pi := scriptedSupervisor(t, svc, other.ID)
+	pi.refuse = 1
+
+	require.Error(t, sup.deliver(ctx, other.ID), "pi refused the turn")
+	require.NotEmpty(t, recalled(pi.prompts[0]))
+
+	vmap.ToolsOff = []string{"chats"}
+	_, err = svc.PutBot(ctx, vmap)
+	require.NoError(t, err)
+
+	require.NoError(t, sup.deliver(ctx, other.ID))
+	require.Len(t, pi.prompts, 2)
+	assert.Contains(t, pi.prompts[1], "What does the revenue dashboard count?")
+	assert.Empty(t, recalled(pi.prompts[1]), "switched off, the kept recall is not given")
+}

@@ -204,6 +204,34 @@ func TestVietnameseIsSearchedWithoutItsMarks(t *testing.T) {
 	assert.Contains(t, block, "Em cho anh biết lịch họp tuần sau được không?")
 }
 
+// Scenario: review of PR #1227, row 3. The index finds a word typed without its marks, so a common syllable typed
+// without them is filler too: "Ban van chua biet a?" recalls nothing, though "biet" would find "biết" in an unrelated
+// passage, as "Bạn vẫn chưa biết ạ?" recalls nothing. A content word typed without its marks still recalls, and a
+// marked word stays a word of its own though its unmarked form is filler ("bán", sell, beside "bạn", you).
+func TestAnUnmarkedFillerIsFillerToo(t *testing.T) {
+	t.Parallel()
+
+	s, here := recallWorldOf(t, "Thể lệ cần biết: Vé chuyển nhượng hết hạn ngày mai.", "Lan bán căn hộ ở Huế.")
+	ctx := t.Context()
+
+	for _, message := range []string{"Ban van chua biet a?", "Bạn vẫn chưa biết ạ?"} {
+		block, err := s.Recall(ctx, here, message)
+		require.NoError(t, err)
+		assert.Empty(t, block, message)
+	}
+
+	block, err := s.Recall(ctx, here, "Ve chuyen nhuong the nao?")
+	require.NoError(t, err)
+	assert.Contains(t, block, "Vé chuyển nhượng hết hạn ngày mai.", "a content word typed without its marks")
+
+	block, err = s.Recall(ctx, here, "Ai đã bán căn hộ?")
+	require.NoError(t, err)
+	assert.Contains(t, block, "Lan bán căn hộ ở Huế.", "a marked word is its own")
+
+	assert.Equal(t, []string{"Thể lệ cần biết: Vé chuyển nhượng hết hạn ngày mai."}, searched(t, s, here, "ve chuyen"),
+		"chat_search finds a content word typed without its marks")
+}
+
 // Scenario: issue #1218, row 3. The migration after chat_search rebuilds its index without diacritics and keeps
 // every row it held: the owner's and the Bot's text and a wake-up's recall words, not a tool's line. Its triggers
 // still keep it as rows are written, changed and deleted. The way back folds diacritics no more and keeps the rows.
