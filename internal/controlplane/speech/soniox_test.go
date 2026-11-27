@@ -371,3 +371,18 @@ func TestSonioxVoicesAndModelsComeFromItsCatalog(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []speech.ModelChoice{{ID: "stt-async-v6", Name: "Async v6"}}, stt)
 }
+
+// A 503 that names a Retry-After over 30 s, within the call's time, is waited for and asked again (review of #1302,
+// P1), as ElevenLabs's are: the one key is not failed for a request that would pass.
+func TestASonioxRetryAfterOverThirtySecondsIsWaited(t *testing.T) {
+	t.Parallel()
+
+	f := &soniox{tts: []int{http.StatusServiceUnavailable}, retryAfter: map[int]string{503: "31"}}
+	svc, slept := newSoniox(t, f, sonioxOnly)
+
+	out, err := svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi"})
+	require.NoError(t, err)
+	assert.Equal(t, "speech", string(out.Audio))
+	assert.Len(t, f.ttsAsked, 2)
+	assert.Equal(t, []time.Duration{31 * time.Second}, *slept)
+}
