@@ -46,8 +46,8 @@ type GitHub struct {
 	scopes [][]int64
 	// head is the pull request's head.
 	head string
-	// held is the next read of the checks held back (HoldNextRead).
-	held *heldRead
+	// held are the next reads of the checks held back, in order (HoldNextRead).
+	held []*heldRead
 }
 
 type heldRead struct {
@@ -56,13 +56,14 @@ type heldRead struct {
 }
 
 // HoldNextRead makes the next read of the checks answer as GitHub is when it arrives, but give that answer only once
-// release is called; arrived is closed when the answer is made, so a test can change GitHub meanwhile.
+// release is called; arrived is closed when the answer is made, so a test can change GitHub meanwhile. Called again
+// before that read comes, it holds the read after it.
 func (g *GitHub) HoldNextRead() (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	h := &heldRead{arrived: make(chan struct{}), release: make(chan struct{})}
-	g.held = h
+	g.held = append(g.held, h)
 
 	return h.arrived, sync.OnceFunc(func() { close(h.release) })
 }
@@ -216,8 +217,9 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 			},
 		}}})
 
-		if h := g.held; h != nil {
-			g.held = nil
+		if len(g.held) > 0 {
+			h := g.held[0]
+			g.held = g.held[1:]
 
 			g.mu.Unlock()
 			close(h.arrived)

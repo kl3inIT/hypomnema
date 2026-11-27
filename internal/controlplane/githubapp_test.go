@@ -509,3 +509,60 @@ func TestReviewSynchronizeDuringRead(t *testing.T) {
 	assert.Equal(t, githubstore.CIPending, kept.State, "the reset is kept")
 	assert.Equal(t, next, kept.Head)
 }
+
+// Scenario (issue #1262, review round 3): a wait begins while CI runs, and its read gets pending. Before that read is
+// kept, the workflow_run completed delivery reads the same head as passed. The wait's pending is kept first; the
+// delivery's passed, read of the same head, is newer and must still be kept, so the wait ends on it without waiting
+// five minutes for the next read.
+func TestReviewCompletionDuringRead(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	resp, _ := w.register()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	w.install()
+
+	pr := "https://github.com/kl3inIT/hypomnema/pull/1262"
+
+	waitRead, releaseWait := w.gh.HoldNextRead()
+	eventRead, releaseEvent := w.gh.HoldNextRead()
+	t.Cleanup(releaseWait)
+	t.Cleanup(releaseEvent)
+
+	waited := make(chan error, 1)
+
+	go func() {
+		_, err := w.app.WaitCI(context.WithoutCancel(t.Context()), pr, 0)
+		waited <- err
+	}()
+
+	<-waitRead // the wait's read answered pending: the check runs
+
+	w.gh.Conclude("SUCCESS")
+
+	delivered := make(chan int, 1)
+
+	go func() {
+		delivered <- w.deliver("workflow_run", "delivery-1", githubapptest.WorkflowRunCompleted(1262, "success"),
+			w.gh.Secret)
+	}()
+
+	<-eventRead // the delivery's read answered passed
+
+	releaseWait() // pending is kept first
+	require.NoError(t, <-waited)
+
+	releaseEvent() // then passed, of the same head
+	assert.Equal(t, http.StatusAccepted, <-delivered)
+
+	kept, ok, err := w.svc.GitHub().CIOf(t.Context(), "kl3init/hypomnema", 1262)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, githubstore.CIPassed, kept.State, "the completion is kept")
+	assert.Equal(t, githubapptest.Head, kept.Head)
+
+	st, err := w.app.WaitCI(t.Context(), pr, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "passed", st.State, "the wait ends on the delivery, not five minutes later")
+	assert.Equal(t, 2, w.gh.Reads(), "no read more than the two")
+}
