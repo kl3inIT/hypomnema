@@ -41,8 +41,7 @@ jobs:
               - '!docs/**'
               - '!**/*.md'
 
-  # The Go checks are three jobs side by side (issue #129): no reference runs them one after another, and the
-  # race tests alone were most of the old Verify job. `make verify` is still the three of them, for a laptop.
+  # Static, Unit and Race run side by side. `make verify` runs all three Go targets locally.
   static:
     name: Static
     needs: changes
@@ -99,11 +98,15 @@ jobs:
           key: ${{ steps.go_cache.outputs.cache-primary-key }}
 
   unit:
-    name: Unit
+    name: Unit (${{ matrix.group }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [videos, other]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -119,11 +122,14 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
-          restore-keys: go-unit-${{ runner.os }}-
+          key: go-unit-${{ matrix.group }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            go-unit-${{ matrix.group }}-${{ runner.os }}-${{ runner.arch }}-
+            go-unit-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
       # The box each Bot's pi runs in (issue #260) is tested on a real bubblewrap: the runner is set up as the
       # coordinator's machine is, and the test fails rather than skips when the box cannot be made.
       - name: Set up the Bots' box
+        if: matrix.group == 'other'
         run: sudo sh deploy/coordinator/setup-box.sh "$USER"
       # The videos are made with the control plane's pinned ffmpeg (issue #818, row 9), installed here as the control
       # plane installs it, and kept between runs while its pin is unchanged. Its ffprobe also reads the phone's takes
@@ -143,8 +149,16 @@ jobs:
           echo "HYPOMNEMA_FFMPEG_DIR=$dir" >> "$GITHUB_ENV"
           dirname "$ffprobe" >> "$GITHUB_PATH"
       - name: make unit
-        run: make unit
+        shell: bash
+        run: |
+          if [ "$GROUP" = videos ]; then
+            packages=./internal/controlplane/videos/...
+          else
+            packages=$(go list ./... | grep -vE '/internal/controlplane/videos(/|$)' | paste -sd ' ' -)
+          fi
+          make unit UNIT_PACKAGES="$packages"
         env:
+          GROUP: ${{ matrix.group }}
           HYPOMNEMA_BOX_TEST: required
           HYPOMNEMA_NEED_FFPROBE: required
           HYPOMNEMA_NEED_FFMPEG: required
@@ -157,7 +171,7 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go_cache.outputs.cache-primary-key }}
       - name: Save the pinned ffmpeg cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.ffmpeg_cache.outputs.cache-hit != 'true'
+        if: matrix.group == 'videos' && github.event_name == 'push' && steps.ffmpeg_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/hypomnema-ffmpeg
@@ -277,14 +291,14 @@ jobs:
           key: ${{ steps.build.outputs.key }}
 
   web-e2e:
-    name: Web e2e (${{ matrix.shard }})
+    name: Web e2e (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: web-build
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/4, 2/4, 3/4, 4/4, server]
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-web
@@ -292,14 +306,12 @@ jobs:
         with:
           name: ci-web-dist
           path: web/dist
-      # Only server.spec needs the Go control plane and its embedded web build.
+      # Browser tests also exercise the control plane directly for notification renewal.
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        if: matrix.shard == 'server'
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore Go cache
-        if: matrix.shard == 'server'
         id: go_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -335,16 +347,11 @@ jobs:
           fi
       - name: Run Playwright
         env:
-          SHARD: ${{ matrix.shard }}
-          PLAYWRIGHT_PREBUILT: ${{ matrix.shard == 'server' && 'server' || 'preview' }}
-        run: |
-          if [ "$SHARD" = server ]; then
-            pnpm --dir web test:e2e --project=server
-          else
-            pnpm --dir web test:e2e --project=phone --project=desktop --shard="$SHARD"
-          fi
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          PLAYWRIGHT_PREBUILT: '1'
+        run: pnpm --dir web test:e2e --shard="$SHARD"
       - name: Save Go cache
-        if: matrix.shard == 'server' && github.event_name == 'push' && steps.go_cache.outputs.cache-hit != 'true'
+        if: matrix.shard == 1 && github.event_name == 'push' && steps.go_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -352,7 +359,7 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go_cache.outputs.cache-primary-key }}
       - name: Save Chromium cache
-        if: matrix.shard == 'server' && github.event_name == 'push' && steps.chromium_cache.outputs.cache-hit != 'true'
+        if: matrix.shard == 1 && github.event_name == 'push' && steps.chromium_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright

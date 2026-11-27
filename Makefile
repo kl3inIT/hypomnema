@@ -125,8 +125,10 @@ migration-check: ## Fail when a migration on main changed, two share a number, o
 	  test -z "$$stamped" || { printf 'migrations named by their time; run make migration-fix:\n%s\n' "$$stamped"; exit 1; }; \
 	}
 
+UNIT_PACKAGES ?= ./...
+
 unit: ## Unit tests
-	$(GO) test -count=1 ./...
+	$(GO) test -count=1 $(UNIT_PACKAGES)
 
 RACE_PACKAGES ?= ./...
 
