@@ -27,19 +27,43 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.code }}
+      code: ${{ (github.event_name == 'workflow_dispatch' || steps.filter.outputs.docs_count != steps.filter.outputs.all_count) && 'true' || 'false' }}
+      go-generated: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.go-generated }}
+      web-generated: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.web-generated }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         if: github.event_name != 'workflow_dispatch'
         with:
-          # A file counts as code when it is neither under docs/ nor Markdown.
-          predicate-quantifier: every
+          # Count docs and all changes separately, as Coder does, so each
+          # generated-code filter also matches any one of its input paths.
           filters: |
-            code:
-              - '!docs/**'
-              - '!**/*.md'
+            all:
+              - '**'
+            docs:
+              - 'docs/**'
+              - '**/*.md'
+            go-generated:
+              - 'api/**'
+              - 'sqlc.yaml'
+              - 'internal/controlplane/**/queries/**'
+              - 'internal/controlplane/**/migrations/**'
+              - 'internal/controlplane/**/internal/store/**'
+              - 'internal/controlplane/clientapi/openapi/**'
+              - 'tools/ci/go.*'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+            web-generated:
+              - 'api/**'
+              - 'web/openapi-ts.config.ts'
+              - 'web/src/api/generated/**'
+              - 'web/package.json'
+              - 'web/pnpm-*.yaml'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
 
   # Static, Unit and Race run side by side. `make verify` runs all three Go targets locally.
   static:
@@ -81,12 +105,18 @@ jobs:
           fi
       # A migration named by its time stays green on a pull request; main refuses it, so `make migration-fix` numbers
       # it before the merge (issue #954), and release.yml releases only a green commit.
-      - name: make verify-static
+      - name: Check migrations
         run: |
           timestamps=allow
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then timestamps=refuse; fi
-          make verify-static MIGRATION_BASE=origin/migration-base MIGRATION_TIMESTAMPS="$timestamps"
+          make migration-check MIGRATION_BASE=origin/migration-base MIGRATION_TIMESTAMPS="$timestamps"
+      - name: Check Go dependencies and lint
+        run: make tidy-check lint deps-check goose-version-check
+      - name: Check generated Go code
+        if: needs.changes.outputs.go-generated == 'true'
+        run: make sqlc-check openapi-check
       - name: govulncheck
+        if: github.event_name != 'pull_request'
         run: make govulncheck
       - name: Save Go cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
@@ -186,11 +216,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [api, clients, control-plane, other, orchestration]
-        exclude:
-          # This package alone took over six minutes in the old Race job. Main
-          # still runs it with the race detector. All PRs run its ordinary tests.
-          - group: ${{ github.event_name == 'pull_request' && 'orchestration' || '' }}
+        # Unit covers all packages on PRs. Main adds the remaining Race groups.
+        group: ${{ fromJSON(github.event_name == 'pull_request' && '["clients","control-plane"]' || '["api","clients","control-plane","other","orchestration"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -247,11 +274,22 @@ jobs:
       - uses: ./.github/actions/setup-web
         with:
           save-cache: ${{ github.event_name == 'push' }}
-      - name: make web-install web-check
-        run: make web-install web-check
+      - name: make web-install
+        run: make web-install
+      - name: Check generated web API client
+        if: needs.changes.outputs.web-generated == 'true'
+        run: make web-api-check
+      - name: Lint and unit test the web client
+        # The production build checks TypeScript for these same inputs.
+        run: pnpm --dir web lint && pnpm --dir web test:unit
+      - name: Check unused code and formatting
+        if: github.event_name != 'pull_request'
+        run: pnpm --dir web knip && pnpm --dir web format:check
       - name: The Zalo bridge's tests and build
+        if: github.event_name != 'pull_request'
         run: make zalo-bridge-install zalo-bridge-check zalo-bridge-build
       - name: pi's extension tests
+        if: github.event_name != 'pull_request'
         run: make pi-extension-check
 
   web-build:
@@ -298,7 +336,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-web

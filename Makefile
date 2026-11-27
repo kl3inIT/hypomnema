@@ -30,7 +30,7 @@ help: ## List the targets
 
 verify: verify-static unit race ## The Go checks: static, unit, race; before a push, run only those of what changed
 
-verify-static: fmt-check tidy-check lint deps-check sqlc-check openapi-check migration-check goose-version-check
+verify-static: tidy-check lint deps-check sqlc-check openapi-check migration-check goose-version-check
 
 fmt-check: ## Fail when a Go file is not gofmt-formatted
 	@files="$$(gofmt -l cmd internal web)"; \

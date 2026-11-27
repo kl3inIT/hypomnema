@@ -9,12 +9,12 @@ A failed or cancelled job makes the gate fail.
 
 | Job | What runs |
 | --- | --- |
-| Static | `make verify-static` and `make govulncheck`. On a PR, migration checks compare against main and allow time-named migrations. On main they compare against the previous push SHA and refuse time-named migrations. |
+| Static | `make verify-static`. On a PR, Go code generation checks run when schema, queries, generated files or generator inputs change. Migration checks compare against main and allow time-named migrations. On main they compare against the previous push SHA and refuse time-named migrations. `govulncheck` runs on pushes to `main` and manual dispatches. |
 | Unit | `make unit` runs the video packages and the rest of the Go suite in parallel. Both jobs install pinned ffmpeg and ffprobe. The non-video job sets up and requires the coordinator's bubblewrap sandbox. |
-| Race | `make race` partitions all Go packages into API, clients, control plane and other groups. The orchestration root package has its own group on main. Its Unit tests run on PRs. |
-| Web checks | `make web-check`, the Zalo bridge tests and build, and the pi extension tests. |
-| Web build | One production frontend build. The cache uses the tracked web tree, Node version and runner platform. The job shares `web/dist` as a run artifact. |
-| Web e2e | Five Playwright shards share the desktop, phone and server projects at test-level granularity. Each starts Vite preview and the Go control plane using the shared web build. |
+| Race | `make race` partitions all Go packages into API, clients, control plane and other groups. PRs run the clients and control-plane groups. Pushes and manual dispatches run all five groups. Unit covers all groups on PRs. |
+| Web checks | All code runs lint and unit test the web client. PRs check the generated web API client when its inputs or outputs change. Pushes and manual dispatches also check unused code and formatting and run the Zalo bridge and pi extension checks. |
+| Web build | One production frontend build. The build also typechecks the web client. The cache uses the tracked web tree, Node version and runner platform. The job shares `web/dist` as a run artifact. |
+| Web e2e | Eight Playwright shards share the desktop, phone and server projects at test-level granularity. Each starts Vite preview and the Go control plane using the shared web build. |
 
 Race shards restore their own Go build caches and populate them on main. The
 Playwright jobs restore the pnpm store and the headless Chromium cache. When a
