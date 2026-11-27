@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { openMenu } from "./menu.js"
+import { pasteImage } from "./paste-image.js"
 import { shot } from "./shot.js"
 
 // The Inbox page (issue #1093), built, against a fake client API, on a phone and a desktop: what waits on the owner
@@ -59,6 +60,8 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // she took it in, and adds a meeting's action Hà took on, waiting on her from its line (issue #1142).
 // described adds the owner's own report for Laura, two days late, its
 // description in Markdown sections naming a meeting and a chat by their ids (issue #1173).
+type SentFile = { path: string; name: string; type?: string; size: number }
+
 function world({
   review = false,
   sources = false,
@@ -517,10 +520,21 @@ function world({
     ...m,
   })
   let lastRun = run("rrn_1")
+  const uploads = new Map<string, { path: string; bot: string | null; pieces: Buffer[] }>()
+  const files = new Map<string, { bot: string | null; bytes: Buffer }>()
 
   return {
     sent,
     botComment,
+    files,
+    give(id: string, bot: string, chat: string) {
+      const t = todos.find((each) => each.id === id)!
+      Object.assign(t, {
+        assignee: { kind: "bot", name: bot },
+        chat_id: chat,
+        revision: t.revision + 1,
+      })
+    },
     hold() {
       held = new Promise((done) => (release = done))
     },
@@ -562,6 +576,46 @@ function world({
               approvals.length +
               questions.length,
           })
+        const workspace = /^\/chats\/(cht_\w+)\/workspaces\/bot\/(.+)$/.exec(path)
+        if (workspace) {
+          const body = request.postData() ? request.postDataJSON() : {}
+          const bot = url.searchParams.get("bot")
+          switch (workspace[2]) {
+            case "folders":
+              return json({ path: body.path }, 201)
+            case "tree":
+              return json({ entries: [], has_more: false })
+            case "uploads": {
+              if (body.path.endsWith("/blocked.txt"))
+                return json({ code: "unavailable", message: "The Bot's folder is full." }, 503)
+              const upload = `u${uploads.size + 1}`
+              uploads.set(upload, { path: body.path, bot, pieces: [] })
+
+              return json({ path: body.path, upload }, 201)
+            }
+            case "uploads/chunk":
+              uploads.get(body.upload)?.pieces.push(Buffer.from(body.data, "base64"))
+
+              return route.fulfill({ status: 204 })
+            case "uploads/commit": {
+              const up = uploads.get(body.upload)!
+              files.set(up.path, { bot: up.bot, bytes: Buffer.concat(up.pieces) })
+
+              return json({ path: up.path, sha256: "x" })
+            }
+            case "file":
+              files.delete(url.searchParams.get("path") ?? "")
+
+              return route.fulfill({ status: 204 })
+            case "raw": {
+              const file = files.get(url.searchParams.get("path") ?? "")
+
+              return file
+                ? route.fulfill({ contentType: "image/png", body: file.bytes })
+                : json({ code: "not_found", message: "File not found." }, 404)
+            }
+          }
+        }
         const acted = /^\/inbox\/(tdo_\w+)(?:\/(\w+))?$/.exec(path)
         if (acted) {
           const t = todos.find((x) => x.id === acted[1])!
@@ -602,24 +656,29 @@ function world({
                 ...(threads[t.id] ?? []),
               ],
             })
-          const body = request.postDataJSON() as Record<string, string>
+          const body = request.postDataJSON() as Record<string, string> & {
+            attachments?: SentFile[]
+          }
           sent.push({ path, body })
           // Issue #1111: the hand-over gives the item to the Bot with its chat and the prompt as its first comment;
           // a comment is added to the thread; Send closes the item with the message sent.
           if (acted[2] === "hand") {
             t.revision += 1
-            Object.assign(t, { assignee: { kind: "bot", name: body.bot }, chat_id: "cht_item" })
+            Object.assign(t, {
+              assignee: { kind: "bot", name: body.bot },
+              chat_id: body.chat_id ?? "cht_item",
+            })
             remember(t, {
               actor: { kind: "owner" },
               kind: "edited",
               after: { assignee_kind: "bot", assignee: body.bot },
             })
-            if (body.prompt) {
+            if (body.prompt || body.attachments?.length) {
               t.revision += 1
               remember(t, {
                 actor: { kind: "owner" },
                 kind: "commented",
-                after: { text: body.prompt },
+                after: { text: body.prompt ?? "", attachments: body.attachments, chat: t.chat_id },
               })
             }
 
@@ -627,7 +686,11 @@ function world({
           }
           if (acted[2] === "comments") {
             t.revision += 1
-            remember(t, { actor: { kind: "owner" }, kind: "commented", after: { text: body.text } })
+            remember(t, {
+              actor: { kind: "owner" },
+              kind: "commented",
+              after: { text: body.text, attachments: body.attachments, chat: t.chat_id },
+            })
 
             return json(t)
           }
@@ -1422,6 +1485,130 @@ test("the owner hands an item to Hypo by writing, and his comment shows", async 
     })
   await expect(comments).toContainText("Use the November rate.")
   await shot(page, "inbox-thread")
+})
+
+// The first file goes to the chat the Inbox reserves for Hand. Later uploads
+// use that live chat, and a pasted screenshot can be sent by itself and opened.
+test("the Inbox hands over files and shows a pasted screenshot in an owner comment", async ({
+  page,
+}) => {
+  const w = world()
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_invoice")
+  const comments = item(page).getByRole("region", { name: "Comments" })
+  const picker = comments.getByLabel("Files to attach")
+  await expect(comments.getByRole("button", { name: "Attach files" })).toBeVisible()
+  await picker.setInputFiles({
+    name: "brief.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Check the November invoice"),
+  })
+  const chips = comments.getByLabel("Files to send")
+  await expect(chips.getByText("brief.txt")).toBeVisible()
+  await comments.getByRole("button", { name: "Hand to Hypo" }).click()
+
+  const link = comments.getByRole("link", { name: "Open Hypo's chat for this item" })
+  await expect(link).toHaveAttribute("href", /^\/chats\/cht_[a-z2-7]{26}$/)
+  const chat = (await link.getAttribute("href"))?.split("/").at(-1)
+  const folder = `attachments/${chat}`
+  expect(w.files.get(`${folder}/brief.txt`)).toEqual({
+    bot: "bot_main",
+    bytes: Buffer.from("Check the November invoice"),
+  })
+  expect(w.sent[0]?.body).toMatchObject({
+    chat_id: chat,
+    attachments: [{ name: "brief.txt", path: `${folder}/brief.txt` }],
+  })
+  await expect(comments.getByRole("link", { name: "Download brief.txt" })).toBeVisible()
+
+  await picker.setInputFiles({
+    name: "blocked.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("cannot upload"),
+  })
+  await expect(chips.getByText("Not uploaded")).toBeVisible()
+  const send = comments.getByRole("button", { name: "Send", exact: true })
+  await send.click()
+  await expect(comments.getByRole("alert")).toContainText("The Bot's folder is full.")
+  expect(w.sent).toHaveLength(1)
+  await chips.getByRole("button", { name: "Remove blocked.txt" }).click()
+  await comments.getByRole("button", { name: "Dismiss" }).click()
+
+  await pasteImage(page)
+  await page.evaluate(`(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(["November rate"], "notes.txt", { type: "text/plain" }))
+    document.querySelector('textarea[aria-label="Message"]').dispatchEvent(
+      new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }),
+    )
+  })()`)
+  await expect(chips.getByText("notes.txt")).toBeVisible()
+  await expect(chips.getByText("image.png")).toBeVisible()
+  await expect(chips.locator("img")).toBeVisible()
+  await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
+  await send.scrollIntoViewIfNeeded()
+  await shot(page, "inbox-1245-chips")
+  await send.click()
+
+  const preview = comments.getByRole("button", { name: "Preview image.png" })
+  await expect(preview.locator("img")).toBeVisible()
+  await preview.scrollIntoViewIfNeeded()
+  await shot(page, "inbox-1245-comment")
+  expect(w.sent[1]?.body).toMatchObject({
+    text: "",
+    attachments: [
+      { name: "image.png", path: `${folder}/image.png`, type: "image/png" },
+      { name: "notes.txt", path: `${folder}/notes.txt`, type: "text/plain" },
+    ],
+  })
+  await preview.click()
+  await expect(page.getByRole("dialog").getByRole("img", { name: "image.png" })).toBeVisible()
+})
+
+// The detail refetches while the owner is writing. Both a Hand in another tab
+// and a subsequent pass change the destination of the same unsent draft.
+test("a Hand in another tab and a pass keep the Inbox draft", async ({ page }) => {
+  const w = world()
+  await w.serve(page)
+  await page.clock.install()
+  await page.goto("/inbox?item=todo%3Atdo_invoice")
+  const comments = item(page).getByRole("region", { name: "Comments" })
+  const box = comments.getByRole("textbox", { name: "Message" })
+  const picker = comments.getByLabel("Files to attach")
+  const chips = comments.getByLabel("Files to send")
+  const bytes = Buffer.from("Check the November rate")
+  await expect(picker).toBeAttached()
+  await box.fill("Please check this rate.")
+  await picker.setInputFiles({ name: "rate.txt", mimeType: "text/plain", buffer: bytes })
+  await expect.poll(() => w.files.size).toBe(1)
+
+  for (const [chat, bot, label] of [
+    ["cht_other_tab", "bot_main", "Hypo"],
+    ["cht_passed", "bot_beyond", "BeyondPilot"],
+  ] as const) {
+    w.give("tdo_invoice", bot, chat)
+    await page.clock.fastForward(11_000)
+    await expect(
+      comments.getByRole("link", { name: `Open ${label}'s chat for this item` }),
+    ).toHaveAttribute("href", `/chats/${chat}`, { timeout: 15_000 })
+    await expect(box).toHaveValue("Please check this rate.")
+    await expect(chips.getByText("rate.txt")).toBeVisible()
+    await expect.poll(() => w.files.get(`attachments/${chat}/rate.txt`)).toEqual({ bot, bytes })
+    await expect.poll(() => [...w.files.keys()]).toEqual([`attachments/${chat}/rate.txt`])
+  }
+
+  await comments.getByRole("button", { name: "Send", exact: true }).click()
+  await expect
+    .poll(() => w.sent[0])
+    .toMatchObject({
+      path: "/inbox/tdo_invoice/comments",
+      body: {
+        text: "Please check this rate.",
+        attachments: [{ path: "attachments/cht_passed/rate.txt" }],
+      },
+    })
+  await expect(comments.getByRole("link", { name: "Download rate.txt" })).toBeVisible()
+  expect(w.files.get("attachments/cht_passed/rate.txt")?.bytes).toEqual(bytes)
 })
 
 // Scenario: issue #1143, Logic 6. Hypo closed the fix as done: its line is the violet "closed it as done" with its

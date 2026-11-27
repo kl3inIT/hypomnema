@@ -37,21 +37,7 @@ export function MessageFiles({ chat, files }: { chat: string; files: ChatAttachm
 
   return (
     <>
-      {images.length > 0 && (
-        <ul
-          aria-label="Attached images"
-          className={cn(
-            "flex max-w-[80%] flex-wrap justify-end gap-1.5",
-            images.length > 1 && "grid grid-cols-2",
-          )}
-        >
-          {images.map((file) => (
-            <li key={file.path}>
-              <Thumbnail chat={chat} file={file} alone={images.length === 1} />
-            </li>
-          ))}
-        </ul>
-      )}
+      <MessageImages chat={chat} images={images} />
       {others.length > 0 && (
         <ul aria-label="Attached files" className="flex max-w-[80%] flex-wrap justify-end gap-1.5">
           {others.map((file) => (
@@ -62,6 +48,36 @@ export function MessageFiles({ chat, files }: { chat: string; files: ChatAttachm
         </ul>
       )}
     </>
+  )
+}
+
+// MessageImages is also used under the owner's Inbox comment.
+export function MessageImages({
+  chat,
+  images,
+  inComment = false,
+}: {
+  chat: string
+  images: ChatAttachment[]
+  inComment?: boolean
+}) {
+  if (images.length === 0) return null
+
+  return (
+    <ul
+      aria-label="Attached images"
+      className={cn(
+        "flex flex-wrap gap-1.5",
+        inComment ? "mt-2" : "max-w-[80%] justify-end",
+        images.length > 1 && "grid grid-cols-2",
+      )}
+    >
+      {images.map((file) => (
+        <li key={file.path}>
+          <Thumbnail chat={chat} file={file} alone={images.length === 1} />
+        </li>
+      ))}
+    </ul>
   )
 }
 

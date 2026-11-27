@@ -1132,13 +1132,38 @@ sequenceDiagram
     at +24 dB with a warning. The bed is ducked to 0.25 under each scene's clip (spans less than 0.6 s apart
     merged; down over 0.15 s, up over 0.4 s; HyperFrames' duck, Apache-2.0, `third_party/hyperframes`) by a volume
     expression evaluated every 256 samples, and faded out over min(1.8 s, T). The voice, made stereo, and the bed
-    are mixed by `amix normalize=0 duration=first`, limited by `alimiter` at −3 dBFS at 176.4 kHz, and encoded as
-    AAC 192k, the graph read from `mix.graph` (`-/filter_complex`). The made video is measured into
+    are mixed by `amix normalize=0 duration=first`, normalized by the master (#1230 row 2) and encoded as AAC 192k,
+    the graph read from `mix.graph` (`-/filter_complex`). The master is aidemo's loudnorm to −16 LUFS integrated,
+    −1.5 dBTP, LRA 11, aimed by a first pass that runs the same mix through `loudnorm print_format=json` (graph
+    `measure.graph`) and hands its measure to the second as `measured_*` with `linear=true` (Kinocut's two-pass
+    loudnorm): one gain when it keeps the true peak under −1.5 dBTP, else loudnorm's dynamic mode; a mix it cannot
+    measure gets one pass. #910's `alimiter` at −3 dBFS at 176.4 kHz stays after it, for AAC's overshoot.
+    `Music.NoMaster` and `NoDuck` are the controls a test renders beside a revision; the runner sets neither. The
+    made video is measured into
     `Result.Music` (the voice's and the bed's loudness and gains, the output's LUFS and dBTP); a true peak over
     −1 dBTP, a loudness more than 2 LU off −16, or a failed measurement is a warning. Tests make their audio with
     lavfi and measure, against a control mixed without the duck, the duck under each clip and its 300 ms gaps,
     the release between spans 1 s apart, the gains, the loop's seams, sizes and formats, and the peaks; a fake
-    ffmpeg locks the no-music mux's arguments.
+    ffmpeg locks the no-music mux's arguments; a speech-like voice whose clicks cap its gain measures −20.9 LUFS
+    without the master and −16 ± 1 with it.
+    Compose puts a title card before the scenes and an end card after them when `Input.Cards` holds them (#1230
+    row 1, `cards.go`): each `{title, subtitle?, cta_url?, duration_ms}` (0.5-10 s; title 2.6 s and end 3.0 s by
+    default; words at most 80, 120 and 200 characters, one line), in an accent (#rrggbb, default #6c8cff). A card is
+    the look's background painted on the video's whole size, its words an ASS file libass draws in the middle within
+    78% of the width (aidemo's card: the accent's rule over the title at W/17 in Be Vietnam Pro Bold, the subtitle at
+    W/40 in Medium; agent-demo-video's URL in the accent). Each of the three is fitted to that width by its font's
+    own advances (`cardfit.go`, agent-demo-video's hookLayout): wrapped at its spaces, shrunk about 5% at a time to
+    the subtitle's size, and a word still too wide (a store URL, up to 200 characters) broken where it reaches the
+    width; then, while the whole block (the rule's gap and every line at its Fontsize) is taller than half the
+    card, all three shrink together about 5% at a time (`cardLayout`, hookLayout's block bound), so the longest card
+    the API allows stays inside at 9:16 and 16:9. The lines are broken in the ASS and libass does not wrap them
+    again. The card is looped for its whole frames and faded in from and out to
+    black over min(350 ms, a third of it). The cards and the framed picture are joined by one concat filter and
+    encoded once; then the scenes' `OutStartMs` and rings move after the title card, so the voice (delayed by
+    `adelay` and padded to the end), the duck and the captions start there, and the bed and its fade run under both
+    cards. `Result.TitleMs`/`EndMs` say their lengths, and `ThumbnailAtMs` is the title card's first whole frame
+    (the runner's thumbnail is taken there, not on the fade's black). `compose.CardStill` writes a JPEG of a card
+    between its fades, for the look sample.
   - Videos and revisions (`internal/controlplane/videos`, migrations 00126 and `video_looks`). A **video**
     belongs to one take (one row of `videos`, its take unique); each make or change request adds an immutable
     **revision** (`video_revisions`: rev 1, 2, …, its parent, the lines, voice, captions, aspect and look it is made
@@ -1238,9 +1263,16 @@ sequenceDiagram
     The made revisions of a deleted track keep its name and length. The runner gives compose the track's file and
     length and the look's gain, with the Service's free-disk function for the bed's check. Agents' `video_make` is
     unchanged: their videos take the default's music.
+    A look's `cards` (#1230 row 1) is `{accent, title?, end?}`, each card `{title, subtitle?, cta_url?,
+    duration_ms}`, absent for none. A cards section sent replaces the source's whole: a card left out is none (so
+    `cards: {}` takes them away), its accent left out #6c8cff, its length 2600 ms for the title card and 3000 for the
+    end card; words are trimmed. A look change, a retry or changed lines keep the source's cards. A make's cards are
+    never saved in the default (a video's words, not a style; an agent's make takes the default), and the runner
+    gives compose the stored cards with the look's background.
   - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
     `{take, title?, aspect?, captions?, voice?, look?}` with an Idempotency-Key, `GET /videos/looks`, `POST
-    /videos/preview` `{take, aspect?, captions?, look?, rev?}` answering `image/jpeg` (busy `rate_limited` with
+    /videos/preview` `{take, aspect?, captions?, look?, rev?, card?}` answering `image/jpeg`, the look's `title` or
+    `end` card in place of the picture with `card` (409 when the look has no such card; busy `rate_limited` with
     Retry-After 1, too long `timed_out` 504, no ffmpeg `unavailable`), `POST /videos/{id}/revisions/{rev}/look`
     `{look}` and `POST /videos/{id}/revisions/{rev}/retry`, each with a required Idempotency-Key and answering 201 with the
     video, `GET` and `DELETE /videos/{id}`, `POST
@@ -1251,7 +1283,9 @@ sequenceDiagram
     approve|delete|download|look|retry|looks|preview`, where `make`, `look` and `preview` send only the look's
     sections whose flags are given (`--caption-preset --caption-position --chrome --padding --radius --shadow
     --safe-top --background --background-colors`, and `--music <id|none>` with `--music-gain <dB>` on `make` and
-    `look`; `--music-gain` alone is refused). The music library (#910): `GET /videos/music` `{tracks, used_bytes,
+    `look`; `--music-gain` alone is refused; `--title-card <title>` and `--end-card <title>`, each with
+    `-subtitle`, `-url` and `-ms`, `--card-accent`, and `--no-cards`; a card's field without its title is refused;
+    `preview --card title|end`). The music library (#910): `GET /videos/music` `{tracks, used_bytes,
     quota_bytes}`, `GET /videos/music/{id}/audio` with its stored type, `nosniff` and Range requests, `DELETE
     /videos/music/{id}` (204, 404, 409), and the upload `POST /api/v1/videos/music?name=…` on a route of its own
     outside the contract's validator (which reads a whole body first), described in `ListVideoMusic`: owner only
@@ -1307,6 +1341,13 @@ sequenceDiagram
     "missing", and a look that fell back says so. The level moves the gain from −20 to +10 dB. The music is sent as
     `{track, gain_db}` only when changed, and never to the look sample, which it does not change. Its browser tests
     write their own test audio (`web/tests/audio.ts`: WAV, MP3, FLAC, Ogg Opus; an m4a by the browser's recorder).
+    After Music, Cards (#1230 row 1, `cards-group.tsx`): a switch each for the title card and the end card, with
+    its title, a line under it, a URL and its seconds (0.5-10), and one accent colour; the section is sent as
+    `{accent, title?, end?}` when changed, empty words left out. Over the look sample, Step, Title and End (the
+    cards that are on) choose what it draws: a card is asked with `card` and the cards section, the picture without
+    the cards, and a card with no title yet is not asked for. A card's sample carries that card alone, as the
+    contract's `card` says to send it (the contract checks every card sent and refuses one with no title, 400), and
+    the service draws only the card shown.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -4583,8 +4624,8 @@ calls, and each call is recorded on a gateway key.
 - Not built: testing a provider from the page (OmniRoute's and 9router's "Check", OpenClaw's "Test search");
   reordering on a touch screen (the CLI does it); routing by the kind of query (web-search-plus), a daily budget.
 
-Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `codex/images.go`, `antigravity/images.go`;
-issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
+Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `metered_images.go`, `codex/images.go`,
+`antigravity/images.go`; issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
 (`/v1/images/*`, above), for workers and Bots (`generate_image`, see "An agent's tools", below) and for
 the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
@@ -4713,7 +4754,7 @@ not checked against the live site in the change that wrote them.
   tab live, Muse Spark through `api.meta.ai`.
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
-`clientcli/audio.go`, `controlplane/audio.go`; issue #694,
+`clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
 owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
 (`hypomnema audio`, see the client API).
@@ -4960,7 +5001,7 @@ its client API, its CLI and the Bots' tools.
   it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account (an item without
   its account, which `lark` allows, is never closed so), which the store
   reads before the write through `Store.WithSent` and accepts only when it exists, he sent it himself and it is
-  later than the item: the control plane's `inboxSent` reads a Zalo or WhatsApp one from the server's store of that
+  later than the item: `inbox.Sent` (`controlplane/inbox/sent.go`) reads a Zalo or WhatsApp one from the server's store of that
   account (`messaging.Query.ID`) and a Lark one from Lark's API with his own sign-in, `GET
   /open-apis/im/v1/messages/:id` and `GET /open-apis/authen/v1/user_info`, since the server keeps none of his Lark
   messages); or one in another chat of that account where the person who asked is a member when it is read (issue
@@ -5037,6 +5078,14 @@ its client API, its CLI and the Bots' tools.
   `chat_messages.recall` (his comment, or the item's title and his prompt for a hand-over; none for an item a Bot
   passed or given with no prompt), which the turn it starts is recalled by and the row is found by (issue #805,
   under Bots: "Search and recall").
+- Owner uploads in the Inbox (issue #1245): `TodoComment` and `TodoHand` carry the same `ChatAttachment` array as a
+  chat message. They may carry files alone, which count as the owner's own input for the turn (issue #1229).
+  `Hand` can open the item's chat with the id the composer chose before uploading (as in #357). The transaction
+  validates each path against that chat's attachments directory and keeps the files on the wake's
+  `chat_messages.attachments` and the comment's `after.attachments` and `after.chat`. The coordinator gives pi the
+  paths as it does for the owner's chat messages. Both use the same formatter, which asks pi to view images with
+  its `read` tool, supplying image content to vision models. Passing the item to another Bot leaves the old comment pointing at the chat
+  that received it. New files go to the receiving Bot's chat folder.
 - Waiting on others (`inboxstore/waiting.go`; issue #1142, the owner's rules of 2026-11-25: an item is his when he
   is asked, tagged or written to or he promised; waiting on someone when he gave the work to a person, a person
   owes him something he needs for his own work (a file, an access, an API, a payment, the sign-off of his work), or
@@ -5113,7 +5162,7 @@ its client API, its CLI and the Bots' tools.
   or Lark chat or Gmail thread, never a chat the request names, and closes the item done by him, by hand, with the
   message sent as evidence (a proposal is accepted first; an item in review stays as it is), answering `{sent,
   todo}`. A closed item, another revision (409) or a source with no chat of his (400) sends nothing. The control
-  plane's `inboxSender` (`controlplane/inboxsend.go`) sends through his own accounts: a Zalo or WhatsApp chat of the
+  plane's `inbox.Sender` (`controlplane/inbox/send.go`) sends through his own accounts: a Zalo or WhatsApp chat of the
   Connection the item names (`integration.Service.Send`), a Lark chat with his Lark sign-in (`lark:me` when the item
   names none; `POST /open-apis/im/v1/messages?receive_id_type=chat_id`), and a reply in the Gmail thread to the
   Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
@@ -5438,13 +5487,14 @@ flowchart LR
   extension when none is named) or as a new `hypomnema-speech-*` file in the temporary folder; a Bot's under
   `audio/` in its folder with the `MEDIA:` line that sends it, as `generate_image`'s. `audio_speak`'s description
   says to use it only when a voice is asked for, never in place of a written reply (OpenClaw's `tts`). Each call is
-  a usage row on the Dispatch's key or the chat's (`controlplane/audio.go`, `agentAudio`); what was said is never
+  a usage row on the Dispatch's key or the chat's (`modelgateway/metered_audio.go`, routed by `controlplane/audio.go`'s
+  `agentAudio`); what was said is never
   logged.
 - Incoming voice (issue #723; [design](https://github.com/kl3inIT/hypomnema/issues/723#issuecomment-6956018177)): a
   voice message a person sends a Bot is transcribed before the model reads it, with the same speech service, as
   Hermes (`gateway/config.py:635`) and OpenClaw (`audio-preflight.ts`) do. On Lark a direct message of type `audio`
   is downloaded by its `file_key` (`im.messageResource.get`, `type=file`; `channels.Recorder`) and heard
-  (`channels.Hearer`, the wiring's `channelVoice`), and the transcript goes through the same rules as a typed
+  (`channels.Hearer`, `modelgateway.ChannelVoice`), and the transcript goes through the same rules as a typed
   message (who may send it, the sender's label, the queue); it is recorded on the chat's newest gateway key, working
   or not (`modelgateway.Service.ChatKey`), since the chat's pi may not run yet. A group's voice message mentions
   no one and is left alone. On WhatsApp and Zalo, which a Bot reads with tools, `whatsapp_media` and `zalo_media`
@@ -6512,6 +6562,12 @@ Node (`internal/node`):
     comments (`POST /inbox/{id}/comments`), or hands it to that Bot again when the item has no chat; on a closed
     one, **Reopen and send** reopens it (`POST /inbox/{id}/reopen`), then hands it back to its Bot with the text
     (`writeOf`, `useWriteTodo`). The top bar has no "Hand to" of its own.
+    The composer reuses the chat's `useAttachments`, `AttachDrop` and `AttachmentStrip` for picking, dropping and
+    pasting files, previews and upload errors (issue #1245, after t3code's `useComposerAttachmentIntake.ts` and
+    `ComposerAttachmentStrip.tsx`). When a Hand or pass changes the destination, the box keeps its text and uploads
+    the draft files to the new chat using the New chat page's upload move. Files that are being sent stay put until
+    the send settles. The composer waits for uploads before sending. The owner's comment shows the chat's
+    image thumbnails with full-size previews and `ReplyFiles` chips under its text.
     An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on
@@ -7042,7 +7098,7 @@ the internet, so that a machine created at a provider can install the node from 
 
 ```
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
-internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
+internal/controlplane     package controlplane: configuration, migrate, building each service and serving them (serve), the adapters between packages, and the owner's server commands
 internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's tools and the gateway's (web, images, Muse)
 internal/shared/artifactpack  an Artifact's files: the rules an agent's file or folder is read by, its tar, its type from bytes and name, its limits
 internal/controlplane/spreadsheet  an xlsx workbook read into CSV text a sheet for the web's preview, within its limits
@@ -7102,12 +7158,13 @@ internal/controlplane/orchestration/channelstore  the Channels (tables channels 
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
 internal/controlplane/orchestration/inboxstore  the Inbox's to-dos, their state machine and history, reached through orchestration's Inbox()
+internal/controlplane/inbox  the owner's own chats as the Inbox reads and answers them: a message given as evidence, who asked and who is in a chat, his reply sent from an item
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, every memory's notes and the memory tool's commands (issue #589), and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names
 internal/controlplane/modelgateway/antigravity  the Antigravity subscription's formats: chat to Gemini's shape and back, the schema cleaner
 internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat to Responses and back
-internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
+internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault, the subscription providers given the models their vendors serve
 internal/controlplane/websearch  the web's search and a page's reading: the providers in turn, their rests, the cache, the page read as markdown through the browser's address rules, outside content marked
 internal/shared/agenttool the integrations' tools: the catalog, their setup, and the launcher that asks the control plane for a token
 internal/shared/contextwindow  whether an error's text says a prompt did not fit its model's context window, for the node's runtimes and the gateway

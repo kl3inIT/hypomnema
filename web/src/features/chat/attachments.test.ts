@@ -138,7 +138,7 @@ test("Send is refused while a file was not uploaded", async () => {
   uploads[0]?.end({ code: "unavailable", message: "the machine is offline" })
 
   await expect(draft.ready()).rejects.toEqual({
-    message: "a.txt was not uploaded. Remove it, or attach it again.",
+    message: "the machine is offline",
   })
   expect(draft.snapshot()[0]).toMatchObject({ state: "failed", problem: "the machine is offline" })
 
@@ -218,6 +218,6 @@ test("a draft's file cannot move to another Bot's folder", async () => {
   )
   expect(second.uploads).toHaveLength(0)
   await expect(draft.ready()).rejects.toEqual({
-    message: "report.pdf was not uploaded. Remove it, or attach it again.",
+    message: "report.pdf is in the other Bot's folder. Attach it again.",
   })
 })

@@ -31,7 +31,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { errorText } from "@/lib/server-error"
 
 import { LookSection } from "./look-section"
-import { editsOf, fieldsOf, sampleOf, sentLook, withEdits, type LookEdits } from "./look-state"
+import { editsOf, fieldsOf, sentLook, withEdits, type LookEdits } from "./look-state"
 import { useVideoLooks } from "./use-look"
 
 type Aspect = NonNullable<VideoMake["aspect"]>
@@ -185,7 +185,7 @@ export function MakeVideo({
                 onChange={(next) => setEdits((was) => editsOf(was, fields, next))}
                 music={looks.data.default.music}
                 captions={captions}
-                sample={sampleOf({ take, aspect, captions, ...(sent ? { look: sent } : {}) })}
+                sample={{ take, aspect, captions, ...(sent ? { look: sent } : {}) }}
                 open={open}
               />
             ) : (

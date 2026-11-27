@@ -120,7 +120,7 @@ function useObjectURLOf(blob: Blob | undefined) {
 
 // kindOf is the preview kind of a file artifact (issue #422): by its revision's file, as its viewer picks it
 // (artifact-view.tsx), or by its type until the revision is read.
-export function kindOf(type: ArtifactType, revision?: ArtifactRevision): PreviewKind {
+function kindOf(type: ArtifactType, revision?: ArtifactRevision): PreviewKind {
   if (revision) {
     const media = revision.files.find((f) => f.path === revision.entry)?.media_type ?? ""
     return previewKind(revision.entry, media)

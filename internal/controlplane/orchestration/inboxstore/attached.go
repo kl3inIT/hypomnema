@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/chatfile"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
@@ -32,8 +33,10 @@ const (
 // maxFilePath bounds a file's path, as a path in the Bot's folder is read (workspacefs).
 const maxFilePath = 1024
 
-// Attached is what a Bot's comment carries besides its text.
+// Attached is what a comment carries besides its text.
 type Attached struct {
+	// Uploads are the owner's files uploaded for this comment (issue #1245).
+	Uploads []chatfile.Attachment
 	// Files are paths in the Bot's folder, relative to it, as a reply's MEDIA: lines name them.
 	Files []string
 	// Artifacts are ids of Artifacts the Bot showed.
@@ -44,11 +47,14 @@ type Attached struct {
 }
 
 // checked is what a comment carries, its paths made relative as the chat reads them (media.ts folderPath), or why
-// it cannot carry it: only a Bot's comment carries anything, a path stays in its folder, and an Artifact is named
-// once.
+// it cannot carry it: the owner sends uploads, a Bot links its own files and Artifacts, and an Artifact is named once.
 func (a Attached) checked(actor Actor) (Attached, error) {
+	if len(a.Uploads) > 0 && actor.Kind != Owner {
+		return Attached{}, fmt.Errorf("%w: only the owner sends uploaded files", storeerr.ErrForbidden)
+	}
+
 	if len(a.Files) == 0 && len(a.Artifacts) == 0 {
-		return Attached{}, nil
+		return a, nil
 	}
 
 	if actor.Kind != Bot {
@@ -145,6 +151,13 @@ func (a Attached) after(ctx context.Context, q *store.Queries, actor Actor, text
 	after["files"], after["chat"] = a.Files, chat
 
 	return after, nil
+}
+
+// keepUploads records the chat the files were sent to, so a later pass to another Bot leaves them there.
+func keepUploads(after map[string]any, chat string, files []chatfile.Attachment) {
+	if len(files) > 0 {
+		after["chat"], after["attachments"] = chat, files
+	}
 }
 
 // liveChats points each Bot's comment whose files are read through a chat deleted since at a chat of the same Bot

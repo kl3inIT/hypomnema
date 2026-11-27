@@ -1,4 +1,4 @@
-package controlplane
+package inbox
 
 import (
 	"context"
@@ -64,7 +64,7 @@ func TestTheOwnersReplyGoesToTheItemsOwnChatOrThread(t *testing.T) {
 	}))
 	t.Cleanup(api.Close)
 
-	s := inboxSender{
+	s := Sender{
 		send: func(_ context.Context, integration, label string, out messaging.Outgoing) (messaging.Message, error) {
 			require.Equal(t, "zalo", integration)
 			zaloLabel, zalo = label, out
@@ -183,7 +183,7 @@ func TestTheOwnersDraftTagsWhomItNamesAndAnswersTheItemsMessage(t *testing.T) {
 		"whatsapp/wg": {{ID: "w1", Sender: lanPN, SenderName: "Lan"}, {ID: "w0", Sender: lanLID, SenderName: "Lan"}},
 	}
 
-	s := inboxSender{
+	s := Sender{
 		send: func(_ context.Context, _, _ string, out messaging.Outgoing) (messaging.Message, error) {
 			sent = append(sent, out)
 
@@ -335,7 +335,7 @@ func TestLarkSendsWithoutAQuoteWhenTheMessageCannotBeRepliedTo(t *testing.T) {
 			}))
 			t.Cleanup(api.Close)
 
-			s := inboxSender{
+			s := Sender{
 				larkToken: func(context.Context, string) (string, error) { return "u-lark", nil },
 				larkURL:   api.URL, client: api.Client(),
 			}

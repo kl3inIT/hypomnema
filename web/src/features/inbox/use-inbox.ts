@@ -26,7 +26,7 @@ import {
   sendTodoDraft,
   snoozeTodo,
 } from "@/api/generated/sdk.gen"
-import type { Todo } from "@/api/generated/types.gen"
+import type { ChatAttachment, Todo } from "@/api/generated/types.gen"
 import { usePending } from "@/features/approvals/use-approvals"
 import { callsOf } from "@/lib/query-keys"
 
@@ -194,24 +194,30 @@ export function useWriteTodo() {
       todo,
       write,
       text,
+      files,
+      chatId,
     }: {
       todo: Todo
       write: Pick<Write, "act" | "bot">
       text: string
+      files?: ChatAttachment[]
+      chatId?: string
     }) => {
       const path = { todo_id: todo.id }
       const bot = write.bot || undefined
       const prompt = text.trim() || undefined
+      const attachments = files?.length ? files : undefined
+      const hand = { bot, prompt, attachments, chat_id: attachments ? chatId : undefined }
 
       switch (write.act) {
         case "comment":
-          return (await commentTodo({ path, body: { text } })).data
+          return (await commentTodo({ path, body: { text, attachments } })).data
         case "hand":
-          return (await handTodo({ path, body: { revision: todo.revision, bot, prompt } })).data
+          return (await handTodo({ path, body: { revision: todo.revision, ...hand } })).data
         case "reopen": {
           const open = (await reopenTodo({ path, body: { revision: todo.revision } })).data
 
-          return (await handTodo({ path, body: { revision: open.revision, bot, prompt } })).data
+          return (await handTodo({ path, body: { revision: open.revision, ...hand } })).data
         }
       }
     },

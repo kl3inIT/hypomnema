@@ -1,4 +1,4 @@
-package controlplane
+package modelgateway_test
 
 import (
 	"context"
@@ -50,7 +50,7 @@ func (usageMovieMaker) Burn(_ context.Context, _ ffmpeg.Tools, video, _, _ strin
 	return video, nil
 }
 
-func (usageMovieMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string) error {
+func (usageMovieMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string, _ int64) error {
 	return os.WriteFile(out, []byte("thumbnail"), 0o600)
 }
 
@@ -86,7 +86,7 @@ func TestVideoRevisionsRecordOnlyNewAudioCallsOnTheRequestersKey(t *testing.T) {
 	}})
 	svc, err := videos.New(videos.Config{
 		DB: db, Dir: filepath.Join(t.TempDir(), "videos"), Takes: usageTake(takeID), Maker: usageMovieMaker{},
-		Speech: videoAudio{speech: voice, gateway: gateway, logger: slog.Default()},
+		Speech: modelgateway.VideoAudio{Speech: voice, Gateway: gateway, Logger: slog.Default()},
 		Settings: func(context.Context) (speech.Settings, error) {
 			return speech.Settings{Off: []string{speech.ProviderSoniox}}, nil
 		},

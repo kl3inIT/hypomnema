@@ -44,9 +44,11 @@ func (s *Server) HandTodo(ctx context.Context, req openapi.HandTodoRequestObject
 		bot = orchestration.DefaultBotID
 	}
 
-	t, err := s.svc.Inbox().Hand(ctx, inboxstore.Change{
+	t, err := s.svc.Inbox().HandWith(ctx, inboxstore.Change{
 		Actor: inboxstore.Actor{Kind: inboxstore.Owner}, ID: req.TodoId, Revision: b.Revision,
-	}, bot, val(b.Prompt))
+	}, bot, inboxstore.HandInput{
+		Prompt: val(b.Prompt), ChatID: val(b.ChatId), Attachments: fromAttachments(val(b.Attachments)),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +64,9 @@ func (s *Server) CommentTodo(ctx context.Context, req openapi.CommentTodoRequest
 		return nil, err
 	}
 
-	t, err := s.svc.Inbox().Comment(ctx, c.actor, req.TodoId, req.Body.Text)
+	t, err := s.svc.Inbox().CommentWith(ctx, c.actor, req.TodoId, req.Body.Text, inboxstore.Attached{
+		Uploads: fromAttachments(val(req.Body.Attachments)),
+	})
 	if err != nil {
 		return nil, err
 	}

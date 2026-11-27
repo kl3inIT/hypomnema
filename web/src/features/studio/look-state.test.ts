@@ -2,7 +2,15 @@ import { describe, expect, test } from "vitest"
 
 import type { VideoLook } from "@/api/generated/types.gen"
 
-import { editsOf, fieldsOf, sampleOf, sentLook, withEdits } from "./look-state"
+import {
+  editsOf,
+  fieldsOf,
+  newCard,
+  sampleCards,
+  sampleOf,
+  sentLook,
+  withEdits,
+} from "./look-state"
 
 // The saved default as the server starts it: Clean, an Android frame, midnight (videos/look.go, DefaultLook).
 const saved: VideoLook = {
@@ -177,5 +185,72 @@ describe("a stored look's fields", () => {
     const start = fieldsOf({ ...saved, frame: { ...saved.frame, padding: 120, radius: 20 } })
 
     expect(start.frame).toEqual({ chrome: "android", shadow: true, safe_top: false })
+  })
+})
+
+describe("the cards a look sends (#1230, row 1)", () => {
+  const take = "tk_0123456789abcdef"
+
+  test("a look without cards starts from none, in aidemo's accent", () => {
+    expect(fieldsOf(saved).cards).toEqual({ accent: "#6c8cff" })
+  })
+
+  test("a card turned on is sent with its words trimmed and its empty ones left out", () => {
+    const start = fieldsOf(saved)
+    const now = {
+      ...start,
+      cards: {
+        ...start.cards,
+        end: { ...newCard("end"), title: " Tải SecondBite ", cta_url: "secondbite.vn" },
+      },
+    }
+
+    expect(sentLook(start, now)).toEqual({
+      cards: {
+        accent: "#6c8cff",
+        end: { title: "Tải SecondBite", cta_url: "secondbite.vn", duration_ms: 3000 },
+      },
+    })
+  })
+
+  test("a revision's cards are kept unless changed; turned off, the section goes with none", () => {
+    const withCards: VideoLook = {
+      ...saved,
+      cards: { accent: "#ff3366", title: { title: "SecondBite", duration_ms: 2600 } },
+    }
+    const start = fieldsOf(withCards)
+
+    expect(start.cards.title).toEqual({
+      title: "SecondBite",
+      subtitle: "",
+      cta_url: "",
+      duration_ms: 2600,
+    })
+    expect(sentLook(start, start)).toBeUndefined()
+    expect(sentLook(start, { ...start, cards: { accent: "#ff3366" } })).toEqual({
+      cards: { accent: "#ff3366" },
+    })
+  })
+
+  test("the sample of the picture is asked without the cards; the sample of a card with them", () => {
+    const cards = { title: { title: "SecondBite" } }
+
+    expect(sampleOf({ take, look: { cards } })).toEqual({ take })
+    expect(sampleOf({ take, card: "title", look: { cards } })).toEqual({
+      take,
+      card: "title",
+      look: { cards },
+    })
+    expect(sampleCards({ accent: "#6c8cff", end: newCard("end") })).toEqual(["end"])
+  })
+
+  test("the sample of a card carries that card alone, the other one maybe not titled yet (#1242)", () => {
+    const cards = { accent: "#ff3366", title: { title: "SecondBite" }, end: { title: "" } }
+
+    expect(sampleOf({ take, card: "title", look: { cards } })).toEqual({
+      take,
+      card: "title",
+      look: { cards: { accent: "#ff3366", title: { title: "SecondBite" } } },
+    })
   })
 })

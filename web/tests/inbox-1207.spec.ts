@@ -73,7 +73,12 @@ const events = [
     before: {},
     after: {
       text: `Xong: bảng doanh số tháng 10 và biểu đồ theo tuần (${chart}). Tuần 4 cao nhất.`,
-      files: ["exports/doanh-so-thang-10.xlsx", "exports/don-hang-cu.csv"],
+      files: [
+        "exports/doanh-so-thang-10.xlsx",
+        "exports/tong-hop.pdf",
+        "exports/ghi-chu.docx",
+        "exports/don-hang-cu.csv",
+      ],
       chat,
       artifacts: [chart],
     },
@@ -199,6 +204,11 @@ test("a Bot's comment shows its files and its Artifact", async ({ page }) => {
     `/artifacts/${chart}`,
   )
   await expect(comment).not.toContainText(chart)
+  const icons = comment.getByRole("list", { name: "Files" }).locator("img")
+  await expect(icons).toHaveCount(4)
+  await expect(icons.nth(0)).toHaveAttribute("src", /\/table\.svg$/)
+  await expect(icons.nth(1)).toHaveAttribute("src", /\/pdf\.svg$/)
+  await expect(icons.nth(2)).toHaveAttribute("src", /\/word\.svg$/)
   await comment.scrollIntoViewIfNeeded()
   await expect(comment.locator("iframe")).toBeVisible()
   await shot(page, "inbox-1207-result")

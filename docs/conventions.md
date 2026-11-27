@@ -106,6 +106,28 @@ The three boundaries that matter:
    through the client API, which checks what the token may do, and every request to a service through the service
    proxy, which answers by the Connection's actions. This one cannot be linted; it is held by design review and tests.
 
+**One package owns one domain, and the root only assembles** (issue #1240; [research](research/2026-11-27-go-package-split.md)):
+packages are by feature, each the sole owner of one domain, its store apart from its logic (Grafana's
+`contribute/backend/package-hierarchy.md`, and its `AGENTS.md`: "business logic in `pkg/services/<domain>/`").
+`internal/controlplane`, the root, holds only:
+
+- **assembly**: building each service and wiring `serve`, and the adapters that only connect one package's interface
+  to another's, as Omnara's `cmd/api/main.go`, Grafana's `pkg/server/wire.go` and Gitea's `routers/init.go` do. The
+  vault's values reach a feature through such an adapter, since the APIs, the coordinator and orchestration may not
+  open the vault (`vault_values_stay_inside`, issue #66);
+- **the owner's server-side commands**, which open the database directly (`owner.go`, `accounts.go`, `secrets.go`,
+  `users.go`, `push.go`, the gateway's and the machines' commands).
+
+Feature logic, a decision of the feature such as which key a call is recorded on, a model list's update rule or
+how a service's API is called, goes into the package that owns the feature (`modelgateway`, `subscription`, `inbox`,
+`speech`…). A domain whose owner is already a store package and that only lacks a place for its logic, such as
+calls to another service's HTTP API, gets a sibling package for that logic beside its store, as Grafana separates a
+service from its store ("Separate store and logic"): the Inbox's store is `orchestration/inboxstore`, and its reading
+and sending in the owner's chats is `inbox`. When no package owns the domain at all, the logic stays in the root and
+the pull request says why, rather than a package being made for it. A store package never imports orchestration's root (Omnara's stores under `internal/storage`); a write
+across domains stays in orchestration's root, which opens the transaction and calls each store's `…Tx` functions,
+as Omnara's `storage/orglifecycle` does. Size alone is no reason to split: no reference has a size rule.
+
 **Enforcement**, run by `make verify` locally and in CI:
 
 - `depguard` in `.golangci.yml`: the tree rule (as Grafana's per-directory rules); generated sqlc code only inside
@@ -273,8 +295,9 @@ How the references keep a UI consistent is in
 - **A dialog is as wide as what it holds**: the primitive's default is t3code's `max-w-lg`; a dialog with one
   field narrows it, one with a command or a table of choices widens it, by the dialog's `size` (t3code, Orca: each dialog sets
   its own).
-- **Icons** are lucide's. A brand's mark, which lucide does not carry, is an SVG component in
-  `web/src/components/icons` (Orca, Omnigent).
+- **Icons** use Lucide by default. Brand marks are SVG components in `web/src/components/icons` (Orca,
+  Omnigent). File chips in Bot replies and Inbox comments, the attachment strip, and file Artifacts use
+  [Material Icon Theme](../web/THIRD_PARTY_NOTICES.md) by file extension (issue #1253, owner, 2026-11-27).
 - **A thing that has a logo is shown with it** beside its name: a git host, a runtime, a service, a model's
   maker (owner, 2026-11-10). A generic icon is for what has none.
 - **Where code lives** ([research](research/2026-11-15-web-code-organisation.md); owner, 2026-11-15). A screen

@@ -266,6 +266,49 @@ func TestTheCLISendsOnlyTheFlaggedLook(t *testing.T) {
 	assert.Equal(t, []byte{0xFF, 0xD8, 0xFF}, raw)
 }
 
+// Scenario: the owner gives a video its cards with the CLI (issue #1230, row 1): a card is sent with its title and
+// the fields flagged, -no-cards sends the section with none, a card's field without its title is refused before
+// anything is sent, the cards are shown in the look's line, and a sample draws one.
+func TestTheCLISendsTheCards(t *testing.T) {
+	t.Parallel()
+
+	look := videos.DefaultLook()
+	look.Cards = &compose.Cards{Accent: "#6c8cff", End: &compose.Card{Title: "Tải SecondBite", DurationMs: 3000}}
+	fake := &cliVideos{v: videos.Video{
+		ID: "vid_abc", Take: "tk_0123456789abcdef", Title: "Đăng nhập", CreatedAt: time.Now(),
+		Revisions: []videos.Revision{{Rev: 1, State: videos.Review, Lines: []string{"Mở"}, Aspect: "9:16",
+			Captions: true, Warnings: []string{}, Look: look}},
+	}}
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithVideos(fake) })
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--title-card", "SecondBite",
+		"--end-card", "Tải SecondBite", "--end-card-url", "secondbite.vn", "--end-card-ms", "4000",
+		"--card-accent", "#ff3366")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"cards":{"accent":"#ff3366","title":{"title":"SecondBite"},`+
+		`"end":{"title":"Tải SecondBite","cta_url":"secondbite.vn","duration_ms":4000}}}`, fake.looks[0])
+	assert.Contains(t, out, `end card "Tải SecondBite" 3.0 s`)
+
+	_, err = w.cmd(t, "videos", "look", "vid_abc", "1", "--no-cards")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"cards":{}}`, fake.looks[1])
+
+	for _, args := range [][]string{{"--end-card-url", "secondbite.vn"}, {"--no-cards", "--title-card", "A"}} {
+		_, err = w.cmd(t, append([]string{"videos", "make", "tk_0123456789abcdef"}, args...)...)
+		require.ErrorIs(t, err, ErrUsage, "%v", args)
+	}
+
+	assert.Len(t, fake.looks, 2, "nothing sent for a refused flag")
+
+	_, err = w.cmd(t, "videos", "preview", "tk_0123456789abcdef", "--rev", "1", "--card", "end",
+		"--out", filepath.Join(t.TempDir(), "card.jpg"))
+	require.NoError(t, err)
+	require.Len(t, fake.previews, 1)
+	assert.Equal(t, videos.CardEnd, fake.previews[0].Card)
+}
+
 // Scenario: the owner keeps the music library with the CLI and chooses a video's music (issue #910): a file
 // uploaded as it is, with its name, then listed and deleted; -music sends the music section, with -music-gain when
 // given, and -music-gain alone is refused before anything is sent.
