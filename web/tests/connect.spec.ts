@@ -256,6 +256,25 @@ test("a file is never shown or copied for a key other than the one chosen", asyn
   await expect(codex).not.toContainText(fullSecret)
 })
 
+test("Connect a tool opens from Gateway keys with no key chosen", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings")
+  const menu = page.getByRole("navigation", { name: "Settings", exact: true })
+  const gatewayKeys = menu.getByRole("link", { name: "Gateway keys", exact: true })
+  await expect(gatewayKeys).toBeVisible()
+  await expect(menu.getByRole("link", { name: "Connect a tool", exact: true })).toHaveCount(0)
+  await gatewayKeys.click()
+  await page.getByRole("link", { name: "Connect a tool", exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\/connect$/)
+  await expect(page.getByRole("heading", { name: "Connect a tool" })).toBeVisible()
+  for (const name of ["Claude Code", "Codex", "omp", "OpenCode"]) {
+    const card = page.getByRole("region", { name, exact: true })
+    await expect(card.getByLabel("Key")).toHaveText("Choose a key")
+    await expect(card.getByRole("button", { name: /^Copy / })).toHaveCount(0)
+  }
+  expect(calls).toEqual([])
+})
+
 // Scenario: the owner presses Connect on a key's row of Gateway keys. The page opens with that key; one whose value
 // is not stored gives a placeholder and says so, and a tool it can call no model from says that too.
 test("a key opened from Gateway keys is chosen, and a key without a value gives a placeholder", async ({

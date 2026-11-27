@@ -181,6 +181,55 @@ test("the owner sees the gateway's address and keys", async ({ page }) => {
   await shot(page, "gateway-keys")
 })
 
+test("a long model list shows three chips and opens the full list", async ({ page, isMobile }) => {
+  const models = Array.from({ length: 15 }, (_, index) => `opencode-go/model-${index + 1}`)
+  await fakeServer(page, [
+    {
+      id: "gwk_2",
+      name: "omp-desktop",
+      prefix: "hyp_gateway_v1_Lm40Pr",
+      models,
+      endpoints: ["search", "fetch", "images", "audio"],
+      created_at: iso(now - 2 * 86_400_000),
+    },
+    {
+      id: "gwk_1",
+      name: "opencode-laptop",
+      prefix: "hyp_gateway_v1_Zx81Qa",
+      masked_value: mask(laptopSecret),
+      models: ["*"],
+      endpoints: ["search", "fetch", "images", "audio"],
+      created_at: iso(now - 9 * 86_400_000),
+    },
+  ])
+  await page.goto("/settings/gateway-keys")
+  const row = page.getByRole("row", { name: "omp-desktop" })
+  await expect(row).toBeVisible()
+  await shot(page, "gateway-keys-long")
+  const modelColumn = page.getByRole("columnheader", { name: "Models", exact: true })
+  const index = await modelColumn.evaluate((header) =>
+    Array.from(header.parentElement!.children).indexOf(header),
+  )
+  const cell = row.getByRole("cell").nth(index)
+  if (process.env.UI_CHECK && isMobile) {
+    await cell.getByText(models[0]!, { exact: true }).evaluate((chip) => {
+      const table = chip.closest("[data-slot=table-container]")!
+      table.scrollLeft +=
+        chip.getBoundingClientRect().left - table.getBoundingClientRect().left - 118
+    })
+    await shot(page, "gateway-keys-long-models")
+  }
+  for (const model of models.slice(0, 3)) {
+    await expect(cell.getByText(model, { exact: true })).toBeVisible()
+  }
+  for (const model of models.slice(3)) {
+    await expect(cell.getByText(model, { exact: true })).toHaveCount(0)
+  }
+  await cell.getByRole("button", { name: "+12", exact: true }).click()
+  const list = page.getByRole("dialog", { name: "Models" }).getByRole("listitem")
+  await expect(list).toHaveText(models)
+})
+
 // Scenario: the owner makes a key for one tool, limited to some models, and copies it; the list masks its value.
 // The models are grouped by the provider that serves them; a provider's box
 // takes all of its models, and the search narrows the list. A key with no model chosen is refused before it is sent.
