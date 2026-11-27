@@ -798,3 +798,33 @@ func TestReviewMakingTheOwnersTabWaitsForRunningCalls(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, containing(strings.Split(string(raw), "\n"), "session=owner", "agent_browser_open"))
 }
+
+// Review round 3 of PR #1233: the owner's request is received before Bot B's,
+// but making the owner's tab takes the first request's wait. Bot B's later
+// request still gets the focus after the owner's tab is made.
+func TestReviewALaterViewRequestKeepsItsTurnAfterTheOwnersTabIsMade(t *testing.T) {
+	r, chrome := frontRig(t)
+	r.focus.wait = 100 * time.Millisecond
+
+	a := r.slowCall(t, "b-cht_1", "agent_browser_wait_for_text")
+
+	owner := make(chan *View, 1)
+	go func() {
+		v, err := r.Watch(t.Context(), OwnerTab)
+		require.NoError(t, err)
+		owner <- v
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	b := r.watch(t, "b-cht_1")
+
+	assert.False(t, isRefusal(t, answer(t, a)))
+	ownerView := <-owner
+	t.Cleanup(func() { ownerView.Close(context.WithoutCancel(t.Context())) })
+
+	require.Eventually(t, func() bool { return len(chrome.activated()) >= 2 }, 10*time.Second, 10*time.Millisecond)
+	activated := chrome.activated()
+	assert.Equal(t, front("b-cht_1"), activated[len(activated)-1], "the later request keeps the focus")
+
+	b.Close(t.Context())
+}
