@@ -489,7 +489,7 @@ export const listVideoLooks = <ThrowOnError extends boolean = true>(options?: Op
 /**
  * The templates a video is made from (owner only; issue
  *
- * A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, each card titled with the video's title when made. POST /videos and POST /videos/preview take one by its id.
+ * A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
  */
 export const listVideoTemplates = <ThrowOnError extends boolean = true>(options?: Options<ListVideoTemplatesData, ThrowOnError>): RequestResult<ListVideoTemplatesResponses, ListVideoTemplatesErrors, ThrowOnError> => (options?.client ?? client).get<ListVideoTemplatesResponses, ListVideoTemplatesErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

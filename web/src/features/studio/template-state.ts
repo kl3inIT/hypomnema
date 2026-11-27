@@ -1,22 +1,27 @@
-import type { VideoAspect, VideoTemplate } from "@/api/generated/types.gen"
+import type { VideoAspect, VideoTemplate, VideoTemplateCard } from "@/api/generated/types.gen"
 
 import { cardDefaults, fieldsOf, type CardFields, type LookFields } from "./look-state"
 
 // What the template picker of Make video works out (issue #1230, rows 3-5; the picker is an inference, as no
-// reference has one): the fields a template's look starts from, its cards titled with the video's title as the
-// server titles them (videos/templates.go), and the words that describe it.
+// reference has one): the fields a template's look starts from, its cards' words with {title} the video's title as
+// the server fills them (videos/templates.go), the shape and captions None gives back, and the words that describe
+// it.
 
-// maxCardTitle is a card's longest title, the server's (videos/compose/cards.go).
+// The longest a card's title and subtitle are, the server's (videos/compose/cards.go).
 const maxCardTitle = 80
+const maxCardSubtitle = 120
 
-// cardTitle is a video's title as a template's card holds it, as the server cuts it: its spaces joined, at most 80
-// characters, cut at a space in its second half when it is longer.
-export function cardTitle(title: string): string {
-  const joined = title.trim().split(/\s+/).join(" ")
+// titleToken in a template card's words is the video's title.
+const titleToken = "{title}"
+
+// cutWords is a card's words as the server cuts them: spaces joined, at most `most` characters, cut at a space in
+// their second half when they are longer.
+export function cutWords(words: string, most: number): string {
+  const joined = words.trim().split(/\s+/).join(" ")
   const chars = Array.from(joined)
-  if (chars.length <= maxCardTitle) return joined
+  if (chars.length <= most) return joined
 
-  let cut = chars.slice(0, maxCardTitle)
+  let cut = chars.slice(0, most)
   for (let i = cut.length - 1; i > Math.floor(cut.length / 2); i--) {
     if (cut[i] === " ") {
       cut = cut.slice(0, i)
@@ -27,11 +32,20 @@ export function cardTitle(title: string): string {
   return cut.join("").trim()
 }
 
+// fillTitle is a template card's words with {title} the video's title, cut as the server cuts them.
+const fillTitle = (words: string, title: string, most: number) =>
+  cutWords(words.replaceAll(titleToken, title), most)
+
 // templateFields are the fields a make with the template starts from: its look, resolved over the saved default by
-// the server, and its cards, each titled with the video's title.
+// the server, and its cards with their words, {title} the video's title.
 export function templateFields(template: VideoTemplate, title: string): LookFields {
-  const card = (c: { duration_ms: number } | undefined): CardFields | undefined =>
-    c && { title: cardTitle(title), subtitle: "", cta_url: "", duration_ms: c.duration_ms }
+  const card = (c: VideoTemplateCard | undefined): CardFields | undefined =>
+    c && {
+      title: fillTitle(c.title, title, maxCardTitle),
+      subtitle: fillTitle(c.subtitle ?? "", title, maxCardSubtitle),
+      cta_url: "",
+      duration_ms: c.duration_ms,
+    }
   const title_ = card(template.cards?.title)
   const end = card(template.cards?.end)
 
@@ -42,6 +56,18 @@ export function templateFields(template: VideoTemplate, title: string): LookFiel
       ...(title_ ? { title: title_ } : {}),
       ...(end ? { end } : {}),
     },
+  }
+}
+
+// Shape is a make's shape and captions.
+export type Shape = { aspect: VideoAspect; captions: boolean }
+
+// unpicked is the shape after the template is taken away (None): what it set and the owner left gives back what the
+// owner had before the template; what the owner changed while it was chosen stays his.
+export function unpicked(now: Shape, template: VideoTemplate, before: Shape): Shape {
+  return {
+    aspect: now.aspect === template.aspects[0] ? before.aspect : now.aspect,
+    captions: now.captions === template.captions ? before.captions : now.captions,
   }
 }
 

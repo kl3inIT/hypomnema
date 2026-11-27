@@ -1272,19 +1272,22 @@ sequenceDiagram
     gives compose the stored cards with the look's background.
   - Templates (#1230 rows 3-5, `videos/templates.go`, `videos/templates/*.json`;
     [research](docs/research/2026-11-27-video-templates.md)): a **template** is a JSON document embedded in the
-    binary and read at start, refused when a field is unknown, an aspect not made, a card titled or its look not
-    one: `{id, name, use_case, length {min_s, max_s}, aspects (its default first), captions, sections [{name,
+    binary and read at start, refused when a field is unknown, an aspect not made, a card without words or its look
+    not one: `{id, name, use_case, length {min_s, max_s}, aspects (its default first), captions, sections [{name,
     purpose, words}], look, from}`, where `look` holds the sections of a look it sets, its `cards` always (`{}` for
-    none, a card's title left empty for the video's), and `from` what it is learned from. Five are built in, in
+    none; a card's `title` and `subtitle` are its words, `{title}` in them the video's title), and `from` what it is
+    learned from. Five are built in, in
     their files' order: `app-ad` (15-30 s, 9:16, an end card), `feature-announcement` (30 s, 9:16 or 16:9),
-    `product-walkthrough` (60-90 s, 16:9, a title card and an end card), `onboarding` (20-60 s, 16:9) and
+    `product-walkthrough` (60-90 s, 16:9, a title card and an end card), each end card a call to action over the
+    video's title as aidemo's outro (`Tải ứng dụng ngay` and `Dùng thử ngay`, Vietnamese words inferred), `onboarding` (20-60 s, 16:9) and
     `app-store-preview` (15-30 s, 886x1920, frame full, no captions). A section's seconds are its words at 2.5 a
     second (aidemo's figure). A make or a look sample with `template` takes its first aspect when none is sent (one
     sent must be one of its), its captions when none is sent, and its look's sections where the request sends none,
-    over the saved default; its cards are titled with the video's title (the request's or the take's on a first
-    make), cut to 80 characters at a space. The request hash adds the template; an owner's make saves only the
+    over the saved default; `{title}` in its cards' words is the video's title (the request's or the take's on a
+    first make), each field then cut to its longest (80 and 120 characters) at a space. The request hash adds the template; an owner's make saves only the
     sections it sent in the default, never the template's. A look sample refuses a template with `rev`.
-    `Service.Templates` lists them with the look each starts from over the saved default now, cards apart.
+    `Service.Templates` lists them with the look each starts from over the saved default now, cards apart with
+    their words as stored.
   - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
     `{take, title?, aspect?, captions?, voice?, look?, template?}` with an Idempotency-Key, `GET /videos/looks`, `GET
     /videos/templates` (each template with its `words`, its sections' `seconds`, its `look` over the saved default and
@@ -1373,8 +1376,9 @@ sequenceDiagram
     an inference, as no reference has one): None or one of `GET /videos/templates`, with the chosen one's use case,
     length, shapes, captions and cards and its sections with their words and seconds. Picking one sets the shape to
     its first and the captions to its own, disables the shapes it is not made in, and starts the Look's fields from
-    its look, its cards titled with the video's title (the take's before the first make), cut as the server cuts
-    them; the make and the sample carry `template`, and only the sections changed from that start.
+    its look, its cards' words with `{title}` the video's title (the take's before the first make), cut as the server cuts
+    them; the make and the sample carry `template`, and only the sections changed from that start. None gives back the
+    shape and captions the owner had before the first template, where the owner left the template's.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait

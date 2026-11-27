@@ -94,8 +94,8 @@ func TestABadTemplateFileIsRefused(t *testing.T) {
 	for name, raw := range map[string]string{
 		"an unknown field": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},"aspects":["9:16"],` +
 			`"sections":[{"name":"S","purpose":"P","words":10}],"look":{"cards":{}},"tone":"warm"}`,
-		"a card titled": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},"aspects":["9:16"],` +
-			`"sections":[{"name":"S","purpose":"P","words":10}],"look":{"cards":{"end":{"title":"Buy"}}}}`,
+		"a card without words": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},` +
+			`"aspects":["9:16"],"sections":[{"name":"S","purpose":"P","words":10}],"look":{"cards":{"end":{"title":""}}}}`,
 		"an aspect not made": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},` +
 			`"aspects":["4:3"],"sections":[{"name":"S","purpose":"P","words":10}],"look":{"cards":{}}}`,
 		"no section": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},"aspects":["9:16"],` +
@@ -236,10 +236,10 @@ func mustVideoOf(t *testing.T, r *rig) Video {
 func TestACardTitleIsCutAtASpace(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "Đặt món", cardTitle("  Đặt   món "))
+	assert.Equal(t, "Đặt món", cutWords("  Đặt   món ", compose.MaxCardTitle))
 
 	long := "Một hai ba bốn năm sáu bảy tám chín mười một hai ba bốn năm sáu bảy tám chín mười một hai"
-	got := cardTitle(long)
+	got := cutWords(long, compose.MaxCardTitle)
 	assert.LessOrEqual(t, len([]rune(got)), compose.MaxCardTitle)
 	assert.Equal(t, long[:len(got)], got, "a prefix of the title")
 	assert.NotEqual(t, ' ', long[len(got)-1])

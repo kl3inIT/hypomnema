@@ -42,9 +42,9 @@ Each is a JSON file of `internal/controlplane/videos/templates/`; its `from` fie
 
 | Template | Length | Aspect | Sections (words) | Cards | From |
 |---|---|---|---|---|---|
-| `app-ad` | 15-30 s | 9:16 | hook 10, step 1-3 15 each, proof 10 | end card (the call to action) | `social-cuts-for-product-launch/index.md:31-34,64` (9:16 at 1080x1920, 15-30 s, "no logo card"); `demo-video-script-template/index.md:20-45` |
+| `app-ad` | 15-30 s | 9:16 | hook 10, step 1-3 15 each, proof 10 | end card: `Tải ứng dụng ngay` over the video's title | `social-cuts-for-product-launch/index.md:31-34,64` (9:16 at 1080x1920, 15-30 s, "no logo card"); `demo-video-script-template/index.md:20-45` |
 | `feature-announcement` | 30 s | 9:16 or 16:9 | what shipped 18, why it matters 30, one click to try 25 | none | `feature-announcement-video/index.md:21-29` (three beats, "no logo card"; the ask is spoken) |
-| `product-walkthrough` | 60-90 s | 16:9 | problem 30, promise 20, step 1-3 35 each, proof 25, call to action 15 | title and end card | `demo-video-script-template/index.md:20-45`; `demo-video-call-to-action/index.md:12` (the ask spoken, then on the end card) |
+| `product-walkthrough` | 60-90 s | 16:9 | problem 30, promise 20, step 1-3 35 each, proof 25, call to action 15 | title card: the video's title; end card: `Dùng thử ngay` over it | `demo-video-script-template/index.md:20-45`; `demo-video-call-to-action/index.md:12` (the ask spoken, then on the end card) |
 | `onboarding` | 20-60 s | 16:9 | goal 10, step 1-3 15 each, result 10 | none | `product-onboarding-video/index.md:25-30` (lengths); the steps' and the result's words are app-ad's (inferred: the post gives only the goal's) |
 | `app-store-preview` | 15-30 s | 886x1920 | step 1-3 15 each | none; frame full, no captions | `app-preview-video/index.md:9,25-29,62` (Apple's 886x1920, 15-30 s, screen captures of the app only); aidemo `src/store/presets.ts:44-50`; the steps' words are app-ad's (inferred) |
 
@@ -53,10 +53,15 @@ Choices made while building, each inferred where no reference has it:
 - A template's look holds only the sections its use case needs (the App Store preview's full frame) and its cards;
   the rest is the owner's saved default, so a template keeps the owner's caption style and background. The
   references' looks are per project, not per use case, so none says which style an ad should have.
-- A template's card is titled with the video's title (the take's on its first make), as aidemo's starter titles
-  its intro with the project's name (`src/starter.ts:68-72`) and agent-demo-video's end card shows the brand's title
-  (`src/types.ts:269-290`). A title longer than a card's 80 characters is cut at a space in its second half
-  (inferred).
+- A template's cards carry their words, `{title}` in them the video's title (the take's on its first make). The
+  title card is the video's title, as aidemo's starter titles its intro with the project's name
+  (`src/starter.ts:68-72`); the end card is a call to action over the video's title, as aidemo's outro puts the call
+  to action over the domain (`src/starter.ts:73-76`) and agent-demo-video's end card shows the brand's title
+  (`src/types.ts:269-290`). The words are Vietnamese, as the videos are spoken: `Tải ứng dụng ngay` ("download the
+  app now") for `app-ad`, `Dùng thử ngay` ("try it now") for `product-walkthrough` (inferred: no reference says
+  them). Words longer than a card holds (80 characters for a title, 120 for a subtitle) are cut at a space in their
+  second half (inferred). Until review round 1 of #1246 the end card held the video's title alone, with no call to
+  action.
 - `video_make` takes only `template` beside the take, as the issue says; an agent cannot write a card's words, which
   the owner changes in Change look. Its answer counts the take's words at 2.5 a second with the cards against the
   template's length, as aidemo's lint estimates a storyboard (`src/lint.ts:199-215`).

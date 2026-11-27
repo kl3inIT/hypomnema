@@ -2500,7 +2500,7 @@ export type VideoMake = {
   voice?: string;
   look?: VideoLookInput;
   /**
-   * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, its cards titled with the video's title. A template's look is not saved in the default.
+   * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
    */
   template?: string;
 };
@@ -2584,7 +2584,7 @@ export type VideoTemplateSection = {
 };
 
 /**
- * The cards a template's video has, each titled with the video's title; absent, none.
+ * The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
  */
 export type VideoTemplateCards = {
   accent: string;
@@ -2593,6 +2593,8 @@ export type VideoTemplateCards = {
 };
 
 export type VideoTemplateCard = {
+  title: string;
+  subtitle?: string;
   duration_ms: number;
 };
 

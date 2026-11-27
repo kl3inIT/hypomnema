@@ -186,7 +186,7 @@ func describeTemplates(list []videos.Template) string {
 	var b strings.Builder
 
 	b.WriteString("The templates video_make takes as template. Say one line a section with video_say, within its " +
-		"words (about 2.5 words a second); a template's cards show the take's title.")
+		"words (about 2.5 words a second). {title} in a card's words is the take's title, from video_start.")
 
 	for _, t := range list {
 		captions := ""
@@ -196,6 +196,24 @@ func describeTemplates(list []videos.Template) string {
 
 		fmt.Fprintf(&b, "\n\n%s: %s, %s, %s%s, %s. %s", t.ID, t.Name, lengthOf(t.Length), strings.Join(t.Aspects, " or "),
 			captions, cardsOf(t.Cards()), t.UseCase)
+
+		if c := t.Cards(); c != nil {
+			for _, card := range []struct {
+				name string
+				card *compose.Card
+			}{{"Title card", c.Title}, {"End card", c.End}} {
+				if card.card == nil {
+					continue
+				}
+
+				fmt.Fprintf(&b, "\n%s: %q", card.name, card.card.Title)
+				if card.card.Subtitle != "" {
+					fmt.Fprintf(&b, " over %q", card.card.Subtitle)
+				}
+
+				b.WriteString(".")
+			}
+		}
 
 		for i, sec := range t.Sections {
 			fmt.Fprintf(&b, "\n%d. %s, about %d words (%.0f s): %s", i+1, sec.Name, sec.Words, sec.Seconds(), sec.Purpose)

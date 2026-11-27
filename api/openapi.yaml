@@ -812,8 +812,8 @@ paths:
       description: >-
         A template is a stored document: a use case, a target length, the aspects it is made in (the first its
         default), whether it has captions, the sections its lines are written against, each with its words at 2.5
-        a second, and the look it starts from: its sections over the saved default, its cards apart, each card
-        titled with the video's title when made. POST /videos and POST /videos/preview take one by its id.
+        a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in
+        their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
       responses:
         "200":
           description: The templates.
@@ -8589,7 +8589,7 @@ components:
           maxLength: 40
           description: >-
             A template's id of GET /videos/templates: its look's sections in place of the default's where the make
-            sends none, its cards titled with the video's title. A template's look is not saved in the default.
+            sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
     VideoLookChange:
       type: object
       additionalProperties: false
@@ -8672,7 +8672,9 @@ components:
         seconds: { type: number, format: double, description: Its words at 2.5 a second. }
     VideoTemplateCards:
       type: object
-      description: The cards a template's video has, each titled with the video's title; absent, none.
+      description: >-
+        The cards a template's video has, their words as stored, where {title} is the video's title (an end card's
+        call to action over it, as aidemo's outro); absent, none.
       required: [accent]
       properties:
         accent: { type: string }
@@ -8680,8 +8682,10 @@ components:
         end: { $ref: "#/components/schemas/VideoTemplateCard" }
     VideoTemplateCard:
       type: object
-      required: [duration_ms]
+      required: [title, duration_ms]
       properties:
+        title: { type: string }
+        subtitle: { type: string }
         duration_ms: { type: integer, format: int64 }
     VideoLookInput:
       type: object

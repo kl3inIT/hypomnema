@@ -531,6 +531,8 @@ func TestAnAgentMakesAVideoFromATemplate(t *testing.T) {
 		"onboarding: Onboarding / how-to, 20-60 s, 16:9, no cards.",
 		"app-store-preview: App Store preview, 15-30 s, 886x1920, no captions, no cards.",
 		"1. Hook, about 10 words (4 s): ",
+		`End card: "Tải ứng dụng ngay" over "{title}".`,
+		`Title card: "{title}".`,
 	} {
 		assert.Contains(t, text, want)
 	}

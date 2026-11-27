@@ -442,7 +442,7 @@ func templateOf(t videos.TemplateLook) openapi.VideoTemplate {
 				return nil
 			}
 
-			return &openapi.VideoTemplateCard{DurationMs: cd.DurationMs}
+			return &openapi.VideoTemplateCard{Title: cd.Title, Subtitle: nonZero(cd.Subtitle), DurationMs: cd.DurationMs}
 		}
 
 		out.Cards = &openapi.VideoTemplateCards{Accent: c.Accent, Title: card(c.Title), End: card(c.End)}

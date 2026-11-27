@@ -14,6 +14,6 @@
     { "name": "Proof", "purpose": "The result as a number or a before and after; earned, not asserted.", "words": 25 },
     { "name": "Call to action", "purpose": "One ask, the same one the end card shows.", "words": 15 }
   ],
-  "look": { "cards": { "title": { "title": "" }, "end": { "title": "" } } },
-  "from": "aidemo docs/blog/demo-video-script-template/index.md:20-45 and demo-video-call-to-action/index.md:12"
+  "look": { "cards": { "title": { "title": "{title}" }, "end": { "title": "Dùng thử ngay", "subtitle": "{title}" } } },
+  "from": "aidemo docs/blog/demo-video-script-template/index.md:20-45 and demo-video-call-to-action/index.md:12; the cards are aidemo's intro and outro, src/starter.ts:68-76; the end card's Vietnamese words are inferred"
 }

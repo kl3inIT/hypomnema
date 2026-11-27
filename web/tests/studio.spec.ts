@@ -389,7 +389,10 @@ function templates(look: Look) {
         ],
         words: 65,
         look,
-        cards: { accent: "#6c8cff", end: { duration_ms: 3000 } },
+        cards: {
+          accent: "#6c8cff",
+          end: { title: "Tải ứng dụng ngay", subtitle: "{title}", duration_ms: 3000 },
+        },
       },
       {
         id: "feature-announcement",
@@ -425,7 +428,11 @@ function templates(look: Look) {
         ],
         words: 195,
         look,
-        cards: { accent: "#6c8cff", title: { duration_ms: 2600 }, end: { duration_ms: 3000 } },
+        cards: {
+          accent: "#6c8cff",
+          title: { title: "{title}", duration_ms: 2600 },
+          end: { title: "Dùng thử ngay", subtitle: "{title}", duration_ms: 3000 },
+        },
       },
       {
         id: "app-store-preview",
@@ -1417,9 +1424,9 @@ test("Make video sends the cards, and the sample draws a card chosen", async ({ 
 
 // Scenario: Make video with a template (issue #1230, row 5): the picker shows the template's skeleton, its use
 // case, length, shape, cards and sections with their words; picking App ad keeps the shape to 9:16 and turns its end
-// card on, titled with the take's title, and the make and the sample name the template without a look of their own.
-// A card's title changed is sent; the App Store preview takes its own shape and no captions; None gives every shape
-// back.
+// card on with its call to action over the take's title, and the make and the sample name the template without a
+// look of their own. A card's title changed is sent; the App Store preview takes its own shape and no captions;
+// None gives every shape back, and the shape and captions the owner had.
 test("Make video takes a template, its skeleton shown and its look the start", async ({ page }) => {
   const server = await fakeServer(page)
   await page.goto(`/studio/takes/${takeId}`)
@@ -1441,7 +1448,8 @@ test("Make video takes a template, its skeleton shown and its look the start", a
   await expect(shape.getByRole("button", { name: /^9:16/ })).toHaveAttribute("aria-pressed", "true")
   await expect(cards.getByRole("switch", { name: "End card" })).toBeChecked()
   await expect(cards.getByRole("switch", { name: "Title card" })).not.toBeChecked()
-  await expect(cards.getByLabel("Title", { exact: true })).toHaveValue("Đăng nhập cửa hàng")
+  await expect(cards.getByLabel("Title", { exact: true })).toHaveValue("Tải ứng dụng ngay")
+  await expect(cards.getByLabel("Line under it")).toHaveValue("Đăng nhập cửa hàng")
   await expect
     .poll(() => server.samples.at(-1)!.body)
     .toEqual({ take: takeId, aspect: "9:16", captions: true, template: "app-ad" })
@@ -1460,7 +1468,12 @@ test("Make video takes a template, its skeleton shown and its look the start", a
     captions: true,
     aspect: "9:16",
     template: "app-ad",
-    look: { cards: { accent: "#6c8cff", end: { title: "Tải SecondBite", duration_ms: 3000 } } },
+    look: {
+      cards: {
+        accent: "#6c8cff",
+        end: { title: "Tải SecondBite", subtitle: "Đăng nhập cửa hàng", duration_ms: 3000 },
+      },
+    },
   })
 
   // The App Store preview: its own shape, no captions, no card; None gives every shape back.
@@ -1482,6 +1495,12 @@ test("Make video takes a template, its skeleton shown and its look the start", a
   await page.getByRole("option", { name: "None" }).click()
   await expect(shape.getByRole("button", { name: /^16:9/ })).toBeEnabled()
   await expect(skeleton).toHaveCount(0)
+  // None gives back the shape and captions the template set and the owner left (review of #1246).
+  await expect(shape.getByRole("button", { name: /^9:16/ })).toHaveAttribute("aria-pressed", "true")
+  await expect(dialog.getByRole("switch", { name: "Captions" })).toBeChecked()
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({ take: takeId, aspect: "9:16", captions: true })
 })
 
 // Scenario: Change look on a revision made with cards starts from them; the end card turned off is the only change

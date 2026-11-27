@@ -21,7 +21,8 @@ import (
 // captions, the sections its lines are written against, each with a purpose and a word budget at 2.5 words a
 // second, and the look it starts from: the sections of a look it sets, its cards always among them, the others the
 // saved default's. A make with a template takes its aspect and captions when the request leaves them out, and its
-// look's sections where the request sends none; a card the template has is titled with the video's title. The shape
+// look's sections where the request sends none; a card's words are the template's, {title} in them the video's
+// title (aidemo's outro: the call to action over the name, src/starter.ts:73-76). The shape
 // is aidemo's starter (src/starter.ts:10-141: a length, scenes at ~2.5 words a second, an intro and an outro) kept as
 // data, not code; the word budgets are aidemo's script template's (docs/blog/demo-video-script-template), and each
 // file says what it is learned from. The first five are built in; more are added as files.
@@ -42,7 +43,7 @@ type Template struct {
 	Aspects  []string       `json:"aspects"`
 	Captions bool           `json:"captions"`
 	Sections []Section      `json:"sections"`
-	// Look is the sections of the look it sets; its cards are always set, a card's title left empty for the video's.
+	// Look is the sections of the look it sets; its cards are always set, {title} in a card's words for the video's.
 	Look LookInput `json:"look"`
 	// From is what it is learned from.
 	From string `json:"from"`
@@ -74,17 +75,14 @@ func (t Template) Words() int {
 	return n
 }
 
-// Cards are the template's cards with their defaults, each title empty for the video's; nil for none.
+// TitleToken in a template card's title or subtitle is the video's title.
+const TitleToken = "{title}"
+
+// Cards are the template's cards with their defaults, their words as stored, TitleToken in them; nil for none.
 func (t Template) Cards() *compose.Cards {
-	c, err := cardsOf(t.titled("x").Cards)
+	c, err := cardsOf(t.Look.Cards)
 	if err != nil || c == nil {
 		return nil
-	}
-
-	for _, card := range []*compose.Card{c.Title, c.End} {
-		if card != nil {
-			card.Title = ""
-		}
 	}
 
 	return c
@@ -202,12 +200,6 @@ func (t Template) check() error {
 		}
 	}
 
-	for _, c := range []*CardInput{t.Look.Cards.Title, t.Look.Cards.End} {
-		if c != nil && c.Title != "" {
-			return fmt.Errorf("a template's card takes the video's title, not %q", c.Title)
-		}
-	}
-
 	if _, err := resolveLook(t.titled("x"), DefaultLook()); err != nil {
 		return err
 	}
@@ -284,7 +276,7 @@ func captionsWith(t *Template, asked *bool) *bool {
 }
 
 // lookWith is the look a make with the template sends: the template's sections, each one the request sent in its
-// place, the template's cards titled with the video's title. Without a template it is the request's.
+// place, {title} in the template's cards the video's title. Without a template it is the request's.
 func lookWith(t *Template, title string, sent *LookInput) *LookInput {
 	if t == nil {
 		return sent
@@ -318,7 +310,7 @@ func lookWith(t *Template, title string, sent *LookInput) *LookInput {
 	return out
 }
 
-// titled is the template's look with each of its cards titled title, cut to a card's longest title.
+// titled is the template's look with TitleToken in its cards' words replaced by title, each cut to its longest.
 func (t Template) titled(title string) *LookInput {
 	out := t.Look
 
@@ -326,7 +318,12 @@ func (t Template) titled(title string) *LookInput {
 	for _, card := range []**CardInput{&c.Title, &c.End} {
 		if *card != nil {
 			v := **card
-			v.Title = cardTitle(title)
+			v.Title = fillTitle(v.Title, title, compose.MaxCardTitle)
+			if v.Subtitle != nil {
+				sub := fillTitle(*v.Subtitle, title, compose.MaxCardSubtitle)
+				v.Subtitle = &sub
+			}
+
 			*card = &v
 		}
 	}
@@ -336,15 +333,20 @@ func (t Template) titled(title string) *LookInput {
 	return &out
 }
 
-// cardTitle is a video's title as a card holds it: at most MaxCardTitle characters, cut at a space when one is
-// near (an inference: no reference titles a card from a longer title).
-func cardTitle(title string) string {
-	title = strings.Join(strings.Fields(title), " ")
-	if utf8.RuneCountInString(title) <= compose.MaxCardTitle {
-		return title
+// fillTitle is a template card's words with TitleToken replaced by the video's title, cut to most characters.
+func fillTitle(words, title string, most int) string {
+	return cutWords(strings.ReplaceAll(words, TitleToken, title), most)
+}
+
+// cutWords is a card's words as it holds them: spaces joined, at most most characters, cut at a space in their
+// second half when one is (an inference: no reference titles a card from a longer title).
+func cutWords(words string, most int) string {
+	words = strings.Join(strings.Fields(words), " ")
+	if utf8.RuneCountInString(words) <= most {
+		return words
 	}
 
-	cut := []rune(title)[:compose.MaxCardTitle]
+	cut := []rune(words)[:most]
 	for i := len(cut) - 1; i > len(cut)/2; i-- {
 		if cut[i] == ' ' {
 			cut = cut[:i]

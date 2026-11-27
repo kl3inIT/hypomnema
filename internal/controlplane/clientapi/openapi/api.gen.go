@@ -7817,7 +7817,7 @@ type VideoMake struct {
 	Look *VideoLookInput `json:"look,omitempty"`
 	Take string          `json:"take"`
 
-	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, its cards titled with the video's title. A template's look is not saved in the default.
+	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
 	Template *string `json:"template,omitempty"`
 
 	// Title The video's title, on its first make; absent: the take's.
@@ -7975,7 +7975,7 @@ type VideoTemplate struct {
 	// Captions Whether its videos have captions unless the make says.
 	Captions bool `json:"captions"`
 
-	// Cards The cards a template's video has, each titled with the video's title; absent, none.
+	// Cards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
 	Cards *VideoTemplateCards `json:"cards,omitempty"`
 	Id    string              `json:"id"`
 
@@ -7994,10 +7994,12 @@ type VideoTemplate struct {
 
 // VideoTemplateCard defines model for VideoTemplateCard.
 type VideoTemplateCard struct {
-	DurationMs int64 `json:"duration_ms"`
+	DurationMs int64   `json:"duration_ms"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
 }
 
-// VideoTemplateCards The cards a template's video has, each titled with the video's title; absent, none.
+// VideoTemplateCards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
 type VideoTemplateCards struct {
 	Accent string             `json:"accent"`
 	End    *VideoTemplateCard `json:"end,omitempty"`
@@ -12614,7 +12616,7 @@ type ClientInterface interface {
 
 	// ListVideoTemplates The templates a video is made from (owner only; issue
 	//
-	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, each card titled with the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
 	//
 	// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
 	ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -19630,7 +19632,7 @@ func (c *Client) PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSON
 
 // ListVideoTemplates The templates a video is made from (owner only; issue
 //
-// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, each card titled with the video's title when made. POST /videos and POST /videos/preview take one by its id.
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
 //
 // Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
 func (c *Client) ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -37173,7 +37175,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
 	//
-	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, each card titled with the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -57081,7 +57083,7 @@ func (c *ClientWithResponses) PreviewVideoLookWithResponse(ctx context.Context, 
 
 // ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
 //
-// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, each card titled with the video's title when made. POST /videos and POST /videos/preview take one by its id.
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
 //
 // Returns a wrapper object for the known response body format(s).
 //

@@ -33,7 +33,15 @@ import { errorText } from "@/lib/server-error"
 import { LookSection } from "./look-section"
 import { editsOf, fieldsOf, sentLook, withEdits, type LookEdits } from "./look-state"
 import { TemplatePicker } from "./template-picker"
-import { aspectHints, aspectLabels, aspectNames, aspects, templateFields } from "./template-state"
+import {
+  aspectHints,
+  aspectLabels,
+  aspectNames,
+  aspects,
+  templateFields,
+  unpicked,
+  type Shape,
+} from "./template-state"
 import { useVideoLooks, useVideoTemplates } from "./use-look"
 
 type Aspect = NonNullable<VideoMake["aspect"]>
@@ -74,6 +82,8 @@ export function MakeVideo({
   const [aspect, setAspect] = useState<Aspect>("9:16")
   // template: the template's id, empty for none.
   const [template, setTemplate] = useState("")
+  // before: the shape and captions the owner had before the first template, which None gives back.
+  const [before, setBefore] = useState<Shape>({ aspect: "9:16", captions: true })
   const [key, setKey] = useState(() => crypto.randomUUID())
   // edits: the Look's sections the owner set; the others are the saved default's, or the template's (#938, #1082).
   const [edits, setEdits] = useState<LookEdits>({})
@@ -107,14 +117,20 @@ export function MakeVideo({
     }
   }
 
-  // pick takes a template's shape and captions; a section the owner edited stays his.
+  // pick takes a template's shape and captions, keeping the owner's from before the first template; None gives
+  // them back where the owner left the template's. A Look section the owner edited stays his.
   function pick(id: string) {
-    setTemplate(id)
     const t = templates.data?.templates.find((x) => x.id === id)
     if (t) {
+      if (!chosen) setBefore({ aspect, captions })
       setAspect(t.aspects[0]!)
       setCaptions(t.captions)
+    } else if (chosen) {
+      const next = unpicked({ aspect, captions }, chosen, before)
+      setAspect(next.aspect)
+      setCaptions(next.captions)
     }
+    setTemplate(t ? id : "")
   }
 
   return (

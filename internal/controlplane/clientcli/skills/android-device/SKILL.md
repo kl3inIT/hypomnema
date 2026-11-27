@@ -78,7 +78,8 @@ When the task asks for a video of an app, film it as a take (issue #817): the to
   no `video_say` has no steps and cannot be made into a video, and the stop says so: film it again, saying each step.
 - When the video is for a use case `video_templates` lists (an app ad, a feature announcement, a product
   walkthrough, an onboarding how-to, an App Store preview), read it before you film: say one `video_say` line for
-  each of its sections, within its words, and give the take a title its cards can show. Then `video_make` with
+  each of its sections, within its words, and give the take a title its cards can show (`{title}` in a card's
+  words). Then `video_make` with
   `template` and the template's id; its answer says how long your lines are against the template's length.
 - `video_list` lists your own takes, the newest first; `state` keeps those in one state (`recording`). After an
   interrupted turn, look there to see whether a take of yours still films or how it ended before you start another.
