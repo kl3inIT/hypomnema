@@ -5141,12 +5141,15 @@ its client API, its CLI and the Bots' tools.
   An open item given to a person never counts in Needs you.
 - Passing from Bot to Bot (issue #1118, the owner's request of 2026-11-23, after Paperclip's manager agent handing
   issues to its reports and Linear's assignee shown with the agent it is delegated to): the wake-up names the Bot
-  that passed the item ("<Bot> passed you Inbox item …", read its thread with `inbox_get`). The main Bot given an
-  item is told the project Bots, each with its id, the first paragraph of its persona (≤ 300 characters) and its
-  Connections (`every Connection` when not limited), and to pass the item (`inbox_update pass_to`) when the work
-  needs that Bot's accounts or context, else to do it itself or start a Run. A project Bot is told to give it back
-  to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an item is passed to is
-  woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now.
+  that passed the item ("<Bot> passed you Inbox item …", read its thread with `inbox_get`). The main Bot's wake-up
+  lists the project Bots by their sidebar names, each with its id, the first paragraph of its persona (≤ 300
+  characters) and its Connections (`every Connection` when not limited). When the owner's prompt or comment
+  names a project Bot, the wake-up tells the main Bot to pass the item to the single match with `inbox_update pass_to`.
+  For zero or multiple matches, it tells the main Bot to say which Bots matched and ask on the item with
+  `inbox_comment`, then `hand_back` (issue #1276). When the owner names no Bot, it tells the main Bot to pass the
+  item when the work needs a Bot's accounts or context, else to do it itself or start a Run. A project Bot is told
+  to give it back to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an
+  item is passed to is woken in its own chat for the item; the item keeps one `chat_id`, that of the current Bot.
 - The owner's mark (issue #1229, after OpenMausBot's `handsOnLending` and `handedInUnproven`,
   `server/host/cloud-lending-turns.ts`, and OpenClaw's `spawnedBySenderIsOwner`,
   `src/agents/subagents/spawn/spawn-parent-lineage.ts`): each wake-up of an item records who it comes from and the

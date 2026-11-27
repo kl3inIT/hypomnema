@@ -141,10 +141,10 @@ func inboxRecall(w inboxstore.Wake) sql.NullString {
 }
 
 // wakeText is what the Bot is told: the item handed to it with the owner's prompt, passed to it by a Bot, or his
-// comment on it. The main Bot given an item is told the project Bots it may pass it to (issue #1118); a project Bot
-// passed one, that it gives it back to the owner or the main Bot.
+// comment on it. The main Bot is told the project Bots it may pass it to (issues #1118 and #1276); a project Bot
+// passed an item is told it may give it back to the owner or the main Bot.
 func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore.Wake) (string, error) {
-	if w.Kind == inboxstore.WakeComment {
+	if w.Kind == inboxstore.WakeComment && w.Bot != DefaultBotID {
 		return inboxWakeText(w, "", ""), nil
 	}
 
@@ -200,7 +200,11 @@ func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore
 // The rule a Bot given an item follows about passing it on (issue #1118, sections 2, 3 and 5): the main Bot passes
 // it to the project Bot that fits, and a project Bot passes it only back.
 const (
-	inboxMainRule = "\nPass it with inbox_update pass_to (the Bot's id) when the work needs a project Bot's accounts " +
+	inboxMainRule = "\nIf the owner's prompt or comment names a project Bot and exactly one display name below " +
+		"matches, pass it to that Bot with inbox_update pass_to (the Bot's id); when the owner names no Bot, choose as below. " +
+		"If the requested name matches no Bot or more than one, ask which Bot he means with inbox_comment on the item, " +
+		"then inbox_update hand_back; say which Bots matched, or that none did.\n" +
+		"Pass it with inbox_update pass_to (the Bot's id) when the work needs a project Bot's accounts " +
 		"or context, the ones below; do it yourself or start a Run otherwise. The Bot you pass it to reports in the " +
 		"item's thread and closes it, or gives it back. The project Bots:\n"
 	inboxProjectRule = "\nGive it back when it is not yours to do: to the owner (inbox_update hand_back) when he " +
@@ -264,6 +268,7 @@ func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 
 	if w.Kind == inboxstore.WakeComment {
 		b.WriteString("\nAnswer him with inbox_comment on the item, and go on with the work it asks for.")
+		b.WriteString(rule)
 
 		return b.String()
 	}

@@ -31,13 +31,19 @@ func TestReplayTheMainBotRoutesAnItemByName(t *testing.T) {
 	require.Len(t, wakes, 2)
 
 	t.Run("a single match", func(t *testing.T) {
+		t.Parallel()
+
 		calls := replayInboxWake(t, claude, wakes[0])
-		require.NotEmpty(t, calls)
+		require.Len(t, calls, 1)
 		assert.Equal(t, "inbox_update", calls[0].Tool)
-		assert.Equal(t, map[string]any{"id": w.item.ID, "pass_to": w.beyond.ID}, calls[0].Arguments)
+		assert.Equal(t, w.item.ID, calls[0].Arguments["id"])
+		assert.Equal(t, w.beyond.ID, calls[0].Arguments["pass_to"])
+		assert.NotContains(t, calls[0].Arguments, "hand_back")
 	})
 
 	t.Run("two matches", func(t *testing.T) {
+		t.Parallel()
+
 		calls := replayInboxWake(t, claude, wakes[1])
 		require.Len(t, calls, 2)
 		assert.Equal(t, "inbox_comment", calls[0].Tool)
@@ -57,12 +63,27 @@ type inboxReplayCall struct {
 func replayInboxWake(t *testing.T, claude, wake string) []inboxReplayCall {
 	t.Helper()
 
-	const schema = `{"type":"object","required":["calls"],"properties":{"calls":{"type":"array","items":` +
-		`{"type":"object","required":["tool","arguments"],"properties":{"tool":{"type":"string"},"arguments":{"type":"object"}}}}}}`
+	const schema = `{
+		"type": "object", "required": ["calls"], "additionalProperties": false,
+		"properties": {"calls": {"type": "array", "items": {
+			"type": "object", "required": ["tool", "arguments"], "additionalProperties": false,
+			"properties": {
+				"tool": {"type": "string"},
+				"arguments": {
+					"type": "object", "required": ["id"], "additionalProperties": false,
+					"properties": {
+						"id": {"type": "string"}, "text": {"type": "string"},
+						"pass_to": {"type": "string"}, "hand_back": {"type": "boolean"}
+					}
+				}
+			}
+		}}}
+	}`
 
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 
+	//nolint:gosec // The person opting in to the replay chooses their local Claude executable.
 	cmd := exec.CommandContext(ctx, claude, "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
 		"--output-format", "json", "--json-schema", schema)
 	cmd.Dir = t.TempDir()
