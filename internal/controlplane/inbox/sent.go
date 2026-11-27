@@ -1,4 +1,4 @@
-package controlplane
+package inbox
 
 import (
 	"context"
@@ -16,14 +16,14 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
-// inboxSent reads a message the owner sent in a chat of his own account, which a Bot gives as evidence that he
+// Sent reads a message the owner sent in a chat of his own account, which a Bot gives as evidence that he
 // answered an Inbox item (issue #1004), or a person's message there, evidence that they did it (issue #1204): a Zalo
 // or WhatsApp message from what the server keeps of that account (its messaging store, by the Connection's label,
 // the chat and the id); a Lark message from Lark's API with the owner's own sign-in, since the server keeps none of his Lark messages (checked on zm on 2026-11-20: no table holds them;
 // channel_messages keeps only the ids of the events a Lark app's bot took). It reads too who asked and who is in a
 // chat now, for his answer in another chat where the asker is (issue #1163): from the service, through the session
 // the server holds of a Zalo or WhatsApp account, and from Lark's API.
-type inboxSent struct {
+type Sent struct {
 	messages func(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
 	members  func(ctx context.Context, integration, label, chat string) (messaging.Members, error)
 	// larkToken is the access token of the owner's Lark Connection label, his own sign-in.
@@ -35,7 +35,7 @@ type inboxSent struct {
 
 // SentMessage reads one message of a chat of the owner's account at service: his own, or a person's with its
 // sender (issue #1204).
-func (s inboxSent) SentMessage(ctx context.Context, service, account, chat, id string,
+func (s Sent) SentMessage(ctx context.Context, service, account, chat, id string,
 ) (inboxstore.SentMessage, error) {
 	switch service {
 	case inboxstore.FromZalo, inboxstore.FromWhatsApp:
@@ -79,7 +79,7 @@ func (s inboxSent) SentMessage(ctx context.Context, service, account, chat, id s
 
 // Asker is who asked by a message of a chat of the owner's account (issue #1163): its sender when someone else sent
 // it; else, the owner's own message in a direct chat (his promise there), that chat's other party.
-func (s inboxSent) Asker(ctx context.Context, service, account, chat, id string) ([]string, error) {
+func (s Sent) Asker(ctx context.Context, service, account, chat, id string) ([]string, error) {
 	var (
 		sender, me string
 		fromMe     bool
@@ -142,7 +142,7 @@ func (s inboxSent) Asker(ctx context.Context, service, account, chat, id string)
 
 // Members reads who is in a chat of the owner's account now (issue #1163): of a Zalo or WhatsApp account through the
 // session the server holds of it, of Lark with his own sign-in.
-func (s inboxSent) Members(ctx context.Context, service, account, chat string) (inboxstore.ChatMembers, error) {
+func (s Sent) Members(ctx context.Context, service, account, chat string) (inboxstore.ChatMembers, error) {
 	in, err := s.chatMembers(ctx, service, account, chat)
 
 	return in.ChatMembers, err
@@ -164,7 +164,7 @@ type chatPerson struct {
 	name string
 }
 
-func (s inboxSent) chatMembers(ctx context.Context, service, account, chat string) (chatMembers, error) {
+func (s Sent) chatMembers(ctx context.Context, service, account, chat string) (chatMembers, error) {
 	switch service {
 	case inboxstore.FromZalo, inboxstore.FromWhatsApp:
 		m, err := s.members(ctx, service, account, chat)
@@ -198,7 +198,7 @@ func (s inboxSent) chatMembers(ctx context.Context, service, account, chat strin
 }
 
 // kept is one message of a chat that the server keeps of a Zalo or WhatsApp account.
-func (s inboxSent) kept(ctx context.Context, service, account, chat, id string) (messaging.Message, error) {
+func (s Sent) kept(ctx context.Context, service, account, chat, id string) (messaging.Message, error) {
 	msgs, err := s.messages(ctx, service, account, messaging.Query{Chat: chat, ID: id, Limit: 1})
 	if err != nil {
 		return messaging.Message{}, err
@@ -213,7 +213,7 @@ func (s inboxSent) kept(ctx context.Context, service, account, chat, id string) 
 
 // larkMe is who the owner is at Lark, his open_id (GET /open-apis/authen/v1/user_info); empty when it does not say,
 // and then no message is known to be his.
-func (s inboxSent) larkMe(ctx context.Context, token string) (string, error) {
+func (s Sent) larkMe(ctx context.Context, token string) (string, error) {
 	var me struct {
 		Data struct {
 			OpenID string `json:"open_id"`
@@ -234,7 +234,7 @@ type larkMessage struct {
 	at         time.Time
 }
 
-func (s inboxSent) larkMessage(ctx context.Context, token, id string) (larkMessage, error) {
+func (s Sent) larkMessage(ctx context.Context, token, id string) (larkMessage, error) {
 	var got struct {
 		Data struct {
 			Items []struct {
@@ -281,7 +281,7 @@ const larkMemberPages = 100
 // larkMembers are a Lark chat's name, whether it is a direct chat (GET /open-apis/im/v1/chats/:chat_id, chat_mode
 // p2p) and its members by their open_id with their names (GET /open-apis/im/v1/chats/:chat_id/members, page after
 // page; its items' member_id and name), read with the owner's own sign-in.
-func (s inboxSent) larkMembers(ctx context.Context, token, chat string) (chatMembers, error) {
+func (s Sent) larkMembers(ctx context.Context, token, chat string) (chatMembers, error) {
 	var info struct {
 		Data struct {
 			Name     string `json:"name"`
@@ -343,7 +343,7 @@ type larkAnswer struct {
 }
 
 // larkGet reads one of Lark's answers. A message that is not there, or not the owner's to read, is not found.
-func (s inboxSent) larkGet(ctx context.Context, token, path string, out any) error {
+func (s Sent) larkGet(ctx context.Context, token, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.larkURL+path, nil)
 	if err != nil {
 		return err
@@ -377,6 +377,3 @@ func (s inboxSent) larkGet(ctx context.Context, token, path string, out any) err
 
 	return fmt.Errorf("lark: %s answered %d, code %d: %s", path, resp.StatusCode, envelope.Code, envelope.Msg)
 }
-
-// larkIntegration is the Integration of the owner's Lark sign-in.
-const larkIntegration = "lark"

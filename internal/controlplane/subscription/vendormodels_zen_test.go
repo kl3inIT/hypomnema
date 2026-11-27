@@ -1,4 +1,4 @@
-package controlplane
+package subscription
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func TestAZenModelInUseKeepsOnlyItselfWhenItsListDropsIt(t *testing.T) {
 	require.NoError(t, err)
 
 	served := &zenReadings{names: []string{"new-paid-model"}, read: readAt}
-	v := &vendorModels{subs: served, providers: orch, logger: slog.New(slog.DiscardHandler)}
+	v := NewVendorModels(served, orch, slog.New(slog.DiscardHandler))
 
 	models := func() []string {
 		p, err := orch.GetProvider(ctx, "opencode-zen")
@@ -49,11 +49,11 @@ func TestAZenModelInUseKeepsOnlyItselfWhenItsListDropsIt(t *testing.T) {
 		return p.Models
 	}
 
-	v.update(ctx)
+	v.Update(ctx)
 	assert.Contains(t, models(), "new-paid-model", "a new model is added at once")
 	assert.Contains(t, models(), "kimi-k3", "one reading without a model does not drop it")
 
 	served.read = readAt.Add(time.Hour)
-	v.update(ctx)
+	v.Update(ctx)
 	assert.ElementsMatch(t, []string{"glm-5.3", "new-paid-model"}, models())
 }

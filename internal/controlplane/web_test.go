@@ -63,14 +63,14 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	}))
 	t.Cleanup(exa.Close)
 
-	metered := meteredWeb{
-		web: websearch.New(websearch.Config{
+	metered := modelgateway.MeteredWeb{
+		Web: websearch.New(websearch.Config{
 			ExaMCPURL: exa.URL, ParallelMCPURL: exa.URL, TavilyURL: exa.URL, FirecrawlURL: exa.URL, YouMCPURL: exa.URL,
 			Settings: func(context.Context) (websearch.Settings, error) {
 				return websearch.Settings{Off: []string{"parallel", "firecrawl", "tavily", "you"}}, nil
 			},
 		}),
-		gateway: gateway, logger: slog.New(slog.DiscardHandler),
+		Gateway: gateway, Logger: slog.New(slog.DiscardHandler),
 	}
 
 	_, err = gateway.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
@@ -81,8 +81,8 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	chatKey, chatSecret, err := gateway.AddChatKey(ctx, "chat_1", "", "")
 	require.NoError(t, err)
 
-	worker := workerWeb{metered}
-	bot := botWeb{meteredWeb: metered, chats: chatsWith{"chat_1": chatSecret}}
+	worker := modelgateway.WorkerWeb{MeteredWeb: metered}
+	bot := modelgateway.BotWeb{MeteredWeb: metered, Chats: chatsWith{"chat_1": chatSecret}}
 	agents := agentWeb{worker: worker, bot: bot}
 
 	_, err = agents.Search(ctx, agentapi.Who{DispatchID: "dsp_1"}, "q", 0, "")

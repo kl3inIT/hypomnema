@@ -130,6 +130,8 @@ check in the same change, and a rule whose mistake can no longer happen is dropp
 | A migration named by its time never reaches main or a release | `make migration-check MIGRATION_TIMESTAMPS=refuse` on a push to main (`ci.yml`); `release.yml` releases only a green commit |
 | The goose that makes migration files is the goose the binary migrates with | `make goose-version-check` (CI Static) |
 | A pull request merges only with its checks green | the `Required` check on main's branch protection |
+| A store package never imports orchestration's root ([conventions](docs/conventions.md#layout-and-boundaries)) | the build: the root imports its stores, so the import is a cycle |
+| `internal/controlplane` only assembles and holds the owner's server commands; feature logic lives in its feature's package ([conventions](docs/conventions.md#layout-and-boundaries)) | nothing: the reviewer |
 | Reference-based design, asking first, a "From" for each decision, the merge steps above, docs in the change | nothing: the reviewer and the owner |
 
 ## Skills

@@ -1,4 +1,4 @@
-package controlplane
+package modelgateway_test
 
 import (
 	"context"
@@ -50,11 +50,16 @@ func TestTheFirstVoiceMessageOfANewChatIsAUsageRow(t *testing.T) {
 	}))
 	t.Cleanup(scribe.Close)
 
-	voice := channelVoice{
-		speech: speech.New(speech.Config{ElevenLabsURL: scribe.URL, Keys: func(context.Context) ([]speech.Key, error) {
+	voice := modelgateway.ChannelVoice{
+		Speech: speech.New(speech.Config{ElevenLabsURL: scribe.URL, Keys: func(context.Context) ([]speech.Key, error) {
 			return []speech.Key{{Provider: speech.ProviderElevenLabs, Name: "audio-elevenlabs", Value: "k"}}, nil
 		}}),
-		gateway: gateway, chats: svc, logger: slog.New(slog.DiscardHandler),
+		Gateway: gateway, Logger: slog.New(slog.DiscardHandler),
+		BotOf: func(ctx context.Context, chatID string) (string, error) {
+			c, err := svc.GetChat(ctx, chatID)
+
+			return c.Bot, err
+		},
 	}
 
 	assert.Equal(t, "\"hello\"\n[voice message, transcribed]", voice.Hear(ctx, chat.ID, []byte("OggS voice"), nil))
