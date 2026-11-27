@@ -35,6 +35,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/githubapp"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/tempns"
@@ -300,6 +301,17 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		// The worker's git, gh and glab act with the host's token, when the offer carried one, and commit as the
 		// account it belongs to (issue #991).
 		hostEnv = src.WorkerEnv()
+
+		// A token of the owner's GitHub App ends after an hour: the worker's gh and git ask for a fresh one at each
+		// call instead (issue #1262).
+		if o.GitHubApp {
+			app, err := githubapp.Prepare(dir, s.Exe, s.URL, o.AgentKey, o.RepoToken, Path())
+			if err != nil {
+				return err
+			}
+
+			hostEnv = append(githubapp.WithoutHostToken(hostEnv), app...)
+		}
 
 		maker := s.Worktrees
 		maker.TempDir, maker.Isolation = temp, s.Isolation

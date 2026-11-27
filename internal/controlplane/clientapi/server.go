@@ -69,6 +69,8 @@ type Server struct {
 	videos Videos
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
+	// githubApp is the owner's GitHub App (issue #1262, githubapp.go); nil when the control plane wired none.
+	githubApp GitHubApp
 	// terminals reaches a node for a terminal; nil when the control plane wired none.
 	terminals Terminals
 	nodeFiles NodeFiles
@@ -361,6 +363,9 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	// A track of the videos' music library (issue #910, row 6a): checked before its body is read, which the
 	// contract's validator would read whole first.
 	mux.HandleFunc("POST "+musicUploadPath, s.uploadMusic)
+
+	// The GitHub App's pages, in the owner's browser (issue #1262).
+	s.registerGitHubAppPages(mux)
 
 	// The contract's JSON answers go gzipped to a client that accepts it (issue #1129): a long chat's newest page of
 	// history, mostly tool results, is five times smaller on the wire (218 KB to 41 KB), which a slow link takes

@@ -87,6 +87,12 @@ type Server struct {
 	// question (HelloRequest.QuestionParts, issue #1219), kept in memory as devices are: a node says hello before
 	// each socket.
 	questionParts map[string]bool
+	// githubApp are the nodes that said at their last hello that they give a worker a fresh token of the owner's
+	// GitHub App at each use (HelloRequest.GitHubApp, issue #1262), kept as questionParts is.
+	githubApp map[string]bool
+	// appToken gives a token of the owner's GitHub App's installation on a repository, and false when the App does
+	// not cover it; nil when the control plane wired none.
+	appToken func(ctx context.Context, host, path string) (string, bool)
 	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
 	deviceCalls map[string]*pendingDevice
 	// takeFiles takes the takes' files nodes upload, and takesHeld settles those a node holds at hello (takes.go).
@@ -100,7 +106,8 @@ type Server struct {
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{},
 		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{},
-		questionParts: map[string]bool{}, deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
+		questionParts: map[string]bool{}, githubApp: map[string]bool{}, deviceCalls: map[string]*pendingDevice{},
+		execs: map[string]*pendingExec{}}
 }
 
 // HostCredential is what an offer is given to act on its repository's host:
@@ -122,6 +129,13 @@ const identityWait = 15 * time.Second
 // WithHostTokens sets where an offer's git host token comes from.
 func (s *Server) WithHostTokens(token func(ctx context.Context, host, path string) (HostCredential, bool)) *Server {
 	s.hostToken = token
+
+	return s
+}
+
+// WithAppTokens sets where an offer's token of the owner's GitHub App comes from (issue #1262).
+func (s *Server) WithAppTokens(token func(ctx context.Context, host, path string) (string, bool)) *Server {
+	s.appToken = token
 
 	return s
 }
@@ -391,6 +405,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 
 	s.deviceSaid(n.ID, req.DeviceState)
 	s.partsSaid(n.ID, req.QuestionParts)
+	s.appSaid(n.ID, req.GitHubApp)
 	endTakes, dropTakes := s.settleTakes(r.Context(), n.ID, req)
 
 	resp := nodeproto.HelloResponse{
@@ -718,6 +733,16 @@ func (c *session) push(ctx context.Context) error {
 				if cred.Identity.Known() {
 					o.GitName, o.GitEmail = cred.Identity.Name, cred.Identity.Email
 				}
+			}
+		}
+
+		// On a repository the owner's GitHub App is installed on, the worker acts with the App's token instead of
+		// the owner's, so its calls count against the App's own limit (issue #1262); the commits still name the
+		// owner's account. Only a node that refreshes it gets it, as it ends after an hour; another keeps the
+		// owner's token, as before.
+		if c.srv.appToken != nil && o.RepoHost != "" && c.srv.takesAppTokens(c.nodeID) {
+			if token, ok := c.srv.appToken(ctx, o.RepoHost, o.Repo); ok {
+				o.RepoToken, o.GitHubApp = token, true
 			}
 		}
 
