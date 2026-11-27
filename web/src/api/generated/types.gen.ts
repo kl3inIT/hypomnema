@@ -7536,60 +7536,6 @@ export type PutGitHostResponses = {
 
 export type PutGitHostResponse = PutGitHostResponses[keyof PutGitHostResponses];
 
-export type DeleteGitHostTokenData = {
-  body?: never;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type DeleteGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type DeleteGitHostTokenError = DeleteGitHostTokenErrors[keyof DeleteGitHostTokenErrors];
-
-export type DeleteGitHostTokenResponses = {
-  /**
-   * The host, now without a token.
-   */
-  200: GitHost;
-};
-
-export type DeleteGitHostTokenResponse = DeleteGitHostTokenResponses[keyof DeleteGitHostTokenResponses];
-
-export type PutGitHostTokenData = {
-  body: NewGitHostToken;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type PutGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type PutGitHostTokenError = PutGitHostTokenErrors[keyof PutGitHostTokenErrors];
-
-export type PutGitHostTokenResponses = {
-  /**
-   * The host, now with a token.
-   */
-  200: GitHost;
-};
-
-export type PutGitHostTokenResponse = PutGitHostTokenResponses[keyof PutGitHostTokenResponses];
-
 export type DeleteGitHostConnectionData = {
   body?: never;
   path: {

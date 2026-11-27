@@ -1091,41 +1091,6 @@ paths:
         "204":
           description: The host is forgotten.
         default: { $ref: "#/components/responses/Error" }
-  /hosts/{host}/token:
-    parameters:
-      - name: host
-        in: path
-        required: true
-        schema: { type: string, minLength: 3, maxLength: 255 }
-    put:
-      operationId: PutGitHostToken
-      summary: Keep a token as the git host's Connection "default"; only the owner
-      description: >-
-        The form of before a host could have several Connections. The token
-        goes into the vault and is never returned. A worker of a Run on this
-        host gets it for its git, gh and glab.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/NewGitHostToken" }
-      responses:
-        "200":
-          description: The host, now with a token.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/GitHost" }
-        default: { $ref: "#/components/responses/Error" }
-    delete:
-      operationId: DeleteGitHostToken
-      summary: Forget the git host's Connection "default"; only the owner
-      responses:
-        "200":
-          description: The host, now without a token.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/GitHost" }
-        default: { $ref: "#/components/responses/Error" }
   /hosts/{host}/connections/{label}:
     parameters:
       - name: host

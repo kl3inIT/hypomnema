@@ -4843,9 +4843,8 @@ gateway chat model writes its summary, decisions and actions.
   Settings' group Meetings until then, issue #762), out of the Settings menu as Hyprnote keeps its dictionary and AI
   settings out of its meeting list: Dictionary, the words (the owner's as chips to remove, the found ones marked
   speaker, Bot or repository), and Notes model, picked with the single-model picker the Bots use
-  (`features/agents/model-picker.tsx`). The old `/settings/dictionary` and `/settings/notes-model` redirect there. Settings' "Back to app"
+  (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
-  Old Agents and Machines list URLs redirect into Settings and are skipped as return destinations.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
@@ -6270,8 +6269,7 @@ Node (`internal/node`):
   already read (an artifact page's text, an SVG's text, a file's preview), keyed by the bytes' generated key with
   a word after it. An image's bytes keep their own read, typed by the file's name, under the generated key.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in
-  Settings under Workers since issue #857, out of the main sidebar; the old `/agents`, `/agents/$name` and
-  `/agents/new` redirect to the same page there): `/settings/agents` lists the profiles as cards or a table, each with its
+  Settings under Workers since issue #857, out of the main sidebar): `/settings/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
   again every 10 s. `/settings/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
   the runtime, a model from `GET /models` in a picker with a search (issue #200, after Omnara's model combobox
@@ -6656,8 +6654,7 @@ Node (`internal/node`):
     the chat it opens to and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
-- The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857; the old `/machines`
-  redirects there) lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
+- The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857) lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
   from 65 % and red from 90 % and are grey while it is not connected, its load average, each of its GPUs when it has any (use with
