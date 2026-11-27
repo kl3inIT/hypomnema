@@ -81,6 +81,9 @@
   `AGENTS.md:102,111`, OpenClaw `AGENTS.md:86`, Orca `AGENTS.md:8`, Coder `AGENTS.md:46`; owner, 2026-11-19).
   CI runs the full Go Unit and browser suites and selected Race shards on code PRs. Main and manual dispatches
   run all Race shards and `govulncheck` ([CI runbook](docs/ci.md)).
+- Do not rerun a failing test to get a green check. Fix a flaky test, or quarantine it with an issue and a note
+  visible to the owner, before the merge it blocks (t3code `AGENTS.md:117`, OpenClaw landing, owner, 2026-11-27,
+  issue #1281).
 - Do not merge main into a branch only because main advanced. Merge it for a conflict, for a red check whose cause
   is on main, or for a migration. After a merge, rerun only the checks it affects (OpenClaw `AGENTS.md:46`).
 - A migration is made with `make migration-create NAME=what_it_does`, which names it by its time, so branches open

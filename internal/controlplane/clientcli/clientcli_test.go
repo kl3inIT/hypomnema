@@ -950,7 +950,7 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "review")
 	require.NoError(t, err)
 	for _, want := range []string{
-		"`gh run watch <run_id> --exit-status --interval 60`",
+		"`gh pr checks <url> --required --watch --interval 60`",
 		"If GitHub reports a rate limit, run `gh api rate_limit`",
 		"does not count against the primary limit",
 		"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming.",
@@ -964,9 +964,11 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	assert.Contains(t, out, `gh pr comment <url> --body
    "@coderabbitai review"`, "the coordinator may ask CodeRabbit on an important pull request")
 	assert.Contains(t, out, "CodeRabbit is never a condition of its own")
+	assert.Contains(t, out, "Do not rerun a failing test to get a green check.", "flake policy (issue #1281)")
+	assert.Contains(t, out, "the test is quarantined with an issue and a note visible to the owner",
+		"flake policy (issue #1281)")
 	for _, want := range []string{
 		"only `git diff <reviewed_sha>..<head>`",
-		"A red check gets one fresh build before you decide: rerun its failed jobs once",
 		"an `incorrect` verdict where\n   none does is handled as `blocked` (below), never as a pass",
 		"A verdict of `blocked` is not a pass and not a fix round.",
 	} {

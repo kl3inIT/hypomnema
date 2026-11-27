@@ -346,7 +346,9 @@ func TestABrowserTakeEndsWithItsWorkItsTabOrTheDisk(t *testing.T) {
 		require.Eventually(t, func() bool {
 			got, err := r.store.Get(take.ID)
 
-			return err == nil && got.EndedBy == devicetool.EndedStreamError
+			// The end reason is written before encoding. The final state is read under the same store lock
+			// that protects the encoder's metadata write and frame cleanup.
+			return err == nil && got.Final() && got.EndedBy == devicetool.EndedStreamError
 		}, 5*time.Second, 10*time.Millisecond)
 	})
 
@@ -378,7 +380,7 @@ func TestABrowserTakeEndsWithItsWorkItsTabOrTheDisk(t *testing.T) {
 		require.Eventually(t, func() bool {
 			got, err := r.store.Get(take.ID)
 
-			return err == nil && got.EndedBy == devicetool.EndedDiskLow
+			return err == nil && got.Final() && got.EndedBy == devicetool.EndedDiskLow
 		}, 5*time.Second, 10*time.Millisecond)
 	})
 
