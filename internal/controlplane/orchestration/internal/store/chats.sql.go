@@ -716,7 +716,10 @@ func (q *Queries) IsReadRun(ctx context.Context, chatID string) (bool, error) {
 const lastTurnInput = `-- name: LastTurnInput :one
 SELECT role, sender_id, wake_by, wake_todo,
        CAST(NOT EXISTS (SELECT 1 FROM chat_messages o WHERE o.chat_id = ?1
-                          AND (o.sender_id IS NOT NULL OR o.wake_by = 'bot'))
+                          AND (o.role = 'owner' OR o.event_seq IS NOT NULL OR o.to_coordinator = 1)
+                          AND o.kind NOT IN ('continued', 'approval') AND o.event_seq IS NULL
+                          AND NOT (o.role = 'owner' AND o.sender_id IS NULL)
+                          AND coalesce(o.wake_by, '') NOT IN ('owner', 'bot_for_owner'))
             AND NOT EXISTS (SELECT 1 FROM routine_runs r WHERE r.chat_id = ?1) AS INTEGER) AS owner_only
 FROM chat_messages
 WHERE chat_id = ?1 AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1) AND kind <> 'continued'
@@ -736,10 +739,12 @@ type LastTurnInputRow struct {
 // a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
 // message, given to pi or about to be, ends his turn (issue #468). The line that wakes pi to continue a turn a
 // restart cut is no input of its own: the continued turn is the cut one's (issue #716). wake_by and wake_todo are who
-// an Inbox item's wake-up comes from and the item it is for (issue #1229); owner_only says nobody else's input ever
-// came in the chat (a Channel person's message, a Bot's hand-off not on the owner's line, a Routine's run), which a
-// mark there needs, as OpenMausBot's handedInUnproven clears forOwner and its conversation gate refuses a
-// conversation with anyone else's line (server/host/cloud-lending-turns.ts, server/cloud-lending.ts).
+// an Inbox item's wake-up comes from and the item it is for (issue #1229); owner_only says no turn input ever came in
+// the chat but the owner's own words (his message without a sender, his words typed in the Inbox), a hand-off on his
+// line, a Run's events and his answer to an Approval: anything else (a Channel person's message, a hand-off not on
+// his line, the owner giving the item without a word, a background command's end, any other wake-up) and a Routine's
+// run clear a mark there for good, as OpenMausBot's handedInUnproven clears forOwner and its conversation gate
+// refuses a conversation with anyone else's line (server/host/cloud-lending-turns.ts, server/cloud-lending.ts).
 func (q *Queries) LastTurnInput(ctx context.Context, chatID string) (LastTurnInputRow, error) {
 	row := q.db.QueryRowContext(ctx, lastTurnInput, chatID)
 	var i LastTurnInputRow

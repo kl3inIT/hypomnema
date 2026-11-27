@@ -64,7 +64,8 @@ const (
 	// wakeByOwner: the owner's own words typed in the Inbox, his prompt as he hands the item over or his comment,
 	// which are his turn in the item's chat (decision 7).
 	wakeByOwner = "owner"
-	// wakeByOwnerGave: the owner gave the item without a word (an empty prompt, an edit): no turn of his.
+	// wakeByOwnerGave: the owner gave the item without a word (an empty prompt, an edit): no turn of his, and it clears
+	// the chat's mark for good, as every input but his words, a marked hand-off and a Run's events does.
 	wakeByOwnerGave = "owner_gave"
 	// wakeByBotForOwner: a Bot passed it from a turn on the owner's line, the mark that makes the chat it wakes his
 	// turn for his own accounts.

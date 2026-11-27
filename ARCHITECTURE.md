@@ -5090,9 +5090,11 @@ its client API, its CLI and the Bots' tools.
   Bot acts in (`Change.Chat`, `NewTodo.Chat`, from its token; none in a Routine's run) has as its last turn input his
   own message or words, or the hand-off that marked it for this same item (`orchestration.whoseTurn`, `lineFor`): a
   mark never reaches another item, not even one the Bot adds for itself. The chat it wakes then holds the mark while
-  no one else's input ever came there (`LastTurnInput`'s `owner_only`: a Channel person's message, a `bot` hand-off,
-  a Routine's run clear it for good; the migration records the items' wake-ups of before as `owner` when they carry
-  his words, else `bot`): `OwnerTurn` there is true for the marked hand-off, so the Bot uses his own accounts (user
+  no other turn input ever came there (`LastTurnInput`'s `owner_only`: only his own words, a marked hand-off, a Run's
+  events and his answer to an Approval leave it; any other input, such as a Channel person's message, a `bot`
+  hand-off, his giving the item without a word (`owner_gave`), a background command's end or a Routine's run, clears
+  it for good; the migration records the wake-ups of before as `owner` when they carry his words, and leaves the rest
+  unmarked, which clears): `OwnerTurn` there is true for the marked hand-off, so the Bot uses his own accounts (user
   Connections) in that chat only, as it may by its Connections list (`Bot.MayUse`). A Run's events there are no turn
   of his and leave the mark. A new Connection request takes his own words, not a mark (`chatTurnOf`). It has no timer
   and is kept in the database. Sends still go through his Approval, and the Bot still drafts its replies.
