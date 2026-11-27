@@ -1,4 +1,4 @@
-package controlplane
+package subscription
 
 import (
 	"bytes"
@@ -119,13 +119,13 @@ func TestACodexModelLeftOutTwiceIsDropped(t *testing.T) {
 		pinned: []string{"gpt-pinned"},
 	}
 	served := &readings{names: []string{"gpt-6.1-terra"}, read: readAt}
-	v := &vendorModels{subs: served, providers: providers, logger: slog.New(slog.DiscardHandler)}
+	v := NewVendorModels(served, providers, slog.New(slog.DiscardHandler))
 
-	v.update(t.Context())
-	v.update(t.Context()) // the same reading seen again
+	v.Update(t.Context())
+	v.Update(t.Context()) // the same reading seen again
 	assert.Empty(t, providers.removed, "one reading so far")
 
 	served.read = readAt.Add(time.Hour)
-	v.update(t.Context())
+	v.Update(t.Context())
 	assert.Equal(t, []string{"codex-subscription gpt-gone"}, providers.removed, "the pinned model keeps only itself")
 }
