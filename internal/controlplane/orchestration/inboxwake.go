@@ -191,8 +191,12 @@ func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 
 	b.WriteString(inboxItemLines(t))
 
+	// His comment is his own word on the item, by the revision it made (issue #1206): when it says he did the work,
+	// the Bot records it for him with it, never as its own.
 	if w.Kind == inboxstore.WakeComment {
-		b.WriteString("\nAnswer him with inbox_comment on the item, and go on with the work it asks for.")
+		fmt.Fprintf(&b, "\nAnswer him with inbox_comment on the item, and go on with the work it asks for. When his "+
+			"comment says he did it himself, record it done for him: inbox_done with for_owner and this comment as "+
+			"evidence, {\"kind\":\"comment\",\"ref\":\"%d\"}, never as your own.", t.Revision)
 
 		return b.String()
 	}

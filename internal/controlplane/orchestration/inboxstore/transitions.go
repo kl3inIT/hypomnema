@@ -610,6 +610,12 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 				}
 			}
 
+			if c.Actor.Kind == Bot && cl.DoneBy.Kind == ABot {
+				if err := botsWork(ctx, q, cur, cl.Evidence); err != nil {
+					return nil, err
+				}
+			}
+
 			if forOwner && !sent {
 				if err := ownersMessage(ctx, q, c, cur, cl.Evidence); err != nil {
 					return nil, err
@@ -653,6 +659,88 @@ func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 	}
 
 	return fmt.Errorf("%w: a Bot records a to-do done by itself, by the owner or by a person", storeerr.ErrForbidden)
+}
+
+// answeredInPerson are the sources of a message to the owner from someone, whose ask only an answer closes: his own,
+// or a person's who answered in his place.
+var answeredInPerson = []string{FromLark, FromZalo, FromWhatsApp, FromGmail}
+
+// botsWork checks a Bot's own close of an item (issue #1206; owner, 2026-11-27): the Bot did the work, and its
+// evidence shows that work. An ask to the owner in his chat or his mail (AskedDirectly) is answered by him, or by a
+// person in his place, never by a Bot, whose work there is at most a draft he sends. Its evidence is a Run, a pull
+// request, a link (a file, a page, an Artifact), a mail or a message it sent, or its own message in a chat; the
+// owner's message (his comment on the item, a message he sent, his message in a chat) shows that he did it, a
+// person's that they did, and a meeting's line that it was said: each is recorded for whom it shows, not as the
+// Bot's. GitHub records the person who merged as the closer and the pull request as the evidence; inbox-zero makes a
+// thread actioned by the user's own sent message (outbound.ts:107-139); the model proposes and the code decides, as
+// Omi's open loops do (daily.py:205-232).
+func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, evidence []Link) error {
+	if cur.WhyOpen.String == AskedDirectly && slices.Contains(answeredInPerson, cur.SourceKind) {
+		return fmt.Errorf("%w: someone asked the owner in to-do %s, which his own answer closes: record it for him "+
+			"(for_owner) with his message (zalo_sent, whatsapp_sent, lark_sent) or his comment on the item "+
+			"(comment), or for the person who answered (done_by) with theirs", storeerr.ErrForbidden, cur.ID)
+	}
+
+	for _, l := range evidence {
+		switch l.Kind {
+		case LinkRun, LinkPullRequest, LinkURL, LinkMail:
+			return nil
+		case LinkLarkMessage, LinkZaloMessage, LinkWhatsAppMessage:
+			if !personsMessage(l) {
+				return nil // a message it sent
+			}
+		case LinkChatMessage:
+			owners, err := ownersChatMessage(ctx, q, l)
+			if err != nil {
+				return err
+			}
+
+			if !owners {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("%w: a Bot closes as its own only what it did, with evidence of that work (a Run, a pull "+
+		"request, a link to a file, a message it sent); the owner's message or comment shows that he did it "+
+		"(for_owner), a person's that they did (done_by)", storeerr.ErrInvalid)
+}
+
+// ownersChatMessage says whether a chat_message Link is a message the owner wrote (role owner and no sender, as
+// ownersMessage reads it); one that does not exist is not his.
+func ownersChatMessage(ctx context.Context, q *store.Queries, l Link) (bool, error) {
+	seq, err := strconv.ParseInt(l.Ref, 10, 64)
+	if err != nil {
+		return false, nil
+	}
+
+	m, err := q.GetTodoChatMessage(ctx, seq)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("reading chat message %d: %w", seq, err)
+	}
+
+	return m.Role == "owner" && !m.SenderID.Valid, nil
+}
+
+// ownersComment says whether a comment Link is the owner's comment on the item, by the revision it made.
+func ownersComment(ctx context.Context, q *store.Queries, cur store.Todo, l Link) (bool, error) {
+	revision, err := strconv.ParseInt(l.Ref, 10, 64)
+	if err != nil {
+		return false, nil
+	}
+
+	rows, err := q.ListTodoEvents(ctx, store.ListTodoEventsParams{TodoID: cur.ID, Lim: MaxEvents})
+	if err != nil {
+		return false, fmt.Errorf("reading the history of to-do %s: %w", cur.ID, err)
+	}
+
+	return slices.ContainsFunc(rows, func(e store.TodoEvent) bool {
+		return e.Revision == revision && e.Kind == EventCommented && e.ActorKind == Owner
+	}), nil
 }
 
 // readFor reads the item a Bot records a person's message on, before the write, since the message is read from
@@ -777,11 +865,12 @@ func (s *Store) chatName(ctx context.Context, service, account, chat string) str
 	return chat
 }
 
-// ownersMessage is the evidence a Bot recording for the owner gives: a chat_message Link whose ref is the seq of a
-// message that exists, was written by the owner (role owner and no sender: a Channel person's or the coordinator's
-// message is not his, as OwnerTurn reads it) and is in the item's chat (the chat it came from or the chat of its
-// attempt) or in the chat the Bot acts in, where the owner told it (Change.Chat, from its session): a proposal from
-// a Routine, Lark or Zalo has no chat of its own.
+// ownersMessage is the evidence a Bot recording for the owner gives: his comment on the item (a comment Link by the
+// revision it made, issue #1206: the comment that woke the Bot in the item's chat, whose wake-up is the control
+// plane's, not his message); or a chat_message Link whose ref is the seq of a message that exists, was written by the
+// owner (role owner and no sender: a Channel person's or the coordinator's message is not his, as OwnerTurn reads it)
+// and is in the item's chat (the chat it came from or the chat of its attempt) or in the chat the Bot acts in, where
+// the owner told it (Change.Chat, from its session): a proposal from a Routine, Lark or Zalo has no chat of its own.
 func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.Todo, evidence []Link) error {
 	var chats []string
 
@@ -798,6 +887,19 @@ func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.To
 	}
 
 	for _, l := range evidence {
+		if l.Kind == LinkComment {
+			his, err := ownersComment(ctx, q, cur, l)
+			if err != nil {
+				return err
+			}
+
+			if his {
+				return nil
+			}
+
+			continue
+		}
+
 		if l.Kind != LinkChatMessage {
 			continue
 		}
@@ -819,9 +921,10 @@ func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.To
 		}
 	}
 
-	return fmt.Errorf("%w: a Bot recording for the owner gives as evidence his message in the to-do's chat, or the "+
-		"message he sent himself after it was made in the to-do's Zalo, WhatsApp or Lark chat, or in another chat of "+
-		"that account where the person who asked is a member", storeerr.ErrInvalid)
+	return fmt.Errorf("%w: a Bot recording for the owner gives as evidence his comment on the to-do (comment, by its "+
+		"revision), his message in the to-do's chat, or the message he sent himself after it was made in the to-do's "+
+		"Zalo, WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member",
+		storeerr.ErrInvalid)
 }
 
 // ownerSent says whether a message the owner sent is evidence that he answered the item (issue #1004; owner,
@@ -1228,6 +1331,14 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 		next.ProjectID = nullString(project)
 	}
 
+	if e.WhyOpen != nil {
+		if err := promise(c, cur, *e.WhyOpen); err != nil {
+			return nil, err
+		}
+
+		next.WhyOpen = nullString(Promised)
+	}
+
 	if e.Assignee != nil {
 		a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
 		if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
@@ -1243,6 +1354,26 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 	}
 
 	return map[string]any{}, nil
+}
+
+// promise checks an Edit that makes an ask his promise (issue #1206): one item from the ask to the work to done, as
+// inbox-zero sets a thread's status again on each message, the user's own included, rather than adding another
+// (apps/web/utils/reply-tracker/outbound.ts:123-139). Only to Promised, from AskedDirectly, on an item still his;
+// a Bot only on an item it added. Promised already changes nothing.
+func promise(c Change, cur store.Todo, why string) error {
+	switch {
+	case why != Promised:
+		return fmt.Errorf("%w: an edit makes an ask the owner's promise (why_open %s), nothing else", storeerr.ErrInvalid,
+			Promised)
+	case c.Actor.Kind == Bot && (cur.CreatedByKind != Bot || cur.CreatedBy != c.Actor.ID):
+		return fmt.Errorf("%w: a Bot makes a promise only of an ask it added", storeerr.ErrForbidden)
+	case cur.WhyOpen.String == Promised && cur.AssigneeKind == Me:
+		return nil
+	case cur.WhyOpen.String != AskedDirectly || cur.AssigneeKind != Me:
+		return fmt.Errorf("%w: to-do %s is not an ask to the owner that is still his", storeerr.ErrInvalid, cur.ID)
+	}
+
+	return nil
 }
 
 // give gives the item to a. An item that waited on a person waits no more once someone else has it, the owner

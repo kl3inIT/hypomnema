@@ -72,10 +72,11 @@ func inboxLinkSchema(about string) map[string]any {
 				inboxstore.LinkURL, inboxstore.LinkChatMessage, inboxstore.LinkMail, inboxstore.LinkRun,
 				inboxstore.LinkPullRequest, inboxstore.LinkMeetingLine, inboxstore.LinkLarkMessage,
 				inboxstore.LinkZaloMessage, inboxstore.LinkWhatsAppMessage, inboxstore.LinkZaloSent,
-				inboxstore.LinkWhatsAppSent, inboxstore.LinkLarkSent,
+				inboxstore.LinkWhatsAppSent, inboxstore.LinkLarkSent, inboxstore.LinkComment,
 			}},
 			"ref": map[string]any{"type": "string", "description": "The URL, or the id of the message, mail, Run, " +
-				"pull request or meeting line; a message of this chat by its seq."},
+				"pull request or meeting line; a message of this chat by its seq; the owner's comment on the item " +
+				"(comment) by the revision its history gives it."},
 			"label": map[string]any{"type": "string"},
 			"account": map[string]any{"type": "string", "description": "zalo_sent, whatsapp_sent, lark_sent, and " +
 				"a person's zalo_message, whatsapp_message or lark_message given as evidence: the owner's account " +
@@ -98,8 +99,9 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 	evidence := map[string]any{"type": "array", "maxItems": inboxstore.MaxEvidence,
 		"items": inboxLinkSchema("What shows it.")}
 	due := map[string]any{
-		"due_date": map[string]any{"type": "string", "description": "A calendar day, YYYY-MM-DD, in timezone."},
-		"due_at":   map[string]any{"type": "string", "description": "A moment, RFC 3339, instead of due_date."},
+		"due_date": map[string]any{"type": "string", "description": "A calendar day, YYYY-MM-DD, in timezone; " +
+			"none, no due (inbox_update clears the one it has)."},
+		"due_at": map[string]any{"type": "string", "description": "A moment, RFC 3339, instead of due_date."},
 		"timezone": map[string]any{"type": "string", "description": "The owner's IANA time zone of the due, " +
 			"such as Asia/Ho_Chi_Minh."},
 	}
@@ -222,14 +224,20 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 					"woken with it. The main Bot passes it to the project Bot whose accounts or context the work " +
 					"needs; a project Bot gives it back only to the main Bot."},
 				"waiting_on": waitingOnSchema(true),
+				// One item from the ask to the work to done (issue #1206).
+				"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.Promised}, "description": "" +
+					"promised: the owner answered an ask you added (asked_directly, still his) by accepting or " +
+					"promising the work; the same item is now his promise, with his due (or none) and done_when."},
 			}), []string{"id"}},
 		{agenttool.ToolInboxStart, "Start an open to-do given to you: it is doing, here, until you close or " +
 			"release it. Use it before you work on one.", map[string]any{"id": id, "revision": revision}, []string{"id"}},
 		{agenttool.ToolInboxRelease, "Give up a to-do you are doing, with the reason: it is open again. Use it " +
 			"when you cannot finish it.",
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
-		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did; with for_owner, his " +
-			"own message that he did it (in this chat, or one he sent after it was made in the item's Zalo, " +
+		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did, only for work you did " +
+			"(a Run, a pull request, a link to a file, a message you sent), never an ask to him from his chats " +
+			"or mail; with for_owner, his own message that he did it (his comment on the item, comment by its " +
+			"revision; in this chat; or one he sent after it was made in the item's Zalo, " +
 			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
 			"zalo_sent, whatsapp_sent, lark_sent); or, with done_by, an open item you added that a person did, " +
 			"with their message that delivers it (zalo_message, whatsapp_message or lark_message with the account " +
@@ -675,11 +683,14 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items, "projects": known}, nil
 }
 
-// inboxDue is the due a call gives: none, a date or a moment in its time zone.
+// inboxDue is the due a call gives: none, a date or a moment in its time zone. due_date none gives no due, as the
+// CLI's --due none does (issue #1206).
 func inboxDue(in inboxArgs) (due inboxstore.Due, given bool, err error) {
 	switch {
 	case in.DueDate != "" && in.DueAt != "":
 		return due, false, fmt.Errorf("%w: give due_date or due_at, not both", orchestration.ErrInvalid)
+	case strings.EqualFold(strings.TrimSpace(in.DueDate), inboxstore.DueNone):
+		return inboxstore.Due{Kind: inboxstore.DueNone}, true, nil
 	case in.DueDate != "":
 		return inboxstore.Due{Kind: inboxstore.DueDate, Date: in.DueDate, Zone: in.Timezone}, true, nil
 	case in.DueAt != "":
@@ -755,7 +766,7 @@ func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxA
 	}
 
 	switch {
-	case given:
+	case given && due.Kind != inboxstore.DueNone:
 		n.Due = due
 	case n.Assignee.Kind == inboxstore.Person:
 		n.DueIn = inboxChase(in)
@@ -830,6 +841,10 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 		e := inboxstore.Edit{
 			Title: in.Title, Notes: in.Notes, DoneWhen: in.DoneWhen, Draft: in.Draft, Priority: in.Priority,
 			PriorityReason: in.PriorityReason,
+		}
+
+		if in.WhyOpen != "" {
+			e.WhyOpen = &in.WhyOpen
 		}
 
 		if in.Project != "" {
@@ -1065,7 +1080,8 @@ func todoView(t inboxstore.Todo, events bool, projects map[string]string) todoOu
 			delete(after, "work_attempt")
 
 			out.History = append(out.History, map[string]any{
-				"at": e.At, "by": who(e.Actor.Kind, e.Actor.ID), "kind": e.Kind, "after": after,
+				"at": e.At, "revision": e.Revision, "by": who(e.Actor.Kind, e.Actor.ID), "kind": e.Kind,
+				"after": after,
 			})
 		}
 	}

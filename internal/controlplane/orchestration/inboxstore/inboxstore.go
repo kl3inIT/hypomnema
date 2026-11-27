@@ -210,7 +210,7 @@ const (
 
 var linkKinds = []string{
 	LinkURL, LinkChatMessage, LinkMail, LinkRun, LinkPullRequest, LinkMeetingLine, LinkLarkMessage, LinkZaloMessage,
-	LinkWhatsAppMessage, LinkZaloSent, LinkWhatsAppSent, LinkLarkSent,
+	LinkWhatsAppMessage, LinkZaloSent, LinkWhatsAppSent, LinkLarkSent, LinkComment,
 }
 
 // sentService is the source kind, the messaging service, of a Link to a message the owner sent.
@@ -820,12 +820,21 @@ func checkLink(l Link) error {
 	case sentService[l.Kind] == "" && (l.Account != "" || l.Chat != ""):
 		return fmt.Errorf("%w: only a message the owner sent names an account and a chat, or a person's message "+
 			"given as evidence", storeerr.ErrInvalid)
+	case l.Kind == LinkComment && !revisionRef(l.Ref):
+		return fmt.Errorf("%w: a comment is named by the revision of the item it made, a number", storeerr.ErrInvalid)
 	case l.Kind == LinkMeetingLine && !meetingLine(l.Ref):
 		return fmt.Errorf("%w: a meeting's line is named \"<meeting>/<line>\", the line by its number",
 			storeerr.ErrInvalid)
 	}
 
 	return nil
+}
+
+// revisionRef says whether ref names a revision of an item: a number from 1.
+func revisionRef(ref string) bool {
+	n, err := strconv.ParseInt(ref, 10, 64)
+
+	return err == nil && n > 0
 }
 
 // meetingLine says whether ref names a meeting's line as "<meeting>/<line>": a meeting's id and the line's number.
