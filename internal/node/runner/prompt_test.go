@@ -475,13 +475,15 @@ func TestPromptWaitsForCIOnTheAppsEventsWhenItsTokenIsTheApps(t *testing.T) {
 	d := offered()
 	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
 	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
-	d.Offer.RepoToken, d.Offer.GitHubApp = "ghs_x", true
+	d.Offer.GitHubApp = true // the App's offer carries no token: the node asks for it at each use
 
 	p := Prompt(d)
+	assert.Contains(t, p, "then call `finish` at once, without waiting for the checks",
+		"the control plane follows the pull request with the App's token")
 	assert.Contains(t, p, "When auto-merge is not turned on, wait for the required checks with "+
 		"`hypomnema ci wait <url>` only when the task needs their result.")
 	assert.NotContains(t, p, "--required --watch")
 
-	d.Offer.GitHubApp = false
+	d.Offer.RepoToken, d.Offer.GitHubApp = "ghp_x", false
 	assert.Contains(t, Prompt(d), "`gh pr checks <url> --required --watch`")
 }

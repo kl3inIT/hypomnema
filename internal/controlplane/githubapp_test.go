@@ -26,6 +26,8 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/githubstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/ciwait"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -142,6 +144,19 @@ func (w *appWorld) register() (page, string) {
 	return w.get(githubapp.CallbackPath + "?code=the-manifest-code&state=" + state[1])
 }
 
+// login signs the CLI in as the owner and returns its home.
+func (w *appWorld) login() string {
+	w.t.Helper()
+
+	home := w.t.TempDir()
+	tokenFile := filepath.Join(home, "token")
+	require.NoError(w.t, os.WriteFile(tokenFile, []byte(w.owner), 0o600))
+	require.NoError(w.t, clientcli.Command(w.t.Context(), home,
+		[]string{"login", "--url", w.url, "--token-file", tokenFile}, strings.NewReader(""), io.Discard))
+
+	return home
+}
+
 // install records the installation as GitHub's redirect after the owner installs the App does.
 func (w *appWorld) install() {
 	w.t.Helper()
@@ -216,11 +231,7 @@ func TestASignedWorkflowRunCompletedEndsTheCIWaitWithItsConclusion(t *testing.T)
 	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
 	w.install()
 
-	home := t.TempDir()
-	tokenFile := filepath.Join(home, "token")
-	require.NoError(t, os.WriteFile(tokenFile, []byte(w.owner), 0o600))
-	require.NoError(t, clientcli.Command(t.Context(), home, []string{"login", "--url", w.url, "--token-file", tokenFile},
-		strings.NewReader(""), io.Discard))
+	home := w.login()
 
 	out := &lockedBuffer{}
 	done := make(chan error, 1)
@@ -347,4 +358,102 @@ func TestAPullRequestThatMergesEndsItsWait(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "merged", st.State)
 	assert.Zero(t, w.gh.Reads(), "the event said it; GitHub was not read")
+}
+
+// Scenario (issue #1262, review round 1): the App is installed on several repositories. A worker's token is made
+// for its Task's repository alone (repository_ids, as Omnara's mintInstallationToken asks), so it cannot read or
+// write the installation's other repositories; each repository has its own token.
+func TestAnInstallationTokenIsScopedToItsRepository(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	resp, _ := w.register()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	w.install()
+
+	before := len(w.gh.Scopes())
+
+	hypomnema, ok, err := w.app.TokenFor(t.Context(), "github.com", "kl3inIT/hypomnema")
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	memoryOS, ok, err := w.app.TokenFor(t.Context(), "github.com", "kl3inIT/MemoryOS")
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	assert.NotEqual(t, hypomnema.Value, memoryOS.Value, "a token a repository")
+	assert.Equal(t, [][]int64{
+		{w.gh.RepositoryID("kl3inIT/hypomnema")}, {w.gh.RepositoryID("kl3inIT/MemoryOS")},
+	}, w.gh.Scopes()[before:])
+
+	// The checks a wait reads are read with the pull request's repository's token too.
+	_, err = w.app.WaitCI(t.Context(), "https://github.com/kl3inIT/hypomnema/pull/1262", 0)
+	require.NoError(t, err)
+
+	for _, scope := range w.gh.Scopes()[before:] {
+		assert.Len(t, scope, 1, "no token of the whole installation is made for work")
+	}
+}
+
+// Scenario (issue #1262, review round 1): the checks of a pull request's head passed, then its author pushes a new
+// head. The pull_request synchronize delivery resets its CI: the next wait reads the new head's checks, which run,
+// instead of answering the old head's passed.
+func TestANewHeadResetsTheCIWaitedFor(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	resp, _ := w.register()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	w.install()
+
+	pr := "https://github.com/kl3inIT/hypomnema/pull/1262"
+
+	w.gh.Conclude("SUCCESS")
+	st, err := w.app.WaitCI(t.Context(), pr, 0)
+	require.NoError(t, err)
+	require.Equal(t, "passed", st.State)
+
+	const next = "fedcba9876543210"
+
+	w.gh.Push(next)
+
+	body := []byte(`{"action":"synchronize","installation":{"id":77},"repository":{"full_name":"kl3inIT/hypomnema"},
+		"pull_request":{"number":1262,"state":"open","merged":false,"head":{"sha":"` + next + `","ref":"hyp/tsk_1"}}}`)
+	assert.Equal(t, http.StatusAccepted, w.deliver("pull_request", "delivery-push", body, w.gh.Secret))
+
+	st, err = w.app.WaitCI(t.Context(), pr, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "pending", st.State, "the new head's check runs")
+	assert.Equal(t, next, st.Head)
+	assert.Equal(t, 2, w.gh.Reads(), "the new head was read")
+}
+
+// Scenario (issue #1262, review round 1): the App does not cover the pull request's repository, so `hypomnema ci
+// wait` waits with gh, polling once a minute (--interval 60, GitHub's shared limit). Its --timeout still bounds
+// the wait: a gh that does not answer is stopped, and the command says the checks are pending (exit 8).
+func TestTheGhFallbackOfCIWaitHonoursItsTimeout(t *testing.T) {
+	w := newAppWorld(t)
+
+	bin := t.TempDir()
+	args := filepath.Join(bin, "args")
+	script := "#!/bin/sh\necho \"$*\" > '" + args + "'\nexec sleep 30\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o700)) //nolint:gosec // G306: runs
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	home := w.login()
+	start := time.Now()
+
+	err := clientcli.Command(t.Context(), home,
+		[]string{"ci", "wait", "https://github.com/kl3inIT/hypomnema/pull/1262", "--timeout", "1s"},
+		strings.NewReader(""), io.Discard)
+
+	var exit *agenttool.ExitError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, ciwait.ExitPending, exit.Code)
+	assert.Less(t, time.Since(start), 10*time.Second, "the timeout stopped gh")
+
+	sent, err := os.ReadFile(args) //nolint:gosec // the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, "pr checks https://github.com/kl3inIT/hypomnema/pull/1262 --required --watch --interval 60\n",
+		string(sent))
 }

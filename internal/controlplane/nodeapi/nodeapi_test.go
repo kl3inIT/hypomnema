@@ -512,8 +512,9 @@ func TestReviewPendingOfferTokenRotation(t *testing.T) {
 }
 
 // Scenario (issue #1262): the owner's GitHub App is installed on the Task's repository. A node that said at hello
-// that it refreshes the App's token gets the App's in its offer, marked as such; a node of an earlier release, which
-// would keep a token that ends in an hour for the whole Dispatch, gets the owner's, as before.
+// that it asks for the App's token at each use gets an offer marked as the App's and carrying no token, so none is
+// kept with the offer on the node (review round 1); a node of an earlier release, which would need a token in the
+// offer for the whole Dispatch, gets the owner's, as before.
 func TestAnOfferCarriesTheAppsTokenOnlyToANodeThatRefreshesIt(t *testing.T) {
 	t.Parallel()
 
@@ -525,8 +526,8 @@ func TestAnOfferCarriesTheAppsTokenOnlyToANodeThatRefreshesIt(t *testing.T) {
 			return HostCredential{ //nolint:gosec // a test's made-up token
 				Token: "ghp_the_owners", Identity: githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"},
 			}, true
-		}).WithAppTokens(func(_ context.Context, host, path string) (string, bool) {
-			return "ghs_the_apps", host == "github.com" && path == "kl3inIT/second-bite"
+		}).WithGitHubApp(func(_ context.Context, host, path string) bool {
+			return host == "github.com" && path == "kl3inIT/second-bite"
 		})
 
 		conn := p.connect()
@@ -536,7 +537,7 @@ func TestAnOfferCarriesTheAppsTokenOnlyToANodeThatRefreshesIt(t *testing.T) {
 		require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
 
 		if refreshes {
-			assert.Equal(t, "ghs_the_apps", offer.RepoToken)
+			assert.Empty(t, offer.RepoToken, "the node asks for the App's token at each use")
 			assert.True(t, offer.GitHubApp)
 		} else {
 			assert.Equal(t, "ghp_the_owners", offer.RepoToken)

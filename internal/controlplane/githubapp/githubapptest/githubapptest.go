@@ -42,9 +42,41 @@ type GitHub struct {
 	reads  int
 	minted int
 	asked  []string
+	// scopes holds the repository_ids each token was asked for, nil for a token of the whole installation.
+	scopes [][]int64
+	// head is the pull request's head.
+	head string
 }
 
-// New returns a GitHub with a fresh App key, whose installation covers kl3inIT/hypomnema.
+// RepositoryID is the id GitHub gives a repository of the installation: 1000 and its place in Repositories.
+func (g *GitHub) RepositoryID(fullName string) int64 {
+	for i, name := range g.Repositories {
+		if strings.EqualFold(name, fullName) {
+			return int64(1000 + i)
+		}
+	}
+
+	return 0
+}
+
+// Scopes is the repository_ids each installation token was asked for, in order; nil for one of the whole
+// installation.
+func (g *GitHub) Scopes() [][]int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return append([][]int64(nil), g.scopes...)
+}
+
+// Push moves the pull request's head to sha, whose required check runs.
+func (g *GitHub) Push(sha string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.head, g.checks = sha, ""
+}
+
+// New returns a GitHub with a fresh App key, whose installation covers kl3inIT/hypomnema and kl3inIT/MemoryOS.
 func New(t *testing.T) *GitHub {
 	t.Helper()
 
@@ -56,7 +88,8 @@ func New(t *testing.T) *GitHub {
 	block := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 
 	return &GitHub{ //nolint:gosec // G101: a test's made-up secret
-		PEM: string(block), Secret: "whsec-the-webhook-secret", Repositories: []string{"kl3inIT/hypomnema"},
+		PEM: string(block), Secret: "whsec-the-webhook-secret",
+		Repositories: []string{"kl3inIT/hypomnema", "kl3inIT/MemoryOS"}, head: Head,
 	}
 }
 
@@ -92,8 +125,9 @@ func Token(n int) string { return fmt.Sprintf("ghs_installation_token_%d", n) }
 
 // RoundTrip answers one request.
 func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
+	var sent []byte
 	if r.Body != nil {
-		_, _ = io.Copy(io.Discard, r.Body)
+		sent, _ = io.ReadAll(r.Body)
 	}
 
 	g.mu.Lock()
@@ -118,13 +152,20 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 	case r.Method == http.MethodPost && path == fmt.Sprintf("/app/installations/%d/access_tokens", Installation):
 		g.minted++
 
+		var asked struct {
+			RepositoryIDs []int64 `json:"repository_ids"`
+		}
+
+		_ = json.Unmarshal(sent, &asked)
+		g.scopes = append(g.scopes, asked.RepositoryIDs)
+
 		return answer(http.StatusCreated, map[string]any{
 			"token": Token(g.minted), "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
 		})
 	case r.Method == http.MethodGet && path == "/installation/repositories":
 		repos := make([]any, 0, len(g.Repositories))
-		for _, name := range g.Repositories {
-			repos = append(repos, map[string]any{"full_name": name})
+		for i, name := range g.Repositories {
+			repos = append(repos, map[string]any{"id": 1000 + i, "full_name": name})
 		}
 
 		return answer(http.StatusOK, map[string]any{"repositories": repos})
@@ -143,7 +184,7 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 
 		return answer(http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{
 			"pullRequest": map[string]any{
-				"state": "OPEN", "mergeable": "MERGEABLE", "headRefOid": Head, "headRefName": "hyp/tsk_1",
+				"state": "OPEN", "mergeable": "MERGEABLE", "headRefOid": g.head, "headRefName": "hyp/tsk_1",
 				"commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{
 					"statusCheckRollup": map[string]any{"contexts": map[string]any{
 						"pageInfo": map[string]any{"hasNextPage": false},

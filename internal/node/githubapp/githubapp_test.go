@@ -90,27 +90,29 @@ func agentAPI(t *testing.T, token string) (*httptest.Server, *atomic.Int32) {
 	return srv, &asked
 }
 
-// worker is the environment a worker on kl3inIT/hypomnema is started with when its offer carries the owner's token
-// as RepoToken and, being the App's, GitHubApp: what the node's supervisor gives it.
-func worker(t *testing.T, apiURL string) []string {
+// worker is the environment a worker on kl3inIT/hypomnema is started with when its offer is the GitHub App's: the
+// offer carries no token (GitHubApp, RepoToken empty), and the node's supervisor gives it the App's commands. script
+// is the fake gh first on its PATH.
+func worker(t *testing.T, apiURL, script string) []string {
 	t.Helper()
 
-	// A gh that says which token it was run with.
 	fake := t.TempDir()
-	script := []byte("#!/bin/sh\necho \"GH_TOKEN=$GH_TOKEN args=$*\"\n")
-	require.NoError(t, os.WriteFile(filepath.Join(fake, "gh"), script, 0o700)) //nolint:gosec // G306: a script runs
+	require.NoError(t, os.WriteFile(filepath.Join(fake, "gh"), []byte(script), 0o700)) //nolint:gosec // G306: runs
 
-	src, err := worktree.SourceOf("github.com", "github", "kl3inIT/hypomnema", "ghs_the_offers_token")
+	src, err := worktree.SourceOf("github.com", "github", "kl3inIT/hypomnema", "")
 	require.NoError(t, err)
 
-	app, err := githubapp.Prepare(t.TempDir(), os.Args[0], apiURL, "the-dispatch-key", "ghs_the_offers_token",
+	app, err := githubapp.Prepare(t.TempDir(), os.Args[0], apiURL, "the-dispatch-key",
 		fake+string(os.PathListSeparator)+os.Getenv("PATH"))
 	require.NoError(t, err)
 
-	env := append(githubapp.WithoutHostToken(append(src.WorkerEnv(), "GH_TOKEN=the-owners-token")), app...)
+	env := append(githubapp.WithoutHostToken(src.WorkerEnv()), app...)
 
 	return append(env, helperEnv+"=1", "HOME="+t.TempDir(), "GIT_TERMINAL_PROMPT=0")
 }
+
+// sayToken is a gh that says which token it was run with.
+const sayToken = "#!/bin/sh\necho \"GH_TOKEN=$GH_TOKEN args=$*\"\n"
 
 func run(t *testing.T, env []string, stdin string, name string, args ...string) string {
 	t.Helper()
@@ -131,11 +133,14 @@ func TestAWorkersGhAndGitCarryTheAppsFreshTokenNotTheOwners(t *testing.T) {
 	t.Parallel()
 
 	api, asked := agentAPI(t, "ghs_a_fresh_installation_token")
-	env := worker(t, api.URL)
+	env := worker(t, api.URL, sayToken)
 
+	// No token of the App's is in what the worker starts with, which the shim's spec file keeps: gh and git ask for
+	// one at each call (review round 1).
 	for _, kv := range env {
-		assert.NotContains(t, kv, "the-owners-token", "the owner's token is not in the worker's environment")
+		assert.NotContains(t, kv, "ghs_", "no token in the worker's environment")
 		assert.False(t, strings.HasPrefix(kv, "GH_TOKEN="), "gh gets its token at each call")
+		assert.False(t, strings.HasPrefix(kv, "HYPOMNEMA_GITHUB_OFFER_TOKEN="), "no offer's token is kept for it")
 	}
 
 	// The worker runs gh as it does, from its PATH.
@@ -152,13 +157,52 @@ func TestAWorkersGhAndGitCarryTheAppsFreshTokenNotTheOwners(t *testing.T) {
 }
 
 // Scenario (issue #1262, a skew): the node reconnected to a control plane of an earlier release, which has no route
-// for a fresh token. The worker's gh goes on with the token its offer carried, rather than failing.
-func TestAControlPlaneWithoutTheRouteLeavesTheOffersToken(t *testing.T) {
+// for a fresh token. The worker's gh says so and does not run: there is no token to run it with, since none is kept
+// on the node for the worker (review round 1).
+func TestAControlPlaneWithoutTheRouteGivesNoToken(t *testing.T) {
 	t.Parallel()
 
 	old := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(old.Close)
 
-	out := run(t, worker(t, old.URL), "", "sh", "-c", "gh api user")
-	assert.Equal(t, "GH_TOKEN=ghs_the_offers_token args=api user\n", out)
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", "gh api user")
+	cmd.Env = worker(t, old.URL, sayToken)
+
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err)
+	assert.Contains(t, string(out), "the control plane has no such route")
+	assert.NotContains(t, string(out), "GH_TOKEN=", "gh did not run")
+}
+
+// Scenario (issue #1262, review round 1): the App does not cover the pull request's repository, so the worker's
+// `hypomnema ci wait` waits with gh, polling once a minute (--interval 60). Its --timeout still bounds the wait: a
+// gh that does not answer is stopped, and the command says the checks are pending (exit 8).
+func TestTheWorkersGhFallbackOfCIWaitHonoursItsTimeout(t *testing.T) {
+	t.Parallel()
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"message":"the GitHub App is not installed on this pull request's repository"}`))
+	}))
+	t.Cleanup(api.Close)
+
+	args := filepath.Join(t.TempDir(), "args")
+	env := worker(t, api.URL, "#!/bin/sh\necho \"$*\" > '"+args+"'\nexec sleep 30\n")
+
+	start := time.Now()
+	cmd := exec.CommandContext(t.Context(), "sh", "-c",
+		"hypomnema ci wait https://github.com/kl3inIT/hypomnema/pull/1 --timeout 1s")
+	cmd.Env = env
+
+	out, err := cmd.CombinedOutput()
+
+	var exit *exec.ExitError
+	require.ErrorAs(t, err, &exit, string(out))
+	assert.Equal(t, 8, exit.ExitCode(), string(out))
+	assert.Less(t, time.Since(start), 10*time.Second, "the timeout stopped gh")
+
+	sent, err := os.ReadFile(args) //nolint:gosec // the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, "pr checks https://github.com/kl3inIT/hypomnema/pull/1 --required --watch --interval 60\n",
+		string(sent))
 }
