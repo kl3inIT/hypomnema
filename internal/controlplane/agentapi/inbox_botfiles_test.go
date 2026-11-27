@@ -2,6 +2,7 @@ package agentapi_test
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"testing"
 
@@ -59,14 +60,17 @@ func TestRound3MissingFileIsNotWorkThroughTheAgentAPI(t *testing.T) {
 		require.NoError(t, err)
 
 		closeOn := func(path string) (string, bool) {
-			c := w.inbox(pi, agenttool.ToolInboxComment, map[string]any{
-				"id": item.ID, "text": "Báo cáo đây ạ.", "files": []string{path},
-			})
-			got, err := w.svc.Inbox().Get(ctx, c.ID)
-			require.NoError(t, err)
+			_, text, failed := w.use(pi, agenttool.ToolInboxComment,
+				`{"id":"`+item.ID+`","text":"Báo cáo đây ạ.","files":["`+path+`"]}`)
+			require.False(t, failed, text)
 
-			_, text, failed := w.use(pi, agenttool.ToolInboxDone, `{"id":"`+item.ID+`","evidence":[{"kind":"comment",`+
-				`"ref":"`+strconv.Itoa(got.Revision)+`"}]}`)
+			var c struct {
+				Revision int `json:"revision"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(text), &c), text)
+
+			_, text, failed = w.use(pi, agenttool.ToolInboxDone, `{"id":"`+item.ID+`","evidence":[{"kind":"comment",`+
+				`"ref":"`+strconv.Itoa(c.Revision)+`"}]}`)
 
 			return text, failed
 		}
