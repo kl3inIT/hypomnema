@@ -14,7 +14,7 @@ import (
 )
 
 // twoTabs stands for the shared browser, running with the owner's tab and a
-// worker's, the owner holding it.
+// worker's, the owner holding his own.
 type twoTabs struct{}
 
 func (twoTabs) Status() browser.Status {
@@ -23,7 +23,7 @@ func (twoTabs) Status() browser.Status {
 
 func (twoTabs) Tabs(context.Context) ([]browser.Tab, bool) {
 	return []browser.Tab{
-		{ID: browser.OwnerTab, URL: "https://accounts.example.com/", Title: "Sign in", Views: 1},
+		{ID: browser.OwnerTab, URL: "https://accounts.example.com/", Title: "Sign in", Views: 1, Held: true},
 		{ID: "d-dsp_1", URL: "https://example.com/", Title: "Example Domain"},
 	}, true
 }
@@ -33,7 +33,7 @@ func (twoTabs) Watch(context.Context, string) (clientapi.BrowserView, error) {
 }
 
 // The owner asks what the shared browser is doing: one line for the browser,
-// one for each tab.
+// one for each tab, which says when the owner holds it.
 func TestBrowserStatusListsTheTabs(t *testing.T) {
 	t.Parallel()
 
@@ -42,8 +42,8 @@ func TestBrowserStatusListsTheTabs(t *testing.T) {
 
 	out, err := w.cmd(t, "browser", "status")
 	require.NoError(t, err)
-	assert.Equal(t, "Chrome for Testing 157.0.8103.78, running, the owner holds it, 2 tabs\n"+
-		"owner\towner\thttps://accounts.example.com/\tSign in\n"+
+	assert.Equal(t, "Chrome for Testing 157.0.8103.78, running, the owner holds a tab, 2 tabs\n"+
+		"owner\towner, held by the owner\thttps://accounts.example.com/\tSign in\n"+
 		"d-dsp_1\tworker\thttps://example.com/\tExample Domain\n", out)
 
 	var status openapi.Browser
@@ -52,4 +52,6 @@ func TestBrowserStatusListsTheTabs(t *testing.T) {
 	assert.True(t, status.Held)
 	require.Len(t, status.Tabs, 2)
 	assert.Equal(t, openapi.BrowserTabKindWorker, status.Tabs[1].Kind)
+	assert.True(t, status.Tabs[0].Held)
+	assert.False(t, status.Tabs[1].Held)
 }

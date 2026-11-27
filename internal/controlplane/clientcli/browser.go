@@ -32,7 +32,7 @@ func browserStatus(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 		driver := "agents drive it"
 		if b.Held {
-			driver = "the owner holds it"
+			driver = "the owner holds a tab"
 		}
 
 		e.printf("%s, %s, %s, %d tabs\n", b.Chrome, state, driver, len(b.Tabs))
@@ -41,6 +41,10 @@ func browserStatus(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			whose := string(t.Kind)
 			if t.TaskId != nil {
 				whose += " " + *t.TaskId
+			}
+
+			if t.Held {
+				whose += ", held by the owner"
 			}
 
 			e.printf("%s\t%s\t%s\t%s\n", t.Id, whose, t.Url, t.Title)

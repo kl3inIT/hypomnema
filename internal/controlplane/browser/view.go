@@ -53,9 +53,11 @@ const (
 	maxStreamMessage = 64 << 20
 	// streamFile ends the name of the file in which a session's daemon writes its stream's port.
 	streamFile = ".stream"
+	// frontTimeout bounds bringing a tab to the front, as Chrome's list of its tabs is bounded (chromeTabs).
+	frontTimeout = 5 * time.Second
 )
 
-// The controller a view is told.
+// The controller a view is told: who drives its tab.
 const (
 	ControllerAgent = "agent"
 	ControllerYou   = "you"
@@ -82,7 +84,7 @@ type Update struct {
 	Viewport *Size
 	// URL is the tab's address.
 	URL string
-	// Controller is who drives the browser, ControllerAgent or ControllerYou.
+	// Controller is who drives the tab, ControllerAgent or ControllerYou.
 	Controller string
 }
 
@@ -133,9 +135,11 @@ type streamMessage struct {
 
 // View is the owner's view of one tab.
 type View struct {
-	e    *Engine
-	s    *session
-	tab  string
+	e   *Engine
+	s   *session
+	tab string
+	// hold is who drives the tab (control.go).
+	hold *ownerhold.Hold
 	conn *websocket.Conn
 	stop context.CancelFunc
 
@@ -161,13 +165,14 @@ type View struct {
 // Watch opens the owner's view of a tab: an agent's, by the name the agent
 // has in the browser, or OwnerTab.
 func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
-	if !e.control.Opened(maxViews) {
+	hold, ok := e.holds.open(tab)
+	if !ok {
 		return nil, ErrTooManyViews
 	}
 
-	v, err := e.watch(ctx, tab)
+	v, err := e.watch(ctx, tab, hold)
 	if err != nil {
-		e.control.Unopened()
+		e.holds.unopened(hold)
 
 		return nil, err
 	}
@@ -175,11 +180,13 @@ func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
 	return v, nil
 }
 
-func (e *Engine) watch(ctx context.Context, tab string) (*View, error) {
+func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold) (*View, error) {
 	s, err := e.viewed(ctx, tab)
 	if err != nil {
 		return nil, err
 	}
+
+	e.front(ctx, s)
 
 	port, err := os.ReadFile(filepath.Join(e.sockets(), s.name+streamFile))
 	if err != nil {
@@ -206,7 +213,7 @@ func (e *Engine) watch(ctx context.Context, tab string) (*View, error) {
 	conn.SetReadLimit(maxStreamMessage)
 
 	v := &View{
-		e: e, s: s, tab: tab, conn: conn, stop: stop,
+		e: e, s: s, tab: tab, hold: hold, conn: conn, stop: stop,
 		messages: make(chan streamMessage, 8), again: make(chan struct{}, 1),
 	}
 
@@ -294,7 +301,7 @@ func (v *View) pump(ctx context.Context) {
 // stream ended.
 func (v *View) Next(ctx context.Context) (Update, error) {
 	for {
-		held, changed := v.e.control.State()
+		held, changed := v.hold.State()
 
 		v.mu.Lock()
 		say := !v.told || held != v.held
@@ -414,14 +421,14 @@ func (v *View) Do(ctx context.Context, a Action) error {
 
 		return v.release(ctx)
 	case "takeControl":
-		v.e.control.Take(ctx, now)
-		v.e.cfg.Logger.InfoContext(ctx, "the owner took the browser",
+		v.hold.Take(ctx, now)
+		v.e.cfg.Logger.InfoContext(ctx, "the owner took a tab",
 			slog.String("event", "browser.taken"), slog.String("tab", v.tab))
 
 		return nil
 	case "releaseControl":
-		if v.e.control.Release() {
-			v.e.released(ctx, ownerhold.ReleasedAsked)
+		if v.hold.Release() {
+			v.e.released(ctx, v.tab, ownerhold.ReleasedAsked)
 		}
 
 		return nil
@@ -447,7 +454,7 @@ func (v *View) Do(ctx context.Context, a Action) error {
 		return nil
 	}
 
-	if !v.e.control.Input(now) {
+	if !v.hold.Input(now) {
 		select {
 		case v.again <- struct{}{}:
 		default:
@@ -542,7 +549,7 @@ func input(a Action) (message map[string]any, tool string, arguments json.RawMes
 	return nil, "", nil
 }
 
-// human runs a tool in a tab for the owner, who holds the browser.
+// human runs a tool in a tab for the owner, who holds it.
 func (e *Engine) human(ctx context.Context, s *session, tool string, arguments json.RawMessage) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -579,13 +586,51 @@ func (v *View) Close(ctx context.Context) {
 		v.e.unviewed(v.s)
 		v.e.unwatched(ctx, v.s)
 
-		v.e.control.Closed(v.e.cfg.Clock.Now())
+		v.e.holds.closed(v.hold, v.e.cfg.Clock.Now())
 	})
 }
 
-func (e *Engine) released(ctx context.Context, reason string) {
-	e.cfg.Logger.InfoContext(ctx, "the browser went back to the agents",
-		slog.String("event", "browser.released"), slog.String("reason", reason))
+func (e *Engine) released(ctx context.Context, tab, reason string) {
+	e.cfg.Logger.InfoContext(ctx, "a tab went back to its agent",
+		slog.String("event", "browser.released"), slog.String("tab", tab), slog.String("reason", reason))
+}
+
+// front brings a tab to the front of Chrome's window as its view opens.
+// Every tab is in the one window, and Chrome paints only the tab in front:
+// the stream of a tab behind another sends no frame, as the view of a Bot's
+// tab showed none once the owner's own tab was made in front of it (issue
+// #1113). As agent-browser's tab switch brings the tab it switches to to the
+// front (cli/src/native/browser.rs, Page.bringToFront) and OpenMausBot shows
+// the tab a viewer picks (server/browser/viewers/core.ts, tabSelect), here
+// with the browser's own Target.activateTarget, as agent-browser revives a
+// tab with it (browser.rs:1233). The tab watched last is the one in front. A
+// tab not brought there leaves the view as it was: it goes on.
+func (e *Engine) front(ctx context.Context, s *session) {
+	e.mu.Lock()
+	cdp := e.cdp
+	e.mu.Unlock()
+
+	err := func() error {
+		target, err := e.boundTarget(s)
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, frontTimeout)
+		defer cancel()
+
+		conn, err := dialCDP(ctx, cdp, nil)
+		if err != nil {
+			return err
+		}
+		defer conn.close()
+
+		return conn.send(ctx, "Target.activateTarget", map[string]any{"targetId": target}, "", nil)
+	}()
+	if err != nil {
+		e.cfg.Logger.WarnContext(ctx, "a tab could not be brought to the front",
+			slog.String("event", "browser.front_failed"), slog.String("session", s.name), slog.Any("err", err))
+	}
 }
 
 // Tab is one tab of the shared browser.
@@ -598,19 +643,21 @@ type Tab struct {
 	Favicon string
 	// Views is how many views of it are open.
 	Views int
+	// Held says that the owner holds it: its agent's calls are refused.
+	Held bool
 }
 
-// Tabs lists the open tabs, and says whether the owner holds the browser.
+// Tabs lists the open tabs, and says whether the owner holds any of them.
 // It starts nothing.
 func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
-	held, _ := e.control.State()
+	held := e.holds.held()
 
 	e.mu.Lock()
 
 	if e.cdp == "" {
 		e.mu.Unlock()
 
-		return nil, held
+		return nil, len(held) > 0
 	}
 
 	cdp := e.cdp
@@ -618,7 +665,7 @@ func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
 	targets := map[string]int{}
 
 	for agent, s := range e.sessions {
-		tab := Tab{ID: agent, Views: s.views}
+		tab := Tab{ID: agent, Views: s.views, Held: held[agent]}
 
 		// agent-browser keeps the tab a session is pinned to, and its last address, in a file.
 		var bound struct {
@@ -646,7 +693,7 @@ func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
 		}
 	}
 
-	return tabs, held
+	return tabs, len(held) > 0
 }
 
 // chromeTab is one of Chrome's targets as its DevTools port lists them.

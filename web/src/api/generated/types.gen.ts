@@ -1137,7 +1137,7 @@ export type Browser = {
    */
   chrome: string;
   /**
-   * Whether the owner holds the browser; agents' calls are refused meanwhile.
+   * Whether the owner holds any tab. Each tab says whether it is held: taking control holds only the tab taken, and only that tab's agent's calls are refused meanwhile.
    */
   held: boolean;
   tabs: Array<BrowserTab>;
@@ -1173,6 +1173,10 @@ export type BrowserTab = {
    * How many views of it are open.
    */
   views: number;
+  /**
+   * Whether the owner holds this tab; its agent's browser calls are refused meanwhile.
+   */
+  held: boolean;
 };
 
 export type BrowserViewTicket = {

@@ -32,6 +32,7 @@ import {
   type ViewInput,
   type Viewport,
 } from "./stream"
+import { elsewhereLine, ownerTab, useBrowser } from "./browser-state"
 import { createFramePainter, createViewClient, type ViewClient } from "./stream-client"
 
 // A zero-width space kept in the hidden input, so that a phone's Backspace has something to delete.
@@ -92,6 +93,9 @@ export function BrowserView({ tab, label }: { tab: string; label: string }) {
 
   const hint = useId()
   const you = controller === "you"
+  // Control is one tab's (issue #1113): the view of a tab the owner does not hold says which others he does.
+  const elsewhere = useBrowser().data?.tabs
+  const heldElsewhere = you ? null : elsewhereLine(elsewhere, tab)
   const pageVisible = usePageVisible()
   // A page nobody looks at takes no frames, unless its owner holds the browser (OpenMausBot's BrowserPanel).
   const watching = pageVisible || you
@@ -418,12 +422,18 @@ export function BrowserView({ tab, label }: { tab: string; label: string }) {
       <AddressRow
         url={url}
         you={you}
+        own={tab === ownerTab}
         controller={controller}
         onNavigate={(to) => send({ type: "navigate", url: to })}
         onHistory={(delta) => send({ type: "history", delta })}
         onReload={() => send({ type: "reload" })}
         onControl={() => send({ type: you ? "releaseControl" : "takeControl" })}
       />
+      {heldElsewhere && (
+        <output className="shrink-0 border-b px-3 py-1.5 text-xs text-muted-foreground">
+          {heldElsewhere}
+        </output>
+      )}
       <div className="relative min-h-0 flex-1 bg-black">
         <canvas
           ref={canvas}
@@ -506,6 +516,7 @@ export function BrowserView({ tab, label }: { tab: string; label: string }) {
 function AddressRow({
   url,
   you,
+  own,
   controller,
   onNavigate,
   onHistory,
@@ -514,6 +525,8 @@ function AddressRow({
 }: {
   url: string
   you: boolean
+  // own says the tab is the owner's own, which no agent drives: only watched, as OpenMausBot's "Watching".
+  own: boolean
   controller: Controller | null
   onNavigate: (url: string) => void
   onHistory: (delta: number) => void
@@ -583,14 +596,16 @@ function AddressRow({
               ? "Connecting…"
               : you
                 ? "You have control ·"
-                : "Agents have control ·"}
+                : own
+                  ? "Watching ·"
+                  : "Its agent has control ·"}
           </span>
           {you ? "Hand back" : "Take control"}
         </TooltipTrigger>
         <TooltipContent>
           {you
-            ? "Every agent's browser tools are paused while you have control. Control goes back after five minutes without input."
-            : "Take control to click and type. Every agent's browser tools pause meanwhile."}
+            ? "This tab's agent is paused while you have control; the other tabs go on. Control goes back after five minutes without input."
+            : "Take control to click and type in this tab. Only its agent's browser tools pause meanwhile."}
         </TooltipContent>
       </Tooltip>
     </div>

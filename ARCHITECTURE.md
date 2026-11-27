@@ -665,15 +665,18 @@ sequenceDiagram
     #536 lists `GET /agent/v1/browser/tools` (the browser's and the gateway's) and defines `memory` itself; both
     routes and `POST /agent/v1/memory` stay for it. The tab is not closed when the Dispatch settles: the idle
     rules close it.
-  - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
-    agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
-    browser: every agent's call is then answered, as a tool's result, that the browser is paused, a read included,
-    and nothing reaches agent-browser. Taking control holds at once and lets an agent's running call end for up
-    to 15 seconds; that call is answered as refused too. Control goes back to the agents at once when the owner
-    hands it back (`releaseControl`), 2 minutes after the owner's last view went, however it went (the page
-    closing it, as switching to another tab of the pane does, or a socket that dropped; a view opened meanwhile
-    carries the hold on; issue #603, after OpenMausBot's phone, `server/routes/phone-screen.ts`), and 5 minutes
-    after the owner's last input (OpenMausBot's limits).
+  - Who drives each tab (issues #219, #1113; `control.go`, after T3 Code's per-tab
+    `apps/server/src/preview/SessionControl.ts`): its agent, or the owner who took control of it. Taking control
+    holds only the tab taken: that tab's agent's calls (and a take's film, still and box of it, and
+    `EvaluateOwnerTab` for the owner's own tab) are then answered, as a tool's result, that its tab is paused, a
+    read included, and nothing reaches agent-browser; the other agents go on in their own tabs, and the owner may
+    hold several tabs. Taking control holds at once and lets the tab's agent's running call end for up to 15
+    seconds; that call is answered as refused too. A tab goes back to its agent at once when the owner hands it
+    back (`releaseControl`), 2 minutes after the owner's last view of it went, however it went (the page closing
+    it, as switching to another tab of the pane does, or a socket that dropped; a view opened meanwhile carries
+    the hold on; issue #603, after OpenMausBot's phone, `server/routes/phone-screen.ts`), and 5 minutes after the
+    owner's last input in it (OpenMausBot's limits). Until issue #1113 one hold covered the whole browser, as
+    OpenMausBot's `ProfileControl`; it paused a Bot in its own tab while the owner signed in in his.
   - The owner watches a tab (issue #219; `view.go`, `clientapi/browser.go`): an agent's, or the owner's own tab
     `owner`, which is made when it is first watched and is where a sign-in is made. `POST
     /api/v1/browser/tabs/{tab}/views` gives a ticket (owner only, once, 30 seconds), which opens the WebSocket
@@ -690,11 +693,15 @@ sequenceDiagram
     change wins, and a tab nobody watches goes back to agent-browser's 1280×720. Mouse, wheel and keys go to the stream as agent-browser's
     `input_mouse` and `input_keyboard`, navigation runs as the session's own command, and all of them need
     control: without it they are dropped and the page is told again who controls. At most 4 views are open; a
-    tab that is watched is not closed as idle. Each view and each take-over is logged
+    tab that is watched is not closed as idle. Every tab is in one window of Chrome, which paints only the tab in
+    front: a view brings its tab there as it opens (`Target.activateTarget`, as agent-browser's tab switch brings
+    a tab to the front), so the tab watched last streams; before issue #1113 a Bot's tab behind the owner's sent
+    no frame. Each view and each take-over is logged
     (`clientapi.browser_view_opened`, `_closed`, `browser.taken`, `browser.released`) with who, which tab, from
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
-    say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
+    say whether it is installed and running, whether the owner holds any tab, and list the tabs: whether the owner
+    holds each (`held`), whose each is (a worker's with its Dispatch, Task and
     Run), the chat it belongs to (`chat_id`, issue #557), its address and title as Chrome's own DevTools port lists them,
     and its page's icon (`favicon`, issue #703): a `data:` address of an image of 64 KiB at most, which the
     engine has the page read in a world of the engine's own beside the page's (`browser/favicon.go`, OpenClaw's
@@ -707,15 +714,14 @@ sequenceDiagram
     `disposeOnDetach: false`, as www222fff/muse2api's driver), sets its cookies (`Storage.setCookies`) and a tab
     in it (`Target.createTarget` with the context, attached flat on a DevTools connection of the engine's own), and
     gives its steps: navigate, evaluate (awaiting a promise, by value), insert text, click, Enter, and the
-    context's cookies. Every step enters and leaves the owner's hold as an agent's call does: while he holds the
-    browser none runs, and one running when he takes it answers `ErrHeld`, its result dropped. A tab that went
+    context's cookies. Such a tab is no tab the owner takes, and no hold pauses its steps (issue #1113). A tab that went
     away is made again in its context; a Chrome started again has none of the contexts, and the next `Page` makes
     a new one from the cookies given (`ErrPageGone` meanwhile). `DisposeContext` closes one. The owner's own path
-    runs while he holds the browser, as his input does: `OpenOwnerTab` loads an address in his tab,
+    runs while he holds his tab, as his input does: `OpenOwnerTab` loads an address in his tab,
     `ProfileCookies` reads the shared profile's cookies of a domain and `ClearProfileCookies` removes them (set
     again expired). `EvaluateOwnerTab` runs a script in the owner's tab, in the page's own world, attached to it
     on a DevTools connection of its own (issue #798): it is the control plane's step there, refused with `ErrHeld`
-    under the hold as a context's are, and `ErrNoSuchTab` with no owner's tab. The Muse pool is their one caller;
+    while the owner holds his tab, and `ErrNoSuchTab` with no owner's tab. The Muse pool is their one caller;
     no agent reaches a context, and none is listed as a tab.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
@@ -735,8 +741,9 @@ sequenceDiagram
     tabs its strip lists (`chat`), so that the owner's tab shown in place of a Bot's still lists the chat's. Panes
     of the grid that open a tab beside them in one update each build on the grid as kept now (`latestBench`), so
     that one does not undo the other's. The tab is shown as `BrowserView`, one piece that holds the address
-    row, the control button and the picture. While the owner holds the browser the sidebar says so on every
-    page, since every agent's browser tools wait meanwhile. It
+    row, the control button and the picture. While the owner holds a tab the sidebar names the tabs he holds on
+    every page, and whether their agents wait; the view of a tab he does not hold names the ones he does and says
+    its agent goes on (issue #1113). It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
     paints on a canvas the size of the frame, fitted with `object-contain`, one decode at a time; and maps the
     pointer through the letterbox to the tab's own pixels. Moves and wheel steps are merged, one message a
@@ -745,7 +752,7 @@ sequenceDiagram
     Control is taken only with the button; without it the page takes no input and the address row is off. A
     dropped view is tried again after half a second, doubled each time up to ten; a tab that is gone, and a
     control plane with no browser, say so. The stream stops while the page is hidden, unless the owner holds the
-    browser. Adapted from T3 Code and OpenMausBot (`web/THIRD_PARTY_NOTICES.md`). On a phone a tap is a click and
+    tab. Adapted from T3 Code and OpenMausBot (`web/THIRD_PARTY_NOTICES.md`). On a phone a tap is a click and
     a drag scrolls; typing there is not done yet.
   - Others on the control plane's machine: agent-browser serves each session's stream, and a route that runs
     commands in it, on `127.0.0.1` with no key, and Chrome's DevTools port is on `127.0.0.1` too, as in T3 Code
@@ -5582,7 +5589,9 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 - Served at `/api/v1`. The spec is written by hand; oapi-codegen generates the types, a strict server, a Go client and
   the embedded spec into `clientapi/openapi`.
 - Every request is checked against the spec first (`validation_failed`), and bodies are limited to 1 MiB. Errors are
-  `{code, message}`.
+  `{code, message}`; an `internal_error` is logged (`clientapi.internal_error`) without its details shown. A
+  request the page abandoned (its context canceled) is answered with nothing and not logged, as the model gateway
+  leaves a client that left (issue #1113).
 - Every request carries a web session's cookie or a client token (`Authorization: Bearer`); the cookie is looked
   at first, and without a valid one of the two the answer is 401. Signing in is the one operation that needs neither.
 - `POST /session` takes a user's name and password and sets the session as a cookie: HttpOnly, `SameSite=Lax`,

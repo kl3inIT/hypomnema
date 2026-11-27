@@ -110,8 +110,14 @@ func TestAFilmIsTheScreencastOfTheAgentsTab(t *testing.T) {
 		return strings.Contains(strings.Join(chrome.sent(), "\n"), `S1 Page.screencastFrameAck {"sessionId":1}`)
 	}, 5*time.Second, 10*time.Millisecond)
 
-	// While the owner holds the browser, a frame is acknowledged and not given.
-	e.control.Take(t.Context(), time.Now())
+	// While the owner holds the tab, a frame is acknowledged and not given; his own tab held is not the agent's.
+	holdOf(e, OwnerTab).Take(t.Context(), time.Now())
+	chrome.push <- frame(5, "1795683600.5")
+
+	second := <-got
+	assert.Equal(t, []byte("a JPEG"), second.JPEG, "the owner's own tab held leaves the agent's filmed")
+
+	holdOf(e, "d-1").Take(t.Context(), time.Now())
 	chrome.push <- frame(2, "1795683601")
 
 	require.Eventually(t, func() bool {
@@ -120,11 +126,11 @@ func TestAFilmIsTheScreencastOfTheAgentsTab(t *testing.T) {
 	assert.Empty(t, got, "what the owner does is not filmed")
 
 	_, err = f.Still(t.Context())
-	require.ErrorIs(t, err, ErrHeld, "no still is taken while the owner holds the browser")
+	require.ErrorIs(t, err, ErrHeld, "no still is taken while the owner holds the tab")
 
 	require.Eventually(t, func() bool { return f.drawnInHold(time.Now()) }, 5*time.Second, time.Millisecond)
 	inHold := time.Now()
-	e.control.Release()
+	holdOf(e, "d-1").Release()
 
 	// A frame Chrome drew during the hold that comes after "Hand back" is not given either; one drawn after it is.
 	require.Eventually(t, func() bool { return !f.drawnInHold(time.Now()) }, 5*time.Second, time.Millisecond)

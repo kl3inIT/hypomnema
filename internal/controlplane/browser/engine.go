@@ -130,8 +130,8 @@ type Engine struct {
 	cleared  bool
 	lastUsed time.Time
 	sessions map[string]*session
-	// control says who drives the browser: the agents, or the owner.
-	control *ownerhold.Hold
+	// holds say who drives each tab: its agent, or the owner (control.go).
+	holds holds
 	// icons are the icons of the sites the tabs show (favicon.go), with a lock of their own.
 	icons favicons
 	// isolated are the browser contexts of the control plane's own (contexts.go), with a lock of their own.
@@ -171,7 +171,7 @@ func New(cfg Config) *Engine {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 
-	return &Engine{cfg: cfg, sessions: map[string]*session{}, control: ownerhold.New()}
+	return &Engine{cfg: cfg, sessions: map[string]*session{}}
 }
 
 func (e *Engine) download(ctx context.Context) (string, string, error) {
@@ -205,22 +205,23 @@ func (e *Engine) Tools(ctx context.Context) ([]Tool, error) {
 // Call runs one tool for an agent, in the agent's own tab, and returns
 // agent-browser's answer: an MCP tool result.
 func (e *Engine) Call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
-	// While the owner holds the browser no agent's call runs, and one that was running when the owner took it
-	// is answered as if it had not: what it read may be what the owner typed.
-	if !e.control.Enter() {
+	// While the owner holds the agent's tab none of its calls runs, and one that was running when the owner took
+	// it is answered as if it had not: what it read may be what the owner typed.
+	hold, ok := e.holds.enter(agent)
+	if !ok {
 		return refusal(), nil
 	}
 
 	result, err := e.call(ctx, agent, tool, arguments)
 
-	if e.control.Leave() {
+	if hold.Leave() {
 		return refusal(), nil
 	}
 
 	return result, err
 }
 
-// refusal is the answer to an agent's call while the owner holds the browser.
+// refusal is the answer to an agent's call while the owner holds its tab.
 func refusal() json.RawMessage {
 	//nolint:errchkjson // Strings and a boolean.
 	raw, _ := json.Marshal(map[string]any{
@@ -777,11 +778,19 @@ func (e *Engine) Sweep(ctx context.Context) {
 	e.cfg.Logger.InfoContext(ctx, "the idle browser was closed", slog.String("event", "browser.stopped"))
 }
 
-// expire gives the browser back to the agents when the owner's hold outlived
-// its view or the owner's last input.
+// expire gives each tab back to its agent when the owner's hold outlived its
+// views or the owner's last input.
 func (e *Engine) expire(ctx context.Context) {
-	if reason := e.control.Expire(e.cfg.Clock.Now()); reason != "" {
-		e.released(ctx, reason)
+	e.mu.Lock()
+	ended := e.holds.expire(e.cfg.Clock.Now(), func(tab string) bool {
+		_, open := e.sessions[tab]
+
+		return open
+	})
+	e.mu.Unlock()
+
+	for tab, reason := range ended {
+		e.released(ctx, tab, reason)
 	}
 }
 

@@ -125,22 +125,25 @@ func isRefusal(t *testing.T, result json.RawMessage) bool {
 	return string(result) == string(refusal())
 }
 
-// Scenario: the owner signs in. The owner's own tab is made when it is first
-// watched. From "Take control" to "Release" no agent's call runs, a read
-// included: each is answered that the browser is paused, and nothing reaches
-// agent-browser. After the release the agents go on.
-func TestWhileTheOwnerHoldsTheBrowserNoAgentUsesIt(t *testing.T) {
+// Scenario: the owner helps an agent past a sign-in in its tab. The owner's
+// own tab is made when it is first watched. From "Take control" to "Release"
+// none of the agent's calls in the tab held runs, a read included: each is
+// answered that its tab is paused, and nothing reaches agent-browser. After
+// the release the agent goes on.
+func TestWhileTheOwnerHoldsATabItsAgentDoesNotUseIt(t *testing.T) {
 	r := newRig(t, Config{})
 
 	_, err := r.Call(t.Context(), "d-one", toolOpen, json.RawMessage(`{"url":"example.com"}`))
 	require.NoError(t, err)
 
 	r.stream(t, OwnerTab)
-	v := r.watch(t, OwnerTab)
+	r.watch(t, OwnerTab)
 
 	made := containing(r.runs(t), "session=owner", "mcp call agent_browser_open")
 	require.Len(t, made, 1, "the owner's tab is made for the view")
 
+	r.stream(t, "d-one")
+	v := r.watch(t, "d-one")
 	assert.Equal(t, ControllerAgent, next(t, v).Controller)
 
 	do(t, v, `{"type":"takeControl"}`)
@@ -153,27 +156,28 @@ func TestWhileTheOwnerHoldsTheBrowserNoAgentUsesIt(t *testing.T) {
 		assert.JSONEq(t, `{"content":[{"type":"text","text":"`+Refusal+`"}],"isError":true}`, string(result))
 	}
 
-	assert.Empty(t, containing(r.runs(t), "session=d-one"), "a refused call does not reach agent-browser")
+	assert.Empty(t, containing(r.runs(t), "session=d-one", "mcp call"), "a refused call does not reach agent-browser")
 
 	do(t, v, `{"type":"releaseControl"}`)
 	assert.Equal(t, ControllerAgent, next(t, v).Controller)
+	assert.False(t, r.held(t))
 
 	result, err := r.Call(t.Context(), "d-one", "agent_browser_get_text", nil)
 	require.NoError(t, err)
 	assert.False(t, isRefusal(t, result))
 }
 
-// A call that was running when the owner took the browser ends, and is then
+// A call that was running when the owner took its tab ends, and is then
 // answered as refused: what it read may be what the owner typed. Taking
 // control waits for it.
-func TestACallRunningWhenTheOwnerTakesTheBrowserIsAnsweredAsRefused(t *testing.T) {
+func TestACallRunningWhenTheOwnerTakesItsTabIsAnsweredAsRefused(t *testing.T) {
 	r := newRig(t, Config{})
 
 	_, err := r.Call(t.Context(), "d-one", toolOpen, json.RawMessage(`{"url":"example.com"}`))
 	require.NoError(t, err)
 
-	r.stream(t, OwnerTab)
-	v := r.watch(t, OwnerTab)
+	r.stream(t, "d-one")
+	v := r.watch(t, "d-one")
 	r.runs(t)
 	r.touch(t, "slow", "")
 
@@ -204,7 +208,7 @@ func TestACallRunningWhenTheOwnerTakesTheBrowserIsAnsweredAsRefused(t *testing.T
 	}
 }
 
-// The browser goes back to the agents at once when the owner hands it back,
+// A tab goes back to its agent at once when the owner hands it back,
 // HoldGrace after the last view went, closed by the page or dropped (issue
 // #603), and HoldIdle after the owner's last input.
 func TestTheOwnersHoldEndsByItself(t *testing.T) {
@@ -214,7 +218,7 @@ func TestTheOwnersHoldEndsByItself(t *testing.T) {
 	handed := r.watch(t, OwnerTab)
 	do(t, handed, `{"type":"takeControl"}`)
 	do(t, handed, `{"type":"releaseControl"}`)
-	assert.False(t, r.held(t), "handing back gives the browser back at once")
+	assert.False(t, r.held(t), "handing back gives the tab back at once")
 	handed.Close(t.Context())
 
 	closed := r.watch(t, OwnerTab)
@@ -249,7 +253,7 @@ func TestTheOwnersHoldEndsByItself(t *testing.T) {
 // stream is asked for frames that wait to be acknowledged, at most 15 a
 // second; a frame reaches the page as a JPEG with the tab's size and address.
 // The owner's mouse, keys and navigation go in only while
-// the owner holds the browser; without that they are dropped and the page is
+// the owner holds the tab; without that they are dropped and the page is
 // told again who controls.
 func TestAViewShowsATabAndTakesInputOnlyWithControl(t *testing.T) {
 	r := newRig(t, Config{})
