@@ -3,6 +3,7 @@ package inboxstore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -144,4 +145,69 @@ func (a Attached) after(ctx context.Context, q *store.Queries, actor Actor, text
 	after["files"], after["chat"] = a.Files, chat
 
 	return after, nil
+}
+
+// liveChats points each Bot's comment whose files are read through a chat deleted since at a chat of the same Bot
+// that is still there (issue #1207, review): every chat of a Bot reads its one folder, so the files it named are
+// still read. The event keeps the chat it named; only what is read changes. A Bot with no chat left keeps it, and
+// its chips say the server's refusal.
+func liveChats(ctx context.Context, q *store.Queries, events []Event) error {
+	live := map[string]bool{}
+	instead := map[string]string{}
+
+	for i, e := range events {
+		if e.Kind != EventCommented || e.Actor.Kind != Bot {
+			continue
+		}
+
+		var after map[string]json.RawMessage
+		if json.Unmarshal(e.After, &after) != nil || after["chat"] == nil {
+			continue
+		}
+
+		var chat string
+		if json.Unmarshal(after["chat"], &chat) != nil || chat == "" {
+			continue
+		}
+
+		there, seen := live[chat]
+		if !seen {
+			_, err := q.GetTodoChatBot(ctx, chat)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("reading chat %s: %w", chat, err)
+			}
+
+			there = err == nil
+			live[chat] = there
+		}
+
+		if there {
+			continue
+		}
+
+		other, seen := instead[e.Actor.ID]
+		if !seen {
+			var err error
+			if other, err = q.GetBotLiveChat(ctx, e.Actor.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("reading a chat of Bot %s: %w", e.Actor.ID, err)
+			}
+
+			instead[e.Actor.ID] = other
+		}
+
+		if other == "" {
+			continue
+		}
+
+		after["chat"], _ = json.Marshal(other)
+
+		raw, err := json.Marshal(after)
+		if err != nil {
+			return fmt.Errorf("reading comment %d: %w", e.ID, err)
+		}
+
+		events[i].After = raw
+	}
+
+	return nil
 }

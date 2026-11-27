@@ -1007,6 +1007,10 @@ func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, err
 
 	t.Events = eventsOf(rows)
 
+	if err := liveChats(ctx, q, t.Events); err != nil {
+		return Todo{}, err
+	}
+
 	return t, nil
 }
 

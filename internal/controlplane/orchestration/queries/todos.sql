@@ -163,6 +163,15 @@ UPDATE todos SET chat_id = NULL WHERE chat_id = @chat_id;
 -- The Bot of a chat, read for an item's own chat: none when the chat was deleted.
 SELECT bot_id FROM chats WHERE id = @id;
 
+-- name: GetBotLiveChat :one
+-- A chat of a Bot that is still there, its main chat first, else the one updated last (issue #1207): every chat of
+-- a Bot reads its one folder, so a comment's files are read through it once the chat the comment named is deleted.
+SELECT c.id FROM chats c
+JOIN bots b ON b.id = c.bot_id
+WHERE c.bot_id = @bot_id
+ORDER BY c.id = b.main_chat DESC, c.updated_at DESC, c.id
+LIMIT 1;
+
 -- name: InsertTodoWake :exec
 -- A wake-up of the control plane in an item's own chat (issue #1111): the item handed to the Bot, or the owner's
 -- comment on it, given to the Bot as a Routine's prompt is (InsertRoutinePrompt), since nobody wrote it there.
