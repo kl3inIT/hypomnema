@@ -24,9 +24,11 @@ import (
 //   - a verdict recorded with its head (recordReviewVerdict): correct is success, incorrect or blocked failure
 //     with the review's first finding;
 //   - a quick Task's pull request: success, "no review needed", on each of its heads, as the coordinator's guide
-//     says quick work needs green CI and no worker review. The Task is kept when it succeeds (keepNoReview),
-//     whatever becomes of its Run, which the coordinator may finish at once (review round 1); each pass finds its
-//     pull request by the Task's branch, as the follower does, and queues its head.
+//     says quick work needs green CI and no worker review. The Task is kept when it succeeds (keepNoReview; the
+//     migration keeps those that succeeded before), whatever becomes of its Run, which the coordinator may finish
+//     at once (review round 1); each pass finds its pull request by the Task's branch, as the follower does, and
+//     queues its head, only while the latest Task pushing to that branch is quick: a narrow or broad Task that
+//     continues it, in any Run, makes its heads need their review (review round 2).
 //
 // Each is queued in the transaction that learns it and posted by the control plane's follower with the token of
 // the repository's Connection, the one its pull requests are read with. Before posting, the pull request is read:
@@ -43,6 +45,15 @@ const ReviewStatusContext = "review"
 // request is dropped after its lookup window (lookUpWindow; Coder's NoPRRetryWindow).
 const reviewStatusWindow = 24 * time.Hour
 
+// A quick Task's branch without a pull request yet is looked up every pass for noRequestFastFor, then every
+// noRequestSlowEvery, for reviewStatusWindow (review round 2). As the follower's lookup (Coder's NoPRBackoff then
+// NoPRRetryWindow, coderd/x/gitsync/worker.go:38-53), but kept for the day a slow worker may take to open it; the
+// slower phase, which bounds the host's requests for a branch that never gets one, is this change's choice.
+const (
+	noRequestFastFor   = 10 * time.Minute
+	noRequestSlowEvery = 15 * time.Minute
+)
+
 // The outcomes of a queued status.
 const (
 	statusPosted     = "posted"
@@ -50,6 +61,7 @@ const (
 	statusMoved      = "moved"
 	statusUnfollowed = "unfollowed"
 	statusExpired    = "expired"
+	statusSuperseded = "superseded"
 )
 
 // ReviewStatus is a `review` status to post: State on Head, the full SHA read from the host, of the pull request,
@@ -176,6 +188,21 @@ func (s *Service) findNoReviewPullRequests(ctx context.Context, host ReviewStatu
 	return errors.Join(errs...)
 }
 
+// stillQuick reports whether the latest Task pushing to branch, of any Run, is quick: a Task that continues a
+// quick one takes its branch and pull request, and its heads need what its own kind needs.
+func stillQuick(ctx context.Context, q *store.Queries, branch string) (bool, error) {
+	latest, err := q.LatestTaskPushingTo(ctx, branch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("reading the latest task pushing to %s: %w", branch, err)
+	}
+
+	return latest.Kind == "quick", nil
+}
+
 // findNoReview finds row's pull request, queues success on its open head, and says whether row is done.
 func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host ReviewStatusHost,
 	kindOf func(string) (githost.Kind, bool), row store.NoReviewRequest,
@@ -183,6 +210,16 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 	now := s.clock.Now().UnixMilli()
 	if now-row.Since > reviewStatusWindow.Milliseconds() {
 		return true, nil
+	}
+
+	quick, err := stillQuick(ctx, q, row.Branch)
+	if err != nil || !quick {
+		return !quick && err == nil, err
+	}
+
+	if row.PullRequest == "" && now-row.Since >= noRequestFastFor.Milliseconds() &&
+		now-row.LookedAt < noRequestSlowEvery.Milliseconds() {
+		return false, nil
 	}
 
 	registered, err := gitHostOf(ctx, q, row.RepoHost)
@@ -203,7 +240,11 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 	case errors.Is(err, ErrCannotFollow):
 		return true, nil
 	case errors.Is(err, githost.ErrNoRequest):
-		return row.PullRequest == "" && now-row.Since > lookUpWindow.Milliseconds(), nil
+		err := s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.LookedUpNoReviewRequest(ctx, store.LookedUpNoReviewRequestParams{Now: now, TaskID: row.TaskID})
+		})
+
+		return false, err
 	case err != nil:
 		return false, err
 	}
@@ -314,6 +355,17 @@ func (s *Service) postReviewStatus(ctx context.Context, q *store.Queries, host R
 	task, err := q.GetTask(ctx, row.TaskID)
 	if err != nil {
 		return "", notFound(err, "task", row.TaskID)
+	}
+
+	if row.Reason == "quick" {
+		quick, err := stillQuick(ctx, q, pushBranchOf(task))
+		if err != nil {
+			return "", err
+		}
+
+		if !quick {
+			return statusSuperseded, nil
+		}
 	}
 
 	state, description := reviewStatusOf(row.Reason, task)

@@ -5913,7 +5913,10 @@ The owner's commands:
   `success` "no review needed: quick Task <id>" on each of its heads: the Task is kept in `no_review_requests`
   (repository, branch, the pull request its evidence names) when it succeeds, whatever becomes of its Run, and each
   pass finds its pull request by that branch (`githost.FindRequest`, as the follower) and queues its open head,
-  until it is merged or closed, no pull request was found within 2 minutes, or a day passed. Each status is queued
+  only while the latest Task pushing to that branch, of any Run, is quick (a narrow or broad Task that continues it
+  makes its heads need their review; a queued one is then dropped as `superseded`), until it is merged or closed,
+  or a day passed. A branch without a pull request yet is looked up every pass for 10 minutes, then every 15
+  minutes. The migration keeps the quick Tasks that succeeded before it, with the pull request the follower found. Each status is queued
   in `review_statuses` (pull request, full head SHA, Task, reason) in the transaction that learns it, a later
   verdict on the same head replacing it; a verdict naming an abbreviated head is not queued, since a prefix may
   name a newer commit too. Once a minute, after the reads, the follower reads each queued one's pull request with

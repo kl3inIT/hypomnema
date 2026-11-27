@@ -98,6 +98,62 @@ func (q *Queries) KeepNoReviewRequest(ctx context.Context, arg KeepNoReviewReque
 	return err
 }
 
+const latestTaskPushingTo = `-- name: LatestTaskPushingTo :one
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks
+WHERE push_branch = CAST(?1 AS TEXT) OR (push_branch IS NULL AND 'hyp/' || id = CAST(?1 AS TEXT))
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+// The Task that pushed last to branch: its own hyp/<id>, or the branch it continues (issue #690), of any Run.
+func (q *Queries) LatestTaskPushingTo(ctx context.Context, branch string) (Task, error) {
+	row := q.db.QueryRowContext(ctx, latestTaskPushingTo, branch)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.Position,
+		&i.Profile,
+		&i.Spec,
+		&i.Runtime,
+		&i.Model,
+		&i.Effort,
+		&i.Status,
+		&i.BlockedReason,
+		&i.FailureCount,
+		&i.Result,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FinishedAt,
+		&i.NotBefore,
+		&i.CancelRequestedAt,
+		&i.WaitingReason,
+		&i.Kind,
+		&i.AuthorVendor,
+		&i.Continues,
+		&i.PushBranch,
+		&i.StartFrom,
+		&i.PrBase,
+	)
+	return i, err
+}
+
+const lookedUpNoReviewRequest = `-- name: LookedUpNoReviewRequest :exec
+UPDATE no_review_requests
+SET looked_at = ?1
+WHERE task_id = ?2
+`
+
+type LookedUpNoReviewRequestParams struct {
+	Now    int64
+	TaskID string
+}
+
+func (q *Queries) LookedUpNoReviewRequest(ctx context.Context, arg LookedUpNoReviewRequestParams) error {
+	_, err := q.db.ExecContext(ctx, lookedUpNoReviewRequest, arg.Now, arg.TaskID)
+	return err
+}
+
 const noteNoReviewRequest = `-- name: NoteNoReviewRequest :exec
 UPDATE no_review_requests
 SET pull_request = ?1
@@ -115,7 +171,7 @@ func (q *Queries) NoteNoReviewRequest(ctx context.Context, arg NoteNoReviewReque
 }
 
 const openNoReviewRequests = `-- name: OpenNoReviewRequests :many
-SELECT task_id, repo_host, repo, branch, pull_request, since, done_at FROM no_review_requests
+SELECT task_id, repo_host, repo, branch, pull_request, since, looked_at, done_at FROM no_review_requests
 WHERE done_at IS NULL
 ORDER BY since, task_id
 `
@@ -136,6 +192,7 @@ func (q *Queries) OpenNoReviewRequests(ctx context.Context) ([]NoReviewRequest, 
 			&i.Branch,
 			&i.PullRequest,
 			&i.Since,
+			&i.LookedAt,
 			&i.DoneAt,
 		); err != nil {
 			return nil, err

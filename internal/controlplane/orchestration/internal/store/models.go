@@ -719,6 +719,7 @@ type NoReviewRequest struct {
 	Branch      string
 	PullRequest string
 	Since       int64
+	LookedAt    int64
 	DoneAt      sql.NullInt64
 }
 

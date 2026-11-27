@@ -60,3 +60,15 @@ SET done_at = @now
 WHERE task_id = @task_id
   AND since = @since
   AND done_at IS NULL;
+
+-- name: LookedUpNoReviewRequest :exec
+UPDATE no_review_requests
+SET looked_at = @now
+WHERE task_id = @task_id;
+
+-- name: LatestTaskPushingTo :one
+-- The Task that pushed last to branch: its own hyp/<id>, or the branch it continues (issue #690), of any Run.
+SELECT * FROM tasks
+WHERE push_branch = CAST(@branch AS TEXT) OR (push_branch IS NULL AND 'hyp/' || id = CAST(@branch AS TEXT))
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
