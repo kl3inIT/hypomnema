@@ -64,8 +64,7 @@ type Section = {
 // OmniRoute and 9router keep their search and media providers beside their models; not "Agents", a group of its own (2026-11-12). "Connections" holds
 // what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets, and the
 // view-only links to artifacts (issue #765), as LibreChat, Open WebUI and Metabase keep theirs in settings. The group "Agents" holds what is given to the agents' CLIs:
-// their skills (issue #21; prototype the owner accepted, 2026-11-12), and the memory about the owner every agent
-// gets, as OpenClaw keeps Memory beside Skills in its group of agents; and the repositories agents work in, as
+// their skills (issue #21; prototype the owner accepted, 2026-11-12) and the repositories agents work in, as
 // t3code's Settings lists its Projects (apps/web/src/components/settings/settingsSearch.ts) and Orca's its
 // repositories (src/renderer/src/components/settings/navigation/SettingsSidebar.tsx), in this group by the owner's
 // choice (issue #647, 2026-11-16). "Workers", last, holds what the workers are and run on: the agents (worker Profiles)
@@ -74,12 +73,15 @@ type Section = {
 // attention with the system's plumbing last, and Coder's deployment settings hold its infrastructure
 // (site/src/modules/management/DeploymentSidebarView.tsx). Their pages keep their own heads.
 const groups: { heading: string; sections: Section[] }[] = [
-  // "Preferences" holds how the app reaches the owner: his devices' notifications (issue #1047), first as in
-  // OpenClaw's Settings, whose group of that name holds its notifications (ui/src/app-navigation.ts
-  // SETTINGS_NAVIGATION_GROUPS).
+  // "Preferences" holds About you, the owner's instructions for agents (issue #1296), and his devices'
+  // notifications (issue #1047), in the order of Profile and Notifications in OpenClaw's Preferences
+  // (ui/src/app-navigation.ts, SETTINGS_NAVIGATION_GROUPS).
   {
     heading: "Preferences",
-    sections: [{ to: "/settings/notifications", label: "Notifications", icon: Bell }],
+    sections: [
+      { to: "/settings/about-you", label: "About you", icon: UserRound },
+      { to: "/settings/notifications", label: "Notifications", icon: Bell },
+    ],
   },
   {
     heading: "Gateway",
@@ -97,7 +99,6 @@ const groups: { heading: string; sections: Section[] }[] = [
     heading: "Agents",
     sections: [
       { to: "/settings/skills", label: "Skills", icon: BookOpen },
-      { to: "/settings/about-you", label: "About you", icon: UserRound },
       { to: "/settings/repositories", label: "Repositories", icon: FolderGit2 },
     ],
   },
