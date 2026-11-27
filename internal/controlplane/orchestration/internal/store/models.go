@@ -267,6 +267,8 @@ type ChatMessage struct {
 	Kind          string
 	ReadRun       int64
 	Recall        sql.NullString
+	WakeBy        sql.NullString
+	WakeTodo      sql.NullString
 }
 
 type ChatMessagesFt struct {

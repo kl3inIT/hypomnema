@@ -714,25 +714,47 @@ func (q *Queries) IsReadRun(ctx context.Context, chatID string) (bool, error) {
 }
 
 const lastTurnInput = `-- name: LastTurnInput :one
-SELECT role, sender_id FROM chat_messages
+SELECT role, sender_id, wake_by, wake_todo,
+       CAST(NOT EXISTS (SELECT 1 FROM chat_messages o WHERE o.chat_id = ?1
+                          AND (o.role = 'owner' OR o.event_seq IS NOT NULL OR o.to_coordinator = 1)
+                          AND o.kind NOT IN ('continued', 'approval') AND o.event_seq IS NULL
+                          AND NOT (o.role = 'owner' AND o.sender_id IS NULL)
+                          AND coalesce(o.wake_by, '') NOT IN ('owner', 'bot_for_owner'))
+            AND NOT EXISTS (SELECT 1 FROM routine_runs r WHERE r.chat_id = ?1) AS INTEGER) AS owner_only
+FROM chat_messages
 WHERE chat_id = ?1 AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1) AND kind <> 'continued'
 ORDER BY seq DESC
 LIMIT 1
 `
 
 type LastTurnInputRow struct {
-	Role     string
-	SenderID sql.NullString
+	Role      string
+	SenderID  sql.NullString
+	WakeBy    sql.NullString
+	WakeTodo  sql.NullString
+	OwnerOnly int64
 }
 
 // The chat's last message of those pi is given as a turn (UndeliveredChatMessages says which): a person's message,
 // a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
 // message, given to pi or about to be, ends his turn (issue #468). The line that wakes pi to continue a turn a
-// restart cut is no input of its own: the continued turn is the cut one's (issue #716).
+// restart cut is no input of its own: the continued turn is the cut one's (issue #716). wake_by and wake_todo are who
+// an Inbox item's wake-up comes from and the item it is for (issue #1229); owner_only says no turn input ever came in
+// the chat but the owner's own words (his message without a sender, his words typed in the Inbox), a hand-off on his
+// line, a Run's events and his answer to an Approval: anything else (a Channel person's message, a hand-off not on
+// his line, the owner giving the item without a word, a background command's end, any other wake-up) and a Routine's
+// run clear a mark there for good, as OpenMausBot's handedInUnproven clears forOwner and its conversation gate
+// refuses a conversation with anyone else's line (server/host/cloud-lending-turns.ts, server/cloud-lending.ts).
 func (q *Queries) LastTurnInput(ctx context.Context, chatID string) (LastTurnInputRow, error) {
 	row := q.db.QueryRowContext(ctx, lastTurnInput, chatID)
 	var i LastTurnInputRow
-	err := row.Scan(&i.Role, &i.SenderID)
+	err := row.Scan(
+		&i.Role,
+		&i.SenderID,
+		&i.WakeBy,
+		&i.WakeTodo,
+		&i.OwnerOnly,
+	)
 	return i, err
 }
 
@@ -765,7 +787,7 @@ func (q *Queries) ListArtifactBlobsOfChat(ctx context.Context, chatID string) ([
 }
 
 const listChatArtifactMessages = `-- name: ListChatArtifactMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind, chat_messages.read_run, chat_messages.recall,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind, chat_messages.read_run, chat_messages.recall, chat_messages.wake_by, chat_messages.wake_todo,
        artifacts.id         AS artifact_id,
        artifacts.revision   AS artifact_revision,
        artifacts.updated_at AS artifact_updated_at,
@@ -816,6 +838,8 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 			&i.ChatMessage.Kind,
 			&i.ChatMessage.ReadRun,
 			&i.ChatMessage.Recall,
+			&i.ChatMessage.WakeBy,
+			&i.ChatMessage.WakeTodo,
 			&i.ArtifactID,
 			&i.ArtifactRevision,
 			&i.ArtifactUpdatedAt,
@@ -897,7 +921,7 @@ func (q *Queries) ListChatIDsOfBot(ctx context.Context, bot string) ([]string, e
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind, chat_messages.read_run, chat_messages.recall,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind, chat_messages.read_run, chat_messages.recall, chat_messages.wake_by, chat_messages.wake_todo,
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
@@ -987,6 +1011,8 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ChatMessage.Kind,
 			&i.ChatMessage.ReadRun,
 			&i.ChatMessage.Recall,
+			&i.ChatMessage.WakeBy,
+			&i.ChatMessage.WakeTodo,
 			&i.EventKind,
 			&i.EventRunID,
 			&i.EventTaskID,
@@ -1368,7 +1394,7 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind, read_run, recall FROM chat_messages
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind, read_run, recall, wake_by, wake_todo FROM chat_messages
 WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
@@ -1400,6 +1426,8 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.Kind,
 			&i.ReadRun,
 			&i.Recall,
+			&i.WakeBy,
+			&i.WakeTodo,
 		); err != nil {
 			return nil, err
 		}

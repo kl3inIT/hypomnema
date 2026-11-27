@@ -127,7 +127,7 @@ func (s *Server) CreateTodo(ctx context.Context, req openapi.CreateTodoRequestOb
 		Title: b.Title, Notes: val(b.Notes), DoneWhen: val(b.DoneWhen), Draft: val(b.Draft), Due: dueIn(b.Due),
 		Assignee: assigneeIn(b.Assignee), Source: src, WhyOpen: string(val(b.WhyOpen)),
 		Priority: val(b.Priority), PriorityReason: val(b.PriorityReason), Project: val(b.ProjectId),
-		IdempotencyKey: val(req.Params.IdempotencyKey),
+		IdempotencyKey: val(req.Params.IdempotencyKey), Chat: c.chat,
 	}
 
 	// The state the token adds without saying more, or open when the Bot says why.
