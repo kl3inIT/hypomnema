@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { check, sources } from "./new-messages.mjs";
+import { check, ranks, sources } from "./new-messages.mjs";
 
 const now = new Date("2026-11-21T02:00:00Z");
 const since = "2026-11-21T01:45:00Z";
@@ -49,8 +49,29 @@ function world({ chats = [], messages = {}, mail = [], lark = { chats: [], messa
         if (args.path.startsWith("/open-apis/im/v1/chats")) {
           return { status: lark.status ?? 200, records: { code: 0, data: { items: lark.chats } } };
         }
-        const chat = args.path.match(/container_id=([^&]+)/)[1];
-        return { status: 200, records: { code: 0, data: { items: lark.messages[chat] ?? [] } } };
+        if (args.path.startsWith("/open-apis/im/v1/messages/search")) {
+          // Lark's search (im-v1/message/search): every message a chat or a thread holds in the time range, as
+          // meta_data, those that tag the owner with is_at_me, an app's left out with exclude_from_types.
+          if (lark.searchStatus) return { status: lark.searchStatus, records: { code: 99991679 } };
+          const { time_range: range, is_at_me: atMe, exclude_from_types: notFrom = [] } = args.body.filter;
+          const all = [
+            ...Object.entries(lark.messages).flatMap(([chat, list]) => list.map((m) => ({ chat_id: chat, ...m }))),
+            ...Object.entries(lark.threads ?? {}).flatMap(([thread, { chat, list }]) =>
+              list.map((m) => ({ chat_id: chat, thread_id: thread, ...m }))),
+          ];
+          const items = all
+            .filter((m) => Number(m.create_time) >= Date.parse(range.start_time))
+            .filter((m) => Number(m.create_time) <= Date.parse(range.end_time))
+            .filter((m) => !atMe || (m.mentions ?? []).some((x) => x.id === "ou_me"))
+            .filter((m) => !notFrom.includes("bot") || m.sender?.sender_type !== "app")
+            .map((m) => ({ meta_data: { message_id: m.message_id, chat_id: m.chat_id, thread_id: m.thread_id } }));
+          return { status: 200, records: { code: 0, data: { items, has_more: false } } };
+        }
+        const container = args.path.match(/container_id=([^&]+)/)[1];
+        if (args.path.includes("container_id_type=thread")) {
+          return { status: 200, records: { code: 0, data: { items: lark.threads?.[container]?.list ?? [] } } };
+        }
+        return { status: 200, records: { code: 0, data: { items: lark.messages[container] ?? [] } } };
       }
     }
     throw new Error(`no tool ${name}`);
@@ -249,4 +270,147 @@ test("a wake names the moment of the last one, for the owner's changes since", a
   const first = await check({ tools, call: w.call, state: {}, now });
   assert.match(first.text, /inbox_list with owner_changed_since 2026-11-21T01:00:00.000Z/,
     "a first wake looks back as far as the first look at the messages");
+});
+
+// Issue #1199: Lark lists only a thread's root among its chat's messages; the replies are the thread's
+// (container_id_type=thread). larkAt is a time in the span from 01:45 to 02:00.
+const larkAt = (time) => String(Date.parse(`2026-11-21T${time}:00Z`));
+const reply = (id, time, sender, extra = {}) => ({
+  message_id: id, root_id: "om_root", create_time: larkAt(time), sender: { id: sender, sender_type: "user" }, ...extra,
+});
+
+test("a reply in a Lark thread that tags the owner wakes the Bot at the direct rank", async () => {
+  const w = world({
+    lark: {
+      chats: [
+        { chat_id: "oc_core", name: "VMAP core", chat_mode: "group" },
+        { chat_id: "oc_mdoc", name: "[MDOC] Community & Growth", chat_mode: "group" },
+      ],
+      messages: {
+        oc_core: [{ message_id: "om_c", create_time: larkAt("01:50"), sender: { id: "ou_laura", sender_type: "user" } }],
+        // The thread's root is older than the span: only the search finds the thread.
+        oc_mdoc: [{ message_id: "om_root", thread_id: "omt_1", create_time: larkAt("01:30"), sender: { id: "ou_tuan" } }],
+      },
+      threads: {
+        omt_1: {
+          chat: "oc_mdoc",
+          list: [
+            reply("om_r2", "01:58", "ou_tuan", { mentions: [{ id: "ou_me", name: "DatPH" }] }),
+            reply("om_r1", "01:40", "ou_tuan"),
+            { message_id: "om_root", create_time: larkAt("01:30"), sender: { id: "ou_tuan", sender_type: "user" } },
+          ],
+        },
+      },
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now, config: { perRun: 1 } });
+
+  assert.equal(got.wake, true);
+  assert.match(got.text, /lark:me chat "\[MDOC\] Community & Growth" thread omt_1 \(id oc_mdoc\): 1 new from ou_tuan/,
+    "the reply is told first, its thread named, the reply before the span left out");
+  assert.doesNotMatch(got.text, /could not read/);
+  assert.deepEqual(got.state.carry.map((f) => [f.where, f.rank]), [['lark:me chat "VMAP core" (id oc_core)', ranks.group]]);
+});
+
+test("a tag in a Lark chat the idle stop passed is still read", async () => {
+  const w = world({
+    lark: {
+      chats: [{ chat_id: "oc_quiet", name: "Quiet" }, { chat_id: "oc_late", name: "Late", chat_mode: "group" }],
+      messages: {
+        oc_late: [{
+          message_id: "om_t", create_time: larkAt("01:55"), sender: { id: "ou_tuan", sender_type: "user" },
+          mentions: [{ id: "ou_me" }],
+        }],
+      },
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now, config: { larkIdleStop: 1, perRun: 1 } });
+
+  assert.match(got.text, /lark:me chat "Late" \(id oc_late\): 1 new from ou_tuan/);
+  assert.equal(got.state.carry, undefined, "nothing else");
+});
+
+test("a reply in a Lark thread without a tag counts as the group's, in a thread of the span or an older one", async () => {
+  const w = world({
+    lark: {
+      chats: [{ chat_id: "oc_core", name: "VMAP core", chat_mode: "group" }],
+      messages: {
+        oc_core: [
+          { message_id: "om_root", thread_id: "omt_new", create_time: larkAt("01:50"), sender: { id: "ou_laura", sender_type: "user" } },
+          { message_id: "om_old", thread_id: "omt_old", create_time: larkAt("01:00"), sender: { id: "ou_lan", sender_type: "user" } },
+        ],
+      },
+      threads: {
+        omt_new: { chat: "oc_core", list: [reply("om_n1", "01:52", "ou_kai")] },
+        omt_old: { chat: "oc_core", list: [reply("om_o1", "01:55", "ou_lan", { root_id: "om_old" })] },
+      },
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now, config: { perRun: 0 } });
+
+  assert.deepEqual(got.state.carry.map((f) => [f.where, f.count, f.from, f.rank]), [
+    ['lark:me chat "VMAP core" (id oc_core)', 1, ["ou_laura"], ranks.group],
+    ['lark:me chat "VMAP core" thread omt_new (id oc_core)', 1, ["ou_kai"], ranks.group],
+    ['lark:me chat "VMAP core" thread omt_old (id oc_core)', 1, ["ou_lan"], ranks.group],
+  ]);
+});
+
+test("the owner's own replies and an app's in a Lark thread are left out", async () => {
+  const w = world({
+    lark: {
+      chats: [{ chat_id: "oc_core", name: "VMAP core", chat_mode: "group" }],
+      messages: {},
+      threads: {
+        omt_1: {
+          chat: "oc_core",
+          list: [
+            reply("om_2", "01:58", "ou_me"),
+            { ...reply("om_1", "01:56", "cli_bot"), sender: { id: "cli_bot", sender_type: "app" } },
+          ],
+        },
+      },
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.equal(got.wake, false, got.text);
+});
+
+test("a Lark search refused is named, and the threads of the span's roots are still read", async () => {
+  const w = world({
+    lark: {
+      searchStatus: 403,
+      chats: [{ chat_id: "oc_core", name: "VMAP core", chat_mode: "group" }],
+      messages: {
+        oc_core: [{ message_id: "om_root", thread_id: "omt_1", create_time: larkAt("01:50"), sender: { id: "ou_me" } }],
+      },
+      threads: { omt_1: { chat: "oc_core", list: [reply("om_1", "01:52", "ou_kai")] } },
+    },
+  });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.match(got.text, /lark:me chat "VMAP core" thread omt_1 \(id oc_core\): 1 new from ou_kai/,
+    "a reply to the owner's own thread is counted");
+  assert.match(got.text, /could not read lark:me: the search of the messages that tag the owner failed \(lark:me could not be read: HTTP 403\)/);
+  assert.equal(got.state.sources["lark:me"].mark, now.toISOString(), "the source moves on");
+});
+
+test("a Lark thread found before the cap is read next run, its chat not counted again", async () => {
+  const lark = {
+    chats: [{ chat_id: "oc_core", name: "VMAP core", chat_mode: "group" }],
+    messages: {
+      oc_core: [{ message_id: "om_root", thread_id: "omt_1", create_time: larkAt("01:50"), sender: { id: "ou_laura", sender_type: "user" } }],
+    },
+    threads: { omt_1: { chat: "oc_core", list: [reply("om_1", "01:52", "ou_kai")] } },
+  };
+  const first = await check({ tools, call: world({ lark }).call, state, now, config: { larkMessages: 1 } });
+  assert.match(first.text, /chat "VMAP core" \(id oc_core\): 1 new from ou_laura/);
+  assert.doesNotMatch(first.text, /thread omt_1/);
+  assert.deepEqual(first.state.sources["lark:me"].gaps[0].threads, [["omt_1", "oc_core"]], "the thread is kept to read");
+
+  const later = new Date(now.getTime() + 60_000);
+  const next = await check({ tools, call: world({ lark }).call, state: { sources: first.state.sources }, now: later });
+  assert.match(next.text, /chat "VMAP core" thread omt_1 \(id oc_core\): 1 new from ou_kai/);
+  assert.doesNotMatch(next.text, /\(id oc_core\): 1 new from ou_laura/, "the chat was read through");
+  assert.deepEqual(next.state.sources["lark:me"].gaps, []);
 });
