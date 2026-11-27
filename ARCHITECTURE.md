@@ -1982,8 +1982,7 @@ flowchart LR
     Routine row names commands, `hypomnema superset chart` and `hypomnema artifact show`, which a Routine's script
     runs. Only a skill that names no command an agent may lack goes to the store, and every whole-folder skill is
     one ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install`
-    takes out an unedited copy of `slides` and `pages` an earlier release put in `~/.agents/skills`, as it does
-    `pdf`'s, and installs no whole-folder skill itself.
+    installs no whole-folder skill itself.
   - A built-in skill's `description` says what it does and when to use it, in "the owner" and a third-person verb,
     and leaves long capability lists to the body (issue #672, after Codex's skill-creator, "Describe the actual
     capability and when it applies ... Avoid exhaustive capability lists", and OpenAI's GPT-6 guide, "Keep
@@ -2458,7 +2457,7 @@ flowchart LR
     the `connections` table ([issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Its token is a secret
     in the vault (`conn-<host>-<label>`); the Connection only names it, and the API returns labels, never a token.
     The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the two
-    APIs, which may not open a secret. `hosts token set|rm` and `/hosts/{host}/token` act on the Connection
+    APIs, which may not open a secret. `integrations connect <host>` without `--label` makes the Connection
     `default`, which is also what a host's single token of before became.
   - Work on a repository uses the Connection its registered repository names (`repos add --connection`), else
     the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
@@ -2910,7 +2909,7 @@ flowchart LR
   - **A Bot reads GitHub through the service proxy** ([issue #685](https://github.com/kl3inIT/hypomnema/issues/685);
     design in [#659](https://github.com/kl3inIT/hypomnema/issues/659#issuecomment-6937471532), after Onyx's `gh`
     behind its egress proxy). The Integration is `github.com`, whose Connections are the git host's: the token
-    workers are given per Dispatch, kept in the vault by `hosts token set` / `integrations connect github.com`. The
+    workers are given per Dispatch, kept in the vault by `integrations connect github.com`. The
     owner switches one on for chats (`integrations chats github.com:default on`; the client API's
     `PATCH /integrations/{integration}/connections/{label}` sets it on a git host's Connection itself) and puts it
     on a Bot's list (`bots set <bot> --connections …,github.com:default`). The proxy's `Token` opens it from the
@@ -5646,11 +5645,11 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
-  - `hosts list|add|rm`, `integrations list|connect|disconnect` (and the older `hosts token set|rm`) and
+  - `hosts list|add|rm`, `integrations list|connect|disconnect` and
     `repos list|add|set|rm`: the git hosts a Run can be on, the accounts connected to each, and the repositories
     registered under a name; every token reads them, only the owner's changes them.
-    `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
-    set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
+    `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `integrations
+    connect <host>` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
     URL (`--name`, `--base`, `--connection`, `--ssh-url` with `--ssh-host-key-file`); `repos set <name>` changes the
     flags it is given and keeps the rest (an empty `--ssh-url` clones over HTTPS again). `git ssh-key` prints the public key nodes clone
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
@@ -5773,13 +5772,8 @@ The owner's commands:
   proxy and its approvals, without deleting a branch.
   `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
-  (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
-  (`web-search` and `images` since issue #492; the guides' stubs `google-workspace`, `lark`, `aws`, `superset`
-  and `android-device`, which ran `hypomnema skills get`, since issue #536 put the guides in the store;
-  `retiredStubs`) is taken out of both folders when it matches a released one, and its folder when nothing else
-  is in it, as Codex replaces its whole system skills folder at an update; an edited one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
-  #536): an unedited copy (its digest in `releasedFolders`) is removed, since the skills store now places it, and
-  it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
+  (otherwise only with `--force`, keeping a backup). It is the only stub; the pdf, slides and pages folders are
+  not installed in `~/.agents/skills`, since the skills store places them (issues #492, #536). `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
 - The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder (until
   issue #492 installed as described here; since then published into the skills store, above): Hermes's
@@ -5787,10 +5781,7 @@ The owner's commands:
   `third_party/hermes-agent/NOTICE`), adapted to the Bots' box: `python` is the documents environment (above), the
   scripts are named where the skill is installed (`~/.agents/skills/pdf/scripts`), and OCR, nano-pdf editing and
   Hermes's tests are left out. A skill without a `guide.md` is such a folder. Until issue #536 `skills install`
-  copied a folder skill not in the store into `~/.agents/skills`; since every one is in the store it installs none,
-  and the folder's digest (each file's path and content, Python caches left out, after Hermes's
-  `tools/skills_sync.py` `dir_hash`) only tells an unedited copy an earlier release installed, which it removes,
-  from an edited one, which it leaves.
+  copied a folder skill not in the store into `~/.agents/skills`; since every one is in the store it installs none.
 - The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, and since
   issue #536 reaches every agent kind through the skills store (above), naming the Superset tools:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in

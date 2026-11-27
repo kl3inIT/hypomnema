@@ -231,20 +231,6 @@ var commands = []command{
 		run: hostsAdd,
 	},
 	{
-		name: "hosts token set", args: "<host>", min: 1, max: 1,
-		summary: "the same as `integrations connect <host>` with the label default (owner)",
-		flags: func(fs *flag.FlagSet) {
-			fs.String("token-file", "", "the file holding the token, or - for standard input")
-			jsonFlag(fs)
-		},
-		run: hostsTokenSet,
-	},
-	{
-		name: "hosts token rm", args: "<host>", min: 1, max: 1,
-		summary: "the same as `integrations disconnect <host>:default` (owner)",
-		flags:   jsonFlag, run: hostsTokenRemove,
-	},
-	{
 		name: "hosts rm", args: "<host>", min: 1, max: 1,
 		summary: "forget a declared host and its token; no open Run or registered repository may be on it (owner)",
 		flags:   jsonFlag, run: hostsRemove,
