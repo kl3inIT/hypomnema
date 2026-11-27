@@ -156,24 +156,33 @@ func TestAWorkersGhAndGitCarryTheAppsFreshTokenNotTheOwners(t *testing.T) {
 	assert.Equal(t, int32(2), asked.Load(), "one ask a call")
 }
 
-// Scenario (issue #1262, a skew): the node reconnected to a control plane of an earlier release, which has no route
-// for a fresh token. No token is kept on the node to fall back on (review round 1): the worker's gh says so and runs
-// with the machine's own login, as a worker without a token always has.
-func TestAControlPlaneWithoutTheRouteGivesNoToken(t *testing.T) {
+// Scenario (issue #1262, review rounds 1 and 2): the node reconnected to a control plane of an earlier release, which
+// has no route for a fresh token, or the App was uninstalled while the worker ran. No token is kept on the node to
+// fall back on, and the machine's own login may reach more than the owner's Connection: the worker's gh fails
+// closed, saying why, and does not run, as Omnara's RunGitHubCLI returns its credential error.
+func TestWithoutAnAppTokenTheWorkersGhFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	old := httptest.NewServer(http.NotFoundHandler())
-	t.Cleanup(old.Close)
+	for _, api := range []http.Handler{
+		http.NotFoundHandler(),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"message":"the GitHub App is not installed on this worker's repository"}`))
+		}),
+	} {
+		srv := httptest.NewServer(api)
+		t.Cleanup(srv.Close)
 
-	cmd := exec.CommandContext(t.Context(), "sh", "-c", "gh api user")
-	cmd.Env = worker(t, old.URL, sayToken)
+		cmd := exec.CommandContext(t.Context(), "sh", "-c", "gh api user")
+		cmd.Env = worker(t, srv.URL, sayToken)
 
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	require.NoError(t, cmd.Run(), stderr.String())
+		var stdout, stderr strings.Builder
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		require.Error(t, cmd.Run())
 
-	assert.Equal(t, "GH_TOKEN= args=api user\n", stdout.String(), "no token of the App's")
-	assert.Contains(t, stderr.String(), "the control plane has no such route; gh runs with this machine's own login")
+		assert.Empty(t, stdout.String(), "gh did not run")
+		assert.Contains(t, stderr.String(), "gh does not run with this machine's own login")
+	}
 }
 
 // Scenario (issue #1262, review round 1): the App does not cover the pull request's repository, so the worker's
@@ -182,7 +191,14 @@ func TestAControlPlaneWithoutTheRouteGivesNoToken(t *testing.T) {
 func TestTheWorkersGhFallbackOfCIWaitHonoursItsTimeout(t *testing.T) {
 	t.Parallel()
 
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// The App covers the worker's repository (its gh gets a token) but not the pull request's, which the wait asks of.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == agenttool.PathGitHubToken {
+			_ = json.NewEncoder(w).Encode(agenttool.GitHubToken{Token: "ghs_x", ExpiresAt: time.Now().Add(time.Hour)})
+
+			return
+		}
+
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"message":"the GitHub App is not installed on this pull request's repository"}`))
 	}))

@@ -46,6 +46,25 @@ type GitHub struct {
 	scopes [][]int64
 	// head is the pull request's head.
 	head string
+	// held is the next read of the checks held back (HoldNextRead).
+	held *heldRead
+}
+
+type heldRead struct {
+	arrived chan struct{}
+	release chan struct{}
+}
+
+// HoldNextRead makes the next read of the checks answer as GitHub is when it arrives, but give that answer only once
+// release is called; arrived is closed when the answer is made, so a test can change GitHub meanwhile.
+func (g *GitHub) HoldNextRead() (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	h := &heldRead{arrived: make(chan struct{}), release: make(chan struct{})}
+	g.held = h
+
+	return h.arrived, sync.OnceFunc(func() { close(h.release) })
 }
 
 // RepositoryID is the id GitHub gives a repository of the installation: 1000 and its place in Repositories.
@@ -182,7 +201,7 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 			status, conclusion = "COMPLETED", g.checks
 		}
 
-		return answer(http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{
+		resp, err := answer(http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{
 			"pullRequest": map[string]any{
 				"state": "OPEN", "mergeable": "MERGEABLE", "headRefOid": g.head, "headRefName": "hyp/tsk_1",
 				"commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{
@@ -196,6 +215,17 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 				}}}},
 			},
 		}}})
+
+		if h := g.held; h != nil {
+			g.held = nil
+
+			g.mu.Unlock()
+			close(h.arrived)
+			<-h.release
+			g.mu.Lock()
+		}
+
+		return resp, err
 	}
 
 	return answer(http.StatusNotFound, map[string]any{"message": "Not Found"})

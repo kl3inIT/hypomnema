@@ -457,3 +457,55 @@ func TestTheGhFallbackOfCIWaitHonoursItsTimeout(t *testing.T) {
 	assert.Equal(t, "pr checks https://github.com/kl3inIT/hypomnema/pull/1262 --required --watch --interval 60\n",
 		string(sent))
 }
+
+// Scenario (issue #1262, review round 2): a wait reads the checks, and while GitHub's answer for the old head is on
+// its way the author pushes a new head, whose pull_request synchronize resets the CI to pending. The read that
+// started before the reset must not overwrite it: the CI kept, and what the wait answers, is the new head's
+// pending, not the old head's passed.
+func TestReviewSynchronizeDuringRead(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	resp, _ := w.register()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	w.install()
+
+	pr := "https://github.com/kl3inIT/hypomnema/pull/1262"
+	w.gh.Conclude("SUCCESS")
+
+	arrived, release := w.gh.HoldNextRead()
+	t.Cleanup(release)
+
+	answered := make(chan error, 1)
+
+	var st ciwait.State
+
+	go func() {
+		var err error
+
+		st, err = w.app.WaitCI(context.WithoutCancel(t.Context()), pr, 0)
+		answered <- err
+	}()
+
+	<-arrived // GitHub answered "passed at the old head"; the answer is on its way.
+
+	const next = "fedcba9876543210"
+
+	w.gh.Push(next)
+
+	body := []byte(`{"action":"synchronize","installation":{"id":77},"repository":{"full_name":"kl3inIT/hypomnema"},
+		"pull_request":{"number":1262,"state":"open","merged":false,"head":{"sha":"` + next + `","ref":"hyp/tsk_1"}}}`)
+	assert.Equal(t, http.StatusAccepted, w.deliver("pull_request", "delivery-push", body, w.gh.Secret))
+
+	release()
+	require.NoError(t, <-answered)
+
+	assert.Equal(t, "pending", st.State, "not the old head's passed")
+	assert.Equal(t, next, st.Head)
+
+	kept, ok, err := w.svc.GitHub().CIOf(t.Context(), "kl3init/hypomnema", 1262)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, githubstore.CIPending, kept.State, "the reset is kept")
+	assert.Equal(t, next, kept.Head)
+}
