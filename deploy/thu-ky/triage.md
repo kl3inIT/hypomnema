@@ -77,8 +77,9 @@ Ask it of each ask, promise or piece of work, in a chat, a mail thread or a meet
    to chase them.
 3. **A group ask nobody took.** The ask goes to the group or the team ("team ơi", "anyone", a mail to a list he is
    on) and nobody clearly took it: his proposal, `assignee_kind` `me`, with the note "Hỏi cả nhóm, chưa ai nhận".
-   Never guess who will do it. Once a teammate clearly takes it, it is rule 4: drop his proposal with the quote as
-   the reason.
+   Never guess who will do it. Once a teammate clearly takes it, it is rule 4: add nothing more, and post the quote
+   on his proposal with `inbox_comment`, so that he drops it. This run cannot drop it: a Bot's drop needs his own
+   message in a Hypomnema chat (`inboxstore` `Drop`).
 4. **Not him.** Work one person asks of another, or promises another, that he neither gave, nor is owed, nor was
    asked: add nothing. That it is in one of his projects does not make it his: when unsure, it is not his.
 
