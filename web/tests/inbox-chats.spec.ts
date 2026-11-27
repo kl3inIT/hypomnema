@@ -111,13 +111,18 @@ async function serve(page: Page) {
       const q = (url.searchParams.get("q") ?? "").toLowerCase()
       const kind = url.searchParams.get("kind")
       const state = url.searchParams.get("state")
-      const kept = chats[key].filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) &&
-          (!kind || c.kind === kind) &&
-          (!state || (state === "read") === c.reads),
+      const searched = chats[key].filter(
+        (c) => c.name.toLowerCase().includes(q) || c.id.includes(q),
       )
-      return json({ data: kept, counts: countOf(chats[key]), matched: kept.length })
+      const kept = searched.filter(
+        (c) => (!kind || c.kind === kind) && (!state || (state === "read") === c.reads),
+      )
+      return json({
+        data: kept,
+        counts: countOf(chats[key]),
+        ...(q ? { search_counts: countOf(searched) } : {}),
+        matched: kept.length,
+      })
     }
 
     switch (path) {
@@ -180,6 +185,9 @@ for (const theme of ["light", "dark"] as const) {
       .toEqual([{ path: "/inbox/chat-sources/zalo/main/1001", body: { reads: false } }])
     await expect(lan).toContainText(/Direct · Skipped · Set by you/)
     await expect(lan.getByRole("switch")).not.toBeChecked()
+    await expect(
+      page.getByRole("group", { name: "State" }).getByRole("button", { name: /Skipped\s*1$/ }),
+    ).toBeVisible()
     await shot(page, `inbox-chats-switched-${theme}`)
 
     await page.getByRole("searchbox", { name: "Search the chats of Zalo" }).fill("")

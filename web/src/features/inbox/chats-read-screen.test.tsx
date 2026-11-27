@@ -70,13 +70,16 @@ function server() {
       const q = (url.searchParams.get("q") ?? "").toLowerCase()
       const kind = url.searchParams.get("kind")
       const state = url.searchParams.get("state")
-      const kept = chats.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) &&
-          (!kind || c.kind === kind) &&
-          (!state || (state === "read") === c.reads),
+      const searched = chats.filter((c) => c.name.toLowerCase().includes(q) || c.id.includes(q))
+      const kept = searched.filter(
+        (c) => (!kind || c.kind === kind) && (!state || (state === "read") === c.reads),
       )
-      return json({ data: kept, counts: countOf(chats), matched: kept.length })
+      return json({
+        data: kept,
+        counts: countOf(chats),
+        ...(q ? { search_counts: countOf(searched) } : {}),
+        matched: kept.length,
+      })
     }
     if (path === "/inbox/chat-sources/lark/me") {
       return json({ data: [], counts: countOf([]), matched: 0 })
@@ -158,12 +161,28 @@ test("the search and the filters ask the server", async () => {
   expect(screen.getByText("Team Alpha")).toBeInTheDocument()
   expect(calls.asked).toContain("?q=team")
 
+  const kinds = within(screen.getByRole("group", { name: "Kind" }))
+  const states = within(screen.getByRole("group", { name: "State" }))
+  expect(kinds.getAllByRole("button").map((button) => button.textContent)).toEqual([
+    "All1",
+    "Direct0",
+    "Group1",
+    "Bot0",
+  ])
+  expect(states.getAllByRole("button").map((button) => button.textContent)).toEqual([
+    "All1",
+    "Read1",
+    "Skipped0",
+  ])
+  expect(screen.getByRole("tab", { name: /Zalo\s*3/ })).toBeInTheDocument()
+
+  await userEvent.click(states.getByRole("button", { name: /Skipped/ }))
+  expect(await screen.findByText("No chat matches.")).toBeInTheDocument()
+  expect(states.getByRole("button", { name: /Read\s*1/ })).toBeInTheDocument()
+
   await userEvent.clear(screen.getByRole("searchbox", { name: "Search the chats of Zalo" }))
-  await userEvent.click(
-    within(screen.getByRole("group", { name: "State" })).getByRole("button", { name: /Skipped/ }),
-  )
-  await waitFor(() => expect(screen.queryByText("Team Alpha")).not.toBeInTheDocument())
-  expect(screen.getByText("Zalo Pay")).toBeInTheDocument()
+  expect(await screen.findByText("Zalo Pay")).toBeInTheDocument()
+  expect(states.getByRole("button", { name: /All\s*3/ })).toBeInTheDocument()
   expect(calls.asked).toContain("?state=skipped")
 
   await userEvent.click(
