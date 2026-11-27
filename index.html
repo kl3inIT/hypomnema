@@ -1,25 +1,28 @@
-<!doctype html><meta charset="utf-8"><title>#1285 Settings → Audio pickers and Studio speed</title>
+<!doctype html><meta charset="utf-8"><title>#1285 Audio pickers for Soniox and Studio speed</title>
 <style>body{font-family:system-ui;margin:24px;background:#f6f6f6}h2{margin-top:32px}figure{display:inline-block;margin:8px;vertical-align:top}img{border:1px solid #ccc;max-width:640px}img.phone{max-width:300px}figcaption{font-size:13px;color:#444}</style>
-<h1>Issue #1285: Settings → Audio model and voice pickers, and a speed for each Studio video</h1>
-<p>Playwright shots of <code>web/tests/audio.spec.ts</code> and <code>web/tests/studio.spec.ts</code> against the fake client API, desktop and phone (Pixel 7), dark and light.</p>
-<h2>Studio: Speed in the make dialog (the owner, 2026-11-27)</h2>
-<figure><img src="studio-make-video-speed-desktop.png"><figcaption>desktop, dark, list open</figcaption></figure>
-<figure><img class="phone" src="studio-make-video-speed-phone.png"><figcaption>phone, dark, list open</figcaption></figure>
-<figure><img src="studio-make-video-speed-light-desktop.png"><figcaption>desktop, light, list open</figcaption></figure>
-<figure><img class="phone" src="studio-make-video-speed-light-phone.png"><figcaption>phone, light, list open</figcaption></figure>
-<figure><img src="studio-make-video-desktop.png"><figcaption>desktop, dark, 1.2× chosen</figcaption></figure>
-<figure><img class="phone" src="studio-make-video-phone.png"><figcaption>phone, dark, 1.2× chosen</figcaption></figure>
-<h2>Audio: model per kind (newest by default, then Soniox's catalog)</h2>
-<figure><img src="audio-model-picker-desktop.png"><figcaption>desktop, dark, list open</figcaption></figure>
-<figure><img class="phone" src="audio-model-picker-phone.png"><figcaption>phone, dark, list open</figcaption></figure>
-<figure><img src="audio-model-picker-light-desktop.png"><figcaption>desktop, light, list open</figcaption></figure>
-<figure><img class="phone" src="audio-model-picker-light-phone.png"><figcaption>phone, light, list open</figcaption></figure>
-<h2>Audio: voice for videos, by name</h2>
-<figure><img src="audio-voice-picker-desktop.png"><figcaption>desktop, dark, list open</figcaption></figure>
-<figure><img class="phone" src="audio-voice-picker-phone.png"><figcaption>phone, dark, list open</figcaption></figure>
-<figure><img src="audio-voice-light-desktop.png"><figcaption>desktop, light, a cloned voice shown by name</figcaption></figure>
+<h1>Issue #1285 on #1300's pickers: Soniox's models for each kind, its voices by name, and a speed for each Studio video</h1>
+<p>Playwright shots of <code>web/tests/audio.spec.ts</code> and <code>web/tests/studio.spec.ts</code> (head d691fa7a) against the fake client API, desktop and phone (Pixel 7), dark and light.</p>
+<h2>Soniox's model for each kind</h2>
+<figure><img src="audio-soniox-models-desktop.png"><figcaption>desktop, dark: speech model list open (no transcription models in it)</figcaption></figure>
+<figure><img class="phone" src="audio-soniox-models-phone.png"><figcaption>phone, dark</figcaption></figure>
+<figure><img src="audio-soniox-models-light-desktop.png"><figcaption>desktop, light: transcription model list open</figcaption></figure>
+<figure><img class="phone" src="audio-soniox-models-light-phone.png"><figcaption>phone, light</figcaption></figure>
+<h2>Soniox's voice for videos, by name</h2>
+<figure><img src="audio-soniox-voices-desktop.png"><figcaption>desktop, dark, list open (built-in and cloned)</figcaption></figure>
+<figure><img class="phone" src="audio-soniox-voices-phone.png"><figcaption>phone, dark</figcaption></figure>
+<figure><img src="audio-voice-desktop.png"><figcaption>desktop, dark, "narrator" (cloned) chosen</figcaption></figure>
+<figure><img class="phone" src="audio-voice-phone.png"><figcaption>phone, dark</figcaption></figure>
+<figure><img src="audio-voice-light-desktop.png"><figcaption>desktop, light, after reload</figcaption></figure>
 <figure><img class="phone" src="audio-voice-light-phone.png"><figcaption>phone, light</figcaption></figure>
-<h2>The whole Audio page</h2>
+<h2>Studio: Speed in the make dialog</h2>
+<figure><img src="studio-make-video-speed-desktop.png"><figcaption>desktop, dark, list open</figcaption></figure>
+<figure><img class="phone" src="studio-make-video-speed-phone.png"><figcaption>phone, dark</figcaption></figure>
+<figure><img src="studio-make-video-speed-light-desktop.png"><figcaption>desktop, light</figcaption></figure>
+<figure><img class="phone" src="studio-make-video-speed-light-phone.png"><figcaption>phone, light</figcaption></figure>
+<figure><img src="studio-make-video-desktop.png"><figcaption>desktop, dark, 1.2× chosen</figcaption></figure>
+<figure><img class="phone" src="studio-make-video-phone.png"><figcaption>phone, dark</figcaption></figure>
+<h2>ElevenLabs (#1300, unchanged) and the whole page</h2>
+<figure><img src="audio-elevenlabs-models-desktop.png"><figcaption>desktop, ElevenLabs models</figcaption></figure>
 <figure><img src="audio-providers-desktop.png"><figcaption>desktop, dark</figcaption></figure>
 <figure><img class="phone" src="audio-providers-phone.png"><figcaption>phone, dark</figcaption></figure>
 <figure><img src="audio-providers-light-desktop.png"><figcaption>desktop, light</figcaption></figure>
