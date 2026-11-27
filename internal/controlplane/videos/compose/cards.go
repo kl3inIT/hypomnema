@@ -159,8 +159,10 @@ func (c Cards) TitleMs() int64 { return cardMs(c.Title) }
 func (c Cards) EndMs() int64 { return cardMs(c.End) }
 
 // cardASS is a card's words as an ASS file for a video of size: one block in the middle, its lines the accent's
-// rule, the title, the subtitle and the URL, each wrapped within 78% of the width (aidemo's box).
-func cardASS(card Card, accent string, size Size) string {
+// rule, the title, the subtitle and the URL, each fitted within 78% of the width (aidemo's box) by fitText: smaller
+// to the subtitle's size, then broken over lines (cardfit.go). The lines are broken here, and libass told not to
+// wrap them again (WrapStyle 2).
+func cardASS(card Card, accent string, size Size) (string, error) {
 	w := float64(size.Width)
 	title, sub := w/17, w/40
 	url := 0.84 * title
@@ -169,7 +171,7 @@ func cardASS(card Card, accent string, size Size) string {
 
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "[Script Info]\nScriptType: v4.00+\nWrapStyle: 0\nScaledBorderAndShadow: yes\n"+
+	fmt.Fprintf(&b, "[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\nScaledBorderAndShadow: yes\n"+
 		"PlayResX: %d\nPlayResY: %d\n\n", size.Width, size.Height)
 	b.WriteString("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, " +
 		"BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, " +
@@ -179,26 +181,47 @@ func cardASS(card Card, accent string, size Size) string {
 	b.WriteString("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
 	ac := assColor(accent, 0)
+	box := 0.78 * w
 	lines := []string{
 		// The rule is a box drawn in the accent, a line of its own at the size of the gap under it.
 		fmt.Sprintf(`{\fs%.0f\c%s\p1}m 0 0 l %.0f 0 %.0f %.0f 0 %.0f{\p0}`, sub*1.2*cardEm, ac, ruleW, ruleW, ruleH, ruleH),
-		// Each line after it starts from the style again ({\r}): an override lasts to the event's end.
-		fmt.Sprintf(`{\r\fs%.0f}%s`, title*cardEm, cardText(card.Title)),
 	}
 
-	if card.Subtitle != "" {
-		lines = append(lines, fmt.Sprintf(`{\r\fn%s\fs%.0f\c%s}%s`, cardTextFont, sub*cardEm,
-			assColor("#e2e7f4", 0.72), cardText(card.Subtitle)))
-	}
+	// Each block after the rule starts from the style again ({\r}): an override lasts to the event's end, over the
+	// block's own line breaks too.
+	for _, part := range []struct {
+		text, font, override string
+		em                   float64
+	}{
+		{card.Title, cardTitleFont, "", title},
+		{card.Subtitle, cardTextFont, fmt.Sprintf(`\fn%s\c%s`, cardTextFont, assColor("#e2e7f4", 0.72)), sub},
+		{card.CTAURL, cardTitleFont, `\c` + ac, url},
+	} {
+		if part.text == "" {
+			continue
+		}
 
-	if card.CTAURL != "" {
-		lines = append(lines, fmt.Sprintf(`{\r\fs%.0f\c%s}%s`, url*cardEm, ac, cardText(card.CTAURL)))
+		f, err := cardFont(part.font)
+		if err != nil {
+			return "", err
+		}
+
+		em, broken, err := fitText(f, part.text, part.em, math.Min(part.em, sub), box)
+		if err != nil {
+			return "", err
+		}
+
+		for k := range broken {
+			broken[k] = cardText(broken[k])
+		}
+
+		lines = append(lines, fmt.Sprintf(`{\r\fs%.0f%s}%s`, em*cardEm, part.override, strings.Join(broken, `\N`)))
 	}
 
 	fmt.Fprintf(&b, "Dialogue: 0,0:00:00.00,9:59:59.99,Card,,0,0,0,,%s\n", //nolint:misspell // ASS's own word.
 		strings.Join(lines, `\N`))
 
-	return b.String()
+	return b.String(), nil
 }
 
 // assColor is a #rrggbb color as an ASS override, &HBBGGRR& with its alpha in the subtitle line's \alpha, so the
@@ -232,7 +255,12 @@ func writeCardFiles(work, name string, card Card, accent string, bg Background, 
 
 	ass := filepath.Join(work, name+".ass")
 
-	return png, ass, os.WriteFile(ass, []byte(cardASS(card, accent, size)), 0o600)
+	text, err := cardASS(card, accent, size)
+	if err != nil {
+		return "", "", err
+	}
+
+	return png, ass, os.WriteFile(ass, []byte(text), 0o600)
 }
 
 // cardChain is the filter of a card's input: its PNG made the video's pixels, limited-range yuv420p as Still makes

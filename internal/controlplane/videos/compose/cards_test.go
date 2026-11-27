@@ -357,3 +357,30 @@ func TestALongURLFitsTheCard(t *testing.T) {
 		})
 	}
 }
+
+// fitText keeps every character: a URL broken over lines is the URL again, each line within the width, at a size
+// shrunk no further than its floor; words with spaces wrap at them, at their size.
+func TestFitTextKeepsTheWholeLine(t *testing.T) {
+	t.Parallel()
+
+	f, err := cardFont(cardTitleFont)
+	require.NoError(t, err)
+
+	long := "https://example.com/" + strings.Repeat("secondbite", 18)
+	em, lines, err := fitText(f, long, 720.0/17*0.84, 720.0/40, 0.78*720)
+	require.NoError(t, err)
+	assert.InDelta(t, 720.0/40, em, 1e-9, "shrunk to the floor")
+	assert.Equal(t, long, strings.Join(lines, ""))
+	assert.Greater(t, len(lines), 1)
+
+	for _, l := range lines {
+		w, err := textWidth(f, l, em)
+		require.NoError(t, err)
+		assert.LessOrEqual(t, w, 0.78*720*fitMargin, l)
+	}
+
+	em, lines, err = fitText(f, "Đặt món SecondBite chỉ trong 30 giây", 720.0/17, 720.0/40, 0.78*720)
+	require.NoError(t, err)
+	assert.InDelta(t, 720.0/17, em, 1e-9, "words that wrap keep their size")
+	assert.Equal(t, []string{"Đặt món SecondBite chỉ", "trong 30 giây"}, lines)
+}

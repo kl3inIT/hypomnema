@@ -14,9 +14,10 @@
 // first pass that measures the mix, as Kinocut's audio normalization runs loudnorm twice (Kinocut at commit c890db7,
 // kinocut/engine_audio_normalize.py:142-187, 254-299): aidemo's single pass turned a mix of three clips 10 dB apart
 // from -16.5 LUFS into -19.7 LUFS, which the second pass makes -16.0 (TestATrackUploadedAndMadeIsDuckedUnderTheVoice).
-// #910's alimiter at -3 dBFS at four times the rate stays after it, where aidemo has none: AAC goes over loudnorm's
-// -1.5 dBTP, to -0.8 dBTP on TestTheMixIsLimited's clicks without it, and the limiter costs a tenth of a LU on speech
-// (TestTheMasterIsAtItsLoudness). The result is measured, a level still off its target being a warning.
+// #910's alimiter at -3 dBFS at four times the rate stays after it, where aidemo has none: without it the encoded
+// AAC goes over loudnorm's -1.5 dBTP (measured -1.44 dBTP on TestTheMixIsLimited's clicks and -1.37 dBTP on
+// TestTheMasterIsAtItsLoudness's speech, 2026-11-27), and with it the speech is -2.6 dBTP at a tenth of a LU less.
+// The result is measured, a level still off its target being a warning.
 //
 // MIT License
 //
