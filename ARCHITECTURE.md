@@ -6157,6 +6157,8 @@ Node (`internal/node`):
         `verifier.md:23` and pstack's `interrogate/SKILL.md:19`);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
+    - for every worker on a GitHub repository, including read-only roles, how to check quota after a rate limit,
+      wait for the reset or honor the secondary limit's `Retry-After`, and report the wait (issue #1259);
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
       of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`, where base is the
@@ -6164,8 +6166,6 @@ Node (`internal/node`):
       branch it started from is that Task's and its pull request's, that `publish_branch` pushes into it and so
       updates that pull request, not to open a new one, and to open one with that branch as head only when
       `gh pr list --head <branch> --state open` finds none;
-    - for GitHub work, how to check quota after a rate limit, wait for the reset or honor the secondary limit's
-      `Retry-After`, and report the wait (issue #1259);
     - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
       `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
       before merging:
