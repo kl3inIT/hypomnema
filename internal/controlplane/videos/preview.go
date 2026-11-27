@@ -273,7 +273,7 @@ func (s *Service) sample(ctx context.Context, p previewPlan, tools ffmpeg.Tools)
 			return nil, err
 		}
 
-		return os.ReadFile(out)
+		return os.ReadFile(out) //nolint:gosec // The sample's own work folder.
 	}
 
 	in := compose.StillInput{

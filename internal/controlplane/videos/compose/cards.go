@@ -1,6 +1,6 @@
 // Ported from aidemo (https://github.com/tandryukha/aidemo) at commit b67235a: the card of src/types.ts:770-792
 // (a title, a subtitle, 2600 ms on screen, a 350 ms fade, an accent of #6c8cff), its layout in src/cards.ts:41-79
-// (a centred box at most 78% of the width: the accent's rule, W/22 wide, above the title at W/17, weight 750,
+// (a centered box at most 78% of the width: the accent's rule, W/22 wide, above the title at W/17, weight 750,
 // #f4f6fb; the subtitle at W/40, weight 450, rgba(226,231,244,.72)), and cardSegment in src/compose.ts:1618-1671
 // (the card looped at the video's rate for its length, faded in and out over at most a third of it each, encoded as
 // the scenes are); and from src/compose.ts:1035-1060, the cards put before and after the content, which is encoded
@@ -154,21 +154,9 @@ func cardMs(c *Card) int64 {
 }
 
 // TitleMs and EndMs are how long the cards are in the video, 0 for none.
-func (c *Cards) TitleMs() int64 {
-	if c == nil {
-		return 0
-	}
+func (c Cards) TitleMs() int64 { return cardMs(c.Title) }
 
-	return cardMs(c.Title)
-}
-
-func (c *Cards) EndMs() int64 {
-	if c == nil {
-		return 0
-	}
-
-	return cardMs(c.End)
-}
+func (c Cards) EndMs() int64 { return cardMs(c.End) }
 
 // cardASS is a card's words as an ASS file for a video of size: one block in the middle, its lines the accent's
 // rule, the title, the subtitle and the URL, each wrapped within 78% of the width (aidemo's box).
@@ -190,7 +178,7 @@ func cardASS(card Card, accent string, size Size) string {
 		"%d,%d,0,1\n\n", cardTitleFont, title*cardEm, margin, margin)
 	b.WriteString("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
-	ac := assColour(accent, 0)
+	ac := assColor(accent, 0)
 	lines := []string{
 		// The rule is a box drawn in the accent, a line of its own at the size of the gap under it.
 		fmt.Sprintf(`{\fs%.0f\c%s\p1}m 0 0 l %.0f 0 %.0f %.0f 0 %.0f{\p0}`, sub*1.2*cardEm, ac, ruleW, ruleW, ruleH, ruleH),
@@ -200,7 +188,7 @@ func cardASS(card Card, accent string, size Size) string {
 
 	if card.Subtitle != "" {
 		lines = append(lines, fmt.Sprintf(`{\r\fn%s\fs%.0f\c%s}%s`, cardTextFont, sub*cardEm,
-			assColour("#e2e7f4", 0.72), cardText(card.Subtitle)))
+			assColor("#e2e7f4", 0.72), cardText(card.Subtitle)))
 	}
 
 	if card.CTAURL != "" {
@@ -213,9 +201,9 @@ func cardASS(card Card, accent string, size Size) string {
 	return b.String()
 }
 
-// assColour is a #rrggbb colour as an ASS override, &HBBGGRR& with its alpha in the subtitle line's \alpha, so the
-// opacity goes on the colour's tag.
-func assColour(hex string, opacity float64) string {
+// assColor is a #rrggbb color as an ASS override, &HBBGGRR& with its alpha in the subtitle line's \alpha, so the
+// opacity goes on the color's tag.
+func assColor(hex string, opacity float64) string {
 	c := hexRGBA(hex)
 	out := fmt.Sprintf("&H%02X%02X%02X&", byte8(c.b), byte8(c.g), byte8(c.r))
 

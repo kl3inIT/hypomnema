@@ -20,10 +20,13 @@ func TestTheCardsOfALook(t *testing.T) {
 	r := framedRig(t)
 
 	// Classic captions, which the rig's fake maker can make (videos_test.go).
-	v, rev, err := r.ownerMake(t, "", &LookInput{Captions: &CaptionsInput{Preset: ptr(captions.Legacy)}, Cards: &CardsInput{
-		Title: &CardInput{Title: "  SecondBite ", Subtitle: ptr("Đặt món trong 30 giây")},
-		End:   &CardInput{Title: "Tải SecondBite", CTAURL: ptr("secondbite.vn"), DurationMs: ptr(int64(4000))},
-	}})
+	v, rev, err := r.ownerMake(t, "", &LookInput{
+		Captions: &CaptionsInput{Preset: ptr(captions.Legacy)},
+		Cards: &CardsInput{
+			Title: &CardInput{Title: "  SecondBite ", Subtitle: ptr("Đặt món trong 30 giây")},
+			End:   &CardInput{Title: "Tải SecondBite", CTAURL: ptr("secondbite.vn"), DurationMs: ptr(int64(4000))},
+		},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, &compose.Cards{
 		Accent: "#6c8cff",

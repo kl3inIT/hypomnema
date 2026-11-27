@@ -343,9 +343,10 @@ func (c *composer) measureMix(ctx context.Context, video, voice, bed string, mix
 		{"measured_I", "input_i"}, {"measured_TP", "input_tp"}, {"measured_LRA", "input_lra"},
 		{"measured_thresh", "input_thresh"}, {"offset", "target_offset"},
 	} {
-		v, err := strconv.ParseFloat(summary[k.from], 64)
-		if err != nil || math.IsInf(v, 0) || math.IsNaN(v) {
-			return "", nil
+		v, perr := strconv.ParseFloat(summary[k.from], 64)
+		if perr != nil || math.IsInf(v, 0) || math.IsNaN(v) {
+			// A measure that is not a number, as -inf for a gated mix, is no measure (Kinocut's _measurement).
+			return "", nil //nolint:nilerr // No measure is one pass, not a failure.
 		}
 
 		parts = append(parts, fmt.Sprintf("%s=%g", k.to, v))

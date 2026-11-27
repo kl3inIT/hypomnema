@@ -50,6 +50,28 @@ func cardsTake(t *testing.T, tools ffmpeg.Tools, dir string) []string {
 	return voices
 }
 
+// voiceOnset is when the voice is first heard, in ms: the first 10 ms in which its tone is over -40 dBFS.
+func voiceOnset(samples []float32) float64 {
+	const n = mixRate / 100
+
+	coeff := 2 * math.Cos(2*math.Pi*voiceHz/mixRate)
+
+	for a := 0; a+n <= len(samples); a += n {
+		var s1, s2 float64
+
+		for _, x := range samples[a : a+n] {
+			s0 := float64(x) + coeff*s1 - s2
+			s2, s1 = s1, s0
+		}
+
+		if 20*math.Log10(2*math.Sqrt(math.Max(s1*s1+s2*s2-coeff*s1*s2, 1e-30))/n) > -40 {
+			return float64(a) * 1000 / mixRate
+		}
+	}
+
+	return -1
+}
+
 // accentPixels counts the pixels of a frame within 40 of the accent.
 func accentPixels(px []byte) int {
 	n := 0
@@ -126,8 +148,7 @@ func TestTheCardsOpenAndCloseTheVideo(t *testing.T) {
 
 	// The sound: no voice under the cards, the voice from the first scene's start, the music under both cards.
 	s := decode(t, tools, out, 1)
-	assert.InDelta(t, designTitleMs, toneOnsets(t, tools, out, []float64{voiceHz})[0], 30,
-		"the voice starts after the title card")
+	assert.InDelta(t, designTitleMs, voiceOnset(s), 30, "the voice starts after the title card")
 
 	for _, at := range []float64{300, 1300, 2300} {
 		assert.Less(t, bandDB(s, at, voiceHz), -60.0, "no voice under the title card at %.0f ms", at)
@@ -209,14 +230,13 @@ func TestACardIsChecked(t *testing.T) {
 			Title: "A", CTAURL: "https://" + string(bytes.Repeat([]byte("a"), 200)), DurationMs: designEndMs,
 		}},
 	} {
-		assert.Error(t, c.Check(), name)
+		require.Error(t, c.Check(), name)
 	}
 
 	// A card lasts its whole frames: 2600 ms is 78 frames, 2610 ms the 79 that start within it.
-	assert.EqualValues(t, 2600, (&Cards{Title: &ok}).TitleMs())
-	assert.EqualValues(t, int64(math.Round(79*1000.0/FPS)),
-		(&Cards{End: &Card{Title: "A", DurationMs: 2610}}).EndMs())
-	assert.Zero(t, (*Cards)(nil).TitleMs())
+	assert.EqualValues(t, 2600, Cards{Title: &ok}.TitleMs())
+	assert.Equal(t, int64(math.Round(79*1000.0/FPS)), Cards{End: &Card{Title: "A", DurationMs: 2610}}.EndMs())
+	assert.Zero(t, Cards{}.TitleMs())
 }
 
 // The look sample of a card is the card between its fades: the background and the accent.
