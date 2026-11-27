@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>#1219 question card</title>
+<style>body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee}h2{margin-top:32px}figure{display:inline-block;margin:0 16px 16px 0;vertical-align:top}img{border:1px solid #444;max-width:100%}figcaption{font-size:13px;color:#aaa;margin-top:4px}.p img{width:360px}.d img{width:900px}</style></head><body>
+<h1>Issue #1219: a worker's decision stands alone</h1>
+<p>Screenshots from <code>web/tests/inbox-1219.spec.ts</code> (Playwright, Desktop Chrome and Pixel 7), the Inbox with a faked client API.</p>
+<h2>1. A Gate of two decisions: the worker's summary above, each decision under its header, each option with its description</h2>
+<figure class="d"><img src="inbox-1219-two-decisions-desktop.png"><figcaption>Desktop</figcaption></figure>
+<figure class="p"><img src="inbox-1219-two-decisions-phone.png"><figcaption>Phone</figcaption></figure>
+<h2>2. The summary opened with "Show all"</h2>
+<figure class="d"><img src="inbox-1219-summary-open-desktop.png"><figcaption>Desktop</figcaption></figure>
+<figure class="p"><img src="inbox-1219-summary-open-phone.png"><figcaption>Phone</figcaption></figure>
+<h2>3. A Gate asked before (one question, bare labels): main and this branch, byte-identical PNGs</h2>
+<figure class="d"><img src="main-inbox-1219-old-gate-desktop.png"><figcaption>main (3908054d), desktop</figcaption></figure>
+<figure class="d"><img src="inbox-1219-old-gate-desktop.png"><figcaption>this branch, desktop</figcaption></figure><br>
+<figure class="p"><img src="main-inbox-1219-old-gate-phone.png"><figcaption>main, phone</figcaption></figure>
+<figure class="p"><img src="inbox-1219-old-gate-phone.png"><figcaption>this branch, phone</figcaption></figure>
+</body></html>
