@@ -242,8 +242,8 @@ func writeTags(text string, tags []messaging.Tag, write func(messaging.Tag) stri
 	return b.String(), ids
 }
 
-// errLarkQuoteGone marks Lark's refusal to reply to a recalled or deleted message.
-var errLarkQuoteGone = errors.New("lark quote is gone")
+// errLarkQuoteUnavailable marks a Lark reply refused because the quoted message cannot be used.
+var errLarkQuoteUnavailable = errors.New("lark quote is unavailable")
 
 // lark sends a text message to the item's Lark chat as the owner, with his user access token. It replies to a
 // ref confirmed to belong to the chat and sends unquoted if the ref cannot be used. Tags use Lark's text content.
@@ -268,8 +268,6 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 		return inboxstore.Link{}, fmt.Errorf("lark: writing the message: %w", err)
 	}
 
-	const messages = "/open-apis/im/v1/messages"
-
 	message := map[string]string{"msg_type": "text", "content": string(content)}
 	sent := inboxstore.Link{
 		Kind: inboxstore.LinkLarkSent, Account: account, Chat: t.Source.ID, Label: sentLabel,
@@ -278,8 +276,8 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 	if id := replyRef(t); id != "" {
 		quoted, err := s.reader().larkMessage(ctx, token, id)
 		if err == nil && quoted.chat == t.Source.ID {
-			sent.Ref, err = s.postLarkMessage(ctx, token, messages+"/"+url.PathEscape(id)+"/reply", message)
-			if !errors.Is(err, errLarkQuoteGone) {
+			sent.Ref, err = s.postLarkMessage(ctx, token, id, message)
+			if !errors.Is(err, errLarkQuoteUnavailable) {
 				if err != nil {
 					return inboxstore.Link{}, fmt.Errorf("lark: sending to %s: %w", t.Source.ID, err)
 				}
@@ -291,7 +289,7 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 
 	message["receive_id"] = t.Source.ID
 
-	sent.Ref, err = s.postLarkMessage(ctx, token, messages+"?receive_id_type=chat_id", message)
+	sent.Ref, err = s.postLarkMessage(ctx, token, "", message)
 	if err != nil {
 		return inboxstore.Link{}, fmt.Errorf("lark: sending to %s: %w", t.Source.ID, err)
 	}
@@ -299,7 +297,7 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 	return sent, nil
 }
 
-func (s inboxSender) postLarkMessage(ctx context.Context, token, path string,
+func (s inboxSender) postLarkMessage(ctx context.Context, token, quoteID string,
 	message map[string]string,
 ) (string, error) {
 	body, err := json.Marshal(message)
@@ -314,18 +312,30 @@ func (s inboxSender) postLarkMessage(ctx context.Context, token, path string,
 		} `json:"data"`
 	}
 
+	const messages = "/open-apis/im/v1/messages"
+
+	path := messages + "?receive_id_type=chat_id"
+	if quoteID != "" {
+		path = messages + "/" + url.PathEscape(quoteID) + "/reply"
+	}
+
 	answer, err := s.call(ctx, http.MethodPost, s.larkURL+path, token, body, &got)
 	if err != nil {
 		return "", err
 	}
 
 	const (
-		messageRecalled = 230011 // Lark IM: the message is recalled.
-		messageDeleted  = 230110 // Lark IM: the message has been deleted.
+		messageRecalled      = 230011 // Lark IM: the message is recalled.
+		messageInvisible     = 230050 // Lark IM: the operator cannot see the message.
+		messageDeleted       = 230110 // Lark IM: the message has been deleted.
+		messageSelfDestructs = 230111 // Lark IM: the message is scheduled for deletion.
 	)
 
-	if got.Code == messageRecalled || got.Code == messageDeleted {
-		return "", fmt.Errorf("%w: answered %d, code %d: %s", errLarkQuoteGone, answer, got.Code, got.Msg)
+	if quoteID != "" {
+		switch got.Code {
+		case messageRecalled, messageInvisible, messageDeleted, messageSelfDestructs:
+			return "", fmt.Errorf("%w: answered %d, code %d: %s", errLarkQuoteUnavailable, answer, got.Code, got.Msg)
+		}
 	}
 
 	if answer != http.StatusOK || got.Code != 0 || got.Data.MessageID == "" {
