@@ -5904,6 +5904,21 @@ The owner's commands:
   `## Reviewed head` section appended to its spec, naming the Task, verdict and head of the latest one and asking
   for that verdict's findings and `git diff <reviewed_sha>..<head>`. A spec without `Head:` is not refused.
   Verdicts given before the migration that adds `review_verdicts` are not recorded.
+  The control plane posts a commit status `review` on the head a verdict covers (issue #1279,
+  `orchestration/reviewstatus.go`, after claude-code-action's `agent-approval-check`, a commit status on the head
+  made a required check): `success` for `correct` ("correct: reviewed by Task <id>"), `failure` for `incorrect` or
+  `blocked`, its description the verdict and the review's first finding (its `Findings:` field, else the first
+  line under a Findings heading, else its first line of prose), cut to 140 characters, linking the Task on the
+  Team page under `HYPOMNEMA_PUBLIC_URL`. A `quick` Task's pull request, which needs no worker review, gets
+  `success` "no review needed: quick Task <id>" on each head the follower reads. Each is queued in
+  `review_statuses` (pull request, head, Task, reason) in the transaction that learns it, a later verdict on the
+  same head replacing it; once a minute, after the reads, the follower reads each queued one's pull request with
+  its repository's token and posts it at the full head SHA (`githost.PostStatus`; on GitHub `POST
+  /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
+  open, a head that moved, a repository without a token and a status still unposted after a day are dropped
+  with that outcome; a failed post is tried again next minute. A status is of one commit, so a new head has none
+  until it is reviewed. The migration that adds the table queues each pull request's latest verdict, so the
+  open ones get theirs on the first pass. Pull requests no Task made get nothing ([CI runbook](docs/ci.md)).
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the

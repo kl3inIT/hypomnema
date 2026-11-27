@@ -30,3 +30,27 @@ build their own binaries and bundled assets.
 Use `gh run list --workflow ci.yml` to find a run and
 `gh run view <run-id> --json jobs` for its job and step timestamps. For the
 previous layout, see the [CI research note](research/2026-11-10-ci-and-tests.md).
+
+## The `review` status
+
+The control plane posts a commit status named `review` on the heads of the pull requests its Tasks made, in the
+repositories it holds a token for (issue #1279; [architecture](../ARCHITECTURE.md)). It is `success` on the exact
+head a reviewer judged `correct`, `failure` on one judged `incorrect` or `blocked`, and `success` with "no review
+needed: quick Task <id>" on each head of a `quick` Task's pull request. A new push has none until it is reviewed.
+The token must be allowed to write commit statuses (a classic token's `repo` scope, or "Commit statuses: write").
+
+When the control plane first runs the change, the migration queues each pull request's latest verdict, and the
+next minute's pass posts it on those still open at that head: on zm it runs by itself when the control plane
+starts the release. Nothing else needs to be run.
+
+A docs-only change needs no review as quick work (or goes straight to `main`), so its Task's `quick` kind is
+what says so. A pull request no Task made and no reviewer judged, such as Dependabot's or one from the owner's
+own branch, gets no status. Once
+`review` is a required check, post it by hand on its head (`gh pr view <n> --json headRefOid`):
+
+```sh
+gh api repos/<owner>/<repo>/statuses/<sha> -f state=success -f context=review \
+  -f description='no review needed: Dependabot'
+```
+
+An admin can also merge past it, as `main` does not enforce its rules on admins.

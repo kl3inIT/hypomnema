@@ -890,6 +890,16 @@ type RestartBoot struct {
 	At int64
 }
 
+type ReviewStatus struct {
+	PullRequest string
+	HeadSha     string
+	TaskID      string
+	Reason      string
+	QueuedAt    int64
+	DoneAt      sql.NullInt64
+	Outcome     sql.NullString
+}
+
 type ReviewVerdict struct {
 	TaskID      string
 	PullRequest string

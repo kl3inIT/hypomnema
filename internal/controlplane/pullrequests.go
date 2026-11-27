@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -26,10 +27,14 @@ const pullRequestTimeout = 10 * time.Second
 // followPullRequests follows, until ctx ends, the pull requests on the branches of succeeded Tasks
 // (orchestration.FollowPullRequests): every lookUp the branches without one found yet are looked up, and every
 // interval all are read. A conflict or a failed required check with auto-merge armed is sent to the author as a
-// follow-up, and a merge or a close wakes the coordinator (issues #1053, #1168).
+// follow-up, and a merge or a close wakes the coordinator (issues #1053, #1168). Every interval, after the
+// reads, the queued `review` statuses are posted (orchestration.PostReviewStatuses, issue #1279), each linking its
+// Task under publicURL.
 func followPullRequests(ctx context.Context, svc *orchestration.Service, tokens connections, logger *slog.Logger,
-	lookUp, every time.Duration,
+	publicURL string, lookUp, every time.Duration,
 ) {
+	statuses := tokens.reviewStatusHost(publicURL)
+
 	looking := time.NewTicker(lookUp)
 	defer looking.Stop()
 
@@ -51,6 +56,15 @@ func followPullRequests(ctx context.Context, svc *orchestration.Service, tokens 
 			logger.WarnContext(ctx, "following the pull requests of succeeded tasks",
 				slog.String("event", "controlplane.pull_requests_failed"), slog.String("error", err.Error()))
 		}
+
+		if !found {
+			continue
+		}
+
+		if err := svc.PostReviewStatuses(ctx, statuses); err != nil && ctx.Err() == nil {
+			logger.WarnContext(ctx, "posting the review statuses of pull requests",
+				slog.String("event", "controlplane.review_statuses_failed"), slog.String("error", err.Error()))
+		}
 	}
 }
 
@@ -60,34 +74,7 @@ func followPullRequests(ctx context.Context, svc *orchestration.Service, tokens 
 // and was told to wait for the checks itself (node/runner's prompt).
 func (c connections) readPullRequest(ctx context.Context, f orchestration.FollowedRequest,
 ) (githost.Request, githost.RequestState, error) {
-	repo := f.Repo
-
-	conn, ok, err := c.svc.ConnectionFor(ctx, repo.Host, repo.Path)
-	if err != nil {
-		return githost.Request{}, githost.RequestState{}, err
-	}
-
-	if !ok {
-		return githost.Request{}, githost.RequestState{}, fmt.Errorf("%s/%s: %w", repo.Host, repo.Path,
-			orchestration.ErrCannotFollow)
-	}
-
-	opened, err := c.vault.Open(ctx, conn.Secret)
-	if err != nil {
-		return githost.Request{}, githost.RequestState{}, vaultError(err)
-	}
-
-	token := opened.Payload[vault.KeyValue]
-	if token == "" {
-		return githost.Request{}, githost.RequestState{}, fmt.Errorf("%s/%s: %w", repo.Host, repo.Path,
-			orchestration.ErrCannotFollow)
-	}
-
-	if c.identities == nil {
-		return githost.Request{}, githost.RequestState{}, fmt.Errorf("no route to %s", repo.Host)
-	}
-
-	way, err := c.identities.ways.For(connproxy.Route{Proxy: conn.Proxy, Dial: conn.DialAddress})
+	client, token, err := c.repoClient(ctx, f.Repo)
 	if err != nil {
 		return githost.Request{}, githost.RequestState{}, err
 	}
@@ -95,15 +82,97 @@ func (c connections) readPullRequest(ctx context.Context, f orchestration.Follow
 	ctx, cancel := context.WithTimeout(ctx, pullRequestTimeout)
 	defer cancel()
 
-	r, st, err := githost.FindRequest(ctx, &http.Client{Transport: way}, f.Kind, repo, f.Branch, f.Hint, token)
+	r, st, err := githost.FindRequest(ctx, client, f.Kind, f.Repo, f.Branch, f.Hint, token)
 	if errors.Is(err, githost.ErrNoRequest) {
 		return githost.Request{}, githost.RequestState{}, err
 	}
 
 	if err != nil {
-		// What a host or a proxy answers may repeat the token: it never reaches the log.
-		return githost.Request{}, githost.RequestState{}, errors.New(strings.ReplaceAll(err.Error(), token, "[token]"))
+		return githost.Request{}, githost.RequestState{}, hideToken(err, token)
 	}
 
 	return r, st, nil
+}
+
+// reviewStatusHost reads pull requests and posts the `review` status with the token of each repository's
+// Connection, as readPullRequest reads (issue #1279). A status links its Task on the control plane's Team page
+// when publicURL is set.
+func (c connections) reviewStatusHost(publicURL string) orchestration.ReviewStatusHost {
+	return orchestration.ReviewStatusHost{
+		Read: func(ctx context.Context, kind githost.Kind, r githost.Request) (githost.RequestState, error) {
+			client, token, err := c.repoClient(ctx, r.Repo)
+			if err != nil {
+				return githost.RequestState{}, err
+			}
+
+			ctx, cancel := context.WithTimeout(ctx, pullRequestTimeout)
+			defer cancel()
+
+			st, err := githost.ReadRequest(ctx, client, kind, r, token)
+
+			return st, hideToken(err, token)
+		},
+		Post: func(ctx context.Context, s orchestration.ReviewStatus) error {
+			client, token, err := c.repoClient(ctx, s.Request.Repo)
+			if err != nil {
+				return err
+			}
+
+			target := ""
+			if publicURL != "" {
+				target = publicURL + "/team?" + url.Values{"task": {s.TaskID}}.Encode()
+			}
+
+			ctx, cancel := context.WithTimeout(ctx, pullRequestTimeout)
+			defer cancel()
+
+			return hideToken(githost.PostStatus(ctx, client, s.Kind, s.Request.Repo, s.Head, githost.Status{
+				Context: orchestration.ReviewStatusContext, State: s.State, Description: s.Description,
+				TargetURL: target,
+			}, token), token)
+		},
+	}
+}
+
+// repoClient is the client and token to reach repo's host with: its Connection's token and route. A repository
+// without a token is orchestration.ErrCannotFollow.
+func (c connections) repoClient(ctx context.Context, repo githost.Repo) (*http.Client, string, error) {
+	conn, ok, err := c.svc.ConnectionFor(ctx, repo.Host, repo.Path)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if !ok {
+		return nil, "", fmt.Errorf("%s/%s: %w", repo.Host, repo.Path, orchestration.ErrCannotFollow)
+	}
+
+	opened, err := c.vault.Open(ctx, conn.Secret)
+	if err != nil {
+		return nil, "", vaultError(err)
+	}
+
+	token := opened.Payload[vault.KeyValue]
+	if token == "" {
+		return nil, "", fmt.Errorf("%s/%s: %w", repo.Host, repo.Path, orchestration.ErrCannotFollow)
+	}
+
+	if c.identities == nil {
+		return nil, "", fmt.Errorf("no route to %s", repo.Host)
+	}
+
+	way, err := c.identities.ways.For(connproxy.Route{Proxy: conn.Proxy, Dial: conn.DialAddress})
+	if err != nil {
+		return nil, "", err
+	}
+
+	return &http.Client{Transport: way}, token, nil
+}
+
+// hideToken keeps the token out of an error: what a host or a proxy answers may repeat it, and errors reach the log.
+func hideToken(err error, token string) error {
+	if err == nil || token == "" || !strings.Contains(err.Error(), token) {
+		return err
+	}
+
+	return errors.New(strings.ReplaceAll(err.Error(), token, "[token]"))
 }
