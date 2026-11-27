@@ -6609,19 +6609,20 @@ Node (`internal/node`):
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on
     a phone.
-  - Priority and projects (issue #1157), copied from circle (MIT, `ln-dev7/circle` b0ba7dd) with its notice in each
+  - Priority and departments (issue #1157), copied from circle (MIT, `ln-dev7/circle` b0ba7dd) with its notice in each
     file: a to-do's row starts with its priority's icon (`web/src/components/ui/priority.tsx`: circle's icons and
-    `PrioritySelector`), one click to change it, its reason in the icon's tooltip; its project, a department
-    (issue #1188), is a chip with circle's Box icon on the row's second line; the detail's Priority and Project fields are pickers
+    `PrioritySelector`), one click to change it, its reason in the icon's tooltip; its department
+    (issue #1188) is a chip with circle's Box icon on the row's second line; the detail's Priority and Department
+    fields are pickers
     (`components/ui/project-selector.tsx`), with the priority's reason beside it. Inside each group the rows go by
-    priority, urgent first and none last, then as before (`groupRows`). Next to the filter, the project filter
-    (`features/inbox/project-filter.tsx`, after circle's `headers/projects/filter.tsx`): Every project, No project
+    priority, urgent first and none last, then as before (`groupRows`). Next to the filter, the department filter
+    (`features/inbox/project-filter.tsx`, after circle's `headers/projects/filter.tsx`): Every department, No department
     or one department, in the sidebar's order, with counts; departments are made, renamed and removed in the
     sidebar only (issue #1188). ⌘K or Ctrl+K opens the
     command menu (`features/inbox/command-menu.tsx`, after circle's `command-palette.tsx`): on the selected to-do,
-    named in a chip that ⌫ clears, Set priority…, Move to project…, Give to the main Bot, Snooze…, Mark done and
+    named in a chip that ⌫ clears, Set priority…, Move to department…, Give to the main Bot, Snooze…, Mark done and
     Drop; with none, the items to search by title and open. The thread says a priority set with its reason and a
-    project changed.
+    department changed (issue #1272).
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,

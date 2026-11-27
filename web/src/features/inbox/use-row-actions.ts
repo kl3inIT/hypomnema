@@ -118,7 +118,7 @@ export function useRowActions({
 
   return {
     run,
-    // setPriority, setProject and hand are the changes the priority icon, the project picker and Cmd+K make
+    // setPriority, setProject and hand are the changes the priority icon, the department picker and Cmd+K make
     // (issue #1157); they leave the selection where it is.
     setPriority: (row: Row, priority: number) =>
       change(
@@ -131,7 +131,7 @@ export function useRowActions({
       change(
         row,
         { act: "project", project },
-        project ? `Moved to ${name}` : "Removed from its project",
+        project ? `Moved to ${name}` : "Removed from its department",
         false,
       ),
     hand: (row: Row, bot: string, name: string) =>
