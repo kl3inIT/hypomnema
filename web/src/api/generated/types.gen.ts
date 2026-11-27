@@ -2926,11 +2926,27 @@ export type GatewayKey = {
    * What it may use besides chat (issue
    */
   endpoints: Array<GatewayEndpoint>;
+  /**
+   * The only accounts it may use (issue #1277), each with its runtime; absent when it may use every account. Its requests go only to these, in their order among them; a provider none of them is of is not used.
+   */
+  accounts?: Array<GatewayKeyAccount>;
+  /**
+   * Its own web search order (issue #1277): these are asked first, the others after in the order of Settings. Empty for the order of Settings.
+   */
+  search_order: Array<WebSearchProvider>;
   created_at: string;
   /**
    * When the gateway last served a request with it; absent when never.
    */
   last_used_at?: string;
+};
+
+export type GatewayKeyAccount = {
+  id: string;
+  /**
+   * The account's runtime: claude, codex, antigravity, opencode_go…
+   */
+  runtime: string;
 };
 
 export type GatewayKeyList = {
@@ -2954,6 +2970,14 @@ export type NewGatewayKey = {
    * What it may use besides chat; every kind when left out, none when empty. A key that may use every kind should leave it out, so a kind added later is given too.
    */
   endpoints?: Array<GatewayEndpoint>;
+  /**
+   * The ids of the only accounts it may use (issue #1277); every account when left out, as an account added later is then. An account added later is not added to a key that names its accounts.
+   */
+  accounts?: Array<string>;
+  /**
+   * Its own web search order (issue #1277): these are asked first, the others after in the order of Settings; the order of Settings when left out or empty. A provider switched off stays off.
+   */
+  search_order?: Array<WebSearchProvider>;
 };
 
 export type GatewayKeyUpdate = {
@@ -2969,6 +2993,14 @@ export type GatewayKeyUpdate = {
    * The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
    */
   endpoints?: Array<GatewayEndpointSelection>;
+  /**
+   * The ids of the only accounts it may use from now on (issue #1277); ["*"] means every account again, omitted means unchanged. The wildcard cannot be combined with named accounts.
+   */
+  accounts?: Array<string>;
+  /**
+   * Its own web search order (issue #1277); empty means the order of Settings again, omitted means unchanged.
+   */
+  search_order?: Array<WebSearchProvider>;
 };
 
 export type GatewayEndpointSelection = 'search' | 'fetch' | 'images' | 'audio' | '*';

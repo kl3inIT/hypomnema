@@ -193,8 +193,8 @@ type GatewayModels interface {
 // (modelgateway.Service).
 type GatewayKeys interface {
 	ListKeys(ctx context.Context) ([]modelgateway.Key, error)
-	AddKey(ctx context.Context, name string, models []string, endpoints []modelgateway.Endpoint,
-	) (modelgateway.Key, string, error)
+	AddRoutedKey(ctx context.Context, name string, models []string, endpoints []modelgateway.Endpoint,
+		routing modelgateway.KeyRouting) (modelgateway.Key, string, error)
 	UpdateKey(ctx context.Context, id string, change modelgateway.KeyUpdate) (modelgateway.Key, error)
 	KeyValue(ctx context.Context, id string) (string, error)
 	RevokeKey(ctx context.Context, id string) error

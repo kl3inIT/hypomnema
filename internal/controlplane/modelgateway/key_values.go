@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
@@ -19,6 +20,12 @@ type KeyUpdate struct {
 	Name      *string
 	Models    []string
 	Endpoints []Endpoint
+	// Accounts are the only accounts the key may use (issue #1277); [AllAccounts] is every account again, nil
+	// leaves them.
+	Accounts []string
+	// SearchOrder is the key's own web search order (issue #1277); a non-nil empty one is the global order again,
+	// nil leaves it.
+	SearchOrder []string
 }
 
 // AllEndpoints resets an owner key's endpoint access to every kind, including future kinds.
@@ -41,6 +48,10 @@ func (s *Service) UpdateKey(ctx context.Context, id string, change KeyUpdate) (K
 	}
 
 	if err := validateKeyAccess(change.Models, endpoints); err != nil {
+		return Key{}, err
+	}
+
+	if err := validateRouting(change.Accounts, change.SearchOrder); err != nil {
 		return Key{}, err
 	}
 
@@ -80,8 +91,26 @@ func (s *Service) UpdateKey(ctx context.Context, id string, change KeyUpdate) (K
 			return fmt.Errorf("updating key %s: %w", id, err)
 		}
 
+		if change.Accounts != nil {
+			if err := setAccounts(ctx, q, id, change.Accounts); err != nil {
+				return err
+			}
+
+			row.OwnAccounts = boolInt(!slices.Equal(change.Accounts, []string{AllAccounts}))
+		}
+
+		if change.SearchOrder != nil {
+			if err := setSearchOrder(ctx, q, id, change.SearchOrder); err != nil {
+				return err
+			}
+		}
+
 		updated, err = keyFromRow(row)
 		if err != nil {
+			return err
+		}
+
+		if updated, err = withRouting(ctx, q, updated, row.OwnAccounts == 1); err != nil {
 			return err
 		}
 
