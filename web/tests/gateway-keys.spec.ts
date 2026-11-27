@@ -379,6 +379,7 @@ test("the owner creates a key in the sheet and sees its value", async ({ page, i
     /1\s*Codex.*2\s*Claude.*3\s*Exa/,
   )
   await expect(sheet.getByTestId("routing-summary")).toHaveText("1 account · own search order")
+  await order.scrollIntoViewIfNeeded()
   await shot(page, "gateway-keys-sheet-routing")
   await sheet.getByRole("button", { name: "Create key" }).click()
 
@@ -485,6 +486,7 @@ test("the owner sets a key's own routing back to Settings", async ({ page }) => 
   await expect(order.getByRole("list", { name: "Asked first" })).toHaveText(
     /1\s*Codex.*2\s*Claude.*3\s*Exa/,
   )
+  await order.scrollIntoViewIfNeeded()
   await shot(page, "gateway-keys-sheet-edit-routing")
 
   await accountsChoice.getByRole("button", { name: "Every account" }).click()

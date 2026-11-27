@@ -4062,15 +4062,40 @@ capabilities do not exist yet.
   every kind. Every key made before, and every key of a Dispatch or a chat, has NULL. A request of a kind the key
   is not given is refused 403 `permission_error` `endpoint_not_allowed` before any provider is asked. Chat is
   limited by the key's models alone.
+- An owner's key may have its own routing (issue #1277, `modelgateway/key_routing.go`), stored next to it as
+  `gateway_search_providers` keeps the global order (migration `gateway_key_routing`): `gateway_keys.own_accounts`
+  with the rows of `gateway_key_accounts` (each an account, removed with it) are the only accounts it may use, and
+  `gateway_key_search_order` (provider, position) is its own web search order; a key with neither is routed as
+  before. Only these accounts, as OmniRoute narrows a provider's connections to a key's `allowed_connections`
+  (`src/sse/services/auth.ts:1136-1138`) and Bifrost's virtual key names its provider keys: the gateway puts the
+  key's accounts in the request's context (`modelgateway.KeyAccounts`), and the control plane's wiring gives them
+  to the subscriptions (`subscription.WithAccounts`), whose `Token`, `TokenFor` and `FirstFree` take only them, by
+  every rule of the global order among them; when each is at its limit the request is answered 429 with
+  `Retry-After` and no other account is tried. A model whose every target's provider has none of the key's
+  accounts is refused 403 (`model_not_allowed`) and left out of its `/v1/models`; a provider served without
+  accounts is not limited. An account added later is not added; a key whose accounts are all removed keeps
+  `own_accounts` and uses none. Its own search order: `/v1/search` and `/v1/alpha/search` search with
+  `websearch.Scope`, its providers first in its order and the others after in the chain's; a provider off stays off,
+  Codex's and Claude's searches go under the key's accounts, and the cache and a subscription's rest are kept apart
+  for a key with its own accounts. A Dispatch's or a chat's key has none, so the agent API's searches are unchanged.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
   creation and last use (the later of its last authentication, written at most hourly, and its latest usage row);
   the keys of a Dispatch or a chat are only counted
-  (`live_worker_keys`), and each key's `endpoints` (every kind for a key not limited). `POST /gateway/keys`
-  `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
-  page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
-  revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+  (`live_worker_keys`), and each key's `endpoints` (every kind for a key not limited), `accounts` (absent for every
+  account) and `search_order`. `POST /gateway/keys` `{name, models?, endpoints?, accounts?, search_order?}` answers
+  the value once, `endpoints` left out for every kind and empty for none; `PATCH` takes `accounts: ["*"]` for every
+  account again and `search_order: []` for the order of Settings; `DELETE /gateway/keys/{id}` revokes one the owner
+  made. All are the owner's. The page shows its own origin with `/v1` as the base URL. Since issue #1277 a key is
+  made and edited in one sheet at the right side (`gateway-key-sheet.tsx`, 560px, the whole width on a phone; as
+  Bifrost's and new-api's key sheets): the name, then Models as "Every model / Only these" with a chip multiselect
+  grouped by provider (`gateway-model-picker.tsx`, the shadcn combobox), Besides chat as one row of toggle chips
+  with the endpoints in one line, and a Routing section closed by default whose header says what is set (Accounts:
+  "Every account / Only these" with each subscription's accounts as chips; Web search order: "Like Settings / Its
+  own" with numbered chips that move). A new key is shown once with Copy and a Connect a tool snippet (the base URL
+  and the key for OpenAI's format and Claude Code, after LiteLLM's `CreatedKeyDisplay`). The table marks a key with
+  its own routing under its name ("2 Claude accounts", "Own search order").
   The name stays visible when the table scrolls sideways. Models and extra capabilities each show up to three
   chips and open the full list from the remaining count. A key without a stored value shows its prefix and a short
   status that opens the explanation in a popover when pressed (issue #1235).
@@ -5777,7 +5802,10 @@ The owner's commands:
     (issue #1047), the step to take when the key may have leaked; it prints how many devices it removed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
-    owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
+    owner key, with `--accounts a,b` (the only accounts it may use) and `--search-order codex,claude,exa` (its own
+    web search order; issue #1277). `gateway keys set <id>` takes `--name`, `--models`, `--endpoints` (`*` restores
+    every kind), `--accounts` (`*` restores every account) and `--search-order` (`settings` restores the order of
+    Settings); `gateway keys list` shows a key's own routing after what it may use;
     `gateway keys show-value <id>` reads its value again if stored. `gateway keys list` never prints the value;
     `gateway keys revoke <id>` stops the key. `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
