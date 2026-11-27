@@ -32,6 +32,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/inbox"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/zalo"
@@ -612,9 +613,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// Every worker's and every Bot's pi's web tools, generate_image and speech tools (issues #354, #492, #723), each
 	// call recorded on its Dispatch's key or on the key of the chat's running pi; before anything is served.
-	agents.WithWeb(agentWeb{
+	agentsWeb := agentWeb{
 		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
-	}).
+	}
+	agents.WithWeb(agentsWeb).
+		// Social listening (issue #1287): the web and Reddit, keyless, its web searches on the caller's key.
+		WithListening(agentListening{svc: listening.New(listening.Config{Logger: logger}), web: agentsWeb}).
 		WithImages(agentImages{
 			worker: modelgateway.WorkerImages{Server: gatewayServer, Gateway: gateway, Logger: logger},
 			bot:    modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},

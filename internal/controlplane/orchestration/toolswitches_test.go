@@ -133,7 +133,7 @@ func TestABotsToolSwitchesAreKeptAndUndone(t *testing.T) {
 
 // familiesAfterPresets are the tool families added after the presets' migration (00123), whose catalog of tools it
 // froze: a Bot or profile it moved to the full preset gets them as the preset says, which no legacy list named.
-var familiesAfterPresets = []string{"inbox", "requests", "meetings", "chats"}
+var familiesAfterPresets = []string{"inbox", "requests", "meetings", "chats", "listening"}
 
 // toolsAfterPresets are the tools added after that migration to a family it knew: the browser take's (issue
 // #1189). A legacy list named none of them either, so they go as their family goes in the full preset.

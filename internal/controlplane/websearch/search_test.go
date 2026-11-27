@@ -1015,3 +1015,24 @@ func TestAKeysSecretIsNamedAfterItsProvider(t *testing.T) {
 		assert.False(t, ok, bad)
 	}
 }
+
+// Scenario (issue #1287): when every provider asked answers with nothing, the search fails with ErrNoResults, which is
+// an ErrFailed too, so social listening tells a clean zero from a failure; a provider that failed otherwise makes it a
+// plain failure.
+func TestASearchEveryProviderAnswersEmptyIsNoResults(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{keys: map[string][]string{"exa": {"e"}}})
+	w.exa.set(answers(`{"results":[]}`))
+
+	_, err := w.svc.Search(t.Context(), "nothing anywhere", 0, "exa")
+	require.ErrorIs(t, err, websearch.ErrNoResults)
+	require.ErrorIs(t, err, websearch.ErrFailed)
+	assert.Contains(t, err.Error(), "exa (key web-search-exa: no results)")
+
+	w.exa.set(refuses(http.StatusInternalServerError, ""))
+
+	_, err = w.svc.Search(t.Context(), "something broken", 0, "exa")
+	require.ErrorIs(t, err, websearch.ErrFailed)
+	assert.NotErrorIs(t, err, websearch.ErrNoResults)
+}

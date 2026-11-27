@@ -1,0 +1,66 @@
+package listening_test
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
+)
+
+// TestLiveRedditAndWeb reads the real Reddit, Arctic Shift and the web search's keyless providers, and logs what each
+// backend answered. It never runs in CI: set HYPOMNEMA_LISTENING_LIVE=1 (issue #1287, the pull request's
+// Verification).
+func TestLiveRedditAndWeb(t *testing.T) {
+	if os.Getenv("HYPOMNEMA_LISTENING_LIVE") == "" {
+		t.Skip("live check: set HYPOMNEMA_LISTENING_LIVE=1 to read the real sources")
+	}
+
+	web := websearch.New(websearch.Config{})
+	s := listening.New(listening.Config{Platforms: listening.Sources(listening.Endpoints{}, &http.Client{
+		Timeout: 20 * time.Second,
+	})})
+
+	plan := listening.Plan{
+		Topic:   "VETC",
+		Sources: []string{listening.SourceWeb, listening.SourceReddit},
+		Subqueries: []listening.Subquery{
+			{Label: "vi", Query: "VETC thu phí không dừng trừ tiền"},
+			{Label: "en", Query: "VETC toll Vietnam"},
+		},
+		WindowDays: 365,
+	}
+
+	a, err := s.Search(t.Context(), plan, func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+		return web.Search(ctx, query, limit, "")
+	})
+	require.NoError(t, err)
+
+	for _, c := range a.Coverage {
+		t.Logf("coverage %s: %s %s, %d items", c.Source, c.State, c.Code, c.Items)
+
+		for _, st := range c.Streams {
+			for _, at := range st.Tried {
+				t.Logf("  %s %s: %s %s %s skipped=%v", st.Subquery, at.Backend, at.Result, at.Detail, at.Until, at.Skipped)
+			}
+		}
+	}
+
+	for _, it := range a.Items {
+		date := ""
+		if it.PublishedAt != nil {
+			date = it.PublishedAt.Format(time.DateOnly)
+		}
+
+		t.Logf("item %s %s %s %s %v %q", it.Source, it.Backend, date, it.URL, it.Engagement, it.Title)
+	}
+
+	for _, c := range a.Clusters {
+		t.Logf("cluster %s %s %.1f %v %d items %q", c.ID, c.Uncertainty, c.Score, c.Sources, len(c.Items), c.Title)
+	}
+}

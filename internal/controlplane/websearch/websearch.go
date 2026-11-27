@@ -111,6 +111,8 @@ var (
 	ErrInvalid = errors.New("invalid request")
 	// ErrFailed: every provider tried failed; the error says why each did.
 	ErrFailed = errors.New("no search provider answered")
+	// ErrNoResults: every provider asked answered and none found anything; such an error is an ErrFailed too.
+	ErrNoResults = errors.New("no provider found anything")
 	// ErrRefused: the page is not on the public internet.
 	ErrRefused = errors.New("the address is not on the public internet")
 	// ErrUnreadable: the page could not be read.
