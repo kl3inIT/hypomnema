@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/captions"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
@@ -28,6 +29,8 @@ type Look struct {
 	FellBackFrom compose.Chrome `json:"fell_back_from,omitempty"`
 	// Music is the track laid under the voice, as a snapshot (issue #910, row 15); absent: none.
 	Music *MusicLook `json:"music,omitempty"`
+	// Cards are its title card and end card (issue #1230, row 1); absent: none.
+	Cards *compose.Cards `json:"cards,omitempty"`
 }
 
 // CaptionsLook is a caption preset and where the captions sit.
@@ -45,6 +48,7 @@ type LookInput struct {
 	Frame      *FrameInput      `json:"frame,omitempty"`
 	Background *BackgroundInput `json:"background,omitempty"`
 	Music      *MusicInput      `json:"music,omitempty"`
+	Cards      *CardsInput      `json:"cards,omitempty"`
 }
 
 // CaptionsInput is the captions section as sent.
@@ -66,6 +70,22 @@ type FrameInput struct {
 type BackgroundInput struct {
 	Preset *string   `json:"preset,omitempty"`
 	Colors *[]string `json:"colors,omitempty"`
+}
+
+// CardsInput is the cards section as sent (issue #1230, row 1): each card left out is none, so a section sent with
+// neither takes the cards away.
+type CardsInput struct {
+	Accent *string    `json:"accent,omitempty"`
+	Title  *CardInput `json:"title,omitempty"`
+	End    *CardInput `json:"end,omitempty"`
+}
+
+// CardInput is a card as sent: its title, and the rest left out for none or the default length.
+type CardInput struct {
+	Title      string  `json:"title"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	CTAURL     *string `json:"cta_url,omitempty"`
+	DurationMs *int64  `json:"duration_ms,omitempty"`
 }
 
 // canonical is the sections as sent, as a request's hash holds them: Go writes a struct's fields in order, and
@@ -197,6 +217,67 @@ func backgroundOf(in *BackgroundInput) (*compose.Background, error) {
 	return out, nil
 }
 
+// cardsOf is the sent cards section with the references' defaults: aidemo's accent and its card's 2.6 s for the
+// title card, agent-demo-video's 3.0 s for the end card; nil when it holds no card.
+func cardsOf(in *CardsInput) (*compose.Cards, error) {
+	out := &compose.Cards{Accent: compose.DefaultAccent}
+	if in.Accent != nil {
+		out.Accent = *in.Accent
+	}
+
+	out.Title = cardOf(in.Title, compose.DefaultTitleMs)
+	out.End = cardOf(in.End, compose.DefaultEndMs)
+
+	if err := out.Check(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
+	if out.Title == nil && out.End == nil {
+		return nil, nil //nolint:nilnil // No card is no cards, and no error.
+	}
+
+	return out, nil
+}
+
+func cardOf(in *CardInput, defaultMs int64) *compose.Card {
+	if in == nil {
+		return nil
+	}
+
+	out := &compose.Card{Title: strings.TrimSpace(in.Title), DurationMs: defaultMs}
+	if in.Subtitle != nil {
+		out.Subtitle = strings.TrimSpace(*in.Subtitle)
+	}
+
+	if in.CTAURL != nil {
+		out.CTAURL = strings.TrimSpace(*in.CTAURL)
+	}
+
+	if in.DurationMs != nil {
+		out.DurationMs = *in.DurationMs
+	}
+
+	return out
+}
+
+// copyCards is a look's cards, copied so that a new look shares none of the old one's.
+func copyCards(c *compose.Cards) *compose.Cards {
+	if c == nil {
+		return nil
+	}
+
+	out := *c
+
+	for _, card := range []**compose.Card{&out.Title, &out.End} {
+		if *card != nil {
+			v := **card
+			*card = &v
+		}
+	}
+
+	return &out
+}
+
 // resolveLook is the look of a new revision: each section sent, with its defaults, else the base's; a background
 // neither sent nor in the base (a revision made before the looks) is midnight.
 func resolveLook(in *LookInput, base Look) (Look, error) {
@@ -235,6 +316,17 @@ func resolveLook(in *LookInput, base Look) (Look, error) {
 		out.Music = &m
 	}
 
+	if in.Cards != nil {
+		c, err := cardsOf(in.Cards)
+		if err != nil {
+			return Look{}, err
+		}
+
+		out.Cards = c
+	} else {
+		out.Cards = copyCards(out.Cards)
+	}
+
 	if in.Background != nil {
 		bg, err := backgroundOf(in.Background)
 		if err != nil {
@@ -271,10 +363,13 @@ func fitTake(l Look, sentFrame bool, take devicetool.Take, aspect string) (Look,
 	return l, nil
 }
 
-// mergeDefault is the saved default with the sections a make sent, resolved, in place of its own (row 3).
+// mergeDefault is the saved default with the sections a make sent, resolved, in place of its own (row 3). The
+// cards are one video's words, not a style, and are never saved: the next make, and an agent's, which takes the
+// default, would open on another video's title (#1230, row 1; aidemo and agent-demo-video keep a video's cards in
+// its own storyboard or config, inference for not saving them).
 func mergeDefault(saved Look, in *LookInput, resolved Look) Look {
 	out := saved
-	out.FellBackFrom = ""
+	out.FellBackFrom, out.Cards = "", nil
 
 	if in.Captions != nil {
 		out.Captions = resolved.Captions

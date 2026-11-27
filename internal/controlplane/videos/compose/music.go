@@ -5,11 +5,18 @@
 // to a loudness target held under a true-peak ceiling (kinocut/engine_audio_normalize.py:159-166, the peak after a
 // linear gain), the measured output's I and TP (kinocut/engine_audio_normalize_output.py:17-28), the mix of voice and
 // bed with amix duration=first:normalize=0 (kinocut/engine_audio_bed_filters.py:22-46) and the stereo format of each
-// input (kinocut/engine_audio_mix.py:44-46). Issue #910, rows 7, 8, 11, 12 and 14. Modified, and why: no loudnorm
-// runs on the master, where aidemo and Kinocut run one: the voice is set to -16 LUFS by a measured linear gain, the
-// bed 3 LU under it (HyperFrames' "music under it about -31 LUFS", skills/media-use/audio/references/tts.md:21) and
-// ducked by the scenes' clips (duck.go), and the peaks are held by alimiter at -3 dBFS at four times the rate, then
-// measured, a level off its target being a warning; the bed is made beforehand (bed.go).
+// input (kinocut/engine_audio_mix.py:44-46). Issue #910, rows 7, 8, 11, 12 and 14. Modified, and why: the voice is
+// set to -16 LUFS by a measured linear gain, the bed 3 LU under it (HyperFrames' "music under it about -31 LUFS",
+// skills/media-use/audio/references/tts.md:21) and ducked by the scenes' clips (duck.go), and the bed is made
+// beforehand (bed.go). The master is aidemo's final loudnorm to -16 LUFS integrated, -1.5 dBTP and an LRA of 11, its
+// 192 kHz put back to 44.1 kHz (src/compose.ts:2176-2187, docs/AUTHORING.md:400-406; issue #1230, row 2), where #910
+// left the level where the voice's peak let its gain put it (-21.2 LUFS on the SecondBite trial). It is aimed by a
+// first pass that measures the mix, as Kinocut's audio normalization runs loudnorm twice (Kinocut at commit c890db7,
+// kinocut/engine_audio_normalize.py:142-187, 254-299): aidemo's single pass turned a mix of three clips 10 dB apart
+// from -16.5 LUFS into -19.7 LUFS, which the second pass makes -16.0 (TestATrackUploadedAndMadeIsDuckedUnderTheVoice).
+// #910's alimiter at -3 dBFS at four times the rate stays after it, where aidemo has none: AAC goes over loudnorm's
+// -1.5 dBTP, to -0.8 dBTP on TestTheMixIsLimited's clicks without it, and the limiter costs a tenth of a LU on speech
+// (TestTheMasterIsAtItsLoudness). The result is measured, a level still off its target being a warning.
 //
 // MIT License
 //
@@ -53,10 +60,13 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -72,8 +82,10 @@ type Music struct {
 	// NoDuck leaves out the duck: the control a test of a whole revision renders beside it (issue #910, PR 2's
 	// check 11); the runner never sets it.
 	NoDuck bool
-	// noLimiter leaves out the limiter: the tests' control.
-	noLimiter bool
+	// NoMaster leaves out the master's loudnorm and limiter (issue #1230, row 2), whose gain follows each mix's own
+	// measure: the twin and the control a test of a whole revision renders beside it compare their mixes without
+	// it; the runner never sets it.
+	NoMaster bool
 }
 
 // MusicResult is the levels a mix was made at and measured at: the voice's and the bed's loudness before their
@@ -102,7 +114,11 @@ const (
 	MaxMusicGainDB = 10.0
 	// fadeOutMs is the bed's fade at the video's end, aidemo's default.
 	fadeOutMs = 1800
-	// limiterLimit is alimiter's ceiling, -3 dBFS, run at limiterRate.
+	// The master's loudnorm, aidemo's LoudnessSchema (src/types.ts:806-813): -16 LUFS integrated, -1.5 dBTP, LRA 11.
+	masterLUFS = VoiceLUFS
+	masterTPdB = -1.5
+	masterLRA  = 11
+	// limiterLimit is alimiter's ceiling after the loudnorm, -3 dBFS, run at limiterRate (#910, row 12).
 	limiterLimit = 0.707946
 	limiterRate  = 176400
 	// A made video whose true peak is over warnPeakDBTP, or whose loudness is more than warnLoudnessLU off
@@ -140,11 +156,21 @@ func (c *composer) voiceGraph(first int) []string {
 		labels = append(labels, fmt.Sprintf("[a%d]", k))
 	}
 
-	return append(filters, fmt.Sprintf("%sconcat=n=%d:v=0:a=1[aout]", strings.Join(labels, ""), len(labels)))
+	join := fmt.Sprintf("%sconcat=n=%d:v=0:a=1", strings.Join(labels, ""), len(labels))
+	if title, end := c.result.TitleMs, c.result.EndMs; title > 0 || end > 0 {
+		// The voice starts after the title card and is silent under the end card (issue #1230, row 1).
+		if title > 0 {
+			join += fmt.Sprintf(",adelay=delays=%d:all=1", title)
+		}
+
+		join += fmt.Sprintf(",apad=whole_dur=%s,atrim=end=%s", ms(c.totalMs()), ms(c.totalMs()))
+	}
+
+	return append(filters, join+"[aout]")
 }
 
 // mixMusic makes the video with the music under the voice: the voice written and measured, the bed made and
-// measured, both set to their levels, the bed ducked under the clips and faded out, mixed, limited and encoded,
+// measured, both set to their levels, the bed ducked under the clips and faded out, mixed, normalized and encoded,
 // and the result measured. A bed silent over the video's length leaves the video without music, with a warning;
 // done is false then, and the caller makes it as without music.
 func (c *composer) mixMusic(ctx context.Context, video string, totalMs int64) (string, bool, error) {
@@ -211,8 +237,8 @@ func (c *composer) mixMusic(ctx context.Context, video string, totalMs int64) (s
 }
 
 // muxMusic is the mux with the music: the video, captions burned when there are any, and the voice and the bed at
-// their gains, the bed ducked and faded, mixed and limited, encoded as AAC. The graph is read from a file
-// (-/filter_complex), as a long video's duck is long.
+// their gains, the bed ducked and faded, mixed and normalized by the master, encoded as AAC. The graph is read from
+// a file (-/filter_complex), as a long video's duck is long.
 func (c *composer) muxMusic(ctx context.Context, video, voice, bed string, totalMs int64, levels MusicResult,
 ) (string, error) {
 	fade := min(fadeOutMs, totalMs)
@@ -224,17 +250,24 @@ func (c *composer) muxMusic(ctx context.Context, video, voice, bed string, total
 
 	bedChain += fmt.Sprintf(",afade=t=out:st=%s:d=%s[bed]", ms(totalMs-fade), ms(fade))
 
-	master := ""
-	if !c.in.Music.noLimiter {
-		master = fmt.Sprintf(",aresample=%d,alimiter=limit=%g:level=false:latency=true,aresample=44100",
-			limiterRate, limiterLimit)
-	}
-
-	filters := []string{
+	mix := []string{
 		fmt.Sprintf("[1:a]volume=%.3fdB,aformat=channel_layouts=stereo[voice]", levels.VoiceGainDB),
 		bedChain,
-		"[voice][bed]amix=inputs=2:normalize=0:duration=first" + master + "[aout]",
+		"[voice][bed]amix=inputs=2:normalize=0:duration=first[mixed]",
 	}
+
+	master := "[mixed]anull[aout]"
+	if !c.in.Music.NoMaster {
+		measured, err := c.measureMix(ctx, video, voice, bed, mix)
+		if err != nil {
+			return "", err
+		}
+
+		master = fmt.Sprintf("[mixed]%s,aresample=%d,alimiter=limit=%g:level=false:latency=true,aresample=44100[aout]",
+			loudnorm(measured), limiterRate, limiterLimit)
+	}
+
+	filters := append(mix, master) //nolint:gocritic // mix is not used after.
 
 	videoMap, videoCodec := "0:v", []string{"-c:v", "copy"}
 
@@ -258,6 +291,67 @@ func (c *composer) muxMusic(ctx context.Context, video, voice, bed string, total
 	args = append(args, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", ms(totalMs), out)
 
 	return out, c.run.ffmpeg(ctx, args...)
+}
+
+// loudnorm is the master's loudnorm: with the mix's first-pass measure, its second pass, which applies one gain when
+// that keeps the true peak under its ceiling and else its dynamic mode, both aimed by the measure (Kinocut's
+// _build_loudnorm_render_filter, engine_audio_normalize.py:142-187); without one, aidemo's single pass.
+func loudnorm(measured string) string {
+	out := fmt.Sprintf("loudnorm=I=%g:TP=%g:LRA=%d", masterLUFS, masterTPdB, masterLRA)
+	if measured != "" {
+		out += ":" + measured + ":linear=true"
+	}
+
+	return out
+}
+
+// loudnormJSON is the summary loudnorm writes, as Kinocut finds it (_loudnorm_summaries, engine_audio_normalize.py:
+// 49-58): the JSON block after the filter's name.
+var loudnormJSON = regexp.MustCompile(`(?s)\[Parsed_loudnorm_[^\]]*\]\s*(\{.*?\})`)
+
+// measureMix is the master's first pass (Kinocut's two-pass loudnorm, engine_audio_normalize.py:254-299): the mix,
+// as the mux makes it, through loudnorm with print_format=json, read into its measured_I, measured_TP, measured_LRA,
+// measured_thresh and offset (_measurement, lines 61-81). A mix it cannot measure, as one whose loudness is gated
+// away, gives no measure, and the master is then one pass.
+func (c *composer) measureMix(ctx context.Context, video, voice, bed string, mix []string) (string, error) {
+	graph := filepath.Join(c.in.Work, "measure.graph")
+	analysis := append(append([]string{}, mix...), "[mixed]"+loudnorm("")+":print_format=json[aout]")
+
+	if err := os.WriteFile(graph, []byte(strings.Join(analysis, ";")), 0o600); err != nil {
+		return "", err
+	}
+
+	log, err := c.run.ffmpegLog(ctx, "-i", video, "-i", voice, "-i", bed, "-/filter_complex", graph,
+		"-map", "[aout]", "-f", "null", "-")
+	if err != nil {
+		return "", fmt.Errorf("measuring the mix: %w", err)
+	}
+
+	blocks := loudnormJSON.FindAllStringSubmatch(log, -1)
+	if len(blocks) == 0 {
+		return "", fmt.Errorf("measuring the mix: loudnorm wrote no summary")
+	}
+
+	var summary map[string]string
+	if err := json.Unmarshal([]byte(blocks[len(blocks)-1][1]), &summary); err != nil {
+		return "", fmt.Errorf("measuring the mix: %w", err)
+	}
+
+	parts := make([]string, 0, 5)
+
+	for _, k := range []struct{ to, from string }{
+		{"measured_I", "input_i"}, {"measured_TP", "input_tp"}, {"measured_LRA", "input_lra"},
+		{"measured_thresh", "input_thresh"}, {"offset", "target_offset"},
+	} {
+		v, err := strconv.ParseFloat(summary[k.from], 64)
+		if err != nil || math.IsInf(v, 0) || math.IsNaN(v) {
+			return "", nil
+		}
+
+		parts = append(parts, fmt.Sprintf("%s=%g", k.to, v))
+	}
+
+	return strings.Join(parts, ":"), nil
 }
 
 // checkMix measures the made video's sound into the result, and warns when its true peak or its loudness is off;

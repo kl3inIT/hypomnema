@@ -88,7 +88,7 @@ func (videoMaker) Burn(_ context.Context, _ ffmpeg.Tools, video, _, work string)
 	return out, os.WriteFile(out, append(raw, " with captions"...), 0o600) //nolint:gosec // The test's work folder.
 }
 
-func (videoMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string) error {
+func (videoMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string, _ int64) error {
 	return os.WriteFile(out, []byte{0xFF, 0xD8, 0xFF, 0xE0}, 0o600)
 }
 

@@ -274,6 +274,11 @@ type Look = {
     gain_db: number
     fell_back_from?: { track: string; name: string; length_ms: number }
   }
+  cards?: {
+    accent: string
+    title?: { title: string; subtitle?: string; cta_url?: string; duration_ms: number }
+    end?: { title: string; subtitle?: string; cta_url?: string; duration_ms: number }
+  }
 }
 
 const frameOf = (chrome: string) => ({
@@ -1223,6 +1228,120 @@ test("Change look posts only the sections changed and the new revision appears",
   expect(server.looks[0]!.body).toEqual({ look: { background: { preset: "ocean" } } })
   expect(server.looks[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
   await expect(page.getByTestId("video-progress")).toContainText("Revision 2 is queued")
+})
+
+// Scenario: the owner gives a video a title card and an end card in Make video (issue #1230, row 1). The sample
+// draws the picture without the cards' words; with a card chosen over it, that card, once it has a title. The make
+// sends both cards, their empty words left out, in the accent.
+test("Make video sends the cards, and the sample draws a card chosen", async ({ page }) => {
+  const server = await fakeServer(page)
+  await page.goto(`/studio/takes/${takeId}`)
+  await page.getByTestId("take-view").getByRole("button", { name: "Make video" }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Make a video" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  const cards = look.getByRole("group", { name: "Cards" })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await expect(look.getByRole("group", { name: "What the sample shows" })).toHaveCount(0)
+
+  await cards.getByRole("switch", { name: "End card" }).click()
+  const end = cards.getByLabel("Title", { exact: true }).last()
+  await end.fill("Tải SecondBite")
+  await cards.getByLabel("URL", { exact: true }).last().fill("secondbite.vn")
+  await expect(cards.getByLabel("Seconds")).toHaveValue("3")
+  // Typing a card's words asks no new sample of the picture.
+  const asked = server.samples.length
+  await cards.getByLabel("Line under it").fill("Đặt món trong 30 giây")
+  await page.waitForTimeout(300)
+  expect(server.samples.length).toBe(asked)
+
+  const shows = look.getByRole("group", { name: "What the sample shows" })
+  await shows.getByRole("button", { name: "End" }).click()
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({
+      take: takeId,
+      aspect: "9:16",
+      captions: true,
+      card: "end",
+      look: {
+        cards: {
+          accent: "#6c8cff",
+          end: {
+            title: "Tải SecondBite",
+            subtitle: "Đặt món trong 30 giây",
+            cta_url: "secondbite.vn",
+            duration_ms: 3000,
+          },
+        },
+      },
+    })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await expect(look.getByTestId("look-sample").locator("..")).toContainText("The end card")
+  await showSample(look)
+  await shot(page, "studio-card-sample")
+
+  // A title card with no title yet is not drawn.
+  await cards.getByRole("switch", { name: "Title card" }).click()
+  await shows.getByRole("button", { name: "Title" }).click()
+  await expect(look.getByTestId("look-sample")).toContainText("Give the card a title to see it.")
+  await cards.getByLabel("Title", { exact: true }).first().fill("SecondBite")
+  await cards.getByLabel("Seconds").first().fill("2.5")
+  await expect.poll(() => (server.samples.at(-1)!.body as { card?: string }).card).toBe("title")
+  await cards.scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-cards")
+
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+  expect((server.made[0] as { look?: unknown }).look).toEqual({
+    cards: {
+      accent: "#6c8cff",
+      title: { title: "SecondBite", duration_ms: 2500 },
+      end: {
+        title: "Tải SecondBite",
+        subtitle: "Đặt món trong 30 giây",
+        cta_url: "secondbite.vn",
+        duration_ms: 3000,
+      },
+    },
+  })
+})
+
+// Scenario: Change look on a revision made with cards starts from them; the end card turned off is the only change
+// sent, the title card kept.
+test("Change look starts from the revision's cards", async ({ page }) => {
+  const server = await fakeServer(page)
+  const made = revision(1, "review")
+  server.revisions = [
+    {
+      ...made,
+      look: {
+        ...made.look,
+        cards: {
+          accent: "#ff3366",
+          title: { title: "SecondBite", duration_ms: 2600 },
+          end: { title: "Tải SecondBite", cta_url: "secondbite.vn", duration_ms: 3000 },
+        },
+      },
+    },
+  ]
+  await page.goto(`/studio/videos/${videoId}`)
+  await page
+    .getByRole("complementary", { name: "Review" })
+    .getByRole("button", { name: "Change look" })
+    .click()
+
+  const dialog = page.getByRole("dialog", { name: "Change the look" })
+  const cards = dialog.getByRole("region", { name: "Look" }).getByRole("group", { name: "Cards" })
+  await expect(cards.getByRole("switch", { name: "Title card" })).toBeChecked()
+  await expect(cards.getByLabel("URL", { exact: true }).last()).toHaveValue("secondbite.vn")
+  await cards.getByRole("switch", { name: "End card" }).click()
+  await dialog.getByRole("button", { name: "Change look" }).click()
+
+  await expect(dialog).toBeHidden()
+  expect(server.looks[0]!.body).toEqual({
+    look: { cards: { accent: "#ff3366", title: { title: "SecondBite", duration_ms: 2600 } } },
+  })
 })
 
 // The Music group of the Look (issue #910, row 18).
