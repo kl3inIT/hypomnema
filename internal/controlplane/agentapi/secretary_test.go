@@ -64,8 +64,8 @@ type secretaryWorld struct {
 	bot     orchestration.Bot
 	routine routinestore.Routine
 	// api is the agent API the world's Bot calls.
-	api *agentapi.Server
-	lark    atomic.Int32
+	api  *agentapi.Server
+	lark atomic.Int32
 	// larkBody is what each Lark read answers, with lark's status.
 	larkBody atomic.Pointer[string]
 	sent     atomic.Int32
