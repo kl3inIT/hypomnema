@@ -202,11 +202,29 @@ func decodeStrict(source string, v any) error {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("%w: not a valid document: %w", storeerr.ErrInvalid, err)
+		return fmt.Errorf("%w: not a valid document: %w", storeerr.ErrInvalid, decodeError{err})
 	}
 
 	return nil
 }
+
+// legacyTypeNames are the names the YAML decoder's errors gave the types a document is read into while they were
+// orchestration's (issue #1241). The client API returns such an error's text as it is, so a moved type keeps its old
+// name there.
+var legacyTypeNames = strings.NewReplacer(
+	"profilestore.Source", "orchestration.profileSource",
+	"profilestore.requestsSource", "orchestration.requestsSource",
+	"profilestore.providerSource", "orchestration.providerSource",
+	"profilestore.roleRouting", "orchestration.roleRouting",
+	"profilestore.RoleEntry", "orchestration.roleEntry",
+)
+
+// decodeError is the YAML decoder's error, its text naming the types as legacyTypeNames does.
+type decodeError struct{ err error }
+
+func (e decodeError) Error() string { return legacyTypeNames.Replace(e.err.Error()) }
+
+func (e decodeError) Unwrap() error { return e.err }
 
 // SourceDigest is the SHA-256 of a source with line endings normalized, as a version stores it.
 func SourceDigest(source string) string {
