@@ -212,18 +212,7 @@ func (s *Service) SetChatModel(ctx context.Context, id string, change ChatModelC
 			m.Effort = *change.Effort
 		}
 
-		if change.Model == nil && m.Provider == "" && m.Model != "" {
-			// The stored model, left as it is, from before issue #1002 (keptModel); the effort is a chat's.
-			kept := m
-			if m, err = checkChatModel(ctx, q, ChatModel{Effort: kept.Effort}); err != nil {
-				return err
-			}
-
-			m.Model = kept.Model
-			if m.Provider, err = keptModel(ctx, q, botRuntime, "", m.Model, ""); err != nil {
-				return err
-			}
-		} else if m, err = checkChatModel(ctx, q, m); err != nil {
+		if m, err = checkChatModel(ctx, q, m); err != nil {
 			return err
 		}
 
@@ -274,8 +263,7 @@ type ChatMessage struct {
 
 // ChatSender is a person other than the owner who wrote a chat message (issue #468): a person of a Channel, by
 // their id at the service and their name, as OpenMausBot keeps a message's sender {name, id} (server/store.ts).
-// A person message with no sender is the owner's. ID is empty for a message written before senders were kept,
-// whose writer is not known.
+// A person message with no sender is the owner's. ID is empty when the service did not say who wrote it.
 type ChatSender struct {
 	ID   string
 	Name string

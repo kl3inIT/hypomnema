@@ -857,16 +857,11 @@ type checkpoint struct {
 	Turn   json.RawMessage `json:"turn,omitempty"`
 }
 
-// readCheckpoint reads the offset file: a checkpoint, or the bare offset a
-// daemon before issue #403 wrote.
+// readCheckpoint reads the offset file's checkpoint.
 func readCheckpoint(dir string) (int64, []byte) {
 	raw, err := os.ReadFile(filepath.Join(dir, offsetFile)) //nolint:gosec // the runner's own directory
 	if err != nil {
 		return 0, nil
-	}
-
-	if n, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil {
-		return n, nil
 	}
 
 	var c checkpoint
@@ -875,12 +870,6 @@ func readCheckpoint(dir string) (int64, []byte) {
 	}
 
 	return c.Offset, c.Turn
-}
-
-func readOffset(dir string) int64 {
-	n, _ := readCheckpoint(dir)
-
-	return n
 }
 
 func writeCheckpoint(dir string, n int64, state []byte) {

@@ -12,8 +12,7 @@ const ToolShowArtifact = "show_artifact"
 
 // ArtifactCall is the arguments of a show_artifact call as the control plane
 // takes them: the agent's own (Title, HTML, Path, ID), and the files its
-// tools server read from Path. A server of an earlier release passes the
-// agent's arguments on unchanged, without Files.
+// tools server read from Path.
 type ArtifactCall struct {
 	Title string         `json:"title,omitempty"`
 	HTML  string         `json:"html,omitempty"`

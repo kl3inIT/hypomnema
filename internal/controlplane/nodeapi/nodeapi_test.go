@@ -42,8 +42,6 @@ type plane struct {
 	node    orchestration.Node
 	token   string
 	reports int
-	// storeGuides is what the node says at hello: it writes no guides of its own (issue #536).
-	storeGuides bool
 	// tempIsolation is what the node says at hello of its workers' temp isolation (issue #895).
 	tempIsolation *nodeproto.TempIsolation
 	// questionParts is what the node says at hello: it tells its worker every decision of a question (issue #1219).
@@ -86,7 +84,7 @@ func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.H
 		InstanceID: "inst_1", DaemonVersion: "test", WorktreeRoot: "/srv/wt",
 		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
 		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64"},
-		Claims:   claims, StoreGuides: p.storeGuides, TempIsolation: p.tempIsolation, QuestionParts: p.questionParts,
+		Claims:   claims, TempIsolation: p.tempIsolation, QuestionParts: p.questionParts,
 	})
 	require.NoError(p.t, err)
 
@@ -1095,9 +1093,8 @@ func TestANodeIsToldWhichToolsToHave(t *testing.T) {
 	assert.Equal(t, []orchestration.NodeTool{{Name: "gws", Version: "0.22.5"}}, nodes[0].Tools)
 }
 
-// A node is told to have the agent CLIs before the Integrations' tools, from the first release that installs
-// them; an older one is told only the tools it can install (issue #107).
-func TestOnlyANodeThatInstallsThemIsToldToHaveTheAgentCLIs(t *testing.T) {
+// A node is told to have the agent CLIs before the Integrations' tools (issue #107).
+func TestANodeIsToldToHaveTheAgentCLIsFirst(t *testing.T) {
 	t.Parallel()
 
 	omp := nodeproto.Tool{Name: "omp", Version: "18.18.6"}
@@ -1107,12 +1104,7 @@ func TestOnlyANodeThatInstallsThemIsToldToHaveTheAgentCLIs(t *testing.T) {
 		WithTools(func(context.Context, string, string) []nodeproto.Tool { return []nodeproto.Tool{gws} }).
 		WithRuntimeTools(func(string, string) []nodeproto.Tool { return []nodeproto.Tool{omp} })
 
-	for version, want := range map[string][]nodeproto.Tool{
-		"v0.9.16": {gws}, "v0.9.16-4-gabcdef0": {gws},
-		"v0.9.17": {omp, gws}, "v0.10.0": {omp, gws}, "v0.9.17-2-gabcdef0": {omp, gws},
-	} {
-		assert.Equal(t, want, s.toolsFor(t.Context(), "linux", "amd64", version), version)
-	}
+	assert.Equal(t, []nodeproto.Tool{omp, gws}, s.toolsFor(t.Context(), "linux", "amd64"))
 }
 
 // Scenario: a node installs the agent CLIs the control plane named, then says the runtimes it now has in a
@@ -1306,11 +1298,8 @@ func TestANodeFetchesTheSkillsItsOfferNames(t *testing.T) {
 }
 
 // Scenario: a Run given a Superset account is offered the Superset guide, a
-// skill that requires its Integration (issue #536). A node of an earlier
-// release, which writes the guide itself and does not say otherwise at
-// hello, is sent the offer without it, so its worker gets the guide once; a
-// node that says it writes none is sent it.
-func TestANodeThatWritesItsOwnGuidesIsSentNone(t *testing.T) {
+// skill that requires its Integration (issue #536).
+func TestAnOfferCarriesTheGuideOfItsIntegration(t *testing.T) {
 	t.Parallel()
 
 	p := newPlane(t)
@@ -1349,11 +1338,6 @@ func TestANodeThatWritesItsOwnGuidesIsSentNone(t *testing.T) {
 	var offer nodeproto.Offer
 	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
 	assert.Equal(t, []string{"superset:vmaps"}, offer.Uses)
-	assert.Empty(t, offer.Skills, "the node writes the guide itself")
-
-	p.storeGuides = true
-
-	require.NoError(t, json.Unmarshal(p.next(p.connect(), nodeproto.TypeOffer).Payload, &offer))
 	assert.Equal(t, []nodeproto.Skill{
 		{Name: "superset", Revision: 1, Digest: sk.Digest, Requires: []string{"integration:superset"}},
 	}, offer.Skills)

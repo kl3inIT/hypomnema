@@ -35,8 +35,8 @@ func (s *Server) acceptedFor(nodeID string, acc orchestration.Accepted) orchestr
 // say at hello that it reads several decisions, tells its worker only a question's text and its one answer: a
 // question of several decisions is folded into one for it, every decision in the text and every answer in the
 // answer's text, so none is lost. A node that said so, and a question of one decision, are sent as they are. The
-// capability is said at hello and the sender adapts to it, as the node's StoreGuides (issue #536) and MCP's
-// initialize capabilities.
+// capability is said at hello and the sender adapts to it, as the node's StoreGuides did (issue #536, until
+// issue #1220) and as MCP's initialize capabilities are.
 func (s *Server) questionFor(nodeID string, q orchestration.Question) orchestration.Question {
 	s.mu.Lock()
 	parts := s.questionParts[nodeID]

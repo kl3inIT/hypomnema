@@ -364,7 +364,7 @@ func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim, held []str
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),
-		StoreGuides: true, QuestionParts: true, Takes: d.heldTakes(), ListsTakes: d.cfg.Takes != nil && held != nil,
+		QuestionParts: true, Takes: d.heldTakes(), ListsTakes: d.cfg.Takes != nil && held != nil,
 		TempIsolation: d.cfg.TempIsolation,
 	})
 	if err != nil {

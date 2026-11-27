@@ -119,17 +119,6 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 		}
 
 		return nil, svc.RecordPublishedHead(ctx, call, orchestration.PublishedHead{Branch: p.Branch, SHA: p.SHA})
-	case nodeproto.ReportResource, nodeproto.ReportReleaseResource:
-		p, err := decode[nodeproto.Resource](r.Payload)
-		if err != nil {
-			return nil, err
-		}
-
-		if r.Kind == nodeproto.ReportReleaseResource {
-			return nil, svc.ReleaseResource(ctx, call, p.Kind, p.Ref)
-		}
-
-		return nil, svc.RecordResource(ctx, call, orchestration.Resource{Kind: p.Kind, Ref: p.Ref, Custody: p.Custody})
 	case nodeproto.ReportQuestion:
 		p, err := decode[nodeproto.Ask](r.Payload)
 		if err != nil {

@@ -107,8 +107,7 @@ const PiProvider = "hypomnema"
 const PiFallbackProvider = "hypomnema-fallback"
 
 // PiModel is a chat's model as pi names it: the gateway's name under PiProvider when the gateway serves it, as it
-// was otherwise. A model stored without its provider, one the migration of issue #1002 could not place, is refused
-// with the form to write it in, never passed on bare (review of PR #1000, round 6).
+// was otherwise. A model without its provider is refused with the form to write it in, never passed on bare.
 func (s *Service) PiModel(ctx context.Context, m ChatModel) (ChatModel, error) {
 	if m.Model == "" {
 		return m, nil
@@ -330,9 +329,8 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 }
 
 // RestoreProfileVersion applies one of a profile's versions again, as the profile page restores it: its own source,
-// with its tool policy as stored, and, for a model that source names without a provider (as versions before issue #1002 were written), the
-// provider that version recorded, not one another version with the same YAML recorded. With a chat, the new version
-// is the Bot coordinator's from that chat, as applyProfile's.
+// with its tool policy as stored. With a chat, the new version is the Bot coordinator's from that chat, as
+// applyProfile's.
 func (s *Service) RestoreProfileVersion(ctx context.Context, chat, name, versionID string) (Profile, bool, error) {
 	row, err := s.read().GetProfileVersion(ctx, versionID)
 	if err != nil || row.Profile != name {
@@ -343,21 +341,13 @@ func (s *Service) RestoreProfileVersion(ctx context.Context, chat, name, version
 	// its YAML still writes, which would now widen it (editableProfileSource; review of PR #1000).
 	source := editableProfileSource(profileFromRow(row))
 
-	return s.applyProfileRecorded(ctx, chat, name, source, row.Provider.String)
+	return s.applyProfile(ctx, chat, name, source)
 }
 
 // applyProfile is ApplyProfile; with a chat, a new version is the Bot
 // coordinator's from that chat and is recorded with what undoes it
 // (setupchanges.go).
 func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (Profile, bool, error) {
-	return s.applyProfileRecorded(ctx, chat, name, source, "")
-}
-
-// applyProfileRecorded is applyProfile with the provider a restored version recorded, for a model its source names
-// without one; "" for none.
-func (s *Service) applyProfileRecorded(
-	ctx context.Context, chat, name, source, recorded string,
-) (Profile, bool, error) {
 	var in profileSource
 	if err := decodeStrict(source, &in); err != nil {
 		return Profile{}, false, err
@@ -414,10 +404,6 @@ func (s *Service) applyProfileRecorded(
 				return fmt.Errorf("%w: role %s uses role routing, not a profile model or fallbacks", ErrInvalid, p.Name)
 			}
 		} else {
-			if p.Provider == "" && p.Model != "" {
-				p.Provider = recorded // a restored version's own (RestoreProfileVersion)
-			}
-
 			var err error
 			provider, err = checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
 			if err != nil {
@@ -448,7 +434,6 @@ func (s *Service) applyProfileRecorded(
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
 			return fmt.Errorf("reading profile %s: %w", p.Name, err)
-		// The same YAML under another provider (a restored version's, issue #1002) is a new version.
 		case current.Digest == digest && !current.deleted && current.Provider.String == p.Provider:
 			out = profileFromRow(current.ProfileVersion)
 			out.Source = editableProfileSource(out)
@@ -710,38 +695,6 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 	}
 }
 
-// keptModel checks a stored model that an edit leaves as it is, and returns its provider. One stored without a
-// provider, before issue #1002, is given the one provider that offers it to the runtime among the kinds before
-// OpenCode Zen, as checkModel picked one then, so an unrelated edit (a Bot's persona, a chat's effort) is accepted
-// (review of PR #1000); with none or several it is refused with the form to write it in, as checkModel refused it
-// then, and no bare model is stored again (round 6).
-func keptModel(ctx context.Context, q *store.Queries, runtime, provider, model, effort string) (string, error) {
-	if provider != "" || model == "" {
-		return checkModel(ctx, q, runtime, provider, model, effort)
-	}
-
-	kinds := runtimeProviders[runtime]
-
-	offers, err := q.ModelsNamed(ctx, model)
-	if err != nil {
-		return "", fmt.Errorf("reading the providers of model %s: %w", model, err)
-	}
-
-	var fits []string
-
-	for _, m := range offers {
-		if m.Kind != ProviderOpenCodeZen && slices.Contains(kinds, m.Kind) {
-			fits = append(fits, m.Provider)
-		}
-	}
-
-	if len(fits) == 1 {
-		return checkModel(ctx, q, runtime, fits[0], model, effort)
-	}
-
-	return checkModel(ctx, q, runtime, "", model, effort)
-}
-
 // bareModel is the refusal of a model named without its provider: the form to write it in, with the names it
 // could be written as, or why no provider would serve it.
 func bareModel(runtime, model string, fits []string) error {
@@ -762,17 +715,6 @@ func bareModel(runtime, model string, fits []string) error {
 	}
 
 	return fmt.Errorf("%w: model %q is named without its provider; %s", ErrInvalid, model, hint)
-}
-
-// taskModelRef reads a Task's own model: named with its provider, or, for a Task from before issue #1002 whose bare
-// name the migration could not place (model_unresolved), the whole name with no provider, which checkModel refuses as
-// the code before did (review of PR #1000), never split at a slash the name has.
-func taskModelRef(task store.Task) (provider, model string, err error) {
-	if task.ModelUnresolved != 0 {
-		return "", task.Model.String, nil
-	}
-
-	return modelRef(task.Model.String)
 }
 
 // modelRef reads a model named with its provider, "<provider>/<model>" (issue #1002), as 9router and omniroute
@@ -1592,19 +1534,11 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 	// A Task's own model names its own provider, "<provider>/<model>" (issue #1002), as checkTaskProfile checked it.
 	if task.Model.String != "" {
 		var err error
-		if provider, model, err = taskModelRef(task); err != nil {
+		if provider, model, err = modelRef(task.Model.String); err != nil {
 			return resolved{}, err
 		}
 
 		if _, err := checkModel(ctx, q, runtime, provider, model, ""); err != nil {
-			return resolved{}, err
-		}
-	}
-
-	// A profile version's model stored without its provider, one the migration of issue #1002 could not place, is
-	// refused with the form to write it in, never sent on bare (review of PR #1000, round 6).
-	if provider == "" && model != "" {
-		if _, err := checkModel(ctx, q, runtime, "", model, ""); err != nil {
 			return resolved{}, err
 		}
 	}

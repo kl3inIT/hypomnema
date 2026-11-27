@@ -51,7 +51,7 @@ func TestCleanupKeepsAnOpenRunWithABindMountOfAClosedRunsSubdirectory(t *testing
 	assert.False(t, SameVolume(child, alias), "a bind mount has its own mount ID")
 	for _, protected := range []string{open, alias} {
 		ctx := WithProtection(t.Context(), protected)
-		require.ErrorContains(t, RemoveTree(ctx, closed, func() bool { return true }), "protected")
+		require.ErrorContains(t, RemoveManagedTree(ctx, closed, "", "", func() bool { return true }), "protected")
 		assert.FileExists(t, filepath.Join(alias, "resume.txt"))
 	}
 }

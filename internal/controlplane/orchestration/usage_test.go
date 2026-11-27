@@ -169,7 +169,7 @@ func TestASecondFailureForTheSameReasonIsEscalated(t *testing.T) {
 		d, _ := w.start(b)
 		w.loseLease()
 		require.Equal(t, DispatchUnknown, w.dispatchOf(d.ID).Status)
-		require.NoError(t, w.s.SettleUnknown(t.Context(), d.ID, Settlement{Result: Result{Summary: "gone"}}))
+		w.connect(nil)
 
 		return d
 	}

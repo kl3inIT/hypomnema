@@ -518,9 +518,6 @@ func KillRecorded(dir string) error {
 		return err
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, identityFile)) //nolint:gosec // the daemon's own directory
-	if errors.Is(err, os.ErrNotExist) {
-		return killLegacy(dir, pid)
-	}
 	if err != nil {
 		return err
 	}
@@ -587,33 +584,6 @@ func realShimDir(dir string) (string, error) {
 		return "", errors.New("the shim directory is not a real path")
 	}
 	return dir, nil
-}
-
-func killLegacy(dir string, pid int) error {
-	info, err := os.Lstat(filepath.Join(dir, PIDFile))
-	if err != nil || !info.Mode().IsRegular() {
-		return errors.New("legacy shim PID file is not regular")
-	}
-	proc, err := process.NewProcess(int32(pid)) //nolint:gosec // operating-system process id
-	if err != nil {
-		return err
-	}
-	started, err := proc.CreateTime()
-	if err != nil || started <= 0 || started > info.ModTime().UnixMilli() {
-		return errors.New("legacy PID was reused or could not be verified")
-	}
-	argv, err := proc.CmdlineSlice()
-	if err != nil || len(argv) != 4 || argv[1] != "shim" || argv[2] != "--dir" {
-		return errors.New("legacy PID does not belong to the Dispatch shim")
-	}
-	actual, err := realShimDir(argv[3])
-	if err != nil || actual != dir {
-		return errors.New("legacy PID does not belong to the Dispatch shim")
-	}
-	if current, err := wallStart(pid); err != nil || current != started {
-		return errors.New("legacy PID identity changed")
-	}
-	return Kill(pid)
 }
 
 // Start starts `exe shim --dir dir` detached from the caller, with no stdio,

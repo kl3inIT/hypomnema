@@ -29,10 +29,6 @@ const (
 	// certificate the tool must trust to talk to it.
 	PathTunnel = "/agent/v1/tunnel"
 	PathCA     = "/agent/v1/ca"
-	// PathBrowserTools lists the tools of the browser every agent shares
-	// (issue #193), and PathBrowserCall runs one in the agent's own tab.
-	PathBrowserTools = "/agent/v1/browser/tools"
-	PathBrowserCall  = "/agent/v1/browser/call"
 	// PathDeviceTools lists the tools of the phone every worker shares (issue
 	// #417), and PathDeviceCall runs one; both in the browser's shape
 	// (BrowserToolList, BrowserCall).
@@ -41,33 +37,28 @@ const (
 	// PathTools lists every tool of the control plane's own an agent gets
 	// (issue #536), each by the agent kinds its definition names: memory,
 	// the gateway's (web_search, web_fetch, generate_image) and, for a
-	// worker, the browser's; PathToolsCall runs one. Both in the browser's
-	// shape (BrowserToolList, BrowserCall). The tools server of a Bot
+	// worker, the browser's every agent shares (issue #193); PathToolsCall
+	// runs one. Both in the browser's shape (BrowserToolList, BrowserCall). The tools server of a Bot
 	// (`hypomnema mcp`) and of a worker (`hypomnema-node mcp`) list them here;
 	// the phone's stay on PathDeviceTools.
 	PathTools     = "/agent/v1/tools"
 	PathToolsCall = "/agent/v1/tools/call"
-	// PathGatewayTools lists the gateway's tools alone and PathGatewayCall
-	// runs one (issue #492): kept for a `hypomnema mcp` of a release before
-	// PathTools. A node of such a release finds them on the browser's routes.
-	PathGatewayTools = "/agent/v1/gateway/tools"
-	PathGatewayCall  = "/agent/v1/gateway/call"
 )
 
-// BrowserTool is one browser tool as PathBrowserTools lists it: an MCP
-// tool's name, description and input schema.
+// BrowserTool is one tool as PathTools lists it: an MCP tool's name,
+// description and input schema.
 type BrowserTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-// BrowserToolList answers PathBrowserTools.
+// BrowserToolList answers PathTools and PathDeviceTools.
 type BrowserToolList struct {
 	Data []BrowserTool `json:"data"`
 }
 
-// BrowserCall is the body of PathBrowserCall. Its answer is the tool's
+// BrowserCall is the body of PathToolsCall and PathDeviceCall. Its answer is the tool's
 // result as MCP has it: content, and isError when the tool failed.
 type BrowserCall struct {
 	Tool      string          `json:"tool"`
@@ -104,7 +95,7 @@ const (
 	// opencode's image tool takes up to 8, each up to 20 MiB (MAX_INPUT_BYTES).
 	MaxImageInputs     = 8
 	MaxImageInputBytes = 20 << 20
-	// MaxCallBytes bounds a call's body on PathBrowserCall: an image edit's
+	// MaxCallBytes bounds a call's body on PathToolsCall: an image edit's
 	// images, sent whole in base64, are the largest part of one, and the
 	// bound is the model gateway's own for an image request
 	// (modelgateway.MaxImageRequestBytes).

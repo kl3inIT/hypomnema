@@ -209,13 +209,8 @@ func (s *Server) WithBrowser(b Browser) *Server {
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathConnections, s.connections)
 	mux.HandleFunc("POST "+agenttool.PathToken, s.token)
-	mux.HandleFunc("GET "+agenttool.PathBrowserTools, s.browserTools)
-	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.counted(s.browserCall))
-	mux.HandleFunc("POST "+agenttool.PathMemory, s.memory)
 	mux.HandleFunc("GET "+agenttool.PathDeviceTools, s.deviceTools)
 	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.counted(s.deviceCall))
-	mux.HandleFunc("GET "+agenttool.PathGatewayTools, s.listGateway)
-	mux.HandleFunc("POST "+agenttool.PathGatewayCall, s.callGateway)
 	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
 	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.counted(s.callTool))
 	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
@@ -630,105 +625,6 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	answer(w, agenttool.TokenResponse{
 		AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
 	})
-}
-
-// browserTools lists the browser's tools and a worker's gateway tools
-// (issues #354, #492), which a browser that cannot be used does not take
-// away: for a node of a release before PathTools (issue #536), whose tools
-// server lists them here.
-func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
-	a, err := s.authenticate(r)
-	if err != nil {
-		refuse(w, http.StatusUnauthorized, err.Error())
-
-		return
-	}
-	if a.readRun {
-		answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
-
-		return
-	}
-
-	web := s.gatewayToolList(r.Context(), a)
-
-	if s.browser == nil && len(web) == 0 {
-		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
-
-		return
-	}
-
-	out := agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}}
-
-	if s.browser != nil {
-		tools, err := s.browser.Tools(r.Context())
-
-		switch {
-		case err != nil && len(web) == 0:
-			s.failBrowser(w, r, err)
-
-			return
-		case err != nil:
-			s.logger.WarnContext(r.Context(), "the browser's tools could not be listed",
-				slog.String("event", "agentapi.browser_tools_failed"), slog.String("error", err.Error()))
-		}
-
-		for _, t := range tools {
-			out.Data = append(out.Data, agenttool.BrowserTool{
-				Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
-			})
-		}
-	}
-
-	listed, err := s.narrowed(r.Context(), a, append(out.Data, web...))
-	if err != nil {
-		s.fail(w, r, err)
-
-		return
-	}
-
-	answer(w, agenttool.BrowserToolList{Data: listed})
-}
-
-func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
-	a, err := s.authenticate(r)
-	if err != nil {
-		refuse(w, http.StatusUnauthorized, err.Error())
-
-		return
-	}
-	if a.readRun {
-		answerTool(w, agenttool.ReadRunRefusal, true)
-
-		return
-	}
-
-	var asked agenttool.BrowserCall
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, agenttool.MaxCallBytes)).Decode(&asked); err != nil ||
-		asked.Tool == "" {
-		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
-
-		return
-	}
-
-	if s.switchedOff(w, r, a, asked.Tool) {
-		return
-	}
-
-	// A gateway tool is the agent's when it is given it (a worker's by its runtime); for any other agent it is
-	// no tool of the browser.
-	if slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool) {
-		s.gatewayCall(w, r, a, asked)
-
-		return
-	}
-
-	if s.browser == nil {
-		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
-
-		return
-	}
-
-	s.runBrowser(w, r, a, asked)
 }
 
 // runBrowser runs one of the browser's tools in the agent's own tab.

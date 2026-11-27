@@ -308,18 +308,13 @@ type HelloRequest struct {
 	KVM bool `json:"kvm,omitempty"`
 	// DeviceState is the state of the phone the node holds; nil for none.
 	DeviceState *DeviceState `json:"device_state,omitempty"`
-	// StoreGuides says the node writes no guide of an Integration or of the
-	// phone itself: they come with an offer's skills (issue #536). A node of
-	// an earlier release, which writes them, does not say it and is sent
-	// none of the skills that require something (Skill.Requires).
-	StoreGuides bool `json:"store_guides,omitempty"`
 	// Held lists every Dispatch the node holds, when ListsHeld is set: the
 	// ones in Claims, and the ones whose accept or final report is still
 	// queued (Omnara's daemon claims its preparing and terminal processes too,
 	// daemonprotocol/protocol.go:559-562). The control plane then ends as lost
 	// a Dispatch of the node's that may still run and is in neither list
-	// (issue #590). A node of an earlier release does not set ListsHeld, and
-	// nothing is ended; a hello that only checks an install does not either.
+	// (issue #590). A hello that only checks an install does not set
+	// ListsHeld, and nothing is ended.
 	Held      []string `json:"held,omitempty"`
 	ListsHeld bool     `json:"lists_held,omitempty"`
 	// Takes are the takes the node holds when ListsTakes is set (issue #817): the control plane ends one it
@@ -635,7 +630,6 @@ type Offer struct {
 	OwnerMemory string `json:"owner_memory,omitempty"`
 	// MemoryNotes lists the notes of the agent's memory (issue #589), each its
 	// path and size, which the worker reads with the memory's tool when needed.
-	// A node of an earlier release ignores it.
 	MemoryNotes []string `json:"memory_notes,omitempty"`
 	Spec        string   `json:"spec"`
 	Repo        string   `json:"repo,omitempty"`
@@ -652,7 +646,7 @@ type Offer struct {
 	// the node gives them to the worker and the repository's setup script as
 	// GIT_AUTHOR_NAME/EMAIL and GIT_COMMITTER_NAME/EMAIL, which git takes over
 	// the node user's ~/.gitconfig. Empty when no account is known; nothing is
-	// set then. A node of an earlier release ignores them.
+	// set then.
 	GitName  string `json:"git_name,omitempty"`
 	GitEmail string `json:"git_email,omitempty"`
 	// RepoSSHURL is where the node clones and fetches Repo from over SSH,
@@ -670,7 +664,7 @@ type Offer struct {
 	ModelAPI string `json:"model_api,omitempty"`
 	// ModelContextWindow and ModelMaxOutput are the gateway's sizes of the offer's model, in tokens, when it knows
 	// them (issue #1019): the worker's CLI is told them, so it compacts before the window is full rather than at a
-	// size it guesses. Zero when unknown; a node of an earlier release ignores them.
+	// size it guesses. Zero when unknown.
 	ModelContextWindow int64 `json:"model_context_window,omitempty"`
 	ModelMaxOutput     int64 `json:"model_max_output,omitempty"`
 	// Uses are the Connections the Run's workers may use ("google:work");
@@ -705,7 +699,7 @@ type Offer struct {
 	// profile's switches, and the commands it reaches an account with
 	// through the service proxy (issue #723, decision 2.3; issue #789): the
 	// node writes the "Tools" block of its rules from them
-	// (agenttool.ToolGuide). A node of an earlier release ignores them.
+	// (agenttool.ToolGuide).
 	Tools []string `json:"tools,omitempty"`
 	// QuestionParts says the control plane keeps a question's several
 	// decisions, their headers and their options' descriptions (issue #1219):
@@ -721,9 +715,7 @@ type Skill struct {
 	Revision int    `json:"revision"`
 	Digest   string `json:"digest"`
 	// Requires is what the agent had to have to be given it
-	// ("integration:superset", issue #536): an Integration's guide is one. A
-	// node that writes guides of its own is not sent one
-	// (HelloRequest.StoreGuides).
+	// ("integration:superset", issue #536): an Integration's guide is one.
 	Requires []string `json:"requires,omitempty"`
 }
 
@@ -735,20 +727,18 @@ type Stop struct {
 
 // Report kinds: the node calls of the orchestration core (issue #19).
 const (
-	ReportAccept          = "accept"
-	ReportLowDisk         = "low_disk"
-	ReportStarted         = "started"
-	ReportHeartbeat       = "heartbeat"
-	ReportEffect          = "effect"
-	ReportPublishedHead   = "published_head"
-	ReportResource        = "resource"
-	ReportReleaseResource = "release_resource"
-	ReportQuestion        = "question"
-	ReportAnswerAck       = "answer_ack"
-	ReportFinished        = "finished"
-	ReportExited          = "exited"
-	ReportStopped         = "stopped"
-	ReportReattach        = "reattach"
+	ReportAccept        = "accept"
+	ReportLowDisk       = "low_disk"
+	ReportStarted       = "started"
+	ReportHeartbeat     = "heartbeat"
+	ReportEffect        = "effect"
+	ReportPublishedHead = "published_head"
+	ReportQuestion      = "question"
+	ReportAnswerAck     = "answer_ack"
+	ReportFinished      = "finished"
+	ReportExited        = "exited"
+	ReportStopped       = "stopped"
+	ReportReattach      = "reattach"
 )
 
 // PublishedHead reports a branch update performed by the node for this Dispatch.
@@ -812,13 +802,6 @@ type Effect struct {
 	Ref     string `json:"ref"`
 	Phase   string `json:"phase"`
 	Payload string `json:"payload,omitempty"`
-}
-
-// Resource is the payload of a resource or release_resource report.
-type Resource struct {
-	Kind    string `json:"kind"`
-	Ref     string `json:"ref"`
-	Custody string `json:"custody,omitempty"`
 }
 
 // Option is one choice of a question. Description, one sentence on what

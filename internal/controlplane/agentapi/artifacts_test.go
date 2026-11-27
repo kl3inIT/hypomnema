@@ -165,10 +165,6 @@ func TestBotsAndWorkersShowArtifactsInTheirChat(t *testing.T) {
 	assert.Equal(t, "Your Run has no chat to show an artifact in: name the file's path in your finish summary "+
 		"instead.", text)
 
-	_, text, isError = w.use(pi, "show_artifact", `{"title":"Sales","path":"dashboard"}`)
-	assert.True(t, isError)
-	assert.Equal(t, "this node's tools cannot send a folder yet; send html, or wait for its update", text)
-
 	refused := map[string]agenttool.ArtifactCall{
 		"a title":           {HTML: page},
 		"not both":          {Title: "Sales", HTML: page, Path: "dashboard"},

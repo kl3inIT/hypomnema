@@ -850,8 +850,8 @@ test("the owner follows the actions across meetings", async ({ page }) => {
 })
 
 // Scenario: the gear on the Meetings page opens the meetings' settings, its two sections the dictionary and the notes
-// model, out of the Settings menu (issue #1121). The old addresses of those Settings pages lead there.
-test("the gear opens the meeting settings, where the old Settings pages lead", async ({ page }) => {
+// model, out of the Settings menu (issue #1121).
+test("the gear opens the meeting settings", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/meetings")
 
@@ -863,13 +863,6 @@ test("the gear opens the meeting settings, where the old Settings pages lead", a
   await expect(page.getByTestId("notes-model").getByRole("combobox")).toBeVisible()
   expect(await fits(page)).toBe(true)
   await shot(page, "meetings-settings")
-
-  await page.goto("/settings/dictionary")
-  await expect(page).toHaveURL(/\/meetings\/settings#dictionary$/)
-  await expect(page.getByRole("heading", { name: "Meeting settings", level: 1 })).toBeVisible()
-  await page.goto("/settings/notes-model")
-  await expect(page).toHaveURL(/\/meetings\/settings#notes-model$/)
-  await expect(page.getByRole("heading", { name: "Notes model", level: 2 })).toBeInViewport()
 })
 
 // Scenario: the notes model has no model yet; the owner picks one of the gateway's chat models with the one-model

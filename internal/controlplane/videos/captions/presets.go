@@ -211,14 +211,3 @@ func PresetByID(id string) (Preset, bool) {
 
 	return Preset{}, false
 }
-
-// ByID is the preset of an id, or Clean, as demotape falls back.
-func ByID(id string) Preset {
-	if p, ok := PresetByID(id); ok {
-		return p
-	}
-
-	p, _ := PresetByID(DefaultPreset)
-
-	return p
-}

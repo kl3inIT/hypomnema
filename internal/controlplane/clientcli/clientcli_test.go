@@ -606,8 +606,8 @@ func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
 	_, err = w.cmd(t, "integrations", "disconnect", "github.com:work")
 	require.NoError(t, err)
 
-	// The older commands act on the connection "default".
-	_, err = w.cmdIn(t, "ghp_default\n", "hosts", "token", "set", "github.com", "--token-file", "-")
+	// Without a label the connection is "default".
+	_, err = w.cmdIn(t, "ghp_default\n", "integrations", "connect", "github.com", "--token-file", "-")
 	require.NoError(t, err)
 
 	out, err = w.cmd(t, "integrations", "list")
@@ -624,10 +624,10 @@ func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
 	require.Error(t, err, "only the owner connects an account")
 }
 
-// Scenario: the owner gives a git host its token from a file, sees which hosts
-// have one, and takes it away. The token is never an argument and never
-// printed; a coordinator cannot set one.
-func TestAHostsTokenFromTheCLI(t *testing.T) {
+// Scenario: the owner gives a git host its token from a file, as its
+// connection "default", sees which hosts have one, and takes it away. The
+// token is never an argument and never printed; a coordinator cannot set one.
+func TestAHostsDefaultConnectionFromTheCLI(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -639,14 +639,14 @@ func TestAHostsTokenFromTheCLI(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "gitlab.token")
 	require.NoError(t, os.WriteFile(file, []byte("glpat-never-printed\n"), 0o600))
 
-	_, err = w.cmd(t, "hosts", "token", "set", "gitlab.company.example")
+	_, err = w.cmd(t, "integrations", "connect", "gitlab.company.example")
 	require.ErrorContains(t, err, "--token-file")
 
-	out, err := w.cmd(t, "hosts", "token", "set", "gitlab.company.example", "--token-file", file)
+	out, err := w.cmd(t, "integrations", "connect", "gitlab.company.example", "--token-file", file)
 	require.NoError(t, err)
-	assert.Equal(t, "host gitlab.company.example has a token\n", out)
+	assert.Equal(t, "gitlab.company.example:default is connected\n", out)
 
-	out, err = w.cmdIn(t, "ghp_from_stdin\n", "hosts", "token", "set", "github.com", "--token-file", "-")
+	out, err = w.cmdIn(t, "ghp_from_stdin\n", "integrations", "connect", "github.com", "--token-file", "-")
 	require.NoError(t, err)
 	assert.NotContains(t, out, "ghp_from_stdin")
 
@@ -659,16 +659,16 @@ func TestAHostsTokenFromTheCLI(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, out, "glpat", "the API never returns a token")
 
-	out, err = w.cmd(t, "hosts", "token", "rm", "github.com")
+	out, err = w.cmd(t, "integrations", "disconnect", "github.com:default")
 	require.NoError(t, err)
-	assert.Equal(t, "host github.com has no token\n", out)
+	assert.Equal(t, "github.com:default is forgotten\n", out)
 
 	_, err = w.cmd(t, "hosts", "rm", "gitlab.company.example")
 	require.NoError(t, err, "a host is forgotten with its token")
 
 	w.login(t, bearertoken.Coordinator)
 
-	_, err = w.cmdIn(t, "glpat-x", "hosts", "token", "set", "gitlab.com", "--token-file", "-")
+	_, err = w.cmdIn(t, "glpat-x", "integrations", "connect", "gitlab.com", "--token-file", "-")
 	require.Error(t, err, "only the owner gives a host a token")
 }
 

@@ -211,12 +211,10 @@ func TestAConflictedPullRequestWhoseAuthorIsGoneWakesTheCoordinator(t *testing.T
 	_, c := w.start(tasks[1].ID)
 	require.NoError(t, w.finish(c, withPR(success("PR open; a review comes first."), pr+"0")))
 
-	// The worker's report reached the control plane only after its lease ran out: its conversation is closed.
-	d, _ := w.start(tasks[0].ID)
-	w.loseLease()
-	require.NoError(t, w.s.SettleUnknown(ctx, d.ID, Settlement{Succeeded: true, Result: Result{
-		Summary: "done", Evidence: []Evidence{{Kind: "pull_request", Ref: pr}},
-	}}))
+	// The author's conversation is closed since: its worker is gone.
+	d, c := w.start(tasks[0].ID)
+	require.NoError(t, w.finish(c, withPR(success("done"), pr)))
+	w.closeConversation(d.ConversationID)
 
 	review := w.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: "Review pull request: " + pr})[0]
 	_, c = w.start(review.ID)

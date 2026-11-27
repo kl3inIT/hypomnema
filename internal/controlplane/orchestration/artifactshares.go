@@ -89,7 +89,7 @@ func (s *Service) CreateArtifactShare(ctx context.Context, artifactID, label str
 		}
 
 		return q.InsertArtifactShare(ctx, store.InsertArtifactShareParams{
-			ID: out.ID, ArtifactID: artifactID, TokenHash: nullString(bearertoken.Hash(out.Token)),
+			ID: out.ID, ArtifactID: artifactID, TokenHash: bearertoken.Hash(out.Token),
 			SecretVersionID: nullString(versionID), Label: label, Now: now,
 		})
 	})
@@ -178,145 +178,14 @@ func (s *Service) DeleteArtifactShare(ctx context.Context, id string) error {
 			return notFound(err, "link", id)
 		}
 
-		hash := row.TokenHash
-		if !hash.Valid {
-			hash = nullString(bearertoken.Hash(row.Token.String))
-		}
-
 		if _, err := q.RevokeArtifactShare(ctx, store.RevokeArtifactShareParams{
-			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedByOwner), TokenHash: hash, ID: id,
+			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedByOwner), ID: id,
 		}); err != nil {
 			return fmt.Errorf("revoking link %s: %w", id, err)
 		}
 
 		return s.deleteShareSecrets(ctx, tx, []sql.NullString{row.SecretVersionID})
 	})
-}
-
-// ShareTokenMove is what MoveShareTokens did: the links it moved, and those whose plaintext waits for a vault that
-// can seal it.
-type ShareTokenMove struct {
-	Moved   int
-	Waiting int
-}
-
-// MoveShareTokens moves the tokens of links made before they were hashed (issue #996) out of plaintext: each gets
-// its hash and a sealed copy and loses its plaintext, in one commit, so its URL keeps working and the owner can still
-// read it. What the move rewrites is zeroed (secure_delete on). Without a vault that can seal them nothing is moved:
-// such a link is neither opened nor read again from its plaintext, and keeps it only until a vault seals it, since
-// the owner could never read it again otherwise. The control plane calls it as it starts, before anything is served,
-// then ScrubShareTokens.
-func (s *Service) MoveShareTokens(ctx context.Context) (ShareTokenMove, error) {
-	var out ShareTokenMove
-
-	rows, err := s.read().ListUnmovedArtifactShares(ctx)
-	if err != nil {
-		return out, fmt.Errorf("listing the links to move: %w", err)
-	}
-
-	if len(rows) == 0 {
-		return out, nil
-	}
-
-	if !s.shareVaultReady() {
-		out.Waiting = len(rows)
-
-		return out, nil
-	}
-
-	if _, err := s.db.ExecContext(ctx, "PRAGMA secure_delete = ON"); err != nil {
-		return out, fmt.Errorf("zeroing what the move rewrites: %w", err)
-	}
-
-	defer s.db.ExecContext(context.WithoutCancel(ctx), "PRAGMA secure_delete = OFF") //nolint:errcheck // best effort
-
-	err = s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
-		rows, err := q.ListUnmovedArtifactShares(ctx)
-		if err != nil {
-			return fmt.Errorf("listing the links to move: %w", err)
-		}
-
-		for _, r := range rows {
-			versionID, err := s.sealShareToken(ctx, tx, r.ID, r.Token.String, now)
-			if err != nil {
-				return err
-			}
-
-			if err := q.MoveArtifactShareToken(ctx, store.MoveArtifactShareTokenParams{
-				TokenHash: nullString(bearertoken.Hash(r.Token.String)), SecretVersionID: nullString(versionID),
-				ID: r.ID,
-			}); err != nil {
-				return fmt.Errorf("moving the token of link %s: %w", r.ID, err)
-			}
-		}
-
-		out.Moved = len(rows)
-
-		return nil
-	})
-	if err != nil {
-		return ShareTokenMove{}, fmt.Errorf("moving the links' tokens: %w", err)
-	}
-
-	return out, nil
-}
-
-// ScrubShareTokens clears the database's files of the old tokens' plaintext once every one is moved, and reports
-// whether nothing is left to clear. What a deleted or rewritten row held stays in the file's free pages and in the
-// write-ahead log (SQLite's secure_delete is off), and the migration's rebuild of the table left the plaintext there:
-// the file is rebuilt (VACUUM) and the log written back and emptied (wal_checkpoint(TRUNCATE), as sqlitetest's
-// template is). The checkpoint is not done while another connection reads an older snapshot (its busy column), and
-// the mark of what is owed (share_token_scrub, set by the migration) is cleared only once it is; so a stop or a busy
-// reader leaves it for the next try, and no link is served meanwhile (SharedArtifact).
-func (s *Service) ScrubShareTokens(ctx context.Context) (bool, error) {
-	q := s.read()
-
-	pending, err := q.ShareScrubPending(ctx)
-	if err != nil {
-		return false, fmt.Errorf("reading what is owed to the database's files: %w", err)
-	}
-
-	if pending == 0 {
-		return true, nil
-	}
-
-	unmoved, err := q.ListUnmovedArtifactShares(ctx)
-	if err != nil {
-		return false, fmt.Errorf("listing the links to move: %w", err)
-	}
-
-	if len(unmoved) > 0 {
-		return false, nil
-	}
-
-	if _, err := s.db.ExecContext(ctx, "VACUUM"); err != nil {
-		return false, fmt.Errorf("rebuilding the database's file: %w", err)
-	}
-
-	if done, err := s.checkpoint(ctx); err != nil || !done {
-		return false, err
-	}
-
-	if err := s.write(ctx, func(q *store.Queries, _ int64) error { return q.ClearShareScrub(ctx) }); err != nil {
-		return false, fmt.Errorf("recording that the database's files are clear: %w", err)
-	}
-
-	// The clearing's own write holds no token; it is written back as well as the database allows.
-	_, _ = s.checkpoint(ctx)
-
-	return true, nil
-}
-
-// checkpoint writes the log back into the file and empties it, and reports whether it did: SQLite answers busy
-// when a reader still holds an older snapshot.
-func (s *Service) checkpoint(ctx context.Context) (bool, error) {
-	var busy, logFrames, checkpointed int64
-	if err := s.db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames,
-		&checkpointed); err != nil {
-		return false, fmt.Errorf("writing the log back into the database's file: %w", err)
-	}
-
-	return busy == 0, nil
 }
 
 // shareVaultReady says whether a vault can seal a link's token here.
@@ -344,7 +213,7 @@ func (s *Service) sealShareToken(ctx context.Context, tx *sql.Tx, id, token stri
 
 // openShareToken opens a link's sealed token, checked against its hash, as KeyValue checks a gateway key's; "" for
 // a link not moved yet, whose plaintext is never read again, or one the vault cannot open here.
-func (s *Service) openShareToken(ctx context.Context, id string, hash, versionID sql.NullString) (string, error) {
+func (s *Service) openShareToken(ctx context.Context, id, hash string, versionID sql.NullString) (string, error) {
 	if !versionID.Valid || s.shareVault == nil {
 		return "", nil
 	}
@@ -354,7 +223,7 @@ func (s *Service) openShareToken(ctx context.Context, id string, hash, versionID
 		return "", fmt.Errorf("opening the token of link %s: %w", id, err)
 	}
 
-	if token != "" && bearertoken.Hash(token) != hash.String {
+	if token != "" && bearertoken.Hash(token) != hash {
 		return "", fmt.Errorf("the sealed token of link %s does not match its hash", id)
 	}
 
@@ -396,22 +265,11 @@ func (s *Service) SharesUsingSecret(ctx context.Context, name string) ([]string,
 	return out, nil
 }
 
-// SharedArtifact returns what a link's token shows; ErrNotFound for a token no working link has. While the
-// database's files may still hold old tokens in plaintext (ScrubShareTokens), no link is served: ErrUnavailable.
+// SharedArtifact returns what a link's token shows; ErrNotFound for a token no working link has.
 func (s *Service) SharedArtifact(ctx context.Context, token string) (SharedArtifact, error) {
 	q := s.read()
 
-	pending, err := q.ShareScrubPending(ctx)
-	if err != nil {
-		return SharedArtifact{}, fmt.Errorf("reading a link: %w", err)
-	}
-
-	if pending > 0 {
-		return SharedArtifact{}, fmt.Errorf("%w: links are served once the old links' tokens are cleared",
-			ErrUnavailable)
-	}
-
-	r, err := q.SharedArtifact(ctx, nullString(bearertoken.Hash(token)))
+	r, err := q.SharedArtifact(ctx, bearertoken.Hash(token))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SharedArtifact{}, fmt.Errorf("%w: no such link", ErrNotFound)
 	}
