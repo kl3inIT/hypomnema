@@ -11,6 +11,7 @@ const key = (id: string, name: string, stored: boolean): GatewayKey => ({
   masked_value: stored ? "hyp_ga•••wxyz" : undefined,
   models: ["*"],
   endpoints: [],
+  search_order: [],
   created_at: new Date().toISOString(),
 })
 

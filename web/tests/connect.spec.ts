@@ -19,6 +19,7 @@ const keys: Key[] = [
     masked_value: "hyp_ga•••Pq4x",
     models: ["*"],
     endpoints: [],
+    search_order: [],
     created_at: now,
   },
   {
@@ -27,6 +28,7 @@ const keys: Key[] = [
     prefix: "hyp_gateway_v1_Nn12Pr",
     models: ["claude-subscription/claude-opus-5-5"],
     endpoints: [],
+    search_order: [],
     created_at: now,
   },
   {
@@ -36,6 +38,7 @@ const keys: Key[] = [
     masked_value: "hyp_ga•••Tt7w",
     models: ["codex-subscription/gpt-6-sol"],
     endpoints: [],
+    search_order: [],
     created_at: now,
   },
 ]
