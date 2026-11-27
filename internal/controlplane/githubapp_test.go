@@ -682,3 +682,54 @@ func TestReviewSameHeadRerunWriteOrder(t *testing.T) {
 			olderFirst)
 	}
 }
+
+// Scenario (issue #1262, review round 5): two reads of a head overlap. The first found it passed, with no completion
+// time (a status GitHub gives none for), and is kept first; the second found it failed, with a time. A result without
+// a time never loses to one with a time: which of the two ended later cannot be told, so the one kept stays.
+func TestReviewTimelessPassKeptOverTimedFailure(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	resp, _ := w.register()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	w.install()
+
+	pr := "https://github.com/kl3inIT/hypomnema/pull/1262"
+
+	w.gh.ConcludeAt("SUCCESS", "")
+
+	firstRead, releaseFirst := w.gh.HoldNextRead()
+	secondRead, releaseSecond := w.gh.HoldNextRead()
+	t.Cleanup(releaseFirst)
+	t.Cleanup(releaseSecond)
+
+	waited := make(chan error, 1)
+
+	go func() {
+		_, err := w.app.WaitCI(context.WithoutCancel(t.Context()), pr, 0)
+		waited <- err
+	}()
+
+	<-firstRead // passed, no time
+
+	w.gh.ConcludeAt("FAILURE", "2026-11-27T10:20:00Z")
+
+	delivered := make(chan int, 1)
+
+	go func() {
+		delivered <- w.deliver("workflow_run", "delivery-timed", githubapptest.WorkflowRunCompleted(1262, "failure"),
+			w.gh.Secret)
+	}()
+
+	<-secondRead // failed, with a time
+
+	releaseFirst()
+	require.NoError(t, <-waited)
+	releaseSecond()
+	assert.Equal(t, http.StatusAccepted, <-delivered)
+
+	kept, ok, err := w.svc.GitHub().CIOf(t.Context(), "kl3init/hypomnema", 1262)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, githubstore.CIPassed, kept.State, "a result without a time never loses to one with a time")
+}
