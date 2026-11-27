@@ -465,3 +465,23 @@ func TestPromptOfAStackedTask(t *testing.T) {
 	d.Offer.PRBase = ""
 	assert.Contains(t, Prompt(d), "`gh pr create --base main --head hyp/tsk_1`", "or the Run's base")
 }
+
+// Scenario (issue #1262): the offer's token is the owner's GitHub App's. The worker waits for its pull request's CI
+// with `hypomnema ci wait <url>`, which the App's events end, instead of polling GitHub with gh; without the App it
+// waits with gh, as before.
+func TestPromptWaitsForCIOnTheAppsEventsWhenItsTokenIsTheApps(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.RepoToken, d.Offer.GitHubApp = "ghs_x", true
+
+	p := Prompt(d)
+	assert.Contains(t, p, "When auto-merge is not turned on, wait for the required checks with "+
+		"`hypomnema ci wait <url>` only when the task needs their result.")
+	assert.NotContains(t, p, "--required --watch")
+
+	d.Offer.GitHubApp = false
+	assert.Contains(t, Prompt(d), "`gh pr checks <url> --required --watch`")
+}
