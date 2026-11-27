@@ -62,7 +62,7 @@ export function LookSection({
 }) {
   const id = useId()
   const full = value.frame.chrome === "full"
-  const upright = (sample.aspect ?? "9:16") === "9:16"
+  const upright = sample.aspect !== "16:9"
   const presetNames = Object.fromEntries(looks.presets.map((p) => [p.id, p.name]))
 
   return (
@@ -338,7 +338,7 @@ function LookSample({
   const card = chosen !== "picture" && on.includes(chosen) ? chosen : undefined
   const untitled = card !== undefined && !cards[card]?.title.trim()
   const sample = useLookSample(sampleOf(card ? { ...body, card } : body), open && !untitled)
-  const upright = (body.aspect ?? "9:16") === "9:16"
+  const upright = body.aspect !== "16:9"
 
   return (
     <figure className={cn("flex shrink-0 flex-col items-center gap-1.5", upright && "sm:w-40")}>
@@ -362,7 +362,11 @@ function LookSample({
       <div
         className={cn(
           "relative flex items-center justify-center overflow-hidden rounded-lg bg-muted",
-          upright ? "aspect-[9/16] h-56 sm:h-auto sm:w-full" : "aspect-video w-full max-w-sm",
+          body.aspect === "886x1920"
+            ? "aspect-[443/960] h-56 sm:h-auto sm:w-full"
+            : upright
+              ? "aspect-[9/16] h-56 sm:h-auto sm:w-full"
+              : "aspect-video w-full max-w-sm",
         )}
         data-testid="look-sample"
         aria-busy={sample.loading || undefined}

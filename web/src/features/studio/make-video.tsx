@@ -32,7 +32,17 @@ import { errorText } from "@/lib/server-error"
 
 import { LookSection } from "./look-section"
 import { editsOf, fieldsOf, sentLook, withEdits, type LookEdits } from "./look-state"
-import { useVideoLooks } from "./use-look"
+import { TemplatePicker } from "./template-picker"
+import {
+  aspectHints,
+  aspectLabels,
+  aspectNames,
+  aspects,
+  templateFields,
+  unpicked,
+  type Shape,
+} from "./template-state"
+import { useVideoLooks, useVideoTemplates } from "./use-look"
 
 type Aspect = NonNullable<VideoMake["aspect"]>
 
@@ -45,14 +55,19 @@ type Aspect = NonNullable<VideoMake["aspect"]>
 // section the owner edited is kept apart, so one left alone follows the default when it is read again, as after a
 // track's delete (#1082). A take that cannot be made, one with no steps (#1028), has the button disabled, described
 // by the line saying why, as Request changes is disabled with its line (./video-view.tsx); the dialog and its look
-// sample never open.
+// sample never open. A template (#1230, row 5; template-picker.tsx) sets the shape among its own and the captions,
+// and its look is where the fields start: its sections over the saved default, its cards titled with the video's
+// title; the make and the sample name it, so the server resolves the same look.
 export function MakeVideo({
   take,
+  title,
   again,
   why,
   onMade,
 }: {
   take: string
+  // title: the video's title, or the take's before its first make: a template's cards show it.
+  title: string
   // again: the take has a video already, and a make adds a revision.
   again?: boolean
   // why: the id of the line saying why the take cannot be made into a video; the button is then disabled.
@@ -65,13 +80,21 @@ export function MakeVideo({
   const [voice, setVoice] = useState("")
   const [captions, setCaptions] = useState(true)
   const [aspect, setAspect] = useState<Aspect>("9:16")
+  // template: the template's id, empty for none.
+  const [template, setTemplate] = useState("")
+  // before: the shape and captions the owner had before the first template, which None gives back.
+  const [before, setBefore] = useState<Shape>({ aspect: "9:16", captions: true })
   const [key, setKey] = useState(() => crypto.randomUUID())
-  // edits: the Look's sections the owner set; the others are the saved default's (#938, #1082).
+  // edits: the Look's sections the owner set; the others are the saved default's, or the template's (#938, #1082).
   const [edits, setEdits] = useState<LookEdits>({})
   const looks = useVideoLooks(open)
-  const start = looks.data && fieldsOf(looks.data.default)
+  const templates = useVideoTemplates(open)
+  const chosen = templates.data?.templates.find((t) => t.id === template)
+  const start =
+    looks.data && (chosen ? templateFields(chosen, title) : fieldsOf(looks.data.default))
   const fields = start && withEdits(start, edits)
   const sent = start && fields && sentLook(start, fields)
+  const named = chosen ? { template: chosen.id } : {}
   const make = useMutation({
     ...makeVideoMutation(),
     onSuccess: (video) => {
@@ -89,8 +112,25 @@ export function MakeVideo({
     if (next) {
       setKey(crypto.randomUUID())
       setEdits({})
+      setTemplate("")
       make.reset()
     }
+  }
+
+  // pick takes a template's shape and captions, keeping the owner's from before the first template; None gives
+  // them back where the owner left the template's. A Look section the owner edited stays his.
+  function pick(id: string) {
+    const t = templates.data?.templates.find((x) => x.id === id)
+    if (t) {
+      if (!chosen) setBefore({ aspect, captions })
+      setAspect(t.aspects[0]!)
+      setCaptions(t.captions)
+    } else if (chosen) {
+      const next = unpicked({ aspect, captions }, chosen, before)
+      setAspect(next.aspect)
+      setCaptions(next.captions)
+    }
+    setTemplate(t ? id : "")
   }
 
   return (
@@ -124,12 +164,18 @@ export function MakeVideo({
                   take,
                   captions,
                   aspect,
+                  ...named,
                   ...(voice.trim() ? { voice: voice.trim() } : {}),
                   ...(sent ? { look: sent } : {}),
                 },
               })
             }}
           >
+            <TemplatePicker
+              templates={{ data: templates.data?.templates, error: templates.error }}
+              value={template}
+              onChange={pick}
+            />
             <Field>
               <FieldLabel htmlFor={`${formId}-voice`}>Voice</FieldLabel>
               <Input
@@ -165,17 +211,22 @@ export function MakeVideo({
                 variant="choice"
                 spacing={1}
               >
-                <ToggleGroupItem value="9:16" aria-label="9:16, upright">
-                  9:16
-                </ToggleGroupItem>
-                <ToggleGroupItem value="16:9" aria-label="16:9, wide">
-                  16:9
-                </ToggleGroupItem>
+                {aspects.map((a) => (
+                  <ToggleGroupItem
+                    key={a}
+                    value={a}
+                    aria-label={aspectLabels[a]}
+                    disabled={chosen !== undefined && !chosen.aspects.includes(a)}
+                  >
+                    {aspectNames[a]}
+                  </ToggleGroupItem>
+                ))}
               </ToggleGroup>
               <FieldDescription>
-                {aspect === "9:16"
-                  ? "Upright, the phone's own shape: 720 × 1280."
-                  : "Wide, the phone in the middle on black: 1280 × 720."}
+                {aspectHints[aspect]}
+                {chosen &&
+                  chosen.aspects.length === 1 &&
+                  ` The template ${chosen.name} is made in it.`}
               </FieldDescription>
             </Field>
             {looks.data && fields ? (
@@ -185,7 +236,7 @@ export function MakeVideo({
                 onChange={(next) => setEdits((was) => editsOf(was, fields, next))}
                 music={looks.data.default.music}
                 captions={captions}
-                sample={{ take, aspect, captions, ...(sent ? { look: sent } : {}) }}
+                sample={{ take, aspect, captions, ...named, ...(sent ? { look: sent } : {}) }}
                 open={open}
               />
             ) : (

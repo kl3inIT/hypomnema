@@ -978,7 +978,7 @@ sequenceDiagram
     control plane answers alone: the calling agent's own takes (id, title, state, ended_by, start, length), the
     newest 20, as the owner's `GET /takes` restricted to the agent, never another's and never a file (issue #851). They are listed, routed and switched
     with the phone's tools: a worker's tools server and a Bot's `hypomnema mcp` pass every `device_*` and `video_*`
-    name but `video_make` and `video_get` to the phone's routes (`devicetool.Routed`), and the phone family's switch
+    name but `video_make`, `video_get` and `video_templates` to the phone's routes (`devicetool.Routed`), and the phone family's switch
     `device_*` names them too (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and
     `video_end` are never offered. A take records the phone's screen size (`screen`, from `wm size` at
     `video_start`, its override when one is set), the pixels a step's tap is in (issue #818).
@@ -1041,7 +1041,7 @@ sequenceDiagram
     text, element?, chapter?}` right before each action and `browser_video_stop {take}`
     (`internal/controlplane/agentapi/browsertakes.go`), listed and called on the tools route beside the browser's
     tools and switched with the browser family (`agenttool.ToolFamilies`), which also names `video_status`,
-    `video_list`, `video_make` and `video_get` beside the phone's family, so the full preset, which leaves the
+    `video_list`, `video_make`, `video_get` and `video_templates` beside the phone's family, so the full preset, which leaves the
     phone off, gives them with the browser (a tool in two families, as OpenClaw's tools are in their section's
     group and in `group:openclaw`, `src/agents/core-tool-facts.ts:259-276`; a switch off of either family takes
     them away). They read a browser take as a phone's; `video_status` and `video_list` are listed on the phone's
@@ -1085,7 +1085,8 @@ sequenceDiagram
     no steps is refused. Motionless spans are what `freezedetect` finds in each segment (1.5 s, noise 0.003) and
     the still tail after a segment's `last_frame_ms`; a scene's spans, clipped to it but for its first and last
     300 ms and the 600 ms after its tap, are cut to their first 400 ms. The kept footage, cut from every segment it
-    overlaps and scaled to 720×1280 (9:16) or 1280×720 (16:9) with "contain", is retimed to the scene's voice and
+    overlaps and scaled to 720×1280 (9:16), 1280×720 (16:9) or 886×1920 (`886x1920`, the App Store's app preview
+    at Apple's size, aidemo's `app-store-preview`; #1230) with "contain", is retimed to the scene's voice and
     300 ms within 0.5x-1.6x, its last frame held when still short and its tail trimmed when still long; a scene
     over a segment `freezedetect` fails on is kept whole, with a warning. A tap's ring, autodemo's ripple (MIT,
     `third_party/autodemo`), is drawn for 0.5 s from the tap's step, its point scaled from the screen's pixels
@@ -1269,9 +1270,29 @@ sequenceDiagram
     end card; words are trimmed. A look change, a retry or changed lines keep the source's cards. A make's cards are
     never saved in the default (a video's words, not a style; an agent's make takes the default), and the runner
     gives compose the stored cards with the look's background.
+  - Templates (#1230 rows 3-5, `videos/templates.go`, `videos/templates/*.json`;
+    [research](docs/research/2026-11-27-video-templates.md)): a **template** is a JSON document embedded in the
+    binary and read at start, refused when a field is unknown, an aspect not made, a card without words or its look
+    not one: `{id, name, use_case, length {min_s, max_s}, aspects (its default first), captions, sections [{name,
+    purpose, words}], look, from}`, where `look` holds the sections of a look it sets, its `cards` always (`{}` for
+    none; a card's `title` and `subtitle` are its words, `{title}` in them the video's title), and `from` what it is
+    learned from. Five are built in, in
+    their files' order: `app-ad` (15-30 s, 9:16, an end card), `feature-announcement` (30 s, 9:16 or 16:9),
+    `product-walkthrough` (60-90 s, 16:9, a title card and an end card), each end card a call to action over the
+    video's title as aidemo's outro (`Tải ứng dụng ngay` and `Dùng thử ngay`, Vietnamese words inferred), `onboarding` (20-60 s, 16:9) and
+    `app-store-preview` (15-30 s, 886x1920, frame full, no captions). A section's seconds are its words at 2.5 a
+    second (aidemo's figure). A make or a look sample with `template` takes its first aspect when none is sent (one
+    sent must be one of its), its captions when none is sent, and its look's sections where the request sends none,
+    over the saved default; `{title}` in its cards' words is the video's title (the request's or the take's on a
+    first make), each field then cut to its longest (80 and 120 characters) at a space. The request hash adds the template; an owner's make saves only the
+    sections it sent in the default, never the template's. A look sample refuses a template with `rev`.
+    `Service.Templates` lists them with the look each starts from over the saved default now, cards apart with
+    their words as stored.
   - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
-    `{take, title?, aspect?, captions?, voice?, look?}` with an Idempotency-Key, `GET /videos/looks`, `POST
-    /videos/preview` `{take, aspect?, captions?, look?, rev?, card?}` answering `image/jpeg`, the look's `title` or
+    `{take, title?, aspect?, captions?, voice?, look?, template?}` with an Idempotency-Key, `GET /videos/looks`, `GET
+    /videos/templates` (each template with its `words`, its sections' `seconds`, its `look` over the saved default and
+    its `cards` as `{accent, title?: {duration_ms}, end?: {duration_ms}}`), `POST
+    /videos/preview` `{take, aspect?, captions?, look?, template?, rev?, card?}` answering `image/jpeg`, the look's `title` or
     `end` card in place of the picture with `card` (409 when the look has no such card; busy `rate_limited` with
     Retry-After 1, too long `timed_out` 504, no ffmpeg `unavailable`), `POST /videos/{id}/revisions/{rev}/look`
     `{look}` and `POST /videos/{id}/revisions/{rev}/retry`, each with a required Idempotency-Key and answering 201 with the
@@ -1280,7 +1301,7 @@ sequenceDiagram
     Idempotency-Key (a note alone is kept and starts nothing; changed lines queue a new revision, the other lines'
     clips reused), `GET /videos/{id}/revisions/{rev}/video.mp4` with Range requests and `GET
     .../thumbnail.jpg`, in review, approved or changes_requested; `hypomnema videos list|get|make|request-changes|
-    approve|delete|download|look|retry|looks|preview`, where `make`, `look` and `preview` send only the look's
+    approve|delete|download|look|retry|looks|templates|preview` (`make` and `preview` take `--template <id>`), where `make`, `look` and `preview` send only the look's
     sections whose flags are given (`--caption-preset --caption-position --chrome --padding --radius --shadow
     --safe-top --background --background-colors`, and `--music <id|none>` with `--music-gain <dB>` on `make` and
     `look`; `--music-gain` alone is refused; `--title-card <title>` and `--end-card <title>`, each with
@@ -1295,10 +1316,12 @@ sequenceDiagram
     checks, all before a byte of the body is read, and 201 with the track. Its answers say `Connection: close`, so
     Go's server answers a refusal at once instead of first reading a body left unread (a chunked one, or one under
     256 KB); `hypomnema videos music add|list|rm`. The web's "Make again" of a failed revision is a
-    retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
-    `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
+    retry. An agent (a worker or a Bot's pi) has `video_make {take, template?, request_id?}`,
+    `video_get {video}` and `video_templates {}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
-    latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
+    latest note, never a file or a link. `video_templates` lists each template's id, name, length, aspects, captions,
+    cards, use case and sections with their words and seconds; a make with a template answers what it was made
+    with and the take's words at 2.5 a second with the cards against the template's length (aidemo's lint estimate). Settings → Gateway → Audio has a voice for videos for each provider
     (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
     column `voice` of `gateway_audio_providers`). The runner records speech and transcription through the gateway's
     audio usage path (see "Audio").
@@ -1315,7 +1338,8 @@ sequenceDiagram
     Machines: cards or a table, the kind and state chips, a search, "Show more" for the next page, read again every
     3 s while an item shown is in progress; a card shows the first frame, or a placeholder with REC or PAUSED while
     the take is filmed. `/studio/takes/:id` and `/studio/videos/:id` open a take's and a video's tab on a page of
-    their own. A take's tab has Make video (voice, captions, 9:16 or 16:9, an Idempotency-Key), and Video once it
+    their own. A take's tab has Make video (a template, voice, captions, 9:16, 16:9 or App Store's 886 × 1920, an
+    Idempotency-Key), and Video once it
     has one; in a pane the video opens as a `video` tab beside the take's. A video's tab follows the revision being
     made, stage by stage and scene by scene, a failure with its stage, its cause and Make again (the retry route); a
     made revision plays with its lines editable and a note, Approve and Request changes, Change look, a switch
@@ -1348,6 +1372,13 @@ sequenceDiagram
     the cards, and a card with no title yet is not asked for. A card's sample carries that card alone, as the
     contract's `card` says to send it (the contract checks every card sent and refuses one with no title, 400), and
     the service draws only the card shown.
+    Make video's first field is its Template (#1230 row 5, `template-picker.tsx`, `template-state.ts`; a picker is
+    an inference, as no reference has one): None or one of `GET /videos/templates`, with the chosen one's use case,
+    length, shapes, captions and cards and its sections with their words and seconds. Picking one sets the shape to
+    its first and the captions to its own, disables the shapes it is not made in, and starts the Look's fields from
+    its look, its cards' words with `{title}` the video's title (the take's before the first make), cut as the server cuts
+    them; the make and the sample carry `template`, and only the sections changed from that start. None gives back the
+    shape and captions the owner had before the first template, where the owner left the template's.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -7125,7 +7156,7 @@ internal/controlplane/vault  the vault: encrypted secrets and their versions, th
 internal/controlplane/videos  videos of takes and their revisions, the runner that voices, composes and captions them, the voice cache
 internal/controlplane/videos/captions  cues from a voice's word times and the ASS file with the spoken word highlighted (aidemo's cue rules, demotape's highlight, ported)
 internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
-internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
+internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16, 16:9 or 886x1920 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client
 internal/controlplane/webpush  Web Push: the VAPID key pair in the vault, and the sender that pushes what waits on the owner to his devices
 internal/e2e               tests only: the control plane's node API with the node daemon

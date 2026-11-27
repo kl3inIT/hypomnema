@@ -1,0 +1,17 @@
+{
+  "id": "app-ad",
+  "name": "App ad",
+  "use_case": "A short ad for a fanpage, Reels, TikTok or Shorts: the app's one workflow, its proof, and the call to action on the end card.",
+  "length": { "min_s": 15, "max_s": 30 },
+  "aspects": ["9:16"],
+  "captions": true,
+  "sections": [
+    { "name": "Hook", "purpose": "The outcome already happening, said flat; no name or logo first.", "words": 10 },
+    { "name": "Step 1", "purpose": "One idea, pinned to one action on the screen; say the intent, not the cursor.", "words": 15 },
+    { "name": "Step 2", "purpose": "One idea, pinned to one action on the screen.", "words": 15 },
+    { "name": "Step 3", "purpose": "One idea, pinned to one action on the screen.", "words": 15 },
+    { "name": "Proof", "purpose": "The result as a number or a before and after, earned on the screen.", "words": 10 }
+  ],
+  "look": { "cards": { "end": { "title": "Tải ứng dụng ngay", "subtitle": "{title}" } } },
+  "from": "aidemo docs/blog/social-cuts-for-product-launch/index.md:31-34,64 and demo-video-script-template/index.md:20-45; the end card is aidemo's outro, src/starter.ts:73-76 (its call to action over the name); its Vietnamese words are inferred"
+}
