@@ -472,3 +472,24 @@ func TestAClaudeSessionStaysHomeWhenEveryAccountIsInReserve(t *testing.T) {
 
 	assert.Equal(t, home, w.account("conversation-1"))
 }
+
+// Scenario (review of PR #1298): a gateway key limited to one account takes it between the requests of the others,
+// which still go round all three accounts: the key's turn does not move theirs.
+func TestALimitedKeyDoesNotMoveTheOthersTurn(t *testing.T) {
+	t.Parallel()
+
+	w := newClaudeWorld(t)
+	ids := w.loginN(3)
+	limited := subscription.WithAccounts(t.Context(), ids[:1])
+
+	seen := map[string]bool{}
+	for range ids {
+		seen[w.account("")] = true
+
+		token, err := w.subs.Token(limited, "claude", "")
+		require.NoError(t, err)
+		assert.Equal(t, ids[0], token.AccountID)
+	}
+
+	assert.Len(t, seen, 3, "three requests of the others reached three accounts")
+}

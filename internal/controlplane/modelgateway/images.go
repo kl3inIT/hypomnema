@@ -50,6 +50,11 @@ const (
 // 2026-11-14: Codex, then Antigravity).
 func ImageProviders() []string { return []string{ImageProviderCodex, ImageProviderAntigravity} }
 
+// imageRuntimes are the runtimes of the accounts each image provider makes images under.
+var imageRuntimes = map[string]string{
+	ImageProviderCodex: codexRuntime, ImageProviderAntigravity: antigravityRuntime,
+}
+
 // ImageModel is the one model a provider makes images with (owner,
 // 2026-11-14, issue #453): codex-rs's and Hermes' gpt-image-2 for Codex,
 // 9router-go's and OmniRoute's gemini-3.1-flash-image for Antigravity.
@@ -328,6 +333,14 @@ func (s *Server) MakeImages(ctx context.Context, req ImageRequest) (ImageResult,
 	targets, err := imageTargets(req, settings)
 	if err != nil {
 		return ImageResult{}, err
+	}
+
+	// A key limited to some accounts (issue #1277) does not use a provider it has none of: its failure would only
+	// hide the answer of those it may use, such as their wait.
+	if usable := slices.DeleteFunc(slices.Clone(targets), func(p string) bool {
+		return !usesRuntime(ctx, imageRuntimes[p])
+	}); len(usable) > 0 {
+		targets = usable
 	}
 
 	var failures []ImageFailure

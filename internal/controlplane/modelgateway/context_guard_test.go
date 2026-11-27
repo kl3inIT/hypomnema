@@ -141,23 +141,39 @@ func TestAToolInputTooLongIsNoOverflow(t *testing.T) {
 func TestARunOfAnswersThatDoNotEndEndsTheTurn(t *testing.T) {
 	t.Parallel()
 
-	for name, tc := range map[string]struct {
-		handle http.HandlerFunc
-		ask    func(g chatGateway) (int, string)
-	}{
-		"silent truncation": {
-			handle: stream(event(`{"type":"response.created","response":{"id":"resp_1"}}`)),
-			ask: func(g chatGateway) (int, string) {
-				status, _, body := g.respond(t, g.key, asking(10))
+	for name, clientGone := range map[string]bool{"silent truncation": false, "empty client_gone": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-				return status, body
-			},
-		},
-		"empty client_gone": {
-			handle: func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() },
-			ask: func(g chatGateway) (int, string) {
-				ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			handle := stream(event(`{"type":"response.created","response":{"id":"resp_1"}}`))
+			var arrived chan struct{}
+			if clientGone {
+				arrived = make(chan struct{})
+				handle = func(_ http.ResponseWriter, r *http.Request) {
+					select {
+					case arrived <- struct{}{}:
+						<-r.Context().Done()
+					case <-r.Context().Done():
+					}
+				}
+			}
+			backend, got := codexBackend(t, handle)
+			g := newCodexGateway(t, backend, &accounts{})
+
+			ask := func() (int, string) {
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
+
+				if clientGone {
+					// Disconnect only after the provider receives the request. The timeout is a deadlock bound.
+					go func() {
+						select {
+						case <-arrived:
+							cancel()
+						case <-ctx.Done():
+						}
+					}()
+				}
 
 				req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/responses", strings.NewReader(asking(10)))
 				req.Header.Set("Authorization", "Bearer "+g.key)
@@ -165,22 +181,14 @@ func TestARunOfAnswersThatDoNotEndEndsTheTurn(t *testing.T) {
 				g.mux.ServeHTTP(rec, req)
 
 				return rec.Code, rec.Body.String()
-			},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			backend, got := codexBackend(t, tc.handle)
-			g := newCodexGateway(t, backend, &accounts{})
-
-			for range 4 {
-				tc.ask(g)
 			}
 
-			require.Equal(t, 4, got.calls())
+			for attempt := range 4 {
+				ask()
+				require.Equal(t, attempt+1, got.calls())
+			}
 
-			status, body := tc.ask(g)
+			status, body := ask()
 			require.Equal(t, http.StatusBadRequest, status, body)
 			code, message := refusal(t, body)
 			assert.Equal(t, "context_overflow", code)

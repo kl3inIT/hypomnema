@@ -212,6 +212,9 @@ func (s *Service) CodexModels(ctx context.Context, k Key) ([]Model, error) {
 // CodexCatalog is the catalog of the models a key may call from Codex, in the gateway's order, encoded below
 // codexCatalogLimit, and how many of the models it leaves out to stay below it.
 func (s *Service) CodexCatalog(ctx context.Context, k Key) ([]byte, int, error) {
+	// What the vendors serve is read under the key's own accounts only (issue #1277).
+	ctx = keyContext(ctx, k)
+
 	models, err := s.CodexModels(ctx, k)
 	if err != nil {
 		return nil, 0, err

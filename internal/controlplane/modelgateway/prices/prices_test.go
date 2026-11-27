@@ -157,6 +157,8 @@ func TestThePricesByUnitMatchTheProvidersRates(t *testing.T) {
 		{prices.UnitSecond, "elevenlabs/scribe_v2", 61_100},
 		{prices.UnitSecond, "soniox/stt-async-v5", 27_778},
 		{prices.UnitCharacter, "elevenlabs/eleven_multilingual_v2", 80_000},
+		// ElevenLabs's default speech model (issue #1283): $0.08 per 1,000 characters, https://elevenlabs.io/pricing/api.
+		{prices.UnitCharacter, "elevenlabs/eleven_v4", 80_000},
 	} {
 		p, ok := prices.LookupUnit(tt.unit, tt.name)
 		require.True(t, ok, tt.name)

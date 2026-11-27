@@ -29,6 +29,14 @@ func (a audioOver) Chain(ctx context.Context) ([]speech.Link, speech.Settings, e
 	return a.speech.Chain(ctx)
 }
 
+func (a audioOver) Models(ctx context.Context) ([]speech.ModelInfo, []speech.Failure, error) {
+	return a.speech.Models(ctx)
+}
+
+func (a audioOver) Voices(ctx context.Context) ([]speech.Voice, []speech.Failure, error) {
+	return a.speech.Voices(ctx)
+}
+
 // heard stands for the speech service: it keeps what it was asked.
 type heard struct {
 	asked  speech.TranscribeRequest
@@ -110,7 +118,7 @@ func TestTheOwnerSeesAndChangesTheAudioProviders(t *testing.T) {
 	assert.Equal(t, openapi.AudioProviderLinkStateNotSetUp, listed.JSON200.Providers[0].State)
 	assert.Equal(t, openapi.AudioProvider("soniox"), listed.JSON200.Stt[0].Provider)
 	assert.Equal(t, "stt-async-v5", listed.JSON200.Stt[0].Model)
-	assert.Equal(t, "eleven_multilingual_v2", listed.JSON200.Tts[1].Model)
+	assert.Equal(t, "eleven_v4", listed.JSON200.Tts[1].Model, "ElevenLabs's default speech model")
 
 	key := " sx-key \n"
 
@@ -160,6 +168,37 @@ func TestTheOwnerSeesAndChangesTheAudioProviders(t *testing.T) {
 	bad, err := owner.SetAudioVoiceWithResponse(ctx, "soniox", openapi.AudioVoice{Voice: "a\nb"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, bad.StatusCode())
+
+	// ElevenLabs's speech model (issue #1283, row 1): the owner's to choose, empty for its default; Soniox has one.
+	refusedModel, err := pi.SetAudioModelWithResponse(ctx, "elevenlabs", openapi.AudioModelChoice{Model: "eleven_v3"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refusedModel.StatusCode())
+
+	chosen, err := owner.SetAudioModelWithResponse(ctx, "elevenlabs", openapi.AudioModelChoice{Model: " eleven_v3 "})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, chosen.StatusCode(), string(chosen.Body))
+	assert.Equal(t, "eleven_v3", chosen.JSON200.Tts[0].Model)
+	assert.Equal(t, "scribe_v2", chosen.JSON200.Stt[1].Model, "the choice is of speech only")
+
+	defaulted, err := owner.SetAudioModelWithResponse(ctx, "elevenlabs", openapi.AudioModelChoice{Model: ""})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, defaulted.StatusCode(), string(defaulted.Body))
+	assert.Equal(t, "eleven_v4", defaulted.JSON200.Tts[0].Model)
+
+	soniox, err := owner.SetAudioModelWithResponse(ctx, "soniox", openapi.AudioModelChoice{Model: "tts-rt-v3"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, soniox.StatusCode())
+
+	voices, err := pi.ListAudioVoicesWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, voices.StatusCode(), string(voices.Body))
+	assert.Equal(t, []openapi.AudioVoiceInfo{{Provider: "soniox", Id: "Adrian", Name: "Adrian"}}, voices.JSON200.Voices,
+		"Soniox's one voice; ElevenLabs has no key")
+
+	models, err := pi.ListAudioModelsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, models.StatusCode(), string(models.Body))
+	assert.Empty(t, models.JSON200.Models, "ElevenLabs has no key")
 
 	switched, err := owner.SetAudioProviderWithResponse(ctx, "elevenlabs", openapi.AudioProviderChange{On: false})
 	require.NoError(t, err)
