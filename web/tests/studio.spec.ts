@@ -1498,9 +1498,9 @@ test("Make video takes a template, its skeleton shown and its look the start", a
   // None gives back the shape and captions the template set and the owner left (review of #1246).
   await expect(shape.getByRole("button", { name: /^9:16/ })).toHaveAttribute("aria-pressed", "true")
   await expect(dialog.getByRole("switch", { name: "Captions" })).toBeChecked()
-  await expect
-    .poll(() => server.samples.at(-1)!.body)
-    .toEqual({ take: takeId, aspect: "9:16", captions: true })
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+  expect(server.made.at(-1)).toEqual({ take: takeId, captions: true, aspect: "9:16" })
 })
 
 // Scenario: Change look on a revision made with cards starts from them; the end card turned off is the only change
