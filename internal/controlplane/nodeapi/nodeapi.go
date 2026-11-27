@@ -27,7 +27,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	shippedrelease "github.com/kl3inIT/hypomnema/internal/shared/release"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
@@ -84,9 +83,6 @@ type Server struct {
 	answers map[string]*pendingAnswer
 	// devices are the states of their phones nodes said last, by node id (device.go).
 	devices map[string]nodeproto.DeviceState
-	// storeGuides are the nodes that said at their last hello that they write no guides of their own
-	// (HelloRequest.StoreGuides), kept in memory as devices are: a node says hello before each socket.
-	storeGuides map[string]bool
 	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
 	deviceCalls map[string]*pendingDevice
 	// takeFiles takes the takes' files nodes upload, and takesHeld settles those a node holds at hello (takes.go).
@@ -100,7 +96,7 @@ type Server struct {
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{},
 		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{},
-		storeGuides: map[string]bool{}, deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
+		deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
 }
 
 // HostCredential is what an offer is given to act on its repository's host:
@@ -140,16 +136,11 @@ func (s *Server) WithRuntimeTools(tools func(os, arch string) []nodeproto.Tool) 
 	return s
 }
 
-// runtimeToolsSince is the first node release that installs the agent CLIs (issue #107): one before it cannot
-// install a release file that is a bare binary, nor one of omp's size, and would fetch it again every five minutes.
-const runtimeToolsSince = "v0.9.17"
-
-// toolsFor are the tools a node of this system and this version is told to have: the agent CLIs when it can
-// install them, then the Integrations' tools.
-func (s *Server) toolsFor(ctx context.Context, os, arch, version string) []nodeproto.Tool {
+// toolsFor are the tools a node of this system is told to have: the agent CLIs, then the Integrations' tools.
+func (s *Server) toolsFor(ctx context.Context, os, arch string) []nodeproto.Tool {
 	var out []nodeproto.Tool
 
-	if s.runtimeTools != nil && !shippedrelease.Newer(runtimeToolsSince, version) {
+	if s.runtimeTools != nil {
 		out = append(out, s.runtimeTools(os, arch)...)
 	}
 
@@ -158,38 +149,6 @@ func (s *Server) toolsFor(ctx context.Context, os, arch, version string) []nodep
 	}
 
 	return out
-}
-
-// guidesSaid records whether a node writes no guides of its own.
-func (s *Server) guidesSaid(nodeID string, store bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !store {
-		delete(s.storeGuides, nodeID)
-
-		return
-	}
-
-	s.storeGuides[nodeID] = true
-}
-
-// skillsFor are the skills of an offer as a node is sent them. A node of a
-// release before issue #536 writes the guides of its Run's Integrations and
-// of the phone itself and names them in the worker's first message, so it is
-// sent none of the skills that require something, which are those guides:
-// its worker gets each guide once, from the node, until the node takes the
-// release that leaves them to the store.
-func (s *Server) skillsFor(nodeID string, skills []nodeproto.Skill) []nodeproto.Skill {
-	s.mu.Lock()
-	store := s.storeGuides[nodeID]
-	s.mu.Unlock()
-
-	if store {
-		return skills
-	}
-
-	return slices.DeleteFunc(slices.Clone(skills), func(sk nodeproto.Skill) bool { return len(sk.Requires) > 0 })
 }
 
 // WithDiskAlerts sets how the owner is told of a node's out-of-disk episode and its recovery.
@@ -427,14 +386,13 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.deviceSaid(n.ID, req.DeviceState)
-	s.guidesSaid(n.ID, req.StoreGuides)
 	endTakes, dropTakes := s.settleTakes(r.Context(), n.ID, req)
 
 	resp := nodeproto.HelloResponse{
 		NodeID: n.ID, Dispositions: make([]nodeproto.Disposition, 0, len(dispositions)),
 		HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(),
 		GitHosts:         s.gitHosts(r.Context()),
-		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch, req.DaemonVersion),
+		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch),
 		ReleaseURL:       s.releaseURL,
 		// The node looks for its release at once when this is newer than its own (issue #783).
 		ControlPlaneVersion: platform.Version,
@@ -480,7 +438,7 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 
 	sess := &session{
 		srv: s, conn: conn, nodeID: n.ID, tokenID: tokenID,
-		os: n.System.OS, arch: n.System.Arch, version: n.System.DaemonVersion,
+		os: n.System.OS, arch: n.System.Arch,
 		cancel:  cancel,
 		out:     make(chan nodeproto.Message, 64),
 		offered: map[string]bool{}, stopped: map[string]bool{}, answered: map[string]bool{},
@@ -534,10 +492,10 @@ type session struct {
 	nodeID string
 	// tokenID is the token the node connected with; a heartbeat is refused once it is revoked.
 	tokenID string
-	// os, arch and version are the node's system and release, for the tools it is told to have.
-	os, arch, version string
-	cancel            context.CancelFunc
-	out               chan nodeproto.Message
+	// os and arch are the node's system, for the tools it is told to have.
+	os, arch string
+	cancel   context.CancelFunc
+	out      chan nodeproto.Message
 
 	// What this connection already sent; a new connection sends all again.
 	offered  map[string]bool
@@ -798,7 +756,6 @@ func (c *session) push(ctx context.Context) error {
 			o.Tools = c.srv.toolNames(ctx, o.DispatchID, o.AgentKey)
 		}
 
-		o.Skills = c.srv.skillsFor(c.nodeID, o.Skills)
 		if o.Device == "" {
 			android := skillpack.Requirement(skillpack.RequiresDevice, nodeproto.DeviceAndroid)
 			o.Skills = slices.DeleteFunc(slices.Clone(o.Skills), func(sk nodeproto.Skill) bool {
@@ -928,7 +885,7 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 
 		return c.send(ctx, nodeproto.TypeHeartbeatAck, nodeproto.HeartbeatAck{
 			HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(), GitHosts: c.srv.gitHosts(ctx),
-			Tools: c.srv.toolsFor(ctx, c.os, c.arch, c.version),
+			Tools: c.srv.toolsFor(ctx, c.os, c.arch),
 		})
 	case nodeproto.TypeReport:
 		var r nodeproto.Report

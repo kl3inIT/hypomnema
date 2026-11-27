@@ -29,7 +29,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -58,8 +57,7 @@ type server struct {
 	// nil when the runner gave none.
 	agent *toolsmcp.Agent
 	// worktree is the folder the worker works in, where show_artifact reads
-	// its path; empty when the runner did not say, and then the folder the
-	// server was started in.
+	// its path.
 	worktree string
 }
 
@@ -73,7 +71,7 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, dir string) error {
 
 // agentOf is the agent API of the Dispatch whose bridge directory dir is, or
 // nil when the runner gave none: the worker then has no browser; and the
-// worker's worktree, when the runner named it.
+// worker's worktree.
 func agentOf(dir string) (*toolsmcp.Agent, string) {
 	agent, ok, err := bridge.AgentOf(dir)
 	if err != nil || !ok {
@@ -251,19 +249,13 @@ func (s *server) publishBranch(ctx context.Context) (any, error) {
 }
 
 // workFolder is where show_artifact reads the path it names: the worktree
-// the runner named, else the folder the server was started in, which is the
-// worktree for the CLIs that start their servers in their own folder.
+// the runner named beside the agent API.
 func (s *server) workFolder() (string, error) {
-	if s.worktree != "" {
-		return s.worktree, nil
+	if s.worktree == "" {
+		return "", errors.New("the runner named no worktree for this worker")
 	}
 
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("reading the working folder: %w", err)
-	}
-
-	return dir, nil
+	return s.worktree, nil
 }
 
 // optionsHelp says how an option takes text (issue #714, decision 8).

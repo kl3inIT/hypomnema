@@ -405,8 +405,8 @@ sequenceDiagram
   it, and so does the node's next hello (issue #590, after Omnara's daemon reconciliation): one of the node's
   Dispatches that may still run (`starting`, `running`, `unknown`, `stop_unknown`) that the node neither claims nor
   holds with a queued accept or final report ends `failed` (`lost`), and one it claims whose worker never started (no
-  process) ends `failed` (`start_failed`) and is released instead of reattached. A node of an earlier release does
-  not list what it holds, and nothing it does not claim is ended. A claim still the node's at its epoch is
+  process) ends `failed` (`start_failed`) and is released instead of reattached. A hello that only checks an install
+  does not list what the node holds, and nothing it does not claim is ended. A claim still the node's at its epoch is
   answered `retain` and its lease is renewed, even one that ran out while the control plane was down; a heartbeat
   never renews a lease that ran out (issue #833, after Omnara's registration, which ends by renewing the lease,
   `machine_daemon_runtime_store.go:218-233`). A node whose lease heartbeat is refused ends its session and says
@@ -2026,12 +2026,8 @@ flowchart LR
     (`PI_CODING_AGENT_DIR`, which omp reads skills from); opencode in the Conversation's `skills` folder, which its
     configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The CLI finds them
     by itself, so the worker's first message names no skill or folder.
-  - A node says at its hello that it writes no guide of its own (`store_guides`, issue #536). Until issue #536 a
-    node wrote the guides of its Run's Integrations and of the phone into `$HYPOMNEMA_SKILLS` and named them in the
-    worker's first message; a node of such a release does not say so, and the node API leaves out of its offers
-    every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
-    guide once, from the node, until the node takes the release that leaves them to the store. The control plane
-    keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
+  - A node writes no guide of its own (issue #536): the guides of a Run's Integrations and of the phone come with the
+    offer's skills, each carrying its `requires`.
   - Tools use a preset and exceptions beside the skills (see "Tool switches" under "An
     agent's tools").
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
@@ -5368,7 +5364,7 @@ flowchart LR
   for a Bot whose list has the owner's account (pi keeps them listed between his turns, #748), the phone's while
   a node holds it; then the commands, `gh` and `glab` only a Bot's (a worker keeps its own). A worker gets it
   after its rules, before the profile's instruction and the task: the node API puts the names in the offer
-  (`nodeproto.Offer.Tools`, a node of an earlier release ignores them) and the runner writes the block
+  (`nodeproto.Offer.Tools`) and the runner writes the block
   (`runner.Prompt`); the account brief after it names the accounts and no longer the phone's rules. A Bot's pi gets it first in what `hypomnema bots prompt` prints, before the persona, from
   `GET /v1/bots/{id}/tools`. It holds no date and nothing of a task or chat, so a worker and a Bot with the same
   families get the same block and the start of the prompt stays the same for the provider's cache (#672). MCP
@@ -5423,8 +5419,7 @@ flowchart LR
   title, `app_id` to replace, and its answer "Shown as app X. To change it, call show_html again with app_id"; and
   OpenClaw's `show_widget`) shows a page, a PDF, an image or any file as an artifact (Artifacts, above). `path` is
   a file or folder in the folder the agent works in: a Bot's folder, where pi starts `hypomnema mcp`; a worker's
-  worktree, which the runner writes into `agent.json` beside the key (a node of an earlier release does not, and
-  its server reads the path in the folder its CLI started it in). The tools server reads it there by
+  worktree, which the runner writes into `agent.json` beside the key. The tools server reads it there by
   `artifactpack.Read` and sends the files whole in the call, base64 (`agenttool.ArtifactCall`), as
   `generate_image` sends its images, since a node does not share the control plane's disk (OpenMausBot's server
   reads the bot's folder itself); the control plane checks them again by the client API's rules and keeps them
@@ -5843,7 +5838,7 @@ Node (`internal/node`):
   until issue #381, is ignored when the file is read and dropped when it is written.
 - At connect the node finds `claude`, `codex`, `omp` and `opencode` and reads their `--version`: omp and opencode
   where the control plane had it install them, else on its PATH.
-- Since issue #107 the control plane tells every node, from node release v0.9.17 on, to have omp and opencode, as it
+- Since issue #107 the control plane tells every node to have omp and opencode, as it
   tells it an Integration's tools (`agenttool.Runtimes`): omp 18.18.6 from its GitHub release (one binary per
   system), opencode 2.2.7 from npm's `@opencode/cli-<os>-<arch>` (linux x64: the baseline build, which needs no
   AVX2, as opencode's own installer picks on such a CPU), each pinned by SHA-256 and installed under
@@ -5864,7 +5859,7 @@ Node (`internal/node`):
   watch), then kills the shim by its PID file and removes `run/<dispatch>`, also when no job is in memory.
 - Adopting a worker (issue #403): the journal's offset and the turn's state after it (`Turn.State`: the CLI's
   session, its result or failure, the usage) are one checkpoint, `run/<dispatch>/offset`, renamed into place after
-  each read; a bare number, as daemons before #403 wrote, is an offset with no state. A new daemon hands the state
+  each read. A new daemon hands the state
   to `Runtime.Adopted`, so an adopted ACP worker cancels its own session on a stop and a worker that exits after
   the restart is reported with its outcome, not as exited (Orca records the provider's session id on its persisted
   record; Omnara keeps a process's state in its store, not in its output). A run directory with no PID file is
@@ -6217,8 +6212,8 @@ Node (`internal/node`):
   its PID. A saved PID alone is not enough to signal a process group. On Linux, if the shim and its worker have
   both exited, the node checks the recorded boot ID and looks for a surviving process in the shim's recorded
   group and session before signaling it, even if the worker's PID has been reused. The node does not signal
-  an orphaned group on macOS or for a legacy shim without `shim.identity` after the shim exits, because it
-  cannot verify the group's identity. Any remaining children and the Dispatch's temp may therefore remain
+  an orphaned group on macOS, nor a shim without `shim.identity`, because it cannot verify the group's
+  identity. Any remaining children and the Dispatch's temp may therefore remain
   until those children exit. The shim socket uses the configured home
   path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
   maintenance never removes state or its sidecars, accounts, shim records and journals,
