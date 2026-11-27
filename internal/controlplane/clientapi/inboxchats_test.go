@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,6 +76,13 @@ func (f botFolder) Ask(_ context.Context, bot string, req workspacefs.Request) (
 func newSecretaryChatsWorld(t *testing.T, files botFolder) *inboxWorld {
 	t.Helper()
 
+	return newSecretaryChatsWorldWith(t, files, &atomic.Bool{})
+}
+
+// newSecretaryChatsWorldWith is that world, whose Zalo session is not open while closed holds.
+func newSecretaryChatsWorldWith(t *testing.T, files botFolder, closed *atomic.Bool) *inboxWorld {
+	t.Helper()
+
 	ctx := t.Context()
 	w := newInboxWorld(t)
 
@@ -92,6 +100,11 @@ func newSecretaryChatsWorld(t *testing.T, files botFolder) *inboxWorld {
 	w.srv.WithInboxChats(inbox.NewChats(inbox.Config{
 		Chats: func(_ context.Context, integration, label string, limit int) ([]messaging.Chat, error) {
 			assert.Equal(t, messaging.MaxChats, limit, "every chat of the account")
+
+			if integration == "zalo" && closed.Load() {
+				return nil, fmt.Errorf("%w: the session of zalo:%s is not open; link it again",
+					orchestration.ErrUnavailable, label)
+			}
 
 			return keptChats[integration+":"+label], nil
 		},
@@ -293,4 +306,37 @@ func TestTheMoveOfADropChatsIDIsTheOwnersChoiceAndRunsOnce(t *testing.T) {
 	bot, err := w.routineBot.MoveInboxDropChatsWithResponse(ctx, openapi.InboxChatMove{})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, bot.StatusCode(), "the owner's alone")
+}
+
+// Review of #1270, round 1: the move is what keeps a chat the owner dropped by its id out of the new check, which
+// reads dropChats no more. While one of his accounts cannot be listed (its session not open), an id it may hold is
+// not stored: the move fails and names the account and the ids left, so that setup.sh stops before it sets the new
+// check. Once the account opens again, the move stores them.
+func TestTheMoveFailsWhileAnAccountCannotBeListed(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	filters, err := json.Marshal(map[string]any{"dropChats": []string{`\bOA\b`, `^2002$`}})
+	require.NoError(t, err)
+
+	closed := &atomic.Bool{}
+	closed.Store(true)
+	w := newSecretaryChatsWorldWith(t, botFolder{
+		orchestration.DefaultBotID: {"thu-ky/filters.json": string(filters)},
+	}, closed)
+
+	failed, err := w.owner.MoveInboxDropChatsWithResponse(ctx, openapi.InboxChatMove{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusServiceUnavailable, failed.StatusCode(), string(failed.Body))
+	assert.Contains(t, string(failed.Body), "zalo:main")
+	assert.Contains(t, string(failed.Body), "2002")
+
+	closed.Store(false)
+	assert.Equal(t, "group read by default",
+		readsByID(w.chatsOf(t, "zalo:main", openapi.ListInboxChatsParams{}))["2002"], "not stored meanwhile")
+
+	moved, err := w.owner.MoveInboxDropChatsWithResponse(ctx, openapi.InboxChatMove{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, moved.StatusCode(), string(moved.Body))
+	assert.Equal(t, []openapi.InboxChatRef{{Integration: "zalo", Label: "main", Chat: "2002"}}, moved.JSON200.Moved)
 }

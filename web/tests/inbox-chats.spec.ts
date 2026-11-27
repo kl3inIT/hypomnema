@@ -201,3 +201,31 @@ for (const theme of ["light", "dark"] as const) {
     await expect(chatRow(page, "Kai")).toContainText("Direct · Read · Default")
   })
 }
+
+// Review of #1270, round 1: at 1280 px the gear pushed the Inbox's search over its title. The title, the search,
+// the filters and the gear each keep their own room.
+test("the Inbox's title, search and gear do not overlap on a computer", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "a phone wraps the actions under the title")
+  await serve(page)
+  await page.goto("/inbox")
+
+  const title = await page.getByRole("heading", { name: "Inbox", level: 1 }).boundingBox()
+  const search = await page
+    .locator("[data-slot=input-group]")
+    .filter({ has: page.getByRole("searchbox", { name: "Search the Inbox" }) })
+    .boundingBox()
+  const gear = await page.getByRole("link", { name: "Chats the secretary reads" }).boundingBox()
+  // The title's text, not its box, which fills its grid column.
+  const textRight = (await page.evaluate(
+    `(() => { const h = [...document.querySelectorAll("h1")].find((e) => e.textContent === "Inbox"); ` +
+      `const r = document.createRange(); r.selectNodeContents(h); return r.getBoundingClientRect().right })()`,
+  )) as number
+
+  expect(title && search && gear).toBeTruthy()
+  expect(textRight).toBeLessThanOrEqual(search!.x - 8)
+  expect(gear!.x).toBeGreaterThanOrEqual(search!.x + search!.width)
+  await shot(page, "inbox-header")
+})
