@@ -16,6 +16,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -74,17 +75,17 @@ func newGoGateway(t *testing.T, backend *goBackend, subs modelgateway.Subscripti
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
-	seeded, err := orch.GetProvider(t.Context(), "opencode-go")
+	seeded, err := orch.Profiles().GetProvider(t.Context(), "opencode-go")
 	require.NoError(t, err, "the migration seeds the provider")
-	assert.Equal(t, orchestration.ProviderOpenCodeGo, seeded.Kind)
+	assert.Equal(t, profilestore.ProviderOpenCodeGo, seeded.Kind)
 
-	_, err = orch.ApplyProvider(t.Context(), "",
+	_, err = orch.Profiles().ApplyProvider(t.Context(), "",
 		"name: opencode-go\nkind: opencode_go\nmodels: [glm-5.3, minimax-m3, gpt-6-luna]\n")
 	require.NoError(t, err)
 
 	svc := modelgateway.New(db, platform.SystemClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := orch.GetProvider(ctx, name)
+			p, err := orch.Profiles().GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}
@@ -98,7 +99,7 @@ func newGoGateway(t *testing.T, backend *goBackend, subs modelgateway.Subscripti
 		WithServedWire(func(_ context.Context, kind, upstream string) (string, bool) {
 			wire, ok := goWires[upstream]
 
-			return wire, ok && kind == orchestration.ProviderOpenCodeGo
+			return wire, ok && kind == profilestore.ProviderOpenCodeGo
 		})
 
 	_, key, err := svc.AddKey(t.Context(), "pi", []string{modelgateway.AllModels}, nil)

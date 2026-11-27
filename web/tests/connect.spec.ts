@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test"
 import { shot } from "./shot.js"
 import type { GatewayKey as Key, GatewayToolConfig } from "../src/api/generated/types.gen.js"
 
-// Settings → Connect a tool (issue #907), built, against a fake client API, on a phone and a desktop.
+// Connect a tool from Gateway keys (issues #907 and #1235), built against a fake client API on a phone and a desktop.
 
 const now = new Date().toISOString()
 // Fake keys: the files are those the control plane writes (internal/shared/agentconfig), with these in them.
@@ -19,6 +19,7 @@ const keys: Key[] = [
     masked_value: "hyp_ga•••Pq4x",
     models: ["*"],
     endpoints: [],
+    search_order: [],
     created_at: now,
   },
   {
@@ -27,6 +28,7 @@ const keys: Key[] = [
     prefix: "hyp_gateway_v1_Nn12Pr",
     models: ["claude-subscription/claude-opus-5-5"],
     endpoints: [],
+    search_order: [],
     created_at: now,
   },
   {
@@ -36,6 +38,7 @@ const keys: Key[] = [
     masked_value: "hyp_ga•••Tt7w",
     models: ["codex-subscription/gpt-6-sol"],
     endpoints: [],
+    search_order: [],
     created_at: now,
   },
 ]
@@ -184,8 +187,8 @@ async function fakeServer(page: Page, slow = new Set<string>()) {
 const fits = (page: Page) =>
   page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
-// Scenario: the owner opens Connect a tool. Each of the four tools has a card with a key whose value is stored and
-// a model of that key, and its files with their paths and what they turn on; changing the model writes them again.
+// Scenario: the owner opens the Connect a tool page linked by the Gateway keys header button. Each tool has a card
+// where the owner picks a stored key and a model, and sees the files and their paths. Changing the model writes them again.
 test("the owner copies each tool's file", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/connect")
@@ -198,7 +201,8 @@ test("the owner copies each tool's file", async ({ page }) => {
     ["OpenCode", ["~/.config/opencode/opencode.json"]],
   ] as const) {
     const card = page.getByRole("region", { name, exact: true })
-    await expect(card.getByLabel("Key")).toContainText("memoryos-he")
+    await card.getByLabel("Key").click()
+    await page.getByRole("option", { name: "memoryos-he", exact: true }).click()
     for (const path of paths) {
       await expect(card).toContainText(path)
       await expect(card.getByRole("button", { name: `Copy ${path} for ${name}` })).toBeVisible()
@@ -234,7 +238,7 @@ test("the owner copies each tool's file", async ({ page }) => {
 // (review of PR #922). Until it comes, the card shows neither the other key's file nor a button that would copy it.
 test("a file is never shown or copied for a key other than the one chosen", async ({ page }) => {
   await fakeServer(page, new Set(["gwk_3"]))
-  await page.goto("/settings/connect")
+  await page.goto("/settings/connect?key=gwk_1")
 
   const codex = page.getByRole("region", { name: "Codex", exact: true })
   await expect(codex).toContainText(fullSecret)
@@ -254,6 +258,25 @@ test("a file is never shown or copied for a key other than the one chosen", asyn
     codex.getByRole("button", { name: "Copy ~/.codex/config.toml for Codex" }),
   ).toBeVisible()
   await expect(codex).not.toContainText(fullSecret)
+})
+
+test("Connect a tool opens from Gateway keys with no key chosen", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings")
+  const menu = page.getByRole("navigation", { name: "Settings", exact: true })
+  const gatewayKeys = menu.getByRole("link", { name: "Gateway keys", exact: true })
+  await expect(gatewayKeys).toBeVisible()
+  await expect(menu.getByRole("link", { name: "Connect a tool", exact: true })).toHaveCount(0)
+  await gatewayKeys.click()
+  await page.getByRole("link", { name: "Connect a tool", exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\/connect$/)
+  await expect(page.getByRole("heading", { name: "Connect a tool" })).toBeVisible()
+  for (const name of ["Claude Code", "Codex", "omp", "OpenCode"]) {
+    const card = page.getByRole("region", { name, exact: true })
+    await expect(card.getByLabel("Key")).toContainText("Choose a key")
+    await expect(card.getByRole("button", { name: /^Copy / })).toHaveCount(0)
+  }
+  expect(calls).toEqual([])
 })
 
 // Scenario: the owner presses Connect on a key's row of Gateway keys. The page opens with that key; one whose value

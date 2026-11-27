@@ -606,8 +606,8 @@ func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
 	_, err = w.cmd(t, "integrations", "disconnect", "github.com:work")
 	require.NoError(t, err)
 
-	// The older commands act on the connection "default".
-	_, err = w.cmdIn(t, "ghp_default\n", "hosts", "token", "set", "github.com", "--token-file", "-")
+	// Without a label the connection is "default".
+	_, err = w.cmdIn(t, "ghp_default\n", "integrations", "connect", "github.com", "--token-file", "-")
 	require.NoError(t, err)
 
 	out, err = w.cmd(t, "integrations", "list")
@@ -624,10 +624,10 @@ func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
 	require.Error(t, err, "only the owner connects an account")
 }
 
-// Scenario: the owner gives a git host its token from a file, sees which hosts
-// have one, and takes it away. The token is never an argument and never
-// printed; a coordinator cannot set one.
-func TestAHostsTokenFromTheCLI(t *testing.T) {
+// Scenario: the owner gives a git host its token from a file, as its
+// connection "default", sees which hosts have one, and takes it away. The
+// token is never an argument and never printed; a coordinator cannot set one.
+func TestAHostsDefaultConnectionFromTheCLI(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -639,14 +639,14 @@ func TestAHostsTokenFromTheCLI(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "gitlab.token")
 	require.NoError(t, os.WriteFile(file, []byte("glpat-never-printed\n"), 0o600))
 
-	_, err = w.cmd(t, "hosts", "token", "set", "gitlab.company.example")
+	_, err = w.cmd(t, "integrations", "connect", "gitlab.company.example")
 	require.ErrorContains(t, err, "--token-file")
 
-	out, err := w.cmd(t, "hosts", "token", "set", "gitlab.company.example", "--token-file", file)
+	out, err := w.cmd(t, "integrations", "connect", "gitlab.company.example", "--token-file", file)
 	require.NoError(t, err)
-	assert.Equal(t, "host gitlab.company.example has a token\n", out)
+	assert.Equal(t, "gitlab.company.example:default is connected\n", out)
 
-	out, err = w.cmdIn(t, "ghp_from_stdin\n", "hosts", "token", "set", "github.com", "--token-file", "-")
+	out, err = w.cmdIn(t, "ghp_from_stdin\n", "integrations", "connect", "github.com", "--token-file", "-")
 	require.NoError(t, err)
 	assert.NotContains(t, out, "ghp_from_stdin")
 
@@ -659,16 +659,16 @@ func TestAHostsTokenFromTheCLI(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, out, "glpat", "the API never returns a token")
 
-	out, err = w.cmd(t, "hosts", "token", "rm", "github.com")
+	out, err = w.cmd(t, "integrations", "disconnect", "github.com:default")
 	require.NoError(t, err)
-	assert.Equal(t, "host github.com has no token\n", out)
+	assert.Equal(t, "github.com:default is forgotten\n", out)
 
 	_, err = w.cmd(t, "hosts", "rm", "gitlab.company.example")
 	require.NoError(t, err, "a host is forgotten with its token")
 
 	w.login(t, bearertoken.Coordinator)
 
-	_, err = w.cmdIn(t, "glpat-x", "hosts", "token", "set", "gitlab.com", "--token-file", "-")
+	_, err = w.cmdIn(t, "glpat-x", "integrations", "connect", "gitlab.com", "--token-file", "-")
 	require.Error(t, err, "only the owner gives a host a token")
 }
 
@@ -949,14 +949,26 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "review")
 	require.NoError(t, err)
+	for _, want := range []string{
+		"`gh pr checks <url> --required --watch --interval 60`",
+		"If GitHub reports a rate limit, run `gh api rate_limit`",
+		"does not count against the primary limit",
+		"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming.",
+		"For a secondary limit, honor `Retry-After`",
+		"Report the limit and the wait in your review report.",
+	} {
+		assert.Contains(t, out, want, "the coordinator conserves GitHub API quota (issue #1259)")
+	}
 	assert.Contains(t, out, "how it answers CodeRabbit",
 		"a review answers CodeRabbit's findings, as the reviewer profile says (issues #766, #1051)")
 	assert.Contains(t, out, `gh pr comment <url> --body
    "@coderabbitai review"`, "the coordinator may ask CodeRabbit on an important pull request")
 	assert.Contains(t, out, "CodeRabbit is never a condition of its own")
+	assert.Contains(t, out, "Do not rerun a failing test to get a green check.", "flake policy (issue #1281)")
+	assert.Contains(t, out, "the test is quarantined with an issue and a note visible to the owner",
+		"flake policy (issue #1281)")
 	for _, want := range []string{
 		"only `git diff <reviewed_sha>..<head>`",
-		"A red check gets one fresh build before you decide: rerun its failed jobs once",
 		"an `incorrect` verdict where\n   none does is handled as `blocked` (below), never as a pass",
 		"A verdict of `blocked` is not a pass and not a fix round.",
 	} {
@@ -1168,6 +1180,29 @@ func TestParseAnswer(t *testing.T) {
 	got, err = ParseAnswer(nil, "8080")
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Answer{Text: text("8080")}, got, "a number without options is text")
+}
+
+// Scenario: the owner answers a Gate of two decisions from the CLI (issue
+// #1219): one argument for each, each read as one decision's answer, and a
+// count that does not match is refused, naming how many it asks.
+func TestParseAnswersOfSeveralDecisions(t *testing.T) {
+	t.Parallel()
+
+	options := []openapi.Option{{Label: "Yes", Description: new("Do it now.")}, {Label: "Other", AllowsText: new(true)}}
+	q := openapi.Question{
+		Header: new("Items"), Text: "One item each?", Options: options,
+		More: &[]openapi.QuestionPart{{Header: new("Server"), Text: "Fix it now?", Options: options}},
+	}
+
+	got, err := parseAnswers(q, []string{"yes", "after the release"})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Answer{
+		Option: new(0), More: &[]openapi.Choice{{Option: new(1), Text: new("after the release")}},
+	}, got)
+
+	_, err = parseAnswers(q, []string{"yes"})
+	require.ErrorIs(t, err, ErrUsage)
+	require.ErrorContains(t, err, "asks 2 decisions")
 }
 
 // syncBuffer is a bytes.Buffer safe for one writer and one reader.

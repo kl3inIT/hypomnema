@@ -63,7 +63,8 @@ type Hello struct {
 	// (Omnara's daemon claims its preparing and terminal processes too,
 	// daemonprotocol/protocol.go:559-562). NodeConnect ends as lost a Dispatch
 	// of the node's that may still run and is in neither list (issue #590). A
-	// node of an earlier release does not set ListsHeld, and nothing is ended.
+	// hello that only checks an install does not set ListsHeld, and nothing is
+	// ended.
 	Held      []string
 	ListsHeld bool
 }

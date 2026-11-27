@@ -44,7 +44,7 @@ func tokensWorld(t *testing.T, withKey bool) (connections, *orchestration.Servic
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.Profiles().ProvidersUsingKeyRef)
 
 	return connections{svc: svc, vault: secrets}, svc, path
 }

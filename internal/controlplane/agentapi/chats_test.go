@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -109,4 +111,56 @@ func TestABotSearchesItsOwnEarlierChats(t *testing.T) {
 
 	_, text, isError := w.use(hypoPi, agenttool.ToolChatSearch, `{"chat":"`+main.ID+`","around":1}`)
 	assert.True(t, isError, "another Bot's chat is not read around: %s", text)
+}
+
+// Scenario: issue #1218, row 4 (ARCHITECTURE.md's claims). A Routine's run that reads only is not given chat_search,
+// and a call of it is refused as the read run refuses every tool it lacks. A Bot whose chats family is switched off
+// neither lists nor runs it; switched back on, it does.
+func TestChatSearchIsAbsentInAReadRunAndWhenSwitchedOff(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "thu-ky"})
+	require.NoError(t, err)
+
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: bot.ID, Name: "read-messages", Kind: routinestore.RoutinePrompt, Prompt: "Read new messages.",
+		EveryMinutes: 60, Access: routinestore.AccessRead,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	run, err := w.svc.RunRoutineNow(ctx, routine.ID)
+	require.NoError(t, err)
+
+	reader, err := w.svc.AddBotToken(ctx, "pi", run.Run.ChatID, bot.ID)
+	require.NoError(t, err)
+
+	assert.NotContains(t, toolNames(w.tools(reader)), agenttool.ToolChatSearch, "a read run")
+
+	_, text, failed := w.use(reader, agenttool.ToolChatSearch, `{"query":"revenue dashboard"}`)
+	assert.True(t, failed, text)
+	assert.Contains(t, text, agenttool.ReadRunRefusal)
+
+	pi, _ := w.inboxPi(bot)
+	require.Contains(t, toolNames(w.tools(pi)), agenttool.ToolChatSearch)
+
+	bot.ToolsOff = []string{"chats"}
+	_, err = w.svc.PutBot(ctx, bot)
+	require.NoError(t, err)
+
+	assert.NotContains(t, toolNames(w.tools(pi)), agenttool.ToolChatSearch, "switched off")
+
+	status, _, _ := w.use(pi, agenttool.ToolChatSearch, `{"query":"revenue dashboard"}`)
+	assert.Equal(t, http.StatusNotFound, status, "a family switched off is no tool")
+
+	bot.ToolsOff = nil
+	_, err = w.svc.PutBot(ctx, bot)
+	require.NoError(t, err)
+
+	assert.Empty(t, w.chatSearch(pi, map[string]any{"query": "revenue dashboard"}).Results, "switched on, it runs")
 }

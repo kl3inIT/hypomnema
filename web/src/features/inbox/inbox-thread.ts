@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import type { Todo, TodoEvent, TodoLink } from "@/api/generated/types.gen"
+import type { ChatAttachment, Todo, TodoEvent, TodoLink } from "@/api/generated/types.gen"
 
 import { lineOf, sourceNames, type Source } from "./inbox-state"
 
@@ -43,6 +43,7 @@ export type ThreadEntry =
       // What a Bot's comment carries (issue #1207): the paths of its files in the Bot's folder, read through chat,
       // and the ids of its Artifacts.
       files: string[]
+      attachments?: ChatAttachment[]
       chat?: string
       artifacts: string[]
     }
@@ -154,6 +155,9 @@ export function threadOf(events: readonly TodoEvent[] = []): ThreadEntry[] {
         actor: event.actor,
         text: after.text,
         files: strings(after.files),
+        ...(Array.isArray(after.attachments) && {
+          attachments: after.attachments as ChatAttachment[],
+        }),
         chat: typeof after.chat === "string" && after.chat ? after.chat : undefined,
         artifacts: strings(after.artifacts),
       })
@@ -404,7 +408,7 @@ function editLine(
 
     return { words: handed, icon }
   }
-  // A priority set, with the reason it was set for, and a project changed (issue #1157).
+  // A priority set, with the reason it was set for, and a department changed (issue #1157).
   if (typeof after.priority === "number") {
     const name = priorityNames[after.priority] ?? String(after.priority)
     const why = typeof after.priority_reason === "string" && after.priority_reason
@@ -420,8 +424,8 @@ function editLine(
     return {
       words:
         typeof after.project_id === "string"
-          ? `${who} moved it to ${projectName(after.project_id) ?? "a project"}`
-          : `${who} took it out of its project${reason}`,
+          ? `${who} moved it to ${projectName(after.project_id) ?? "a department"}`
+          : `${who} took it out of its department${reason}`,
       icon: Box,
     }
   }

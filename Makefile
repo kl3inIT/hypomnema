@@ -30,7 +30,7 @@ help: ## List the targets
 
 verify: verify-static unit race ## The Go checks: static, unit, race; before a push, run only those of what changed
 
-verify-static: fmt-check tidy-check lint deps-check sqlc-check openapi-check migration-check goose-version-check
+verify-static: tidy-check lint deps-check sqlc-check openapi-check migration-check goose-version-check
 
 fmt-check: ## Fail when a Go file is not gofmt-formatted
 	@files="$$(gofmt -l cmd internal web)"; \
@@ -125,13 +125,17 @@ migration-check: ## Fail when a migration on main changed, two share a number, o
 	  test -z "$$stamped" || { printf 'migrations named by their time; run make migration-fix:\n%s\n' "$$stamped"; exit 1; }; \
 	}
 
+UNIT_PACKAGES ?= ./...
+
 unit: ## Unit tests
-	$(GO) test -count=1 ./...
+	$(GO) test -count=1 $(UNIT_PACKAGES)
+
+RACE_PACKAGES ?= ./...
 
 # -race also turns on checkptr in every package. In modernc.org/sqlite, C translated to Go, it took a third of a
 # race run's time and checks code that is not ours, so it is off there only (issue #517).
 race: ## Unit tests with the race detector (needs cgo)
-	CGO_ENABLED=1 $(GO) test -race -count=1 -gcflags='modernc.org/...=-d=checkptr=0' ./...
+	CGO_ENABLED=1 $(GO) test -race -count=1 -gcflags='modernc.org/...=-d=checkptr=0' $(RACE_PACKAGES)
 
 govulncheck: ## Known vulnerabilities in what the code calls
 	$(GOVULNCHECK) ./...

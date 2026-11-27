@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 )
 
@@ -39,9 +39,9 @@ func TestOpenCodeGosListIsReadWithinTheRequestsWait(t *testing.T) {
 	ctx := modelgateway.WithAccountWait(t.Context(), ends)
 	seen := &waitsSeen{}
 
-	gatewayServedWire(seen)(ctx, orchestration.ProviderOpenCodeGo, "glm-5.2")
-	gatewayServedLimits(seen)(ctx, orchestration.ProviderOpenCodeGo, "glm-5.2")
-	gatewayServedLimits(seen)(ctx, orchestration.ProviderAntigravitySubscription, "gemini-4-carbon-high")
+	gatewayServedWire(seen)(ctx, profilestore.ProviderOpenCodeGo, "glm-5.2")
+	gatewayServedLimits(seen)(ctx, profilestore.ProviderOpenCodeGo, "glm-5.2")
+	gatewayServedLimits(seen)(ctx, profilestore.ProviderAntigravitySubscription, "gemini-4-carbon-high")
 
 	assert.Equal(t, []time.Time{ends}, seen.wire)
 	assert.Equal(t, []time.Time{ends, ends}, seen.limits)

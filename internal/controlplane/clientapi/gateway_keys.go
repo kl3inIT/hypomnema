@@ -43,7 +43,10 @@ func (s *Server) CreateGatewayKey(ctx context.Context, req openapi.CreateGateway
 		return nil, fmt.Errorf("%w: this control plane runs no model gateway", orchestration.ErrUnavailable)
 	}
 
-	k, secret, err := s.gatewayKeys.AddKey(ctx, req.Body.Name, val(req.Body.Models), gatewayEndpoints(req.Body.Endpoints))
+	k, secret, err := s.gatewayKeys.AddRoutedKey(ctx, req.Body.Name, val(req.Body.Models),
+		gatewayEndpoints(req.Body.Endpoints), modelgateway.KeyRouting{
+			Accounts: val(req.Body.Accounts), SearchOrder: searchOrder(req.Body.SearchOrder),
+		})
 	if err != nil {
 		return nil, gatewayKeyError(err)
 	}
@@ -60,6 +63,7 @@ func (s *Server) UpdateGatewayKey(ctx context.Context, req openapi.UpdateGateway
 
 	key, err := s.gatewayKeys.UpdateKey(ctx, req.KeyId, modelgateway.KeyUpdate{
 		Name: req.Body.Name, Models: val(req.Body.Models), Endpoints: gatewayEndpoints(req.Body.Endpoints),
+		Accounts: val(req.Body.Accounts), SearchOrder: searchOrder(req.Body.SearchOrder),
 	})
 	if err != nil {
 		return nil, gatewayKeyError(err)
@@ -132,6 +136,20 @@ func gatewayEndpoints[Endpoint ~string](endpoints *[]Endpoint) []modelgateway.En
 	return out
 }
 
+// searchOrder is a key's own web search order as the gateway takes it; nil when none is given.
+func searchOrder(order *[]openapi.WebSearchProvider) []string {
+	if order == nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(*order))
+	for _, p := range *order {
+		out = append(out, string(p))
+	}
+
+	return out
+}
+
 // RevokeGatewayKey stops a key the owner made. The keys of a Dispatch or a
 // chat are not the owner's to revoke here: they end with what they were made for.
 func (s *Server) RevokeGatewayKey(ctx context.Context, req openapi.RevokeGatewayKeyRequestObject,
@@ -170,10 +188,26 @@ func toGatewayKey(k modelgateway.Key) openapi.GatewayKey {
 		}
 	}
 
-	return openapi.GatewayKey{
-		Id: k.ID, Name: k.Name, Prefix: k.Prefix, Models: k.Models, Endpoints: endpoints, CreatedAt: k.CreatedAt,
-		LastUsedAt: k.LastUsedAt, MaskedValue: ptr(k.MaskedValue),
+	order := make([]openapi.WebSearchProvider, 0, len(k.SearchOrder))
+	for _, p := range k.SearchOrder {
+		order = append(order, openapi.WebSearchProvider(p))
 	}
+
+	out := openapi.GatewayKey{
+		Id: k.ID, Name: k.Name, Prefix: k.Prefix, Models: k.Models, Endpoints: endpoints, SearchOrder: order,
+		CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, MaskedValue: ptr(k.MaskedValue),
+	}
+
+	if k.OwnAccounts() {
+		accounts := make([]openapi.GatewayKeyAccount, 0, len(k.Accounts))
+		for _, a := range k.Accounts {
+			accounts = append(accounts, openapi.GatewayKeyAccount{Id: a.ID, Runtime: a.Runtime})
+		}
+
+		out.Accounts = &accounts
+	}
+
+	return out
 }
 
 // gatewayKeyError says a gateway's refusal as the API's.

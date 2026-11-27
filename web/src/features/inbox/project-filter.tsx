@@ -39,9 +39,8 @@ import type { ProjectChoice } from "@/components/ui/project-selector"
 
 import { noProject } from "./inbox-state"
 
-// ProjectFilter picks the project the Inbox shows, "Every project" by default, as Linear's project filter: every
-// department in the sidebar's order, and No project. counts is how many rows each project has, by its id, and
-// noProject's.
+// ProjectFilter picks the department the Inbox shows. Like Linear's project filter, it offers every department,
+// the items without one, and the departments in sidebar order. counts holds the number of rows for each choice.
 export function ProjectFilter({
   projects,
   counts,
@@ -55,7 +54,7 @@ export function ProjectFilter({
 }) {
   const [open, setOpen] = useState(false)
   const current = value && value !== noProject ? projects.find((p) => p.id === value) : undefined
-  const label = current?.name ?? (value === noProject ? "No project" : "Every project")
+  const label = current?.name ?? (value === noProject ? "No department" : "Every department")
   const pick = (project: string | null) => {
     onChange(project)
     setOpen(false)
@@ -64,32 +63,32 @@ export function ProjectFilter({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        render={<Button variant="outline" aria-label={`Project: ${label}`} title={label} />}
+        render={<Button variant="outline" aria-label={`Department: ${label}`} title={label} />}
       >
         <Box />
         <span className="hidden max-w-28 truncate sm:inline">{label}</span>
       </PopoverTrigger>
       <PopoverContent align="end">
         <Command>
-          <CommandInput placeholder="Filter by project..." />
+          <CommandInput placeholder="Filter by department..." />
           <CommandList>
-            <CommandEmpty>No projects found.</CommandEmpty>
+            <CommandEmpty>No departments found.</CommandEmpty>
             <CommandGroup>
               <CommandItem
-                value="Every project"
+                value="Every department"
                 data-checked={value === null}
                 onSelect={() => pick(null)}
               >
                 <Box className="text-muted-foreground" />
-                Every project
+                Every department
               </CommandItem>
               <CommandItem
-                value="No project"
+                value="No department"
                 data-checked={value === noProject}
                 onSelect={() => pick(noProject)}
               >
                 <FolderIcon className="text-muted-foreground" />
-                <span className="flex-1">No project</span>
+                <span className="flex-1">No department</span>
                 <Count n={counts[noProject]} />
               </CommandItem>
               {projects.map((p) => (

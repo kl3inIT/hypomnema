@@ -68,6 +68,10 @@ type fakeSpeech struct {
 	// off are the providers the owner turned off: one named is refused unless the call is pinned, as the speech
 	// service refuses it.
 	off []string
+	// aligned makes ElevenLabs answer a line asked with timings with its words, as its alignment gives them, an
+	// audio tag kept out; models are the models each line was asked with, in order.
+	aligned bool
+	models  []string
 }
 
 func newFakeSpeech() *fakeSpeech {
@@ -102,8 +106,17 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 	}
 
 	f.spoken[req.Provider+"|"+req.Voice+"|"+req.Input]++
+	f.models = append(f.models, req.Model)
 
-	return speech.Speech{Audio: []byte(req.Input), Provider: req.Provider}, nil
+	out := speech.Speech{Audio: []byte(req.Input), Provider: req.Provider, Model: req.Model}
+	if f.aligned && req.Timings && req.Provider == speech.ProviderElevenLabs {
+		for i, w := range strings.Fields(req.Input) {
+			at := time.Duration(i) * time.Second / 2
+			out.Words = append(out.Words, speech.Word{Word: w, Start: at, End: at + 400*time.Millisecond})
+		}
+	}
+
+	return out, nil
 }
 
 func (f *fakeSpeech) Transcribe(_ context.Context, _ AudioSource, req speech.TranscribeRequest,
@@ -224,7 +237,7 @@ func (f *fakeMaker) Burn(_ context.Context, _ ffmpeg.Tools, video, captions, wor
 	return out, os.WriteFile(out, []byte("burned:"+filepath.Base(video)), 0o600)
 }
 
-func (f *fakeMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string) error {
+func (f *fakeMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string, _ int64) error {
 	f.mu.Lock()
 	fail := f.fail
 	f.mu.Unlock()
@@ -245,6 +258,8 @@ type rig struct {
 	free   uint64
 	off    []string
 	voices map[string]string
+	// models are the owner's choice of each provider's speech model; empty: the default.
+	models map[string]string
 	// order is the owner's order of the speaking providers; empty: the default.
 	order []string
 	mu    sync.Mutex
@@ -273,7 +288,7 @@ func newRig(t *testing.T) *rig {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 
-			return speech.Settings{Off: r.off, Voices: r.voices, TTS: r.order}, nil
+			return speech.Settings{Off: r.off, Voices: r.voices, TTS: r.order, Models: r.models}, nil
 		},
 		Tools:     func(context.Context) (ffmpeg.Tools, error) { return ffmpeg.Tools{FFmpeg: "/x/ffmpeg"}, nil },
 		FreeBytes: func(string) (uint64, error) { r.mu.Lock(); defer r.mu.Unlock(); return r.free, nil },

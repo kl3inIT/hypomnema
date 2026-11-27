@@ -1245,7 +1245,7 @@ func TestTheOwnerChoosesAChatsModel(t *testing.T) {
 	pi, _ := w.token("pi", bearertoken.Coordinator)
 	ctx := t.Context()
 
-	_, err := w.svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+	_, err := w.svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
@@ -1760,4 +1760,60 @@ func TestOnlyTheOwnerChangesNodes(t *testing.T) {
 	again, err := owner.RemoveNodeWithResponse(ctx, node.ID)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, again.StatusCode())
+}
+
+// Scenario: a worker stops at a Gate of two decisions (issue #1219). The owner's client reads each decision with its
+// header and options, each option with its description, and the worker's summary above; it answers both at once, and
+// an answer that leaves one out is refused.
+func TestTheOwnerReadsAndAnswersAGateOfTwoDecisions(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	c, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	run, err := w.svc.CreateRun(ctx, orchestration.NewRun{Objective: "plan", CreatedBy: "web", Repo: "kl3inIT/demo"})
+	require.NoError(t, err)
+
+	waited := w.askFromAWorker(c, run.ID, "first a wait", orchestration.AddressCoordinator)
+	options := []orchestration.Option{
+		{Label: "One item each (Recommended)", Description: "Each request is its own item. From: Linear."},
+		{Label: "Other", AllowsText: true},
+	}
+	require.NoError(t, w.svc.ReportFinished(ctx, w.workers[waited].next(), orchestration.Outcome{
+		Result: orchestration.Result{Summary: "Planned #1206; two choices are left."},
+		Gate: &orchestration.Ask{
+			Header: "Items", Text: "Is each request one item?", Options: options, To: orchestration.AddressOwner,
+			More: []orchestration.Part{{Header: "Server", Text: "Fix the server now?", Options: options}},
+		},
+	}))
+
+	gate := openapi.QuestionModeGate
+	open := openapi.QuestionStatusOpen
+	listed, err := c.ListQuestionsWithResponse(ctx, &openapi.ListQuestionsParams{Status: &open})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
+	require.Len(t, listed.JSON200.Data, 1)
+
+	q := listed.JSON200.Data[0]
+	assert.Equal(t, gate, q.Mode)
+	assert.Equal(t, "Planned #1206; two choices are left.", val(q.Summary))
+	assert.Equal(t, "Items", val(q.Header))
+	assert.Equal(t, "Each request is its own item. From: Linear.", val(q.Options[0].Description))
+	assert.Nil(t, q.Options[1].Description, "Other has no description")
+	require.Len(t, val(q.More), 1)
+	assert.Equal(t, "Server", val(val(q.More)[0].Header))
+	assert.Equal(t, "Fix the server now?", val(q.More)[0].Text)
+
+	short, err := c.AnswerQuestionWithResponse(ctx, q.Id, openapi.Answer{Option: new(0)})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, short.StatusCode(), "each decision is answered")
+
+	answered, err := c.AnswerQuestionWithResponse(ctx, q.Id, openapi.Answer{
+		Option: new(0), More: &[]openapi.Choice{{Option: new(1), Text: new("after the release")}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, answered.StatusCode(), string(answered.Body))
+	assert.Equal(t, openapi.QuestionStatusAnswered, answered.JSON200.Status)
+	assert.Equal(t, &[]openapi.Choice{{Option: new(1), Text: new("after the release")}}, answered.JSON200.Answer.More)
 }

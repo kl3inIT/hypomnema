@@ -7,20 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"path"
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/chatfile"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
 // Chats with the coordinator on the server (issue #41, PR 3), after Omnara
@@ -173,7 +172,7 @@ func checkChatModel(ctx context.Context, q *store.Queries, m ChatModel) (ChatMod
 		return m, nil
 	}
 
-	provider, err := checkModel(ctx, q, botRuntime, m.Provider, m.Model, "")
+	provider, err := profilestore.CheckModelTx(ctx, q, botRuntime, m.Provider, m.Model, "")
 	if err != nil {
 		return ChatModel{}, err
 	}
@@ -212,18 +211,7 @@ func (s *Service) SetChatModel(ctx context.Context, id string, change ChatModelC
 			m.Effort = *change.Effort
 		}
 
-		if change.Model == nil && m.Provider == "" && m.Model != "" {
-			// The stored model, left as it is, from before issue #1002 (keptModel); the effort is a chat's.
-			kept := m
-			if m, err = checkChatModel(ctx, q, ChatModel{Effort: kept.Effort}); err != nil {
-				return err
-			}
-
-			m.Model = kept.Model
-			if m.Provider, err = keptModel(ctx, q, botRuntime, "", m.Model, ""); err != nil {
-				return err
-			}
-		} else if m, err = checkChatModel(ctx, q, m); err != nil {
+		if m, err = checkChatModel(ctx, q, m); err != nil {
 			return err
 		}
 
@@ -274,8 +262,7 @@ type ChatMessage struct {
 
 // ChatSender is a person other than the owner who wrote a chat message (issue #468): a person of a Channel, by
 // their id at the service and their name, as OpenMausBot keeps a message's sender {name, id} (server/store.ts).
-// A person message with no sender is the owner's. ID is empty for a message written before senders were kept,
-// whose writer is not known.
+// A person message with no sender is the owner's. ID is empty when the service did not say who wrote it.
 type ChatSender struct {
 	ID   string
 	Name string
@@ -310,58 +297,11 @@ type ChatApprovalAnswer struct {
 	DecidedAt *time.Time
 }
 
-// ChatAttachment is a file the owner attached to a message (issue #343), as t3code's chat attachment (name, size,
-// type) and OpenMausBot's file by path: the file was uploaded into the chat's Bot's folder, and pi reads it there.
-type ChatAttachment struct {
-	// Name is the file's name as the owner picked it.
-	Name string `json:"name"`
-	// Path is where it is in the Bot's folder: attachments/<chat id>/<file>.
-	Path string `json:"path"`
-	Size int64  `json:"size"`
-	// Type is its media type as the browser named it; empty when it named none.
-	Type string `json:"type,omitempty"`
-}
+// ChatAttachment is a file uploaded to a chat's Bot's folder for a message or an Inbox wake.
+type ChatAttachment = chatfile.Attachment
 
-// AttachmentsDir is the folder of a chat's attachments in its Bot's folder (issue #343), kept apart from the work
-// as Orca's agent-session-attachments and OpenMausBot's DATA_DIR/attachments are.
-func AttachmentsDir(chatID string) string { return "attachments/" + chatID }
-
-// maxAttachmentField bounds an attachment's name and type.
-const maxAttachmentField = 255
-
-func (a ChatAttachment) check(chatID string) error {
-	dir, file := path.Split(a.Path)
-
-	switch {
-	case dir != AttachmentsDir(chatID)+"/" || file == "" || file == "." || file == ".." || !plainLine(file):
-		return fmt.Errorf("%w: an attachment is a file of %s, not %q", ErrInvalid, AttachmentsDir(chatID), a.Path)
-	case strings.TrimSpace(a.Name) == "":
-		return fmt.Errorf("%w: an attachment needs its name", ErrInvalid)
-	case len(a.Name) > maxAttachmentField || len(a.Type) > maxAttachmentField:
-		return fmt.Errorf("%w: an attachment's name and type are at most %d bytes", ErrInvalid, maxAttachmentField)
-	case !plainLine(a.Name) || !plainLine(a.Type):
-		return fmt.Errorf("%w: an attachment's name and type are one line of text", ErrInvalid)
-	case a.Size < 0 || a.Size > workspacefs.MaxUpload:
-		return fmt.Errorf("%w: an attachment is at most %d MiB", ErrInvalid, workspacefs.MaxUpload>>20)
-	}
-
-	return nil
-}
-
-// plainLine says whether s is UTF-8 without a control character, so that a name is one line of what pi is given.
-func plainLine(s string) bool {
-	if !utf8.ValidString(s) {
-		return false
-	}
-
-	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
-			return false
-		}
-	}
-
-	return true
-}
+// AttachmentsDir is where files attached in a chat are uploaded in its Bot's folder.
+func AttachmentsDir(chatID string) string { return chatfile.Dir(chatID) }
 
 // WakeEvent is what a wake-up's event says (issue #303, for the web's
 // wake-up cards, after t3code's TimelineSystemDivider): it is read from the
@@ -866,7 +806,7 @@ func (m NewChatMessage) check(chatID string) error {
 	}
 
 	for _, a := range m.Attachments {
-		if err := a.check(chatID); err != nil {
+		if err := a.Check(chatID); err != nil {
 			return err
 		}
 	}
@@ -1098,18 +1038,56 @@ func (s *Service) ChatTurn(ctx context.Context, chatID string) (string, error) {
 // the owner, a wake-up (a Run's events, a Routine's run, an Approval answered after its request ended) and a
 // message whose writer is not known each end his turn, whether pi has it yet or not, as OpenMausBot lets the last
 // sender decide (server/host/outside-lineage.ts) and OpenClaw never counts a wake as an owner turn
-// (docs/plugins/tool-plugins.md). A chat with no such message is no turn of his.
+// (docs/plugins/tool-plugins.md). A chat with no such message is no turn of his. In an Inbox item's chat (issue
+// #1229), his own words typed in the Inbox (his prompt as he hands the item over, his comment) are his turn as his
+// message is, and so is the hand-off that marked the chat for him.
 func (s *Service) OwnerTurn(ctx context.Context, chatID string) (bool, error) {
-	last, err := s.read().LastTurnInput(ctx, chatID)
+	t, err := whoseTurn(ctx, s.read(), chatID)
+
+	return t.owner(), err
+}
+
+// whose is whose a chat's turn is now.
+type whose struct {
+	// own: the last input is the owner's own words, his message in the chat or what he typed in the Inbox for the
+	// item (decision 7 of issue #1229), as OpenClaw takes owner status from the verified sender
+	// (src/auto-reply/command-auth.ts) and OpenMausBot's answersOwnersLine a line he wrote (server/cloud-lending.ts).
+	own bool
+	// marked is the item the chat's mark is for, when the last input is the hand-off that marked it and nobody else's
+	// input ever came in the chat (issue #1229, rules 1 to 3); empty otherwise.
+	marked string
+}
+
+// owner says the turn is the owner's, which his own accounts are used on (OwnerTurn).
+func (w whose) owner() bool { return w.own || w.marked != "" }
+
+// lineFor says whether a Bot passing the item todo on from this turn passes it on the owner's line (issue #1229, rules 1
+// and 5): his own words are behind any item it passes, as his message is; a mark only behind the item it is for, as
+// OpenMausBot's handsOnLending reaches "never further than this turn itself can" (server/host/cloud-lending-turns.ts).
+func (w whose) lineFor(todo string) bool { return w.own || (w.marked != "" && w.marked == todo) }
+
+// whoseTurn reads whose turn a chat is, in the caller's transaction or read. The mark (issue #1229) is the control
+// plane's record that a Bot passed an Inbox item into the chat on the owner's line, as OpenMausBot's harness records
+// forOwner on the work it hands on and OpenClaw spawnedBySenderIsOwner on a child
+// (src/agents/subagents/spawn/spawn-parent-lineage.ts), never the model: it holds in that chat for that item, and keeps
+// no timer. A Run's events there are no turn of his and leave it; anyone else's input clears it for good
+// (LastTurnInput).
+func whoseTurn(ctx context.Context, q *store.Queries, chatID string) (whose, error) {
+	last, err := q.LastTurnInput(ctx, chatID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return whose{}, nil
 	}
 
 	if err != nil {
-		return false, fmt.Errorf("reading whose turn chat %s is: %w", chatID, err)
+		return whose{}, fmt.Errorf("reading whose turn chat %s is: %w", chatID, err)
 	}
 
-	return ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid, nil
+	w := whose{own: (ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid) || last.WakeBy.String == wakeByOwner}
+	if last.WakeBy.String == wakeByBotForOwner && last.OwnerOnly == 1 {
+		w.marked = last.WakeTodo.String
+	}
+
+	return w, nil
 }
 
 func (s *Service) ReadRun(ctx context.Context, chatID string) (bool, error) {

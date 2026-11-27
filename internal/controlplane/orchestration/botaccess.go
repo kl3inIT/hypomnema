@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // What a Bot may use (issue #169, part 3): the Connections it may use and the
@@ -112,7 +113,7 @@ func (b Bot) MayUse(c Connection) bool {
 // "none").
 func (b Bot) MayGive(profile string) error {
 	if profile == "" {
-		profile = DefaultProfile
+		profile = profilestore.DefaultProfile
 	}
 
 	if b.Workers.Allows(profile) {

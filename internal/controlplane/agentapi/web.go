@@ -178,57 +178,6 @@ func (s *Server) gatewayToolList(ctx context.Context, a agent) []agenttool.Brows
 	return append(out, museToolList(names)...)
 }
 
-// listGateway lists the gateway's tools alone (PathGatewayTools), for a Bot's
-// tools server of a release before PathTools.
-func (s *Server) listGateway(w http.ResponseWriter, r *http.Request) {
-	a, err := s.authenticate(r)
-	if err != nil {
-		refuse(w, http.StatusUnauthorized, err.Error())
-
-		return
-	}
-
-	listed, err := s.narrowed(r.Context(), a, append([]agenttool.BrowserTool{}, s.gatewayToolList(r.Context(), a)...))
-	if err != nil {
-		s.fail(w, r, err)
-
-		return
-	}
-
-	answer(w, agenttool.BrowserToolList{Data: listed})
-}
-
-// callGateway runs one of the gateway's tools (PathGatewayCall); any other
-// is no tool of this route.
-func (s *Server) callGateway(w http.ResponseWriter, r *http.Request) {
-	a, err := s.authenticate(r)
-	if err != nil {
-		refuse(w, http.StatusUnauthorized, err.Error())
-
-		return
-	}
-
-	var asked agenttool.BrowserCall
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, agenttool.MaxCallBytes)).Decode(&asked); err != nil ||
-		asked.Tool == "" {
-		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
-
-		return
-	}
-
-	if s.switchedOff(w, r, a, asked.Tool) {
-		return
-	}
-
-	if !slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool) {
-		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
-
-		return
-	}
-
-	s.gatewayCall(w, r, a, asked)
-}
-
 // gatewayCall runs one of the gateway's tools for an agent.
 func (s *Server) gatewayCall(w http.ResponseWriter, r *http.Request, a agent, call agenttool.BrowserCall) {
 	switch call.Tool {

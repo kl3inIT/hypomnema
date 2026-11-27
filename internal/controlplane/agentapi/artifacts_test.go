@@ -30,9 +30,9 @@ func (w *world) workerUnder(more, node, chatID string, uses ...string) string {
 
 	ctx := w.t.Context()
 
-	_, err := w.svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	_, err := w.svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
 	require.NoError(w.t, err)
-	_, _, err = w.svc.ApplyProfile(ctx, "",
+	_, _, err = w.svc.Profiles().ApplyProfile(ctx, "",
 		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-opus-5-5}\n"+more)
 	require.NoError(w.t, err)
 
@@ -164,10 +164,6 @@ func TestBotsAndWorkersShowArtifactsInTheirChat(t *testing.T) {
 	assert.True(t, isError)
 	assert.Equal(t, "Your Run has no chat to show an artifact in: name the file's path in your finish summary "+
 		"instead.", text)
-
-	_, text, isError = w.use(pi, "show_artifact", `{"title":"Sales","path":"dashboard"}`)
-	assert.True(t, isError)
-	assert.Equal(t, "this node's tools cannot send a folder yet; send html, or wait for its update", text)
 
 	refused := map[string]agenttool.ArtifactCall{
 		"a title":           {HTML: page},

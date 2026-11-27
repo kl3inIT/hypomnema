@@ -46,7 +46,13 @@ export function SharedArtifactView({ token }: { token: string }) {
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center gap-2 border-b bg-muted/50 px-3 py-1.5">
-        {a && <ArtifactIcon type={a.type} className="size-4 shrink-0 text-muted-foreground" />}
+        {a && (
+          <ArtifactIcon
+            type={a.type}
+            name={a.entry}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
+        )}
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-medium" title={a?.title}>
             {a?.title ?? "Shared artifact"}

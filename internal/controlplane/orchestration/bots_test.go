@@ -30,7 +30,7 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 	assert.True(t, bots[0].Main())
 	assert.Contains(t, bots[0].Persona, "coordinator", "the main Bot says it gives work to workers")
 
-	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\n"+
+	_, err = w.s.Profiles().ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\n"+
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet]\n")
 	require.NoError(t, err)
 
@@ -99,7 +99,8 @@ func TestBotFallbacksBelongOnlyToChatsInheritingTheModel(t *testing.T) {
 
 	w := newWorld(t)
 	ctx := t.Context()
-	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [primary, second, nested/third]\n")
+	_, err := w.s.Profiles().ApplyProvider(ctx, "",
+		"name: gateway\nkind: model_gateway\nmodels: [primary, second, nested/third]\n")
 	require.NoError(t, err)
 
 	bot, err := w.s.PutBot(ctx, Bot{Name: "researcher", Provider: "gateway", Model: "primary",

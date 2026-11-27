@@ -130,8 +130,7 @@ type ArtifactRevision struct {
 type ArtifactShare struct {
 	ID              string
 	ArtifactID      string
-	TokenHash       sql.NullString
-	Token           sql.NullString
+	TokenHash       string
 	SecretVersionID sql.NullString
 	Label           string
 	CreatedAt       int64
@@ -267,6 +266,8 @@ type ChatMessage struct {
 	Kind          string
 	ReadRun       int64
 	Recall        sql.NullString
+	WakeBy        sql.NullString
+	WakeTodo      sql.NullString
 }
 
 type ChatMessagesFt struct {
@@ -412,15 +413,6 @@ type DispatchItem struct {
 	CreatedAt  int64
 }
 
-type DispatchResource struct {
-	DispatchID string
-	Kind       string
-	Ref        string
-	Custody    string
-	CreatedAt  int64
-	ReleasedAt sql.NullInt64
-}
-
 type DispatchSkill struct {
 	DispatchID string
 	Skill      string
@@ -460,6 +452,7 @@ type GatewayAudioProvider struct {
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
 	Voice       string
+	TtsModel    string
 }
 
 type GatewayImageProvider struct {
@@ -486,6 +479,18 @@ type GatewayKey struct {
 	RevokeReason       sql.NullString
 	LastUsedAt         sql.NullInt64
 	CoordinatorTokenID sql.NullString
+	OwnAccounts        int64
+}
+
+type GatewayKeyAccount struct {
+	KeyID     string
+	AccountID string
+}
+
+type GatewayKeySearchOrder struct {
+	KeyID    string
+	Provider string
+	Position int64
 }
 
 type GatewayModel struct {
@@ -596,6 +601,14 @@ type GitHost struct {
 	Host      string
 	Kind      string
 	CreatedAt int64
+}
+
+type InboxChatRead struct {
+	Integration string
+	Label       string
+	ChatID      string
+	Reads       int64
+	SetAt       int64
 }
 
 type IntegrationClient struct {
@@ -718,22 +731,6 @@ type MemoryNote struct {
 type Model struct {
 	Provider string
 	Name     string
-}
-
-type ModelNameChange struct {
-	TaskID string
-	Model  string
-}
-
-type ModelNameConversion struct {
-	Done int64
-}
-
-type ModelProviderChange struct {
-	Record   string
-	ID       string
-	Model    string
-	Provider string
 }
 
 type Node struct {
@@ -881,6 +878,8 @@ type Question struct {
 	RemindAt     sql.NullInt64
 	CreatedAt    int64
 	UpdatedAt    int64
+	Header       string
+	More         string
 }
 
 type Receipt struct {
@@ -1058,11 +1057,6 @@ type SetupChange struct {
 	UndoneAt  sql.NullInt64
 }
 
-type ShareTokenScrub struct {
-	ID    int64
-	Since int64
-}
-
 type Skill struct {
 	Name      string
 	Everyone  int64
@@ -1109,7 +1103,6 @@ type Task struct {
 	PushBranch        sql.NullString
 	StartFrom         sql.NullString
 	PrBase            sql.NullString
-	ModelUnresolved   int64
 }
 
 type TaskDep struct {
@@ -1239,6 +1232,7 @@ type VideoRevision struct {
 	Look        string
 	PinProvider string
 	PinVoice    string
+	PinModel    string
 }
 
 type VideoSetting struct {

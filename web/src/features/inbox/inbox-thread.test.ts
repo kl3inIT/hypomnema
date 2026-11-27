@@ -192,8 +192,8 @@ test("events say who did what, and closing as done is marked", () => {
 })
 
 // Scenario: issue #1157, decision 3. A priority set says it with the reason it was set for, so the owner reads why;
-// a project changed names it, and a project removed says why the item has none.
-test("a priority and a project changed are said in words", () => {
+// a department changed names it, and a removal says why the item has none.
+test("priority and department changes are said in words", () => {
   const projectName = (id: string) => (id === "prj_v" ? "VMAP" : undefined)
   const line = (after: Record<string, unknown>, actor: TodoEvent["actor"] = bot) =>
     eventLine(event(1, { actor, after }), nameOf, undefined, projectName).words
@@ -208,8 +208,8 @@ test("a priority and a project changed are said in words", () => {
     "You removed the priority",
   )
   expect(line({ project_id: "prj_v" })).toBe("Hypo moved it to VMAP")
-  expect(line({ project_id: null, reason: "Project VMAP was removed" }, { kind: "owner" })).toBe(
-    "You took it out of its project (Project VMAP was removed)",
+  expect(line({ project_id: null, reason: "Department VMAP was removed" }, { kind: "owner" })).toBe(
+    "You took it out of its department (Department VMAP was removed)",
   )
 })
 

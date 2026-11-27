@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The Dispatch tests are a table of scenarios in the style of Omnigent's
@@ -41,10 +42,10 @@ func newWorld(t *testing.T) *world {
 
 	w := newSeedWorld(t)
 
-	_, err := w.s.ApplyProvider(t.Context(), "", worldGateway)
+	_, err := w.s.Profiles().ApplyProvider(t.Context(), "", worldGateway)
 	require.NoError(t, err)
 
-	_, _, err = w.s.ApplyProfile(t.Context(), "",
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway}\n")
 	require.NoError(t, err)
 
@@ -156,7 +157,8 @@ func (w *world) spec() DispatchSpec {
 		return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "codex", AccountRef: w.held.ID}
 	}
 
-	return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "claude", AccountRef: GatewayAccountRef}
+	return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "claude",
+		AccountRef: profilestore.GatewayAccountRef}
 }
 
 func (w *world) advance(d time.Duration) { w.clock.now = w.clock.now.Add(d) }
@@ -504,9 +506,9 @@ func TestReattachRecoversASleepingNode(t *testing.T) {
 	w.heartbeat(c)
 }
 
-// Scenario: the coordinator settled the unknown Dispatch as lost before the
-// node came back. The reattach is refused, the Conversation is closed, and
-// the next Dispatch opens a new one with the recovery note.
+// Scenario: the node came back without the unknown Dispatch, which is settled
+// as lost. A later reattach is refused, the Conversation is closed, and the
+// next Dispatch opens a new one with the recovery note.
 func TestReattachIsRefusedOnceTheOutcomeIsSettled(t *testing.T) {
 	t.Parallel()
 
@@ -515,7 +517,7 @@ func TestReattachIsRefusedOnceTheOutcomeIsSettled(t *testing.T) {
 	d, c := w.start(task.ID)
 	w.loseLease()
 
-	require.NoError(t, w.s.SettleUnknown(t.Context(), d.ID, Settlement{Result: Result{Summary: "no push found"}}))
+	w.connect(nil)
 	got := w.dispatchOf(d.ID)
 	assert.Equal(t, DispatchFailed, got.Status)
 	assert.Equal(t, FailureLost, got.FailureClass)
@@ -929,9 +931,8 @@ func TestStallAndOverrunAreEscalatedNotKilled(t *testing.T) {
 }
 
 // Scenario: nobody can tell what an unknown Dispatch did. Its effects show
-// the push that was intended but not confirmed; abandoning it counts as lost
-// and lists what may still be held on the node.
-func TestAbandonListsWhatMayRemain(t *testing.T) {
+// the push that was intended but not confirmed; an effect is recorded once.
+func TestAnUnknownDispatchKeepsItsEffects(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -939,9 +940,6 @@ func TestAbandonListsWhatMayRemain(t *testing.T) {
 	d, c := w.start(task.ID)
 	ctx := t.Context()
 
-	require.NoError(t, w.s.RecordResource(ctx, w.again(c), Resource{Kind: "worktree", Ref: "/srv/wt/a", Custody: "owned"}))
-	require.NoError(t, w.s.RecordResource(ctx, w.again(c), Resource{Kind: "process", Ref: "pid:42@1", Custody: "owned"}))
-	require.NoError(t, w.s.ReleaseResource(ctx, w.again(c), "process", "pid:42@1"))
 	require.NoError(t, w.s.RecordEffect(ctx, w.again(c),
 		Effect{Seq: 1, Kind: "push", Ref: "feat/login", Phase: EffectIntent}))
 	require.NoError(t, w.s.RecordEffect(ctx, w.again(c), Effect{Seq: 2, Kind: "comment", Ref: "#7", Phase: EffectDone}))
@@ -956,14 +954,5 @@ func TestAbandonListsWhatMayRemain(t *testing.T) {
 		{Seq: 1, Kind: "push", Ref: "feat/login", Phase: EffectIntent},
 		{Seq: 2, Kind: "comment", Ref: "#7", Phase: EffectDone},
 	}, effects)
-
-	held, err := w.s.AbandonDispatch(ctx, d.ID)
-	require.NoError(t, err)
-	assert.Equal(t, []Resource{{Kind: "worktree", Ref: "/srv/wt/a", Custody: "owned"}}, held)
-	assert.Equal(t, DispatchAbandoned, w.dispatchOf(d.ID).Status)
-	assert.Equal(t, 1, w.task(task.ID).FailureCount)
-	assert.Equal(t, CloseInterrupted, w.conversation(d.ConversationID).CloseReason)
-
-	_, err = w.s.AbandonDispatch(ctx, d.ID)
-	require.ErrorIs(t, err, ErrConflict)
+	assert.Equal(t, DispatchUnknown, w.dispatchOf(d.ID).Status)
 }

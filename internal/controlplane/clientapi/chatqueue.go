@@ -71,3 +71,14 @@ func toAttachments(files []orchestration.ChatAttachment) *[]openapi.ChatAttachme
 
 	return &out
 }
+
+func fromAttachments(files []openapi.ChatAttachment) []orchestration.ChatAttachment {
+	out := make([]orchestration.ChatAttachment, 0, len(files))
+	for _, a := range files {
+		out = append(out, orchestration.ChatAttachment{
+			Name: a.Name, Path: a.Path, Size: a.Size, Type: val(a.Type),
+		})
+	}
+
+	return out
+}

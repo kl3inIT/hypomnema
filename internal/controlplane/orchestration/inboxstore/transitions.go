@@ -1139,7 +1139,7 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 		}
 
 		// An item given to a Bot wakes it (issue #1111).
-		if err := s.givenTx(ctx, q, now, c.Actor, t.ID, before, t.Assignee); err != nil {
+		if err := s.givenTx(ctx, q, now, c.Actor, c.Chat, t.ID, before, t.Assignee); err != nil {
 			return err
 		}
 
@@ -1208,6 +1208,10 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 	}
 
 	if e.Source != nil {
+		if err := checkSourceAccount(ctx, q, *e.Source); err != nil {
+			return nil, err
+		}
+
 		next.SourceKind, next.SourceID, next.SourceAccount = e.Source.Kind, e.Source.ID, e.Source.Account
 		next.SourceQuote, next.SourceRef = e.Source.Quote, ref
 	}

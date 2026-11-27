@@ -239,8 +239,6 @@ func (s *Supervisor) observeBackground(ctx context.Context) {
 	defer s.bg.mu.Unlock()
 
 	if s.bg.run == nil {
-		s.loseUnlaunched(ctx)
-
 		return
 	}
 
@@ -304,30 +302,6 @@ func (s *Supervisor) observeBackground(ctx context.Context) {
 	for k := range units {
 		if _, err := s.bg.run(ctx, []string{"cleanup", k.chat, k.id, "keep"}, ""); err != nil {
 			s.backgroundFailed(ctx, "letting go of a background unit failed", k.chat, err)
-		}
-	}
-}
-
-// loseUnlaunched reports lost, once after a start, the rows a control plane without a launcher finds: commands an
-// earlier release ran in pi's box, which the restart ended (issue #1058's report of what the last start lost).
-func (s *Supervisor) loseUnlaunched(ctx context.Context) {
-	if s.bg.listed {
-		return
-	}
-
-	s.bg.listed = true
-
-	rows, err := s.svc.BackgroundCommands(ctx)
-	if err != nil {
-		s.backgroundFailed(ctx, "listing background commands failed", "", err)
-
-		return
-	}
-
-	for _, r := range rows {
-		if _, err := s.svc.LoseBackground(ctx, r.ChatID, r.ID, "the control plane restarted, which stopped it",
-			""); err != nil {
-			s.backgroundFailed(ctx, "reporting a background command lost failed", r.ChatID, err)
 		}
 	}
 }

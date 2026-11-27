@@ -171,6 +171,7 @@ type Account struct {
 	Resting bool   `json:"resting"`
 	// Usage is Settings → Usage's text, or "unknown".
 	Usage       string    `json:"usage"`
+	UsageError  string    `json:"usage_error,omitempty"`
 	UsageReadAt time.Time `json:"usage_read_at,omitzero"`
 	CheckedAt   time.Time `json:"checked_at,omitzero"`
 }
@@ -213,7 +214,7 @@ func (s *Service) Accounts(ctx context.Context) ([]Account, error) {
 		view := Account{
 			ID: a.ID, Label: a.Label, Position: a.Position, On: a.Status == orchestration.AccountActive,
 			State: st.State, Cause: st.Cause, Resting: st.Resting, Usage: "unknown",
-			UsageReadAt: st.UsageReadAt, CheckedAt: st.CheckedAt,
+			UsageError: st.UsageError, UsageReadAt: st.UsageReadAt, CheckedAt: st.CheckedAt,
 		}
 		if view.State == StateNew {
 			view.State = StateSignedIn

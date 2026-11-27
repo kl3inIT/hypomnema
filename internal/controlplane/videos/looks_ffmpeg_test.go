@@ -419,9 +419,12 @@ func mainPipeline(t *testing.T, tools ffmpeg.Tools, r *rig, rev Revision) string
 	cues, err := captions.Build(scenes, captions.Default)
 	require.NoError(t, err)
 
+	classic := captions.Look{Preset: captions.Legacy, Position: captions.PositionPreset}
+	text, err := captions.Render(ctx, tools, cues, classic, made.Size.Width, made.Size.Height, []compose.Ring{})
+	require.NoError(t, err)
+
 	ass := filepath.Join(work, "captions.ass")
-	require.NoError(t, os.WriteFile(ass, []byte(captions.ASS(cues, made.Size.Width, made.Size.Height,
-		captions.Default)), 0o600))
+	require.NoError(t, os.WriteFile(ass, []byte(text), 0o600))
 
 	out, err := compose.Burn(ctx, tools, in.Out, ass, filepath.Join(work, "burn"))
 	require.NoError(t, err)

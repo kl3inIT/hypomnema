@@ -506,16 +506,16 @@ func (e ChatRole) Valid() bool {
 
 // Defines values for ChatToolActivityPhase.
 const (
-	End   ChatToolActivityPhase = "end"
-	Start ChatToolActivityPhase = "start"
+	ChatToolActivityPhaseEnd   ChatToolActivityPhase = "end"
+	ChatToolActivityPhaseStart ChatToolActivityPhase = "start"
 )
 
 // Valid indicates whether the value is a known member of the ChatToolActivityPhase enum.
 func (e ChatToolActivityPhase) Valid() bool {
 	switch e {
-	case End:
+	case ChatToolActivityPhaseEnd:
 		return true
-	case Start:
+	case ChatToolActivityPhaseStart:
 		return true
 	default:
 		return false
@@ -1032,6 +1032,63 @@ func (e ImageProviderLinkState) Valid() bool {
 	case ImageProviderLinkStateReady:
 		return true
 	case ImageProviderLinkStateResting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InboxChatKind.
+const (
+	InboxChatBot    InboxChatKind = "bot"
+	InboxChatDirect InboxChatKind = "direct"
+	InboxChatGroup  InboxChatKind = "group"
+)
+
+// Valid indicates whether the value is a known member of the InboxChatKind enum.
+func (e InboxChatKind) Valid() bool {
+	switch e {
+	case InboxChatBot:
+		return true
+	case InboxChatDirect:
+		return true
+	case InboxChatGroup:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InboxChatSetBy.
+const (
+	InboxChatByDefault InboxChatSetBy = "default"
+	InboxChatByOwner   InboxChatSetBy = "owner"
+)
+
+// Valid indicates whether the value is a known member of the InboxChatSetBy enum.
+func (e InboxChatSetBy) Valid() bool {
+	switch e {
+	case InboxChatByDefault:
+		return true
+	case InboxChatByOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InboxChatState.
+const (
+	InboxChatRead    InboxChatState = "read"
+	InboxChatSkipped InboxChatState = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the InboxChatState enum.
+func (e InboxChatState) Valid() bool {
+	switch e {
+	case InboxChatRead:
+		return true
+	case InboxChatSkipped:
 		return true
 	default:
 		return false
@@ -2460,6 +2517,27 @@ func (e TranscriptItemKind) Valid() bool {
 	}
 }
 
+// Defines values for VideoAspect.
+const (
+	AspectAppStore  VideoAspect = "886x1920"
+	AspectLandscape VideoAspect = "16:9"
+	AspectPortrait  VideoAspect = "9:16"
+)
+
+// Valid indicates whether the value is a known member of the VideoAspect enum.
+func (e VideoAspect) Valid() bool {
+	switch e {
+	case AspectAppStore:
+		return true
+	case AspectLandscape:
+		return true
+	case AspectPortrait:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VideoCaptionPosition.
 const (
 	PositionBottom     VideoCaptionPosition = "bottom"
@@ -2511,54 +2589,18 @@ func (e VideoChrome) Valid() bool {
 	}
 }
 
-// Defines values for VideoMakeAspect.
+// Defines values for VideoPreviewCard.
 const (
-	VideoMakeAspectN169 VideoMakeAspect = "16:9"
-	VideoMakeAspectN916 VideoMakeAspect = "9:16"
+	VideoPreviewCardEnd   VideoPreviewCard = "end"
+	VideoPreviewCardTitle VideoPreviewCard = "title"
 )
 
-// Valid indicates whether the value is a known member of the VideoMakeAspect enum.
-func (e VideoMakeAspect) Valid() bool {
+// Valid indicates whether the value is a known member of the VideoPreviewCard enum.
+func (e VideoPreviewCard) Valid() bool {
 	switch e {
-	case VideoMakeAspectN169:
+	case VideoPreviewCardEnd:
 		return true
-	case VideoMakeAspectN916:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for VideoPreviewAspect.
-const (
-	VideoPreviewAspectN169 VideoPreviewAspect = "16:9"
-	VideoPreviewAspectN916 VideoPreviewAspect = "9:16"
-)
-
-// Valid indicates whether the value is a known member of the VideoPreviewAspect enum.
-func (e VideoPreviewAspect) Valid() bool {
-	switch e {
-	case VideoPreviewAspectN169:
-		return true
-	case VideoPreviewAspectN916:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for VideoRevisionAspect.
-const (
-	VideoRevisionAspectN169 VideoRevisionAspect = "16:9"
-	VideoRevisionAspectN916 VideoRevisionAspect = "9:16"
-)
-
-// Valid indicates whether the value is a known member of the VideoRevisionAspect enum.
-func (e VideoRevisionAspect) Valid() bool {
-	switch e {
-	case VideoRevisionAspectN169:
-		return true
-	case VideoRevisionAspectN916:
+	case VideoPreviewCardTitle:
 		return true
 	default:
 		return false
@@ -3155,10 +3197,11 @@ type AllowList struct {
 	Names   []string `json:"names"`
 }
 
-// Answer Pick one option by index, and add text when it allows; a question without options takes text.
+// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
 type Answer struct {
-	Option *int    `json:"option,omitempty"`
-	Text   *string `json:"text,omitempty"`
+	More   *[]Choice `json:"more,omitempty"`
+	Option *int      `json:"option,omitempty"`
+	Text   *string   `json:"text,omitempty"`
 }
 
 // Approval One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
@@ -3354,7 +3397,7 @@ type AudioKind string
 
 // AudioKindLink defines model for AudioKindLink.
 type AudioKindLink struct {
-	// Model The one model it is asked with for this kind, as usage rows name it (audio/<model>).
+	// Model The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of ElevenLabs's speech model, else the default.
 	Model string `json:"model"`
 
 	// On The owner's switch for the provider.
@@ -3363,6 +3406,28 @@ type AudioKindLink struct {
 
 	// Usage This control plane's requests, by UTC day and month.
 	Usage AudioUsage `json:"usage"`
+}
+
+// AudioModelChoice defines model for AudioModelChoice.
+type AudioModelChoice struct {
+	Model string `json:"model"`
+}
+
+// AudioModelInfo defines model for AudioModelInfo.
+type AudioModelInfo struct {
+	Id string `json:"id"`
+
+	// Languages The language codes it covers, as the provider lists them, such as vi.
+	Languages []string      `json:"languages"`
+	Name      string        `json:"name"`
+	Provider  AudioProvider `json:"provider"`
+}
+
+// AudioModels defines model for AudioModels.
+type AudioModels struct {
+	// Errors The lists that could not be read, and why.
+	Errors *[]WebSearchError `json:"errors,omitempty"`
+	Models []AudioModelInfo  `json:"models"`
 }
 
 // AudioNewKey defines model for AudioNewKey.
@@ -3460,6 +3525,24 @@ type AudioUsage struct {
 // AudioVoice defines model for AudioVoice.
 type AudioVoice struct {
 	Voice string `json:"voice"`
+}
+
+// AudioVoiceInfo defines model for AudioVoiceInfo.
+type AudioVoiceInfo struct {
+	// Id The voice's id
+	Id string `json:"id"`
+
+	// Language The voice's language as its provider labels it.
+	Language *string       `json:"language,omitempty"`
+	Name     string        `json:"name"`
+	Provider AudioProvider `json:"provider"`
+}
+
+// AudioVoices defines model for AudioVoices.
+type AudioVoices struct {
+	// Errors The lists that could not be read, and why.
+	Errors *[]WebSearchError `json:"errors,omitempty"`
+	Voices []AudioVoiceInfo  `json:"voices"`
 }
 
 // BlockedReason defines model for BlockedReason.
@@ -3906,6 +3989,12 @@ type ChatWake struct {
 // ChatWakeEvent defines model for ChatWake.Event.
 type ChatWakeEvent string
 
+// Choice The answer to one of a question's more decisions, as the first's.
+type Choice struct {
+	Option *int    `json:"option,omitempty"`
+	Text   *string `json:"text,omitempty"`
+}
+
 // CodexModelCatalog Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
 type CodexModelCatalog struct {
 	Models []CodexModelInfo `json:"models"`
@@ -4257,7 +4346,9 @@ type GatewayError struct {
 
 // GatewayKey defines model for GatewayKey.
 type GatewayKey struct {
-	CreatedAt time.Time `json:"created_at"`
+	// Accounts The only accounts it may use (issue #1277), each with its runtime; absent when it may use every account. Its requests go only to these, in their order among them; a provider none of them is of is not used.
+	Accounts  *[]GatewayKeyAccount `json:"accounts,omitempty"`
+	CreatedAt time.Time            `json:"created_at"`
 
 	// Endpoints What it may use besides chat (issue
 	Endpoints []GatewayEndpoint `json:"endpoints"`
@@ -4275,6 +4366,17 @@ type GatewayKey struct {
 
 	// Prefix The key's start, to tell keys apart; empty for a key made before it was kept.
 	Prefix string `json:"prefix"`
+
+	// SearchOrder Its own web search order (issue #1277): these are asked first, the others after in the order of Settings. Empty for the order of Settings.
+	SearchOrder []WebSearchProvider `json:"search_order"`
+}
+
+// GatewayKeyAccount defines model for GatewayKeyAccount.
+type GatewayKeyAccount struct {
+	Id string `json:"id"`
+
+	// Runtime The account's runtime: claude, codex, antigravity, opencode_go…
+	Runtime string `json:"runtime"`
 }
 
 // GatewayKeyList defines model for GatewayKeyList.
@@ -4287,6 +4389,9 @@ type GatewayKeyList struct {
 
 // GatewayKeyUpdate defines model for GatewayKeyUpdate.
 type GatewayKeyUpdate struct {
+	// Accounts The ids of the only accounts it may use from now on (issue #1277); ["*"] means every account again, omitted means unchanged. The wildcard cannot be combined with named accounts.
+	Accounts *[]string `json:"accounts,omitempty"`
+
 	// Endpoints The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
 	Endpoints *[]GatewayEndpointSelection `json:"endpoints,omitempty"`
 
@@ -4295,6 +4400,9 @@ type GatewayKeyUpdate struct {
 
 	// Name The new name; when omitted the name is unchanged.
 	Name *string `json:"name,omitempty"`
+
+	// SearchOrder Its own web search order (issue #1277); empty means the order of Settings again, omitted means unchanged.
+	SearchOrder *[]WebSearchProvider `json:"search_order,omitempty"`
 }
 
 // GatewayKeyValue defines model for GatewayKeyValue.
@@ -4519,7 +4627,7 @@ type GatewayRequestList struct {
 	HasMore bool `json:"has_more"`
 }
 
-// GatewayTool A tool Settings → Connect a tool writes a file for.
+// GatewayTool A tool that can be configured from the Connect a tool button on Gateway keys.
 type GatewayTool string
 
 // GatewayToolConfig defines model for GatewayToolConfig.
@@ -4535,7 +4643,7 @@ type GatewayToolConfig struct {
 	// Models The models the key may use from the tool, by name.
 	Models []string `json:"models"`
 
-	// Tool A tool Settings → Connect a tool writes a file for.
+	// Tool A tool that can be configured from the Connect a tool button on Gateway keys.
 	Tool GatewayTool `json:"tool"`
 }
 
@@ -4761,6 +4869,135 @@ type Images struct {
 	// Providers The image providers, in the order a request that names none asks them.
 	Providers []ImageProviderLink `json:"providers"`
 }
+
+// InboxChat defines model for InboxChat.
+type InboxChat struct {
+	// Id The service's id of the chat.
+	Id string `json:"id"`
+
+	// Kind A direct chat, a group, or a bot's or an official account's chat.
+	Kind InboxChatKind `json:"kind"`
+
+	// LastMessageAt When its latest kept message was sent; Lark gives none.
+	LastMessageAt *time.Time `json:"last_message_at,omitempty"`
+	Name          string     `json:"name"`
+
+	// Reads Whether the triage's check reads it.
+	Reads bool `json:"reads"`
+
+	// SetAt When the owner set it.
+	SetAt *time.Time `json:"set_at,omitempty"`
+
+	// SetBy Why the chat is in its state, its kind's default or the owner's choice.
+	SetBy InboxChatSetBy `json:"set_by"`
+}
+
+// InboxChatChoice defines model for InboxChatChoice.
+type InboxChatChoice struct {
+	Reads bool `json:"reads"`
+}
+
+// InboxChatCounts defines model for InboxChatCounts.
+type InboxChatCounts struct {
+	All     int `json:"all"`
+	Bot     int `json:"bot"`
+	Direct  int `json:"direct"`
+	Group   int `json:"group"`
+	Read    int `json:"read"`
+	Skipped int `json:"skipped"`
+}
+
+// InboxChatDefaults Whether a chat the owner never set is read, by its kind, the same for every source; bot_patterns name a bot's or an official account's chat by its name or id (regular expressions, in any case).
+type InboxChatDefaults struct {
+	Bot         bool     `json:"bot"`
+	BotPatterns []string `json:"bot_patterns"`
+	Direct      bool     `json:"direct"`
+	Group       bool     `json:"group"`
+}
+
+// InboxChatKind A direct chat, a group, or a bot's or an official account's chat.
+type InboxChatKind string
+
+// InboxChatList defines model for InboxChatList.
+type InboxChatList struct {
+	Counts InboxChatCounts `json:"counts"`
+	Data   []InboxChat     `json:"data"`
+
+	// Matched How many chats the filters keep.
+	Matched      int              `json:"matched"`
+	SearchCounts *InboxChatCounts `json:"search_counts,omitempty"`
+}
+
+// InboxChatMove defines model for InboxChatMove.
+type InboxChatMove struct {
+	// Bot The Bot's id, whose folder holds thu-ky/filters.json; the main Bot when left out.
+	Bot *string `json:"bot,omitempty"`
+}
+
+// InboxChatMoved defines model for InboxChatMoved.
+type InboxChatMoved struct {
+	// Defaults The default patterns, which the bot default holds.
+	Defaults []string `json:"defaults"`
+
+	// Kept The chats the owner had set already, left as they are.
+	Kept []InboxChatRef `json:"kept"`
+
+	// Left The patterns that are not one chat's id, not moved.
+	Left []string `json:"left"`
+
+	// Moved The chats switched off as the owner's choice now.
+	Moved []InboxChatRef `json:"moved"`
+
+	// NotRead The accounts whose chats could not be listed, with why.
+	NotRead []string `json:"not_read"`
+
+	// Unknown The chat ids none of his accounts has.
+	Unknown []string `json:"unknown"`
+}
+
+// InboxChatRef defines model for InboxChatRef.
+type InboxChatRef struct {
+	Chat        string `json:"chat"`
+	Integration string `json:"integration"`
+	Label       string `json:"label"`
+}
+
+// InboxChatSet defines model for InboxChatSet.
+type InboxChatSet struct {
+	Chat        string    `json:"chat"`
+	Integration string    `json:"integration"`
+	Label       string    `json:"label"`
+	Reads       bool      `json:"reads"`
+	SetAt       time.Time `json:"set_at"`
+}
+
+// InboxChatSetBy Why the chat is in its state, its kind's default or the owner's choice.
+type InboxChatSetBy string
+
+// InboxChatSource defines model for InboxChatSource.
+type InboxChatSource struct {
+	// Account The account as the owner knows it: a number, a name.
+	Account string           `json:"account"`
+	Counts  *InboxChatCounts `json:"counts,omitempty"`
+
+	// Integration zalo, whatsapp or lark.
+	Integration string `json:"integration"`
+	Label       string `json:"label"`
+
+	// Problem Why its chats cannot be listed now.
+	Problem *string `json:"problem,omitempty"`
+}
+
+// InboxChatSourceList defines model for InboxChatSourceList.
+type InboxChatSourceList struct {
+	Data []InboxChatSource `json:"data"`
+
+	// Defaults Whether a chat the owner never set is read, by its kind, the same for every source; bot_patterns name a bot's or an official account's chat by its name or id (regular expressions, in any case).
+	Defaults InboxChatDefaults `json:"defaults"`
+}
+
+// InboxChatState Whether the secretary reads the chat or skips it.
+type InboxChatState string
 
 // InboxNeedsYou defines model for InboxNeedsYou.
 type InboxNeedsYou struct {
@@ -5421,7 +5658,10 @@ type MuseAccount struct {
 	State string `json:"state"`
 
 	// Usage Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
-	Usage       string     `json:"usage"`
+	Usage string `json:"usage"`
+
+	// UsageError Why the latest Usage read failed.
+	UsageError  *string    `json:"usage_error,omitempty"`
 	UsageReadAt *time.Time `json:"usage_read_at,omitempty"`
 }
 
@@ -5554,6 +5794,9 @@ type NewFollowUp struct {
 
 // NewGatewayKey defines model for NewGatewayKey.
 type NewGatewayKey struct {
+	// Accounts The ids of the only accounts it may use (issue #1277); every account when left out, as an account added later is then. An account added later is not added to a key that names its accounts.
+	Accounts *[]string `json:"accounts,omitempty"`
+
 	// Endpoints What it may use besides chat; every kind when left out, none when empty. A key that may use every kind should leave it out, so a kind added later is given too.
 	Endpoints *[]GatewayEndpoint `json:"endpoints,omitempty"`
 
@@ -5562,6 +5805,9 @@ type NewGatewayKey struct {
 
 	// Name What the owner calls the client that uses it, such as opencode-laptop.
 	Name string `json:"name"`
+
+	// SearchOrder Its own web search order (issue #1277): these are asked first, the others after in the order of Settings; the order of Settings when left out or empty. A provider switched off stays off.
+	SearchOrder *[]WebSearchProvider `json:"search_order,omitempty"`
 }
 
 // NewGitHost defines model for NewGitHost.
@@ -5969,8 +6215,11 @@ type NodeTool struct {
 
 // Option defines model for Option.
 type Option struct {
-	AllowsText *bool  `json:"allows_text,omitempty"`
-	Label      string `json:"label"`
+	AllowsText *bool `json:"allows_text,omitempty"`
+
+	// Description One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option asked before has none.
+	Description *string `json:"description,omitempty"`
+	Label       string  `json:"label"`
 }
 
 // OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
@@ -6101,20 +6350,29 @@ type PushSubscriptionList struct {
 type Question struct {
 	AddressedTo Addressee `json:"addressed_to"`
 
-	// Answer Pick one option by index, and add text when it allows; a question without options takes text.
-	Answer       *Answer        `json:"answer,omitempty"`
-	AnsweredAt   *time.Time     `json:"answered_at,omitempty"`
-	AnsweredBy   *Addressee     `json:"answered_by,omitempty"`
-	CancelReason *string        `json:"cancel_reason,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	DispatchId   string         `json:"dispatch_id"`
-	Id           string         `json:"id"`
-	Mode         QuestionMode   `json:"mode"`
-	Options      []Option       `json:"options"`
-	RunId        string         `json:"run_id"`
-	Status       QuestionStatus `json:"status"`
-	TaskId       string         `json:"task_id"`
-	Text         string         `json:"text"`
+	// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
+	Answer       *Answer    `json:"answer,omitempty"`
+	AnsweredAt   *time.Time `json:"answered_at,omitempty"`
+	AnsweredBy   *Addressee `json:"answered_by,omitempty"`
+	CancelReason *string    `json:"cancel_reason,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DispatchId   string     `json:"dispatch_id"`
+
+	// Header A short title of the first decision (issue #1219); none on a question asked before.
+	Header *string      `json:"header,omitempty"`
+	Id     string       `json:"id"`
+	Mode   QuestionMode `json:"mode"`
+
+	// More The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the answer's more at the same place.
+	More    *[]QuestionPart `json:"more,omitempty"`
+	Options []Option        `json:"options"`
+	RunId   string          `json:"run_id"`
+	Status  QuestionStatus  `json:"status"`
+
+	// Summary For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with, shown above the options; none for a Gate asked before, which reads as it did.
+	Summary *string `json:"summary,omitempty"`
+	TaskId  string  `json:"task_id"`
+	Text    string  `json:"text"`
 }
 
 // QuestionList defines model for QuestionList.
@@ -6124,6 +6382,14 @@ type QuestionList struct {
 
 // QuestionMode defines model for QuestionMode.
 type QuestionMode string
+
+// QuestionPart One decision a question asks after its first, on the same card (issue
+type QuestionPart struct {
+	// Header A short title of the decision, at most 30 characters.
+	Header  *string  `json:"header,omitempty"`
+	Options []Option `json:"options"`
+	Text    string   `json:"text"`
+}
 
 // QuestionStatus defines model for QuestionStatus.
 type QuestionStatus string
@@ -6817,7 +7083,7 @@ type SpeakRequest struct {
 	Format *SpeakRequestFormat `json:"format,omitempty"`
 	Input  string              `json:"input"`
 
-	// Language The text's language for Soniox; en when left out.
+	// Language The text's language as an ISO-639-1 code, such as vi. Soniox speaks it, en when left out; ElevenLabs is sent it when its model covers it, and left to find it otherwise.
 	Language *string        `json:"language,omitempty"`
 	Provider *AudioProvider `json:"provider,omitempty"`
 
@@ -7296,9 +7562,11 @@ type TodoChange struct {
 	Revision int `json:"revision"`
 }
 
-// TodoComment defines model for TodoComment.
+// TodoComment The text may be empty when the owner sends files.
 type TodoComment struct {
-	Text string `json:"text"`
+	// Attachments The owner's files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+	Text        string            `json:"text"`
 }
 
 // TodoDone defines model for TodoDone.
@@ -7376,7 +7644,7 @@ type TodoEvent struct {
 	Before map[string]interface{} `json:"before"`
 	Id     int64                  `json:"id"`
 
-	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
 	Kind string `json:"kind"`
 
 	// Revision The revision the change made.
@@ -7385,10 +7653,16 @@ type TodoEvent struct {
 
 // TodoHand defines model for TodoHand.
 type TodoHand struct {
+	// Attachments Files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+
 	// Bot The Bot's id; absent, the main Bot.
 	Bot *string `json:"bot,omitempty"`
 
-	// Prompt What the owner asks of the Bot, its first comment; optional.
+	// ChatId The chat id reserved before uploading files when the item has no chat with this Bot.
+	ChatId *string `json:"chat_id,omitempty"`
+
+	// Prompt What the owner asks of the Bot, its first comment; may be empty when it carries files.
 	Prompt   *string `json:"prompt,omitempty"`
 	Revision int     `json:"revision"`
 }
@@ -7644,6 +7918,9 @@ type Video struct {
 	Title string `json:"title"`
 }
 
+// VideoAspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+type VideoAspect string
+
 // VideoBackground One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
 type VideoBackground struct {
 	Colors *[]string `json:"colors,omitempty"`
@@ -7667,6 +7944,40 @@ type VideoCaptionsInput struct {
 
 	// Preset A preset's id of GET /videos/looks; absent: clean.
 	Preset *string `json:"preset,omitempty"`
+}
+
+// VideoCard defines model for VideoCard.
+type VideoCard struct {
+	CtaUrl     *string `json:"cta_url,omitempty"`
+	DurationMs int64   `json:"duration_ms"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoCardInput defines model for VideoCardInput.
+type VideoCardInput struct {
+	// CtaUrl Where the viewer is sent, drawn in the accent.
+	CtaUrl *string `json:"cta_url,omitempty"`
+
+	// DurationMs Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms.
+	DurationMs *int64  `json:"duration_ms,omitempty"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoCards A revision's title card and end card; absent, it has none.
+type VideoCards struct {
+	Accent string     `json:"accent"`
+	End    *VideoCard `json:"end,omitempty"`
+	Title  *VideoCard `json:"title,omitempty"`
+}
+
+// VideoCardsInput The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+type VideoCardsInput struct {
+	// Accent The rule over the title and the URL; absent: #6c8cff.
+	Accent *string         `json:"accent,omitempty"`
+	End    *VideoCardInput `json:"end,omitempty"`
+	Title  *VideoCardInput `json:"title,omitempty"`
 }
 
 // VideoChanges defines model for VideoChanges.
@@ -7718,6 +8029,9 @@ type VideoLook struct {
 	Background *VideoBackground `json:"background,omitempty"`
 	Captions   VideoCaptions    `json:"captions"`
 
+	// Cards A revision's title card and end card; absent, it has none.
+	Cards *VideoCards `json:"cards,omitempty"`
+
 	// FellBackFrom What is drawn around the picture: full is none, the picture filling the video; absent: none.
 	FellBackFrom *VideoChrome `json:"fell_back_from,omitempty"`
 	Frame        VideoFrame   `json:"frame"`
@@ -7737,7 +8051,10 @@ type VideoLookInput struct {
 	// Background One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
 	Background *VideoBackground    `json:"background,omitempty"`
 	Captions   *VideoCaptionsInput `json:"captions,omitempty"`
-	Frame      *VideoFrameInput    `json:"frame,omitempty"`
+
+	// Cards The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+	Cards *VideoCardsInput `json:"cards,omitempty"`
+	Frame *VideoFrameInput `json:"frame,omitempty"`
 
 	// Music The music sent (issue #910): its track is required, none or a track's id of GET /videos/music; a track deleted is refused with conflict.
 	Music *VideoMusicInput `json:"music,omitempty"`
@@ -7755,15 +8072,18 @@ type VideoLooks struct {
 
 // VideoMake defines model for VideoMake.
 type VideoMake struct {
-	// Aspect Absent: 9:16.
-	Aspect *VideoMakeAspect `json:"aspect,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect *VideoAspect `json:"aspect,omitempty"`
 
-	// Captions Absent: true.
+	// Captions Absent: the template's, else true.
 	Captions *bool `json:"captions,omitempty"`
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
 	Take string          `json:"take"`
+
+	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
+	Template *string `json:"template,omitempty"`
 
 	// Title The video's title, on its first make; absent: the take's.
 	Title *string `json:"title,omitempty"`
@@ -7771,9 +8091,6 @@ type VideoMake struct {
 	// Voice Absent: each provider's set on Settings → Audio.
 	Voice *string `json:"voice,omitempty"`
 }
-
-// VideoMakeAspect Absent: 9:16.
-type VideoMakeAspect string
 
 // VideoMusic The music a revision is made with, as a snapshot of the track when it was chosen; absent: none. A track taken from the default or another revision that was deleted is none, with fell_back_from.
 type VideoMusic struct {
@@ -7841,11 +8158,14 @@ type VideoPreset struct {
 
 // VideoPreview defines model for VideoPreview.
 type VideoPreview struct {
-	// Aspect Absent: 9:16.
-	Aspect *VideoPreviewAspect `json:"aspect,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect *VideoAspect `json:"aspect,omitempty"`
 
-	// Captions Absent: true.
+	// Captions Absent: the template's, else true.
 	Captions *bool `json:"captions,omitempty"`
+
+	// Card A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+	Card *VideoPreviewCard `json:"card,omitempty"`
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
@@ -7853,10 +8173,13 @@ type VideoPreview struct {
 	// Rev A revision of the take's video the look starts from, as a look change does; its first line is shown.
 	Rev  *int   `json:"rev,omitempty"`
 	Take string `json:"take"`
+
+	// Template A template's id, the look resolved as a make with it; refused with rev.
+	Template *string `json:"template,omitempty"`
 }
 
-// VideoPreviewAspect Absent: 9:16.
-type VideoPreviewAspect string
+// VideoPreviewCard A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+type VideoPreviewCard string
 
 // VideoProgress While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
 type VideoProgress struct {
@@ -7866,10 +8189,11 @@ type VideoProgress struct {
 
 // VideoRevision One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed at a stage with its cause, interrupted when the control plane stopped while it was made.
 type VideoRevision struct {
-	Aspect      VideoRevisionAspect `json:"aspect"`
-	Captions    bool                `json:"captions"`
-	CreatedAt   time.Time           `json:"created_at"`
-	FailedCause *string             `json:"failed_cause,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect      VideoAspect `json:"aspect"`
+	Captions    bool        `json:"captions"`
+	CreatedAt   time.Time   `json:"created_at"`
+	FailedCause *string     `json:"failed_cause,omitempty"`
 
 	// FailedStage The stage it failed at.
 	FailedStage *string `json:"failed_stage,omitempty"`
@@ -7905,11 +8229,68 @@ type VideoRevision struct {
 	Warnings []string `json:"warnings"`
 }
 
-// VideoRevisionAspect defines model for VideoRevision.Aspect.
-type VideoRevisionAspect string
-
 // VideoRevisionState defines model for VideoRevision.State.
 type VideoRevisionState string
+
+// VideoTemplate A template of a video (issue
+type VideoTemplate struct {
+	// Aspects The aspects it is made in, its default first.
+	Aspects []VideoAspect `json:"aspects"`
+
+	// Captions Whether its videos have captions unless the make says.
+	Captions bool `json:"captions"`
+
+	// Cards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+	Cards *VideoTemplateCards `json:"cards,omitempty"`
+	Id    string              `json:"id"`
+
+	// Length How long its videos are meant to be, in seconds.
+	Length VideoTemplateLength `json:"length"`
+
+	// Look How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+	Look     VideoLook              `json:"look"`
+	Name     string                 `json:"name"`
+	Sections []VideoTemplateSection `json:"sections"`
+	UseCase  string                 `json:"use_case"`
+
+	// Words The sections' words.
+	Words int `json:"words"`
+}
+
+// VideoTemplateCard defines model for VideoTemplateCard.
+type VideoTemplateCard struct {
+	DurationMs int64   `json:"duration_ms"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoTemplateCards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+type VideoTemplateCards struct {
+	Accent string             `json:"accent"`
+	End    *VideoTemplateCard `json:"end,omitempty"`
+	Title  *VideoTemplateCard `json:"title,omitempty"`
+}
+
+// VideoTemplateLength How long its videos are meant to be, in seconds.
+type VideoTemplateLength struct {
+	MaxS int `json:"max_s"`
+	MinS int `json:"min_s"`
+}
+
+// VideoTemplateSection defines model for VideoTemplateSection.
+type VideoTemplateSection struct {
+	Name    string `json:"name"`
+	Purpose string `json:"purpose"`
+
+	// Seconds Its words at 2.5 a second.
+	Seconds float64 `json:"seconds"`
+	Words   int     `json:"words"`
+}
+
+// VideoTemplates defines model for VideoTemplates.
+type VideoTemplates struct {
+	Templates []VideoTemplate `json:"templates"`
+}
 
 // WebFetchRequest defines model for WebFetchRequest.
 type WebFetchRequest struct {
@@ -8636,6 +9017,14 @@ type CreateTodoParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListInboxChatsParams defines parameters for ListInboxChats.
+type ListInboxChatsParams struct {
+	Q     *string         `form:"q,omitempty" json:"q,omitempty"`
+	Kind  *InboxChatKind  `form:"kind,omitempty" json:"kind,omitempty"`
+	State *InboxChatState `form:"state,omitempty" json:"state,omitempty"`
+	Limit *int            `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // RelaySupersetRequestParams defines parameters for RelaySupersetRequest.
 type RelaySupersetRequestParams struct {
 	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
@@ -9070,6 +9459,9 @@ type SetAudioProviderJSONRequestBody = AudioProviderChange
 // AddAudioKeyJSONRequestBody defines body for AddAudioKey for application/json ContentType.
 type AddAudioKeyJSONRequestBody = AudioNewKey
 
+// SetAudioModelJSONRequestBody defines body for SetAudioModel for application/json ContentType.
+type SetAudioModelJSONRequestBody = AudioModelChoice
+
 // SetAudioVoiceJSONRequestBody defines body for SetAudioVoice for application/json ContentType.
 type SetAudioVoiceJSONRequestBody = AudioVoice
 
@@ -9115,14 +9507,17 @@ type PutGitHostJSONRequestBody = NewGitHost
 // PutGitHostConnectionJSONRequestBody defines body for PutGitHostConnection for application/json ContentType.
 type PutGitHostConnectionJSONRequestBody = NewGitHostToken
 
-// PutGitHostTokenJSONRequestBody defines body for PutGitHostToken for application/json ContentType.
-type PutGitHostTokenJSONRequestBody = NewGitHostToken
-
 // GenerateImagesJSONRequestBody defines body for GenerateImages for application/json ContentType.
 type GenerateImagesJSONRequestBody = ImageRequest
 
 // CreateTodoJSONRequestBody defines body for CreateTodo for application/json ContentType.
 type CreateTodoJSONRequestBody = NewTodo
+
+// MoveInboxDropChatsJSONRequestBody defines body for MoveInboxDropChats for application/json ContentType.
+type MoveInboxDropChatsJSONRequestBody = InboxChatMove
+
+// SetInboxChatJSONRequestBody defines body for SetInboxChat for application/json ContentType.
+type SetInboxChatJSONRequestBody = InboxChatChoice
 
 // EditTodoJSONRequestBody defines body for EditTodo for application/json ContentType.
 type EditTodoJSONRequestBody = TodoEdit
@@ -10513,6 +10908,13 @@ type ClientInterface interface {
 	// Corresponds with GET /gateway/audio (the `GetAudio` operationId).
 	GetAudio(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	//
+	// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+	//
+	// Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
+	ListAudioModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SetAudioOrderWithBody Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
 	//
 	// Takes any type of body and a specified content type.
@@ -10570,6 +10972,24 @@ type ClientInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKey(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SetAudioModelWithBody Set the model a provider speaks with; only the owner
+	//
+	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+	SetAudioModelWithBody(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetAudioModel Set the model a provider speaks with; only the owner
+	//
+	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+	SetAudioModel(ctx context.Context, provider AudioProvider, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SetAudioVoiceWithBody Set the voice a provider speaks a video with when none is asked; only the owner
 	//
 	// Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -10587,6 +11007,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
 	SetAudioVoice(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
+	//
+	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+	//
+	// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+	ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	//
@@ -10669,7 +11096,7 @@ type ClientInterface interface {
 
 	// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 	GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -10917,29 +11344,6 @@ type ClientInterface interface {
 	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
 	PutGitHostConnection(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	//
-	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-	DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes any type of body and a specified content type.
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// GenerateImagesWithBody Make or edit images through the owner's subscriptions; any token, a Bot's included
 	//
 	// With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -10982,6 +11386,56 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /inbox (the `CreateTodo` operationId).
 	CreateTodo(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	//
+	// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+	//
+	// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+	ListInboxChatSources(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveInboxDropChatsWithBody Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChatsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChats(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+	//
+	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
+	//
+	// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+	ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetInboxChatWithBody Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChatWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetInboxChat Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChat(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	//
@@ -11884,7 +12338,7 @@ type ClientInterface interface {
 
 	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 	RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -12523,6 +12977,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 	PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	//
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	//
+	// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+	ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	//
@@ -14825,6 +15286,23 @@ func (c *Client) GetAudio(ctx context.Context, reqEditors ...RequestEditorFn) (*
 	return c.Client.Do(req)
 }
 
+// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+//
+// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+//
+// Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
+func (c *Client) ListAudioModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAudioModelsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // SetAudioOrderWithBody Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
 //
 // Takes any type of body and a specified content type.
@@ -14952,6 +15430,44 @@ func (c *Client) RemoveAudioKey(ctx context.Context, provider AudioProvider, nam
 	return c.Client.Do(req)
 }
 
+// SetAudioModelWithBody Set the model a provider speaks with; only the owner
+//
+// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+func (c *Client) SetAudioModelWithBody(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAudioModelRequestWithBody(c.Server, provider, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetAudioModel Set the model a provider speaks with; only the owner
+//
+// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+func (c *Client) SetAudioModel(ctx context.Context, provider AudioProvider, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAudioModelRequest(c.Server, provider, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // SetAudioVoiceWithBody Set the voice a provider speaks a video with when none is asked; only the owner
 //
 // Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -14980,6 +15496,23 @@ func (c *Client) SetAudioVoiceWithBody(ctx context.Context, provider AudioProvid
 // Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
 func (c *Client) SetAudioVoice(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetAudioVoiceRequest(c.Server, provider, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
+//
+// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+//
+// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+func (c *Client) ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAudioVoicesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -15181,7 +15714,7 @@ func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body Update
 
 // GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 func (c *Client) GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -15769,59 +16302,6 @@ func (c *Client) PutGitHostConnection(ctx context.Context, host string, label st
 	return c.Client.Do(req)
 }
 
-// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-//
-// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-func (c *Client) DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteGitHostTokenRequest(c.Server, host)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes any type of body and a specified content type.
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *Client) PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutGitHostTokenRequestWithBody(c.Server, host, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *Client) PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutGitHostTokenRequest(c.Server, host, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 // GenerateImagesWithBody Make or edit images through the owner's subscriptions; any token, a Bot's included
 //
 // With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -15905,6 +16385,116 @@ func (c *Client) CreateTodoWithBody(ctx context.Context, params *CreateTodoParam
 // Corresponds with POST /inbox (the `CreateTodo` operationId).
 func (c *Client) CreateTodo(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateTodoRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+//
+// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+//
+// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+func (c *Client) ListInboxChatSources(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListInboxChatSourcesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveInboxDropChatsWithBody Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *Client) MoveInboxDropChatsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveInboxDropChatsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *Client) MoveInboxDropChats(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveInboxDropChatsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+//
+// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
+//
+// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+func (c *Client) ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListInboxChatsRequest(c.Server, integration, label, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetInboxChatWithBody Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *Client) SetInboxChatWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetInboxChatRequestWithBody(c.Server, integration, label, chat, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetInboxChat Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *Client) SetInboxChat(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetInboxChatRequest(c.Server, integration, label, chat, body)
 	if err != nil {
 		return nil, err
 	}
@@ -18006,7 +18596,7 @@ func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors 
 
 // RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 func (c *Client) RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -19576,6 +20166,23 @@ func (c *Client) PreviewVideoLookWithBody(ctx context.Context, contentType strin
 // Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 func (c *Client) PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPreviewVideoLookRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListVideoTemplates The templates a video is made from (owner only; issue
+//
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+//
+// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+func (c *Client) ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListVideoTemplatesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -24333,6 +24940,33 @@ func NewGetAudioRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListAudioModelsRequest constructs an http.Request for the ListAudioModels method
+func NewListAudioModelsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/audio/models")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewSetAudioOrderRequest calls the generic SetAudioOrder builder with application/json body
 func NewSetAudioOrderRequest(server string, kind AudioKind, body SetAudioOrderJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -24515,6 +25149,53 @@ func NewRemoveAudioKeyRequest(server string, provider AudioProvider, name string
 	return req, nil
 }
 
+// NewSetAudioModelRequest calls the generic SetAudioModel builder with application/json body
+func NewSetAudioModelRequest(server string, provider AudioProvider, body SetAudioModelJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetAudioModelRequestWithBody(server, provider, "application/json", bodyReader)
+}
+
+// NewSetAudioModelRequestWithBody constructs an http.Request for the SetAudioModel method, with any body, and a specified content type
+func NewSetAudioModelRequestWithBody(server string, provider AudioProvider, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/audio/providers/%s/model", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewSetAudioVoiceRequest calls the generic SetAudioVoice builder with application/json body
 func NewSetAudioVoiceRequest(server string, provider AudioProvider, body SetAudioVoiceJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -24558,6 +25239,33 @@ func NewSetAudioVoiceRequestWithBody(server string, provider AudioProvider, cont
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListAudioVoicesRequest constructs an http.Request for the ListAudioVoices method
+func NewListAudioVoicesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/audio/voices")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -25850,87 +26558,6 @@ func NewPutGitHostConnectionRequestWithBody(server string, host string, label st
 	return req, nil
 }
 
-// NewDeleteGitHostTokenRequest constructs an http.Request for the DeleteGitHostToken method
-func NewDeleteGitHostTokenRequest(server string, host string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPutGitHostTokenRequest calls the generic PutGitHostToken builder with application/json body
-func NewPutGitHostTokenRequest(server string, host string, body PutGitHostTokenJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPutGitHostTokenRequestWithBody(server, host, "application/json", bodyReader)
-}
-
-// NewPutGitHostTokenRequestWithBody constructs an http.Request for the PutGitHostToken method, with any body, and a specified content type
-func NewPutGitHostTokenRequestWithBody(server string, host string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewGenerateImagesRequest calls the generic GenerateImages builder with application/json body
 func NewGenerateImagesRequest(server string, body GenerateImagesJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -26220,6 +26847,238 @@ func NewCreateTodoRequestWithBody(server string, params *CreateTodoParams, conte
 		}
 
 	}
+
+	return req, nil
+}
+
+// NewListInboxChatSourcesRequest constructs an http.Request for the ListInboxChatSources method
+func NewListInboxChatSourcesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewMoveInboxDropChatsRequest calls the generic MoveInboxDropChats builder with application/json body
+func NewMoveInboxDropChatsRequest(server string, body MoveInboxDropChatsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewMoveInboxDropChatsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewMoveInboxDropChatsRequestWithBody constructs an http.Request for the MoveInboxDropChats method, with any body, and a specified content type
+func NewMoveInboxDropChatsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/moves")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListInboxChatsRequest constructs an http.Request for the ListInboxChats method
+func NewListInboxChatsRequest(server string, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "q", *params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetInboxChatRequest calls the generic SetInboxChat builder with application/json body
+func NewSetInboxChatRequest(server string, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetInboxChatRequestWithBody(server, integration, label, chat, "application/json", bodyReader)
+}
+
+// NewSetInboxChatRequestWithBody constructs an http.Request for the SetInboxChat method, with any body, and a specified content type
+func NewSetInboxChatRequestWithBody(server string, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "chat", chat, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/%s/%s/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -33378,6 +34237,33 @@ func NewPreviewVideoLookRequestWithBody(server string, contentType string, body 
 	return req, nil
 }
 
+// NewListVideoTemplatesRequest constructs an http.Request for the ListVideoTemplates method
+func NewListVideoTemplatesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/templates")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDeleteVideoRequest constructs an http.Request for the DeleteVideo method
 func NewDeleteVideoRequest(server string, videoId VideoID) (*http.Request, error) {
 	var err error
@@ -34938,6 +35824,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/audio (the `GetAudio` operationId).
 	GetAudioWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetAudioResponse, error)
 
+	// ListAudioModelsWithResponse The text-to-speech models the owner may choose from, with the languages each covers
+	//
+	// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
+	ListAudioModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAudioModelsResponse, error)
+
 	// SetAudioOrderWithBodyWithResponse Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -34997,6 +35892,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKeyWithResponse(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*RemoveAudioKeyResponse, error)
 
+	// SetAudioModelWithBodyWithResponse Set the model a provider speaks with; only the owner
+	//
+	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+	SetAudioModelWithBodyWithResponse(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error)
+
+	// SetAudioModelWithResponse Set the model a provider speaks with; only the owner
+	//
+	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+	SetAudioModelWithResponse(ctx context.Context, provider AudioProvider, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error)
+
 	// SetAudioVoiceWithBodyWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
 	//
 	// Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -35014,6 +35927,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
 	SetAudioVoiceWithResponse(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioVoiceResponse, error)
+
+	// ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name and id
+	//
+	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+	ListAudioVoicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAudioVoicesResponse, error)
 
 	// GetImagesWithResponse The image providers in the order a request asks them, each with its switch, state, model and usage
 	//
@@ -35102,7 +36024,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -35378,31 +36300,6 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
 	PutGitHostConnectionWithResponse(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostConnectionResponse, error)
 
-	// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
-	//
-	// Returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-	DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error)
-
-	// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
-
-	// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
-
 	// GenerateImagesWithBodyWithResponse Make or edit images through the owner's subscriptions; any token, a Bot's included
 	//
 	// With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -35447,6 +36344,60 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /inbox (the `CreateTodo` operationId).
 	CreateTodoWithResponse(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTodoResponse, error)
+
+	// ListInboxChatSourcesWithResponse The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	//
+	// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+	ListInboxChatSourcesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListInboxChatSourcesResponse, error)
+
+	// MoveInboxDropChatsWithBodyWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChatsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error)
+
+	// MoveInboxDropChatsWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChatsWithResponse(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error)
+
+	// ListInboxChatsWithResponse An account's chats with whether the secretary reads each and why; only the owner
+	//
+	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+	ListInboxChatsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*ListInboxChatsResponse, error)
+
+	// SetInboxChatWithBodyWithResponse Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChatWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error)
+
+	// SetInboxChatWithResponse Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChatWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error)
 
 	// GetInboxNeedsYouWithResponse How many things in the Inbox need the owner now, for the sidebar
 	//
@@ -36437,7 +37388,7 @@ type ClientWithResponsesInterface interface {
 
 	// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -37190,6 +38141,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 	PreviewVideoLookWithResponse(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewVideoLookResponse, error)
+
+	// ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
+	//
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+	ListVideoTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoTemplatesResponse, error)
 
 	// DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
 	//
@@ -41598,6 +42558,54 @@ func (r GetAudioResponse) ContentType() string {
 	return ""
 }
 
+type ListAudioModelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AudioModels
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListAudioModelsResponse) GetJSON200() *AudioModels {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListAudioModelsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListAudioModelsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAudioModelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAudioModelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAudioModelsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type SetAudioOrderResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -41790,6 +42798,54 @@ func (r RemoveAudioKeyResponse) ContentType() string {
 	return ""
 }
 
+type SetAudioModelResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Audio
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetAudioModelResponse) GetJSON200() *Audio {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetAudioModelResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetAudioModelResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetAudioModelResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetAudioModelResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetAudioModelResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type SetAudioVoiceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -41832,6 +42888,54 @@ func (r SetAudioVoiceResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetAudioVoiceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAudioVoicesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AudioVoices
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListAudioVoicesResponse) GetJSON200() *AudioVoices {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListAudioVoicesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListAudioVoicesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAudioVoicesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAudioVoicesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAudioVoicesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -43326,102 +44430,6 @@ func (r PutGitHostConnectionResponse) ContentType() string {
 	return ""
 }
 
-type DeleteGitHostTokenResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *GitHost
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r DeleteGitHostTokenResponse) GetJSON200() *GitHost {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r DeleteGitHostTokenResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r DeleteGitHostTokenResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteGitHostTokenResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteGitHostTokenResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteGitHostTokenResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type PutGitHostTokenResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *GitHost
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r PutGitHostTokenResponse) GetJSON200() *GitHost {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r PutGitHostTokenResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r PutGitHostTokenResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r PutGitHostTokenResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PutGitHostTokenResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r PutGitHostTokenResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type GenerateImagesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -43560,6 +44568,198 @@ func (r CreateTodoResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CreateTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListInboxChatSourcesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatSourceList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListInboxChatSourcesResponse) GetJSON200() *InboxChatSourceList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListInboxChatSourcesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListInboxChatSourcesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListInboxChatSourcesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListInboxChatSourcesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListInboxChatSourcesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MoveInboxDropChatsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatMoved
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MoveInboxDropChatsResponse) GetJSON200() *InboxChatMoved {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r MoveInboxDropChatsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r MoveInboxDropChatsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MoveInboxDropChatsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MoveInboxDropChatsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MoveInboxDropChatsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListInboxChatsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListInboxChatsResponse) GetJSON200() *InboxChatList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListInboxChatsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListInboxChatsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListInboxChatsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListInboxChatsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListInboxChatsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetInboxChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatSet
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetInboxChatResponse) GetJSON200() *InboxChatSet {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetInboxChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetInboxChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetInboxChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetInboxChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetInboxChatResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -51023,6 +52223,54 @@ func (r PreviewVideoLookResponse) ContentType() string {
 	return ""
 }
 
+type ListVideoTemplatesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *VideoTemplates
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListVideoTemplatesResponse) GetJSON200() *VideoTemplates {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListVideoTemplatesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListVideoTemplatesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListVideoTemplatesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListVideoTemplatesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListVideoTemplatesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteVideoResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -53278,6 +54526,21 @@ func (c *ClientWithResponses) GetAudioWithResponse(ctx context.Context, reqEdito
 	return ParseGetAudioResponse(rsp)
 }
 
+// ListAudioModelsWithResponse The text-to-speech models the owner may choose from, with the languages each covers
+//
+// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
+func (c *ClientWithResponses) ListAudioModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAudioModelsResponse, error) {
+	rsp, err := c.ListAudioModels(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAudioModelsResponse(rsp)
+}
+
 // SetAudioOrderWithBodyWithResponse Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -53379,6 +54642,36 @@ func (c *ClientWithResponses) RemoveAudioKeyWithResponse(ctx context.Context, pr
 	return ParseRemoveAudioKeyResponse(rsp)
 }
 
+// SetAudioModelWithBodyWithResponse Set the model a provider speaks with; only the owner
+//
+// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+func (c *ClientWithResponses) SetAudioModelWithBodyWithResponse(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error) {
+	rsp, err := c.SetAudioModelWithBody(ctx, provider, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAudioModelResponse(rsp)
+}
+
+// SetAudioModelWithResponse Set the model a provider speaks with; only the owner
+//
+// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
+func (c *ClientWithResponses) SetAudioModelWithResponse(ctx context.Context, provider AudioProvider, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error) {
+	rsp, err := c.SetAudioModel(ctx, provider, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAudioModelResponse(rsp)
+}
+
 // SetAudioVoiceWithBodyWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
 //
 // Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -53407,6 +54700,21 @@ func (c *ClientWithResponses) SetAudioVoiceWithResponse(ctx context.Context, pro
 		return nil, err
 	}
 	return ParseSetAudioVoiceResponse(rsp)
+}
+
+// ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name and id
+//
+// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+func (c *ClientWithResponses) ListAudioVoicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAudioVoicesResponse, error) {
+	rsp, err := c.ListAudioVoices(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAudioVoicesResponse(rsp)
 }
 
 // GetImagesWithResponse The image providers in the order a request asks them, each with its switch, state, model and usage
@@ -53562,7 +54870,7 @@ func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, 
 
 // GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -54042,49 +55350,6 @@ func (c *ClientWithResponses) PutGitHostConnectionWithResponse(ctx context.Conte
 	return ParsePutGitHostConnectionResponse(rsp)
 }
 
-// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
-//
-// Returns a wrapper object for the known response body format(s).
-//
-// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-func (c *ClientWithResponses) DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error) {
-	rsp, err := c.DeleteGitHostToken(ctx, host, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteGitHostTokenResponse(rsp)
-}
-
-// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *ClientWithResponses) PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
-	rsp, err := c.PutGitHostTokenWithBody(ctx, host, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePutGitHostTokenResponse(rsp)
-}
-
-// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *ClientWithResponses) PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
-	rsp, err := c.PutGitHostToken(ctx, host, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePutGitHostTokenResponse(rsp)
-}
-
 // GenerateImagesWithBodyWithResponse Make or edit images through the owner's subscriptions; any token, a Bot's included
 //
 // With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -54158,6 +55423,96 @@ func (c *ClientWithResponses) CreateTodoWithResponse(ctx context.Context, params
 		return nil, err
 	}
 	return ParseCreateTodoResponse(rsp)
+}
+
+// ListInboxChatSourcesWithResponse The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+//
+// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+func (c *ClientWithResponses) ListInboxChatSourcesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListInboxChatSourcesResponse, error) {
+	rsp, err := c.ListInboxChatSources(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListInboxChatSourcesResponse(rsp)
+}
+
+// MoveInboxDropChatsWithBodyWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *ClientWithResponses) MoveInboxDropChatsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error) {
+	rsp, err := c.MoveInboxDropChatsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveInboxDropChatsResponse(rsp)
+}
+
+// MoveInboxDropChatsWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *ClientWithResponses) MoveInboxDropChatsWithResponse(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error) {
+	rsp, err := c.MoveInboxDropChats(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveInboxDropChatsResponse(rsp)
+}
+
+// ListInboxChatsWithResponse An account's chats with whether the secretary reads each and why; only the owner
+//
+// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+func (c *ClientWithResponses) ListInboxChatsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*ListInboxChatsResponse, error) {
+	rsp, err := c.ListInboxChats(ctx, integration, label, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListInboxChatsResponse(rsp)
+}
+
+// SetInboxChatWithBodyWithResponse Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *ClientWithResponses) SetInboxChatWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error) {
+	rsp, err := c.SetInboxChatWithBody(ctx, integration, label, chat, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetInboxChatResponse(rsp)
+}
+
+// SetInboxChatWithResponse Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *ClientWithResponses) SetInboxChatWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error) {
+	rsp, err := c.SetInboxChat(ctx, integration, label, chat, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetInboxChatResponse(rsp)
 }
 
 // GetInboxNeedsYouWithResponse How many things in the Inbox need the owner now, for the sidebar
@@ -55863,7 +57218,7 @@ func (c *ClientWithResponses) ListProfileVersionsWithResponse(ctx context.Contex
 
 // RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -57179,6 +58534,21 @@ func (c *ClientWithResponses) PreviewVideoLookWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParsePreviewVideoLookResponse(rsp)
+}
+
+// ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
+//
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+func (c *ClientWithResponses) ListVideoTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoTemplatesResponse, error) {
+	rsp, err := c.ListVideoTemplates(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListVideoTemplatesResponse(rsp)
 }
 
 // DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
@@ -60345,6 +61715,39 @@ func ParseGetAudioResponse(rsp *http.Response) (*GetAudioResponse, error) {
 	return response, nil
 }
 
+// ParseListAudioModelsResponse parses an HTTP response from a ListAudioModelsWithResponse call
+func ParseListAudioModelsResponse(rsp *http.Response) (*ListAudioModelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAudioModelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AudioModels
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSetAudioOrderResponse parses an HTTP response from a SetAudioOrderWithResponse call
 func ParseSetAudioOrderResponse(rsp *http.Response) (*SetAudioOrderResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -60477,6 +61880,39 @@ func ParseRemoveAudioKeyResponse(rsp *http.Response) (*RemoveAudioKeyResponse, e
 	return response, nil
 }
 
+// ParseSetAudioModelResponse parses an HTTP response from a SetAudioModelWithResponse call
+func ParseSetAudioModelResponse(rsp *http.Response) (*SetAudioModelResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetAudioModelResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Audio
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSetAudioVoiceResponse parses an HTTP response from a SetAudioVoiceWithResponse call
 func ParseSetAudioVoiceResponse(rsp *http.Response) (*SetAudioVoiceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -60493,6 +61929,39 @@ func ParseSetAudioVoiceResponse(rsp *http.Response) (*SetAudioVoiceResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Audio
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAudioVoicesResponse parses an HTTP response from a ListAudioVoicesWithResponse call
+func ParseListAudioVoicesResponse(rsp *http.Response) (*ListAudioVoicesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAudioVoicesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AudioVoices
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -61554,72 +63023,6 @@ func ParsePutGitHostConnectionResponse(rsp *http.Response) (*PutGitHostConnectio
 	return response, nil
 }
 
-// ParseDeleteGitHostTokenResponse parses an HTTP response from a DeleteGitHostTokenWithResponse call
-func ParseDeleteGitHostTokenResponse(rsp *http.Response) (*DeleteGitHostTokenResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteGitHostTokenResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest GitHost
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePutGitHostTokenResponse parses an HTTP response from a PutGitHostTokenWithResponse call
-func ParsePutGitHostTokenResponse(rsp *http.Response) (*PutGitHostTokenResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PutGitHostTokenResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest GitHost
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseGenerateImagesResponse parses an HTTP response from a GenerateImagesWithResponse call
 func ParseGenerateImagesResponse(rsp *http.Response) (*GenerateImagesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -61706,6 +63109,138 @@ func ParseCreateTodoResponse(rsp *http.Response) (*CreateTodoResponse, error) {
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListInboxChatSourcesResponse parses an HTTP response from a ListInboxChatSourcesWithResponse call
+func ParseListInboxChatSourcesResponse(rsp *http.Response) (*ListInboxChatSourcesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListInboxChatSourcesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatSourceList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMoveInboxDropChatsResponse parses an HTTP response from a MoveInboxDropChatsWithResponse call
+func ParseMoveInboxDropChatsResponse(rsp *http.Response) (*MoveInboxDropChatsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MoveInboxDropChatsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatMoved
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListInboxChatsResponse parses an HTTP response from a ListInboxChatsWithResponse call
+func ParseListInboxChatsResponse(rsp *http.Response) (*ListInboxChatsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListInboxChatsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetInboxChatResponse parses an HTTP response from a SetInboxChatWithResponse call
+func ParseSetInboxChatResponse(rsp *http.Response) (*SetInboxChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetInboxChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatSet
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -66878,6 +68413,39 @@ func ParsePreviewVideoLookResponse(rsp *http.Response) (*PreviewVideoLookRespons
 	return response, nil
 }
 
+// ParseListVideoTemplatesResponse parses an HTTP response from a ListVideoTemplatesWithResponse call
+func ParseListVideoTemplatesResponse(rsp *http.Response) (*ListVideoTemplatesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListVideoTemplatesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VideoTemplates
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteVideoResponse parses an HTTP response from a DeleteVideoWithResponse call
 func ParseDeleteVideoResponse(rsp *http.Response) (*DeleteVideoResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -67465,6 +69033,9 @@ type ServerInterface interface {
 	// GetAudio The audio providers with their switches, keys and state, and the order speech-to-text and text-to-speech each ask them in, with each one's model and usage
 	// (GET /gateway/audio)
 	GetAudio(w http.ResponseWriter, r *http.Request)
+	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// (GET /gateway/audio/models)
+	ListAudioModels(w http.ResponseWriter, r *http.Request)
 	// SetAudioOrder Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
 	// (PUT /gateway/audio/order/{kind})
 	SetAudioOrder(w http.ResponseWriter, r *http.Request, kind AudioKind)
@@ -67477,9 +69048,15 @@ type ServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(w http.ResponseWriter, r *http.Request, provider AudioProvider, name string)
+	// SetAudioModel Set the model a provider speaks with; only the owner
+	// (PUT /gateway/audio/providers/{provider}/model)
+	SetAudioModel(w http.ResponseWriter, r *http.Request, provider AudioProvider)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
 	// (PUT /gateway/audio/providers/{provider}/voice)
 	SetAudioVoice(w http.ResponseWriter, r *http.Request, provider AudioProvider)
+	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
+	// (GET /gateway/audio/voices)
+	ListAudioVoices(w http.ResponseWriter, r *http.Request)
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	// (GET /gateway/images)
 	GetImages(w http.ResponseWriter, r *http.Request)
@@ -67573,12 +69150,6 @@ type ServerInterface interface {
 	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
 	// (PUT /hosts/{host}/connections/{label})
 	PutGitHostConnection(w http.ResponseWriter, r *http.Request, host string, label string)
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	// (DELETE /hosts/{host}/token)
-	DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string)
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	// (PUT /hosts/{host}/token)
-	PutGitHostToken(w http.ResponseWriter, r *http.Request, host string)
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(w http.ResponseWriter, r *http.Request)
@@ -67588,6 +69159,18 @@ type ServerInterface interface {
 	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
 	// (POST /inbox)
 	CreateTodo(w http.ResponseWriter, r *http.Request, params CreateTodoParams)
+	// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	// (GET /inbox/chat-sources)
+	ListInboxChatSources(w http.ResponseWriter, r *http.Request)
+	// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	// (POST /inbox/chat-sources/moves)
+	MoveInboxDropChats(w http.ResponseWriter, r *http.Request)
+	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+	// (GET /inbox/chat-sources/{integration}/{label})
+	ListInboxChats(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, params ListInboxChatsParams)
+	// SetInboxChat Set whether the secretary reads one chat; only the owner
+	// (PUT /inbox/chat-sources/{integration}/{label}/{chat})
+	SetInboxChat(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, chat string)
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(w http.ResponseWriter, r *http.Request)
@@ -68062,6 +69645,9 @@ type ServerInterface interface {
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(w http.ResponseWriter, r *http.Request)
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	// (GET /videos/templates)
+	ListVideoTemplates(w http.ResponseWriter, r *http.Request)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(w http.ResponseWriter, r *http.Request, videoId VideoID)
@@ -71102,6 +72688,20 @@ func (siw *ServerInterfaceWrapper) GetAudio(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// ListAudioModels operation middleware
+func (siw *ServerInterfaceWrapper) ListAudioModels(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAudioModels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetAudioOrder operation middleware
 func (siw *ServerInterfaceWrapper) SetAudioOrder(w http.ResponseWriter, r *http.Request) {
 
@@ -71215,6 +72815,32 @@ func (siw *ServerInterfaceWrapper) RemoveAudioKey(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// SetAudioModel operation middleware
+func (siw *ServerInterfaceWrapper) SetAudioModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider AudioProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAudioModel(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetAudioVoice operation middleware
 func (siw *ServerInterfaceWrapper) SetAudioVoice(w http.ResponseWriter, r *http.Request) {
 
@@ -71232,6 +72858,20 @@ func (siw *ServerInterfaceWrapper) SetAudioVoice(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetAudioVoice(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAudioVoices operation middleware
+func (siw *ServerInterfaceWrapper) ListAudioVoices(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAudioVoices(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -72022,58 +73662,6 @@ func (siw *ServerInterfaceWrapper) PutGitHostConnection(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteGitHostToken operation middleware
-func (siw *ServerInterfaceWrapper) DeleteGitHostToken(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "host" -------------
-	var host string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteGitHostToken(w, r, host)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PutGitHostToken operation middleware
-func (siw *ServerInterfaceWrapper) PutGitHostToken(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "host" -------------
-	var host string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PutGitHostToken(w, r, host)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GenerateImages operation middleware
 func (siw *ServerInterfaceWrapper) GenerateImages(w http.ResponseWriter, r *http.Request) {
 
@@ -72309,6 +73897,168 @@ func (siw *ServerInterfaceWrapper) CreateTodo(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateTodo(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListInboxChatSources operation middleware
+func (siw *ServerInterfaceWrapper) ListInboxChatSources(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInboxChatSources(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveInboxDropChats operation middleware
+func (siw *ServerInterfaceWrapper) MoveInboxDropChats(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveInboxDropChats(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListInboxChats operation middleware
+func (siw *ServerInterfaceWrapper) ListInboxChats(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListInboxChatsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInboxChats(w, r, integration, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetInboxChat operation middleware
+func (siw *ServerInterfaceWrapper) SetInboxChat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "chat" -------------
+	var chat string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat", r.PathValue("chat"), &chat, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetInboxChat(w, r, integration, label, chat)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -77225,6 +78975,20 @@ func (siw *ServerInterfaceWrapper) PreviewVideoLook(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListVideoTemplates operation middleware
+func (siw *ServerInterfaceWrapper) ListVideoTemplates(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVideoTemplates(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteVideo operation middleware
 func (siw *ServerInterfaceWrapper) DeleteVideo(w http.ResponseWriter, r *http.Request) {
 
@@ -77784,6 +79548,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos", wrapper.ListVideos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos", wrapper.MakeVideo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/looks", wrapper.ListVideoLooks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/templates", wrapper.ListVideoTemplates)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/preview", wrapper.PreviewVideoLook)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/music", wrapper.ListVideoMusic)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/videos/music/{music_id}", wrapper.DeleteVideoMusic)
@@ -77800,8 +79565,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}", wrapper.PutGitHost)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/token", wrapper.DeleteGitHostToken)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/token", wrapper.PutGitHostToken)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.DeleteGitHostConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.PutGitHostConnection)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations", wrapper.ListIntegrations)
@@ -77889,6 +79652,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/audio/providers/{provider}/keys", wrapper.AddAudioKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/audio/providers/{provider}/keys/{name}", wrapper.RemoveAudioKey)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/providers/{provider}/voice", wrapper.SetAudioVoice)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/providers/{provider}/model", wrapper.SetAudioModel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/audio/models", wrapper.ListAudioModels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/audio/voices", wrapper.ListAudioVoices)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/order/{kind}", wrapper.SetAudioOrder)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots", wrapper.ListBots)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots", wrapper.CreateBot)
@@ -78026,6 +79792,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox", wrapper.ListTodos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox", wrapper.CreateTodo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/needs-you", wrapper.GetInboxNeedsYou)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/chat-sources", wrapper.ListInboxChatSources)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/chat-sources/moves", wrapper.MoveInboxDropChats)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}", wrapper.ListInboxChats)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}/{chat}", wrapper.SetInboxChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.GetTodo)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.EditTodo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/accept", wrapper.AcceptTodo)
@@ -81712,6 +83482,44 @@ func (response GetAudiodefaultJSONResponse) VisitGetAudioResponse(w http.Respons
 	return err
 }
 
+type ListAudioModelsRequestObject struct {
+}
+
+type ListAudioModelsResponseObject interface {
+	VisitListAudioModelsResponse(w http.ResponseWriter) error
+}
+
+type ListAudioModels200JSONResponse AudioModels
+
+func (response ListAudioModels200JSONResponse) VisitListAudioModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAudioModelsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListAudioModelsdefaultJSONResponse) VisitListAudioModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetAudioOrderRequestObject struct {
 	Kind AudioKind `json:"kind"`
 	Body *SetAudioOrderJSONRequestBody
@@ -81872,6 +83680,46 @@ func (response RemoveAudioKeydefaultJSONResponse) VisitRemoveAudioKeyResponse(w 
 	return err
 }
 
+type SetAudioModelRequestObject struct {
+	Provider AudioProvider `json:"provider"`
+	Body     *SetAudioModelJSONRequestBody
+}
+
+type SetAudioModelResponseObject interface {
+	VisitSetAudioModelResponse(w http.ResponseWriter) error
+}
+
+type SetAudioModel200JSONResponse Audio
+
+func (response SetAudioModel200JSONResponse) VisitSetAudioModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAudioModeldefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetAudioModeldefaultJSONResponse) VisitSetAudioModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetAudioVoiceRequestObject struct {
 	Provider AudioProvider `json:"provider"`
 	Body     *SetAudioVoiceJSONRequestBody
@@ -81901,6 +83749,44 @@ type SetAudioVoicedefaultJSONResponse struct {
 }
 
 func (response SetAudioVoicedefaultJSONResponse) VisitSetAudioVoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAudioVoicesRequestObject struct {
+}
+
+type ListAudioVoicesResponseObject interface {
+	VisitListAudioVoicesResponse(w http.ResponseWriter) error
+}
+
+type ListAudioVoices200JSONResponse AudioVoices
+
+func (response ListAudioVoices200JSONResponse) VisitListAudioVoicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAudioVoicesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListAudioVoicesdefaultJSONResponse) VisitListAudioVoicesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -83143,85 +85029,6 @@ func (response PutGitHostConnectiondefaultJSONResponse) VisitPutGitHostConnectio
 	return err
 }
 
-type DeleteGitHostTokenRequestObject struct {
-	Host string `json:"host"`
-}
-
-type DeleteGitHostTokenResponseObject interface {
-	VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error
-}
-
-type DeleteGitHostToken200JSONResponse GitHost
-
-func (response DeleteGitHostToken200JSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteGitHostTokendefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response DeleteGitHostTokendefaultJSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutGitHostTokenRequestObject struct {
-	Host string `json:"host"`
-	Body *PutGitHostTokenJSONRequestBody
-}
-
-type PutGitHostTokenResponseObject interface {
-	VisitPutGitHostTokenResponse(w http.ResponseWriter) error
-}
-
-type PutGitHostToken200JSONResponse GitHost
-
-func (response PutGitHostToken200JSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutGitHostTokendefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response PutGitHostTokendefaultJSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type GenerateImagesRequestObject struct {
 	Body *GenerateImagesJSONRequestBody
 }
@@ -83329,6 +85136,166 @@ type CreateTododefaultJSONResponse struct {
 }
 
 func (response CreateTododefaultJSONResponse) VisitCreateTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatSourcesRequestObject struct {
+}
+
+type ListInboxChatSourcesResponseObject interface {
+	VisitListInboxChatSourcesResponse(w http.ResponseWriter) error
+}
+
+type ListInboxChatSources200JSONResponse InboxChatSourceList
+
+func (response ListInboxChatSources200JSONResponse) VisitListInboxChatSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatSourcesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListInboxChatSourcesdefaultJSONResponse) VisitListInboxChatSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveInboxDropChatsRequestObject struct {
+	Body *MoveInboxDropChatsJSONRequestBody
+}
+
+type MoveInboxDropChatsResponseObject interface {
+	VisitMoveInboxDropChatsResponse(w http.ResponseWriter) error
+}
+
+type MoveInboxDropChats200JSONResponse InboxChatMoved
+
+func (response MoveInboxDropChats200JSONResponse) VisitMoveInboxDropChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveInboxDropChatsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response MoveInboxDropChatsdefaultJSONResponse) VisitMoveInboxDropChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatsRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Params      ListInboxChatsParams
+}
+
+type ListInboxChatsResponseObject interface {
+	VisitListInboxChatsResponse(w http.ResponseWriter) error
+}
+
+type ListInboxChats200JSONResponse InboxChatList
+
+func (response ListInboxChats200JSONResponse) VisitListInboxChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListInboxChatsdefaultJSONResponse) VisitListInboxChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInboxChatRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Chat        string          `json:"chat"`
+	Body        *SetInboxChatJSONRequestBody
+}
+
+type SetInboxChatResponseObject interface {
+	VisitSetInboxChatResponse(w http.ResponseWriter) error
+}
+
+type SetInboxChat200JSONResponse InboxChatSet
+
+func (response SetInboxChat200JSONResponse) VisitSetInboxChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInboxChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetInboxChatdefaultJSONResponse) VisitSetInboxChatResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -89655,6 +91622,44 @@ func (response PreviewVideoLookdefaultJSONResponse) VisitPreviewVideoLookRespons
 	return err
 }
 
+type ListVideoTemplatesRequestObject struct {
+}
+
+type ListVideoTemplatesResponseObject interface {
+	VisitListVideoTemplatesResponse(w http.ResponseWriter) error
+}
+
+type ListVideoTemplates200JSONResponse VideoTemplates
+
+func (response ListVideoTemplates200JSONResponse) VisitListVideoTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVideoTemplatesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListVideoTemplatesdefaultJSONResponse) VisitListVideoTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteVideoRequestObject struct {
 	VideoId VideoID `json:"video_id"`
 }
@@ -90358,6 +92363,9 @@ type StrictServerInterface interface {
 	// GetAudio The audio providers with their switches, keys and state, and the order speech-to-text and text-to-speech each ask them in, with each one's model and usage
 	// (GET /gateway/audio)
 	GetAudio(ctx context.Context, request GetAudioRequestObject) (GetAudioResponseObject, error)
+	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// (GET /gateway/audio/models)
+	ListAudioModels(ctx context.Context, request ListAudioModelsRequestObject) (ListAudioModelsResponseObject, error)
 	// SetAudioOrder Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
 	// (PUT /gateway/audio/order/{kind})
 	SetAudioOrder(ctx context.Context, request SetAudioOrderRequestObject) (SetAudioOrderResponseObject, error)
@@ -90370,9 +92378,15 @@ type StrictServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(ctx context.Context, request RemoveAudioKeyRequestObject) (RemoveAudioKeyResponseObject, error)
+	// SetAudioModel Set the model a provider speaks with; only the owner
+	// (PUT /gateway/audio/providers/{provider}/model)
+	SetAudioModel(ctx context.Context, request SetAudioModelRequestObject) (SetAudioModelResponseObject, error)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
 	// (PUT /gateway/audio/providers/{provider}/voice)
 	SetAudioVoice(ctx context.Context, request SetAudioVoiceRequestObject) (SetAudioVoiceResponseObject, error)
+	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
+	// (GET /gateway/audio/voices)
+	ListAudioVoices(ctx context.Context, request ListAudioVoicesRequestObject) (ListAudioVoicesResponseObject, error)
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	// (GET /gateway/images)
 	GetImages(ctx context.Context, request GetImagesRequestObject) (GetImagesResponseObject, error)
@@ -90466,12 +92480,6 @@ type StrictServerInterface interface {
 	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
 	// (PUT /hosts/{host}/connections/{label})
 	PutGitHostConnection(ctx context.Context, request PutGitHostConnectionRequestObject) (PutGitHostConnectionResponseObject, error)
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	// (DELETE /hosts/{host}/token)
-	DeleteGitHostToken(ctx context.Context, request DeleteGitHostTokenRequestObject) (DeleteGitHostTokenResponseObject, error)
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	// (PUT /hosts/{host}/token)
-	PutGitHostToken(ctx context.Context, request PutGitHostTokenRequestObject) (PutGitHostTokenResponseObject, error)
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(ctx context.Context, request GenerateImagesRequestObject) (GenerateImagesResponseObject, error)
@@ -90481,6 +92489,18 @@ type StrictServerInterface interface {
 	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
 	// (POST /inbox)
 	CreateTodo(ctx context.Context, request CreateTodoRequestObject) (CreateTodoResponseObject, error)
+	// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	// (GET /inbox/chat-sources)
+	ListInboxChatSources(ctx context.Context, request ListInboxChatSourcesRequestObject) (ListInboxChatSourcesResponseObject, error)
+	// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	// (POST /inbox/chat-sources/moves)
+	MoveInboxDropChats(ctx context.Context, request MoveInboxDropChatsRequestObject) (MoveInboxDropChatsResponseObject, error)
+	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+	// (GET /inbox/chat-sources/{integration}/{label})
+	ListInboxChats(ctx context.Context, request ListInboxChatsRequestObject) (ListInboxChatsResponseObject, error)
+	// SetInboxChat Set whether the secretary reads one chat; only the owner
+	// (PUT /inbox/chat-sources/{integration}/{label}/{chat})
+	SetInboxChat(ctx context.Context, request SetInboxChatRequestObject) (SetInboxChatResponseObject, error)
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(ctx context.Context, request GetInboxNeedsYouRequestObject) (GetInboxNeedsYouResponseObject, error)
@@ -90955,6 +92975,9 @@ type StrictServerInterface interface {
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(ctx context.Context, request PreviewVideoLookRequestObject) (PreviewVideoLookResponseObject, error)
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	// (GET /videos/templates)
+	ListVideoTemplates(ctx context.Context, request ListVideoTemplatesRequestObject) (ListVideoTemplatesResponseObject, error)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(ctx context.Context, request DeleteVideoRequestObject) (DeleteVideoResponseObject, error)
@@ -93638,6 +95661,30 @@ func (sh *strictHandler) GetAudio(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListAudioModels operation middleware
+func (sh *strictHandler) ListAudioModels(w http.ResponseWriter, r *http.Request) {
+	var request ListAudioModelsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAudioModels(ctx, request.(ListAudioModelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAudioModels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAudioModelsResponseObject); ok {
+		if err := validResponse.VisitListAudioModelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // SetAudioOrder operation middleware
 func (sh *strictHandler) SetAudioOrder(w http.ResponseWriter, r *http.Request, kind AudioKind) {
 	var request SetAudioOrderRequestObject
@@ -93764,6 +95811,39 @@ func (sh *strictHandler) RemoveAudioKey(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// SetAudioModel operation middleware
+func (sh *strictHandler) SetAudioModel(w http.ResponseWriter, r *http.Request, provider AudioProvider) {
+	var request SetAudioModelRequestObject
+
+	request.Provider = provider
+
+	var body SetAudioModelJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAudioModel(ctx, request.(SetAudioModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAudioModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAudioModelResponseObject); ok {
+		if err := validResponse.VisitSetAudioModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // SetAudioVoice operation middleware
 func (sh *strictHandler) SetAudioVoice(w http.ResponseWriter, r *http.Request, provider AudioProvider) {
 	var request SetAudioVoiceRequestObject
@@ -93790,6 +95870,30 @@ func (sh *strictHandler) SetAudioVoice(w http.ResponseWriter, r *http.Request, p
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetAudioVoiceResponseObject); ok {
 		if err := validResponse.VisitSetAudioVoiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAudioVoices operation middleware
+func (sh *strictHandler) ListAudioVoices(w http.ResponseWriter, r *http.Request) {
+	var request ListAudioVoicesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAudioVoices(ctx, request.(ListAudioVoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAudioVoices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAudioVoicesResponseObject); ok {
+		if err := validResponse.VisitListAudioVoicesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -94680,65 +96784,6 @@ func (sh *strictHandler) PutGitHostConnection(w http.ResponseWriter, r *http.Req
 	}
 }
 
-// DeleteGitHostToken operation middleware
-func (sh *strictHandler) DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
-	var request DeleteGitHostTokenRequestObject
-
-	request.Host = host
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteGitHostToken(ctx, request.(DeleteGitHostTokenRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteGitHostToken")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteGitHostTokenResponseObject); ok {
-		if err := validResponse.VisitDeleteGitHostTokenResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PutGitHostToken operation middleware
-func (sh *strictHandler) PutGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
-	var request PutGitHostTokenRequestObject
-
-	request.Host = host
-
-	var body PutGitHostTokenJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PutGitHostToken(ctx, request.(PutGitHostTokenRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PutGitHostToken")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PutGitHostTokenResponseObject); ok {
-		if err := validResponse.VisitPutGitHostTokenResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // GenerateImages operation middleware
 func (sh *strictHandler) GenerateImages(w http.ResponseWriter, r *http.Request) {
 	var request GenerateImagesRequestObject
@@ -94822,6 +96867,124 @@ func (sh *strictHandler) CreateTodo(w http.ResponseWriter, r *http.Request, para
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateTodoResponseObject); ok {
 		if err := validResponse.VisitCreateTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListInboxChatSources operation middleware
+func (sh *strictHandler) ListInboxChatSources(w http.ResponseWriter, r *http.Request) {
+	var request ListInboxChatSourcesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInboxChatSources(ctx, request.(ListInboxChatSourcesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInboxChatSources")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInboxChatSourcesResponseObject); ok {
+		if err := validResponse.VisitListInboxChatSourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveInboxDropChats operation middleware
+func (sh *strictHandler) MoveInboxDropChats(w http.ResponseWriter, r *http.Request) {
+	var request MoveInboxDropChatsRequestObject
+
+	var body MoveInboxDropChatsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveInboxDropChats(ctx, request.(MoveInboxDropChatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveInboxDropChats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MoveInboxDropChatsResponseObject); ok {
+		if err := validResponse.VisitMoveInboxDropChatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListInboxChats operation middleware
+func (sh *strictHandler) ListInboxChats(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, params ListInboxChatsParams) {
+	var request ListInboxChatsRequestObject
+
+	request.Integration = integration
+	request.Label = label
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInboxChats(ctx, request.(ListInboxChatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInboxChats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInboxChatsResponseObject); ok {
+		if err := validResponse.VisitListInboxChatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetInboxChat operation middleware
+func (sh *strictHandler) SetInboxChat(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, chat string) {
+	var request SetInboxChatRequestObject
+
+	request.Integration = integration
+	request.Label = label
+	request.Chat = chat
+
+	var body SetInboxChatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetInboxChat(ctx, request.(SetInboxChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetInboxChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetInboxChatResponseObject); ok {
+		if err := validResponse.VisitSetInboxChatResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -99299,6 +101462,30 @@ func (sh *strictHandler) PreviewVideoLook(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PreviewVideoLookResponseObject); ok {
 		if err := validResponse.VisitPreviewVideoLookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVideoTemplates operation middleware
+func (sh *strictHandler) ListVideoTemplates(w http.ResponseWriter, r *http.Request) {
+	var request ListVideoTemplatesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVideoTemplates(ctx, request.(ListVideoTemplatesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVideoTemplates")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVideoTemplatesResponseObject); ok {
+		if err := validResponse.VisitListVideoTemplatesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

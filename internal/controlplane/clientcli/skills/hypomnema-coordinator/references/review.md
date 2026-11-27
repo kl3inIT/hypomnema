@@ -9,14 +9,16 @@ succeeded planner Task's id. For example, "Check whether this retry design is ex
 and the acceptance checks", followed by the plan verbatim. Ask the planner to address blockers. Once the owner
 approves, put the plan on the issue and pass it verbatim to the implementer.
 
+If GitHub reports a rate limit, run `gh api rate_limit` on the affected host.
+This call does not count against the primary limit.
+Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming.
+For a secondary limit, honor `Retry-After` if present. If neither delay is given for a secondary limit,
+wait at least one minute before resuming. Report the limit and the wait in your review report.
+
 1. Start from a Task that succeeded with a pull request in its evidence (`hypomnema tasks show <task_id> --json`).
    Look at its checks first (`gh pr checks <url>`).
-   A red check gets one fresh build before you decide: rerun its failed jobs once (`gh run rerun <run_id>
-   --failed`, a write the owner approves like any other), wait for it (`gh run watch <run_id> --exit-status`) and
-   note the rerun in your report. When it is green on the rerun, or fails outside the diff and is also red on the
-   base (`gh run list --branch <base>`), it is a flake: go on with the review, and name the flaky check in your next
-   follow-up to the author, which opens or comments an issue for it. A failure of the diff's own is the author's
-   to fix (step 5); until it is fixed there is nothing to review.
+   Do not rerun a failing test to get a green check. Hold the merge until the failure is fixed or, for a flaky
+   test, the test is quarantined with an issue and a note visible to the owner (issue #1281).
    For an important pull request you may first ask CodeRabbit to review it: `gh pr comment <url> --body
    "@coderabbitai review"`, a write the owner approves like any other. Important means it adds a migration,
    changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
@@ -54,9 +56,9 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    If the PR already merged, report it and finish the Run. If it conflicts or must be brought up to date, send
    the author a follow-up to merge the base, resolve any conflict, rerun checks, and report the new head. A head
    past the verdict's `Head:` gets what step 7 says for its change.
-   For red checks, rerun once as in step 1: have the author fix a failure of its diff and report the updated
-   head; a flake gets an issue, not a fix in this PR. For pending checks, have the author
-   watch them. For an unmet policy or permission the author cannot fix, tell the owner what is blocking the PR and
+   For red checks, follow step 1 and have the author report the updated head once the failure is resolved.
+   For pending checks, have the author use `gh pr checks <url> --required --watch --interval 60`.
+   For an unmet policy or permission the author cannot fix, tell the owner what is blocking the PR and
    leave the Run open. A correct verdict with green checks on a mergeable PR: send the author a follow-up that
    the review passed and asks it to turn on auto-merge only if the spec permits it, as its rules say for its
    repository:

@@ -52,7 +52,12 @@ func (e *env) printMuse(m *openapi.Muse) {
 			state += " (" + *a.Cause + ")"
 		}
 
-		e.printf("%d\t%s\t%s\t%s\t%s\t%s\n", i+1, a.Id, a.Label, on, state, a.Usage)
+		usage := a.Usage
+		if a.UsageError != nil {
+			usage += " (" + *a.UsageError + ")"
+		}
+
+		e.printf("%d\t%s\t%s\t%s\t%s\t%s\n", i+1, a.Id, a.Label, on, state, usage)
 	}
 }
 

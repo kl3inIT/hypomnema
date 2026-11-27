@@ -134,12 +134,21 @@ test("a queued message taken back to edit goes into the box", async () => {
 })
 
 // A composer whose files are a draft's, as the New chat page's are after a reload (issue #433).
-function WithFiles({ onSend, draftKey }: { onSend: () => Promise<unknown>; draftKey: string }) {
+function WithFiles({
+  onSend,
+  onSendingChange,
+  draftKey,
+}: {
+  onSend: () => Promise<unknown>
+  onSendingChange?: (sending: boolean) => void
+  draftKey: string
+}) {
   const attachments = useAttachments("cht_sent", "coordinator", { files: [report] })
 
   return (
     <Composer
       onSend={onSend}
+      onSendingChange={onSendingChange}
       onStop={() => {}}
       working={false}
       botName="coordinator"
@@ -192,6 +201,38 @@ test("a message that was not sent is the draft again", async () => {
 
   window.dispatchEvent(new Event("pagehide"))
   expect(stored()["new:refused"]).toEqual({
+    text: "summarise this report",
+    files: [report],
+    chat: "cht_sent",
+    bot: "coordinator",
+  })
+})
+
+test("a page that hides as a send is refused saves the draft with its file", async () => {
+  let saved: unknown
+  const onSend = vi.fn<() => Promise<void>>(async () => {
+    throw { code: "unavailable", message: "the coordinator is not running" }
+  })
+  render(
+    <WithFiles
+      draftKey="new:refused-and-hidden"
+      onSend={onSend}
+      onSendingChange={(sending) => {
+        if (sending) return
+        window.dispatchEvent(new Event("pagehide"))
+        saved = stored()["new:refused-and-hidden"]
+      }}
+    />,
+  )
+  const box = screen.getByRole("textbox", { name: "Message" })
+
+  fireEvent.change(box, { target: { value: "summarise this report" } })
+  await act(async () => {
+    fireEvent.keyDown(box, { key: "Enter" })
+  })
+
+  expect(onSend).toHaveBeenCalledWith("summarise this report", [report])
+  expect(saved).toEqual({
     text: "summarise this report",
     files: [report],
     chat: "cht_sent",

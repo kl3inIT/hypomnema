@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
@@ -37,7 +38,7 @@ type videoTools struct {
 	takes  TakeOwners
 }
 
-// WithVideos wires video_make and video_get for the owner, workers and Bots' pis.
+// WithVideos wires video_make, video_get and video_templates for the owner, workers and Bots' pis.
 func (s *Server) WithVideos(v Videos, takes TakeOwners) *Server {
 	s.videos = &videoTools{videos: v, takes: takes}
 
@@ -48,6 +49,9 @@ func (s *Server) WithVideos(v Videos, takes TakeOwners) *Server {
 func (s *Server) hasVideoTools(a agent) bool {
 	return s.videos != nil && a.hasAgentTools()
 }
+
+// videoToolNames are the names of the tools videoCall answers.
+var videoToolNames = []string{devicetool.VideoMake, devicetool.VideoGet, devicetool.VideoTemplates}
 
 func videoToolList() []agenttool.BrowserTool {
 	return []agenttool.BrowserTool{
@@ -60,8 +64,16 @@ func videoToolList() []agenttool.BrowserTool {
 				"revision.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"take":{"type":"string","description":"the take's id, from video_start"},` +
+				`"template":{"type":"string","description":"a template's id from video_templates: its shape, captions, look and cards"},` +
 				`"request_id":{"type":"string","description":"your id for this make; a retry with it answers the same revision"}},` +
 				`"required":["take"]}`),
+		},
+		{
+			Name: devicetool.VideoTemplates,
+			Description: "List the templates video_make takes: each one's use case, length, shape, cards and the " +
+				"sections of its script, each with its words at about 2.5 a second. Use it before you film a demo " +
+				"for a use case a template has, and say one line a section, within its words.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		},
 		{
 			Name: devicetool.VideoGet,
@@ -78,12 +90,19 @@ func videoToolList() []agenttool.BrowserTool {
 func (s *Server) videoCall(w http.ResponseWriter, r *http.Request, a agent, asked agenttool.BrowserCall) {
 	var args struct {
 		Take      string `json:"take"`
+		Template  string `json:"template"`
 		RequestID string `json:"request_id"`
 		Video     string `json:"video"`
 	}
 
 	if json.Unmarshal(orEmpty(asked.Arguments), &args) != nil {
 		answerTool(w, asked.Tool+" takes a JSON object", true)
+
+		return
+	}
+
+	if asked.Tool == devicetool.VideoTemplates {
+		answerTool(w, describeTemplates(videos.Templates()), false)
 
 		return
 	}
@@ -96,7 +115,8 @@ func (s *Server) videoCall(w http.ResponseWriter, r *http.Request, a agent, aske
 	}
 
 	if asked.Tool == devicetool.VideoMake {
-		text, failed := s.videos.make(r.Context(), caller.Key, a.name, strings.TrimSpace(args.Take), args.RequestID)
+		text, failed := s.videos.make(r.Context(), caller.Key, a.name, strings.TrimSpace(args.Take),
+			strings.TrimSpace(args.Template), args.RequestID)
 		answerTool(w, text, failed)
 
 		return
@@ -113,7 +133,7 @@ func (v *videoTools) filmed(key, take string) bool {
 	return err == nil && t.Agent == key
 }
 
-func (v *videoTools) make(ctx context.Context, key, name, take, requestID string) (string, bool) {
+func (v *videoTools) make(ctx context.Context, key, name, take, template, requestID string) (string, bool) {
 	if take == "" || !v.filmed(key, take) {
 		return "You have no take " + take + ".", true
 	}
@@ -122,13 +142,107 @@ func (v *videoTools) make(ctx context.Context, key, name, take, requestID string
 		return fmt.Sprintf("request_id is at most %d bytes.", devicetool.MaxRequestID), true
 	}
 
-	vid, rev, err := v.videos.Make(ctx, videos.MakeRequest{Take: take, By: key, ByName: name, RequestID: requestID})
+	vid, rev, err := v.videos.Make(ctx, videos.MakeRequest{
+		Take: take, By: key, ByName: name, RequestID: requestID, Template: template,
+	})
 	if err != nil {
 		return refusal(err), true
 	}
 
-	return fmt.Sprintf("Video %s of take %s: revision %d is %s. It is made in the background; follow it with "+
-		"video_get.", vid.ID, take, rev.Rev, rev.State), false
+	text := fmt.Sprintf("Video %s of take %s: revision %d is %s. It is made in the background; follow it with "+
+		"video_get.", vid.ID, take, rev.Rev, rev.State)
+
+	if t, ok := videos.TemplateByID(template); ok {
+		text += " " + madeWith(t, rev)
+	}
+
+	return text, false
+}
+
+// madeWith says how a revision made with a template was made, and how long its lines are against the template's
+// length, at its words a second with its cards, as aidemo's lint estimates a storyboard's narration
+// (src/lint.ts:199-215).
+func madeWith(t videos.Template, rev videos.Revision) string {
+	words := 0
+	for _, l := range rev.Lines {
+		words += len(strings.Fields(l))
+	}
+
+	var cardsMs int64
+	if c := rev.Look.Cards; c != nil {
+		cardsMs = c.TitleMs() + c.EndMs()
+	}
+
+	s := float64(words)/videos.WordsPerSecond + float64(cardsMs)/1000
+
+	return fmt.Sprintf("It is made with the template %s: %s, %s. Its %d lines have %d words, about %.0f s with its "+
+		"cards; the template is %s.", t.ID, rev.Aspect, cardsOf(rev.Look.Cards), len(rev.Lines), words, s,
+		lengthOf(t.Length))
+}
+
+// describeTemplates is the templates as an agent reads them: each one's id, name, length, shapes, captions and
+// cards, its use case, then its sections with their words.
+func describeTemplates(list []videos.Template) string {
+	var b strings.Builder
+
+	b.WriteString("The templates video_make takes as template. Say one line a section with video_say, within its " +
+		"words (about 2.5 words a second). {title} in a card's words is the take's title, from video_start.")
+
+	for _, t := range list {
+		captions := ""
+		if !t.Captions {
+			captions = ", no captions"
+		}
+
+		fmt.Fprintf(&b, "\n\n%s: %s, %s, %s%s, %s. %s", t.ID, t.Name, lengthOf(t.Length), strings.Join(t.Aspects, " or "),
+			captions, cardsOf(t.Cards()), t.UseCase)
+
+		if c := t.Cards(); c != nil {
+			for _, card := range []struct {
+				name string
+				card *compose.Card
+			}{{"Title card", c.Title}, {"End card", c.End}} {
+				if card.card == nil {
+					continue
+				}
+
+				fmt.Fprintf(&b, "\n%s: %q", card.name, card.card.Title)
+				if card.card.Subtitle != "" {
+					fmt.Fprintf(&b, " over %q", card.card.Subtitle)
+				}
+
+				b.WriteString(".")
+			}
+		}
+
+		for i, sec := range t.Sections {
+			fmt.Fprintf(&b, "\n%d. %s, about %d words (%.0f s): %s", i+1, sec.Name, sec.Words, sec.Seconds(), sec.Purpose)
+		}
+	}
+
+	return b.String()
+}
+
+func lengthOf(l videos.TemplateLength) string {
+	if l.MinS == l.MaxS {
+		return fmt.Sprintf("%d s", l.MinS)
+	}
+
+	return fmt.Sprintf("%d-%d s", l.MinS, l.MaxS)
+}
+
+// cardsOf names the cards a video has.
+func cardsOf(c *compose.Cards) string {
+	switch {
+	case c == nil || c.Title == nil && c.End == nil:
+		return "no cards"
+	case c.End == nil:
+		return "a title card"
+	case c.Title == nil:
+		return "an end card"
+	}
+
+	return "a title card and an end card"
 }
 
 func (v *videoTools) get(ctx context.Context, key, id string) (string, bool) {

@@ -95,15 +95,12 @@ SELECT * FROM artifact_shares WHERE artifact_id = @artifact_id AND revoked_at IS
 SELECT * FROM artifact_shares WHERE id = @id AND revoked_at IS NULL;
 
 -- name: RevokeArtifactShare :execrows
--- A revoked link is kept, without its sealed copy, which the caller deletes, and without the plaintext of a link not
--- moved yet, which keeps its hash instead.
-UPDATE artifact_shares SET revoked_at = @now, revoke_reason = @reason, secret_version_id = NULL,
-                           token_hash = @token_hash, token = NULL
+-- A revoked link is kept, without its sealed copy, which the caller deletes.
+UPDATE artifact_shares SET revoked_at = @now, revoke_reason = @reason, secret_version_id = NULL
 WHERE id = @id AND revoked_at IS NULL;
 
 -- name: SharedArtifact :one
--- What a working link shows: its artifact at the newest revision, with the type of the file shown. A link not moved
--- yet (issue #996) has no hash and is found by nothing until a vault seals it.
+-- What a working link shows: its artifact at the newest revision, with the type of the file shown.
 SELECT s.id, s.artifact_id, a.revision, a.updated_at, r.title, r.type, r.entry, f.media_type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
@@ -121,7 +118,7 @@ WHERE id = @id AND revoked_at IS NULL;
 
 -- name: ListAllArtifactShares :many
 -- Every link that works, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
-SELECT s.id, s.artifact_id, s.token, s.token_hash, s.secret_version_id, s.label, s.created_at, s.views, s.last_viewed_at,
+SELECT s.id, s.artifact_id, s.token_hash, s.secret_version_id, s.label, s.created_at, s.views, s.last_viewed_at,
        a.chat_id, a.bot_id, coalesce(b.name, '') AS bot_name, r.title, r.type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
@@ -129,14 +126,6 @@ JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 LEFT JOIN bots b ON b.id = a.bot_id
 WHERE s.revoked_at IS NULL
 ORDER BY s.created_at DESC, s.id;
-
--- name: ListUnmovedArtifactShares :many
--- Links made before their tokens were hashed (issue #996), whose plaintext the control plane moves as it starts.
-SELECT id, token FROM artifact_shares WHERE token IS NOT NULL ORDER BY id;
-
--- name: MoveArtifactShareToken :exec
-UPDATE artifact_shares SET token_hash = @token_hash, secret_version_id = @secret_version_id, token = NULL
-WHERE id = @id;
 
 -- name: ListShareSecretsOfChat :many
 -- The sealed copies of a chat's links, deleted with the chat as its artifacts and their links are.
@@ -150,10 +139,3 @@ JOIN secret_versions v ON v.id = s.secret_version_id
 JOIN secrets ON secrets.id = v.secret_id
 WHERE secrets.name = @secret_name
 ORDER BY s.id;
-
--- name: ShareScrubPending :one
--- Whether the database's files may still hold old tokens in plaintext (issue #996).
-SELECT count(*) FROM share_token_scrub;
-
--- name: ClearShareScrub :exec
-DELETE FROM share_token_scrub;

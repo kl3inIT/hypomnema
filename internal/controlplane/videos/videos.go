@@ -145,10 +145,12 @@ type Revision struct {
 }
 
 // voicePin is a provider and the exact voice it speaks with, even an empty one: its own default (issue #908, row
-// 4). A pinned revision asks only that provider, and never reads the owner's audio settings.
+// 4), and the model that voice was spoken by (issue #1283); empty: the provider's default. A pinned revision asks
+// only that provider, and never reads the owner's audio settings.
 type voicePin struct {
 	provider string
 	voice    string
+	model    string
 }
 
 // Progress is how many of a revision's scenes the stage it is at has done,
@@ -184,7 +186,8 @@ type Speech interface {
 type Maker interface {
 	Compose(ctx context.Context, tools ffmpeg.Tools, in compose.Input) (compose.Result, error)
 	Burn(ctx context.Context, tools ffmpeg.Tools, video, captions, work string) (string, error)
-	Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error
+	// Thumbnail writes the video's frame at atMs as a JPEG.
+	Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string, atMs int64) error
 }
 
 // composeMaker is package compose.
@@ -198,8 +201,8 @@ func (composeMaker) Burn(ctx context.Context, tools ffmpeg.Tools, video, caption
 	return compose.Burn(ctx, tools, video, captions, work)
 }
 
-func (composeMaker) Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error {
-	return compose.Thumbnail(ctx, tools, video, out)
+func (composeMaker) Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string, atMs int64) error {
+	return compose.Thumbnail(ctx, tools, video, out, atMs)
 }
 
 // Config is what the Service needs.
@@ -309,9 +312,9 @@ type MakeRequest struct {
 	Take string
 	// Title is the video's on its first make; empty: the take's.
 	Title string
-	// Aspect is 9:16 or 16:9; empty: 9:16.
+	// Aspect is 9:16, 16:9 or 886x1920; empty: the template's first, else 9:16.
 	Aspect string
-	// Captions; nil: on.
+	// Captions; nil: the template's, else on.
 	Captions *bool
 	// Voice is the voice asked for; empty: each provider's set one.
 	Voice string
@@ -322,26 +325,41 @@ type MakeRequest struct {
 	RequestID string
 	// Look is the sections of the look sent; nil: the saved default's (issue #908, row 2).
 	Look *LookInput
+	// Template is a template's id: its aspect, captions and look's sections where the request leaves them out
+	// (issue #1230, row 3); empty: none.
+	Template string
 }
 
 // Make queues a revision of the take's video, making the video on the
 // take's first make. Its lines are the latest revision's, or the take's
 // scenes' on the first make. Its look is the sections sent, the others the
 // saved default's; an owner's make that sends sections saves them as the
-// default, in the same transaction (issue #908, rows 2 and 3).
+// default, in the same transaction (issue #908, rows 2 and 3). A template's
+// look sections stand where none is sent, and are never saved (#1230, row 3).
 func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, error) {
 	req.Title, req.Voice = strings.TrimSpace(req.Title), strings.TrimSpace(req.Voice)
+
+	tpl, err := templateOf(req.Template)
+	if err != nil {
+		return Video{}, Revision{}, err
+	}
+
+	if req.Aspect, err = aspectWith(tpl, req.Aspect); err != nil {
+		return Video{}, Revision{}, err
+	}
+
 	if req.Aspect == "" {
 		req.Aspect = string(compose.Portrait)
 	}
 
+	req.Captions = captionsWith(tpl, req.Captions)
 	captionsOn := req.Captions == nil || *req.Captions
 
 	switch {
 	case !takeIDs.MatchString(req.Take):
 		return Video{}, Revision{}, fmt.Errorf("%w: take is a take's id, such as tk_0a1b2c3d4e5f6a7b", ErrInvalid)
-	case req.Aspect != string(compose.Portrait) && req.Aspect != string(compose.Landscape):
-		return Video{}, Revision{}, fmt.Errorf("%w: the aspect is 9:16 or 16:9", ErrInvalid)
+	case !knownAspect(req.Aspect):
+		return Video{}, Revision{}, fmt.Errorf("%w: the aspect is 9:16, 16:9 or 886x1920", ErrInvalid)
 	case utf8.RuneCountInString(req.Title) > devicetool.MaxTitle:
 		return Video{}, Revision{}, fmt.Errorf("%w: a title is at most %d characters", ErrInvalid, devicetool.MaxTitle)
 	case len(req.Voice) > maxVoice:
@@ -360,6 +378,10 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 	parts := []string{"make", req.Take, req.Title, req.Aspect, strconv.FormatBool(captionsOn), req.Voice}
 	if req.Look != nil {
 		parts = append(parts, req.Look.canonical())
+	}
+
+	if tpl != nil {
+		parts = append(parts, "template", tpl.ID)
 	}
 
 	hash := requestHash(parts...)
@@ -385,7 +407,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		return Video{}, Revision{}, fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 
-	var id string
+	var id, title string
 
 	var lines []string
 
@@ -403,7 +425,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			id = platform.NewID("vid")
-			title := cmp.Or(req.Title, take.Title)
+			title = cmp.Or(req.Title, take.Title)
 
 			if err := q.InsertVideo(ctx, store.InsertVideoParams{
 				ID: id, TakeID: take.ID, Title: title, MadeBy: req.By, MadeByName: req.ByName, Now: now,
@@ -417,7 +439,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		case err != nil:
 			return err
 		default:
-			id = v.ID
+			id, title = v.ID, v.Title
 
 			last, err := q.LastRev(ctx, id)
 			if err != nil {
@@ -444,7 +466,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 			return err
 		}
 
-		look, err := resolveLook(req.Look, saved)
+		look, err := resolveLook(lookWith(tpl, title, req.Look), saved)
 		if err != nil {
 			return err
 		}
@@ -515,7 +537,7 @@ func (s *Service) insertRevision(ctx context.Context, q *store.Queries, now int6
 		Aspect: r.aspect, Look: r.look, RequestedBy: r.by, RequestID: r.requestID, RequestHash: r.hash, Now: now,
 	}
 	if r.pin != nil {
-		p.PinProvider, p.PinVoice = r.pin.provider, r.pin.voice
+		p.PinProvider, p.PinVoice, p.PinModel = r.pin.provider, r.pin.voice, r.pin.model
 	}
 
 	return q.InsertRevision(ctx, p)
@@ -671,14 +693,11 @@ func revisionOf(r store.VideoRevision) Revision {
 	_ = json.Unmarshal([]byte(r.Lines), &out.Lines)
 	_ = json.Unmarshal([]byte(r.Warnings), &out.Warnings)
 
-	if l, err := parseLook(r.Look); err == nil {
-		out.Look = l
-	} else {
-		out.Look = legacyLook
-	}
+	// Every revision keeps its look since the looks' migration wrote one for those before (issue #937).
+	out.Look, _ = parseLook(r.Look)
 
 	if r.PinProvider != "" {
-		out.pin = &voicePin{provider: r.PinProvider, voice: r.PinVoice}
+		out.pin = &voicePin{provider: r.PinProvider, voice: r.PinVoice, model: r.PinModel}
 	}
 
 	if out.Lines == nil {
@@ -911,7 +930,7 @@ func (s *Service) FirstFrame(ctx context.Context, video, out string) error {
 		return fmt.Errorf("%w: ffmpeg is not installed: %w", ErrUnavailable, err)
 	}
 
-	return s.cfg.Maker.Thumbnail(ctx, tools, video, out)
+	return s.cfg.Maker.Thumbnail(ctx, tools, video, out, 0)
 }
 
 func (s *Service) made(ctx context.Context, id string, rev int, name string) (string, error) {

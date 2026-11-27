@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // Scenario: a node restarts holding four Dispatches. The running one at its
@@ -75,7 +76,7 @@ func TestNodePendingListsOffersStopsAndAnswers(t *testing.T) {
 	assert.Equal(t, queued.ID, p.Offers[0].DispatchID)
 	assert.Equal(t, "c", p.Offers[0].Spec)
 	assert.Equal(t, "/srv/wt/a", p.Offers[0].Worktree)
-	assert.Equal(t, GatewayAccountRef, p.Offers[0].AccountRef)
+	assert.Equal(t, profilestore.GatewayAccountRef, p.Offers[0].AccountRef)
 
 	assert.Equal(t, []StopRequest{{DispatchID: stopping.ID, Epoch: 1}}, p.Stops)
 

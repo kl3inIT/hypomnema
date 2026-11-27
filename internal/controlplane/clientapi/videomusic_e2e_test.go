@@ -79,10 +79,11 @@ func (levelSpeech) Transcribe(context.Context, videos.AudioSource, speech.Transc
 	return speech.Transcript{}, fmt.Errorf("the video has no captions")
 }
 
-// controlMaker is package compose, which renders, beside each revision with music, its control: the same input with
-// the duck left out (PR1.2's control), into control.
+// controlMaker is package compose, which renders, beside each revision with music, its twin and its control: the
+// same input without the master (#1230, row 2), whose gain follows each mix's own measure, into twin; and that with
+// the duck left out too (PR1.2's control), into control.
 type controlMaker struct {
-	control string
+	twin, control string
 }
 
 func (m controlMaker) Compose(ctx context.Context, tools ffmpeg.Tools, in compose.Input) (compose.Result, error) {
@@ -91,12 +92,14 @@ func (m controlMaker) Compose(ctx context.Context, tools ffmpeg.Tools, in compos
 		return res, err
 	}
 
-	control, music := in, *in.Music
-	music.NoDuck = true
-	control.Music, control.Out, control.Work, control.Progress = &music, m.control, in.Work+"-control", nil
+	for name, duck := range map[string]bool{m.twin: true, m.control: false} {
+		other, music := in, *in.Music
+		music.NoDuck, music.NoMaster = !duck, true
+		other.Music, other.Out, other.Work, other.Progress = &music, name, name+"-work", nil
 
-	if _, err := compose.Compose(ctx, tools, control); err != nil {
-		return compose.Result{}, fmt.Errorf("the control: %w", err)
+		if _, err := compose.Compose(ctx, tools, other); err != nil {
+			return compose.Result{}, fmt.Errorf("%s: %w", name, err)
+		}
 	}
 
 	return res, nil
@@ -106,8 +109,8 @@ func (controlMaker) Burn(ctx context.Context, tools ffmpeg.Tools, video, caption
 	return compose.Burn(ctx, tools, video, captions, work)
 }
 
-func (controlMaker) Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error {
-	return compose.Thumbnail(ctx, tools, video, out)
+func (controlMaker) Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string, atMs int64) error {
+	return compose.Thumbnail(ctx, tools, video, out, atMs)
 }
 
 func ffmpegRun(ctx context.Context, t *testing.T, tools ffmpeg.Tools, args ...string) []byte {
@@ -165,15 +168,18 @@ func bandWindows(t *testing.T, tools ffmpeg.Tools, file, band string, whole bool
 }
 
 // PR2.11: a 4 kHz track uploaded by POST /api/v1/videos/music, a make through POST /videos with its music, made by
-// the runner under a voice of three 3 s clips at -20, -30 and -40 dBFS, and the MP4 read through the API. In every
-// 100 ms from 0.2 s to the fade, the two 300 ms gaps between the clips included, the track's band is 12 dB under the
-// control's (PR1.2), within 1 dB, while the voice's band is the control's within 0.5 dB; the control's band is the track's own level moved to 3 LU under the voice's
-// -16 LUFS (PR1.4's BedGainDb, at gain 0), within 1 dB.
+// the runner under a voice of three 3 s clips at -20, -30 and -40 dBFS, and the MP4 read through the API. Its twin
+// is the same make without the master (#1230, row 2): in every 100 ms from 0.2 s to the fade, the two 300 ms gaps
+// between the clips included, the twin's track band is 12 dB under the control's (PR1.2), within 1 dB, while the
+// voice's band is the control's within 0.5 dB; the control's band is the track's own level moved to 3 LU under the
+// voice's -16 LUFS (PR1.4's BedGainDb, at gain 0), within 1 dB. The MP4 is the twin through the master: in the
+// middle of each clip its track stands as far under its voice as the twin's, within 1 dB, and it measures -16 ±1
+// LUFS.
 func TestATrackUploadedAndMadeIsDuckedUnderTheVoice(t *testing.T) {
 	t.Parallel()
 
 	tools := pinnedTools(t)
-	control := filepath.Join(t.TempDir(), "control.mp4")
+	twin, control := filepath.Join(t.TempDir(), "twin.mp4"), filepath.Join(t.TempDir(), "control.mp4")
 
 	takes := &e2eTakes{dir: t.TempDir(), take: devicetool.Take{
 		ID: e2eTake, Title: "Nhạc", Agent: "d-1", State: devicetool.TakeAvailable, DurationMs: 12_000,
@@ -190,7 +196,7 @@ func TestATrackUploadedAndMadeIsDuckedUnderTheVoice(t *testing.T) {
 
 	w := newMusicWorld(t, func(cfg *videos.Config) {
 		cfg.Tools = func(context.Context) (ffmpeg.Tools, error) { return tools, nil }
-		cfg.Takes, cfg.Maker = takes, controlMaker{control: control}
+		cfg.Takes, cfg.Maker = takes, controlMaker{twin: twin, control: control}
 		cfg.Speech = levelSpeech{t: t, tools: tools, levels: map[string]float64{"Một": -20, "Hai": -30, "Ba": -40}}
 		cfg.Settings = func(context.Context) (speech.Settings, error) { return speech.Settings{}, nil }
 	})
@@ -242,7 +248,7 @@ func TestATrackUploadedAndMadeIsDuckedUnderTheVoice(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.NoError(t, os.WriteFile(mp4, got, 0o600))
 
-	ducked, plain := bandWindows(t, tools, mp4, musicBand, false), bandWindows(t, tools, control, musicBand, false)
+	ducked, plain := bandWindows(t, tools, twin, musicBand, false), bandWindows(t, tools, control, musicBand, false)
 
 	// Each scene is its clip and the 300 ms gap; the fade starts 1.8 s before the end.
 	scene := float64(rev.LengthMs) / 3 / 1000
@@ -266,12 +272,19 @@ func TestATrackUploadedAndMadeIsDuckedUnderTheVoice(t *testing.T) {
 	assert.GreaterOrEqual(t, gaps, 4, "the windows of both gaps are measured")
 
 	// The voice is the same with the duck and without it, within 0.5 dB, in the middle of each clip (PR1.2).
-	voiced, voicePlain := bandWindows(t, tools, mp4, voiceBand, false), bandWindows(t, tools, control, voiceBand, false)
+	voiced, voicePlain := bandWindows(t, tools, twin, voiceBand, false), bandWindows(t, tools, control, voiceBand, false)
+	madeMusic, madeVoice := bandWindows(t, tools, mp4, musicBand, false), bandWindows(t, tools, mp4, voiceBand, false)
+
 	for i := range 3 {
 		k := int((float64(i)*scene + 1.5) * 10)
-		require.Less(t, k, min(len(voiced), len(voicePlain)))
+		require.Less(t, k, min(len(voiced), len(voicePlain), len(madeMusic), len(madeVoice)))
 		assert.InDelta(t, voicePlain[k], voiced[k], 0.5, "the voice of clip %d", i+1)
+		assert.InDelta(t, ducked[k]-voiced[k], madeMusic[k]-madeVoice[k], 1, "the made video's duck in clip %d", i+1)
 	}
+
+	level, err := compose.Measure(t.Context(), tools, mp4, 0)
+	require.NoError(t, err)
+	assert.InDelta(t, compose.VoiceLUFS, level.LUFS, 1, "the made video's loudness")
 
 	own, err := compose.Measure(t.Context(), tools, file, 0)
 	require.NoError(t, err)

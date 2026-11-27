@@ -41,15 +41,26 @@ var (
 // PreviewRequest asks for a look sample of a take.
 type PreviewRequest struct {
 	Take string
-	// Aspect is 9:16 or 16:9; empty: 9:16.
+	// Aspect is 9:16, 16:9 or 886x1920; empty: the template's first, else 9:16.
 	Aspect string
-	// Captions; nil: on.
+	// Captions; nil: the template's, else on.
 	Captions *bool
-	// Look is the sections sent; the others are Rev's look, or the saved default's without Rev.
+	// Look is the sections sent; the others are Rev's look, or the template's and the saved default's without Rev.
 	Look *LookInput
+	// Template is a template's id, its look resolved as a make's (issue #1230, row 5); never with Rev.
+	Template string
 	// Rev is a revision of the take's video the look starts from, as a look change does; 0: none.
 	Rev int
+	// Card is a card of the look to draw in place of the take's picture: title or end; empty: the picture (issue
+	// #1230, row 1).
+	Card string
 }
+
+// The cards a sample draws.
+const (
+	CardTitle = "title"
+	CardEnd   = "end"
+)
 
 // Preview makes a look sample, a JPEG. What needs no reading is checked first; then, without waiting for an
 // install, that ffmpeg is in place; then it waits at most PreviewWait from the request's start for the one being
@@ -58,7 +69,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) ([]byte, erro
 	wait := time.NewTimer(s.cfg.PreviewWait)
 	defer wait.Stop()
 
-	if _, err := checkPreview(req); err != nil {
+	if _, _, err := checkPreview(req); err != nil {
 		return nil, err
 	}
 
@@ -110,25 +121,63 @@ func (s *Service) readyTools(ctx context.Context) (ffmpeg.Tools, error) {
 
 // checkPreview checks what a sample's request says, with no reading: the take's id, the aspect, the revision and
 // the look's ids and ranges.
-func checkPreview(req PreviewRequest) (PreviewRequest, error) {
+func checkPreview(req PreviewRequest) (PreviewRequest, *Template, error) {
+	tpl, err := templateOf(req.Template)
+	if err != nil {
+		return req, nil, err
+	}
+
+	if tpl != nil && req.Rev > 0 {
+		return req, nil, fmt.Errorf("%w: a template starts a make, not a look change of a revision", ErrInvalid)
+	}
+
+	if req.Aspect, err = aspectWith(tpl, req.Aspect); err != nil {
+		return req, nil, err
+	}
+
 	if req.Aspect == "" {
 		req.Aspect = string(compose.Portrait)
 	}
 
+	req.Captions = captionsWith(tpl, req.Captions)
+
 	switch {
 	case !takeIDs.MatchString(req.Take):
-		return req, fmt.Errorf("%w: take is a take's id, such as tk_0a1b2c3d4e5f6a7b", ErrInvalid)
-	case req.Aspect != string(compose.Portrait) && req.Aspect != string(compose.Landscape):
-		return req, fmt.Errorf("%w: the aspect is 9:16 or 16:9", ErrInvalid)
+		return req, nil, fmt.Errorf("%w: take is a take's id, such as tk_0a1b2c3d4e5f6a7b", ErrInvalid)
+	case !knownAspect(req.Aspect):
+		return req, nil, fmt.Errorf("%w: the aspect is 9:16, 16:9 or 886x1920", ErrInvalid)
 	case req.Rev < 0:
-		return req, fmt.Errorf("%w: a revision is a number from 1", ErrInvalid)
+		return req, nil, fmt.Errorf("%w: a revision is a number from 1", ErrInvalid)
+	case req.Card != "" && req.Card != CardTitle && req.Card != CardEnd:
+		return req, nil, fmt.Errorf("%w: a sample's card is title or end", ErrInvalid)
 	}
+
+	req.Look = onlyCard(req.Look, req.Card)
 
 	if _, err := resolveLook(req.Look, DefaultLook()); err != nil {
-		return req, err
+		return req, nil, err
 	}
 
-	return req, nil
+	return req, tpl, nil
+}
+
+// onlyCard is the look a sample of one card resolves: the sent cards section holding that card alone, so the other
+// one, turned on and not titled yet, is not checked (the review of #1242). Any other sample's look is as sent.
+func onlyCard(in *LookInput, card string) *LookInput {
+	if card == "" || in == nil || in.Cards == nil {
+		return in
+	}
+
+	look, cards := *in, *in.Cards
+	if card == CardTitle {
+		cards.End = nil
+	} else {
+		cards.Title = nil
+	}
+
+	look.Cards = &cards
+
+	return &look
 }
 
 // previewPlan is what a look sample draws.
@@ -138,12 +187,14 @@ type previewPlan struct {
 	captions bool
 	look     Look
 	line     string
+	// card is the look's card to draw, nil for the take's picture.
+	card *compose.Card
 }
 
 // planPreview checks a sample's request and resolves its look as a make, or a look change from Rev, would: with the
 // fallback of a take whose phone turned (row 11).
 func (s *Service) planPreview(ctx context.Context, req PreviewRequest) (previewPlan, error) {
-	req, err := checkPreview(req)
+	req, tpl, err := checkPreview(req)
 	if err != nil {
 		return previewPlan{}, err
 	}
@@ -162,12 +213,12 @@ func (s *Service) planPreview(ctx context.Context, req PreviewRequest) (previewP
 		return previewPlan{}, fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 
-	base, line, err := s.previewBase(ctx, take.ID, req.Rev, scenes[0].Text)
+	base, line, title, err := s.previewBase(ctx, take, req.Rev, scenes[0].Text)
 	if err != nil {
 		return previewPlan{}, err
 	}
 
-	look, err := resolveLook(req.Look, base)
+	look, err := resolveLook(lookWith(tpl, title, req.Look), base)
 	if err != nil {
 		return previewPlan{}, err
 	}
@@ -176,28 +227,44 @@ func (s *Service) planPreview(ctx context.Context, req PreviewRequest) (previewP
 		return previewPlan{}, err
 	}
 
-	return previewPlan{take: take, aspect: req.Aspect, captions: req.Captions == nil || *req.Captions, look: look,
-		line: line}, nil
+	p := previewPlan{take: take, aspect: req.Aspect, captions: req.Captions == nil || *req.Captions, look: look,
+		line: line}
+
+	if req.Card != "" {
+		if look.Cards != nil {
+			p.card = map[string]*compose.Card{CardTitle: look.Cards.Title, CardEnd: look.Cards.End}[req.Card]
+		}
+
+		if p.card == nil {
+			return previewPlan{}, fmt.Errorf("%w: the look has no %s card", ErrConflict, req.Card)
+		}
+	}
+
+	return p, nil
 }
 
-// previewBase is the look a sample starts from and the line it shows: revision rev's, as a look change starts from
-// it (#937); else the saved default, with the latest revision's first line, or the take's first scene's.
-func (s *Service) previewBase(ctx context.Context, take string, rev int, first string) (Look, string, error) {
-	v, err := s.OfTake(ctx, take)
+// previewBase is the look a sample starts from, the line it shows and the title a template's cards take: revision
+// rev's, as a look change starts from it (#937); else the saved default, with the latest revision's first line, or
+// the take's first scene's; the video's title, else the take's, as a make titles them.
+func (s *Service) previewBase(ctx context.Context, take devicetool.Take, rev int, first string,
+) (Look, string, string, error) {
+	title := take.Title
+	v, err := s.OfTake(ctx, take.ID)
 
 	switch {
 	case errors.Is(err, ErrNotFound) && rev == 0:
 	case err != nil:
-		return Look{}, "", err
+		return Look{}, "", "", err
 	case rev > 0:
 		for _, r := range v.Revisions {
 			if r.Rev == rev && len(r.Lines) > 0 {
-				return r.Look, r.Lines[0], nil
+				return r.Look, r.Lines[0], v.Title, nil
 			}
 		}
 
-		return Look{}, "", fmt.Errorf("%w: revision %d of %s", ErrNotFound, rev, v.ID)
+		return Look{}, "", "", fmt.Errorf("%w: revision %d of %s", ErrNotFound, rev, v.ID)
 	default:
+		title = v.Title
 		if lines := v.Latest().Lines; len(lines) > 0 {
 			first = lines[0]
 		}
@@ -205,10 +272,10 @@ func (s *Service) previewBase(ctx context.Context, take string, rev int, first s
 
 	def, err := s.Looks(ctx)
 	if err != nil {
-		return Look{}, "", err
+		return Look{}, "", "", err
 	}
 
-	return def.Default, first, nil
+	return def.Default, first, title, nil
 }
 
 // sample draws the look over the take's picture at its first step, with the line's captions at the start of its
@@ -233,6 +300,23 @@ func (s *Service) sample(ctx context.Context, p previewPlan, tools ffmpeg.Tools)
 	}
 
 	defer func() { _ = os.RemoveAll(work) }()
+
+	if p.card != nil {
+		// A card as the video shows it between its fades, on the look's background (#1230, row 1).
+		out := filepath.Join(work, "sample.jpg")
+		if err := compose.CardStill(ctx, tools, compose.CardStillInput{
+			Card: *p.card, Accent: look.Cards.Accent, Background: background(look), Aspect: compose.Aspect(p.aspect),
+			Work: filepath.Join(work, "card"), Out: out,
+		}); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
+			return nil, err
+		}
+
+		return os.ReadFile(out) //nolint:gosec // The sample's own work folder.
+	}
 
 	in := compose.StillInput{
 		Dir: filepath.Dir(takeJSON), Aspect: compose.Aspect(p.aspect), Frame: look.Frame, Background: background(look),

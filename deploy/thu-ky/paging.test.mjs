@@ -11,15 +11,19 @@ const check = (args) => checkBatch({ ...args, config: { perRun: Infinity, ...arg
 const at = (seconds) => new Date(Date.parse("2026-11-21T01:00:00Z") + seconds * 1000).toISOString();
 const mark = at(0);
 
+// choices are the owner's choices of which chats the secretary reads (inbox_chats, issue #1270): none made.
+const choices = { defaults: { direct: true, group: true, bot: false, bot_patterns: ["^Zalo ", "\\bOA\\b"] }, chats: [] };
+
 // messagingWorld keeps messages as the servers do (messaging/zalo/store.go, whatsapp/store.go): every chat's, the
 // latest first, before a time (Zalo in milliseconds, WhatsApp in seconds), a page by limit and offset.
 function messagingWorld(service, messages, precision = "ms") {
   const unit = precision === "ms" ? 1 : 1000;
   const calls = [];
   const tools = [{ name: `${service}_chats`, inputSchema: { properties: { account: { enum: ["main"] } } } },
-    { name: `${service}_messages` }];
+    { name: `${service}_messages` }, { name: "inbox_chats" }];
   const call = async (name, args) => {
     calls.push({ name, args });
+    if (name === "inbox_chats") return choices;
     // The chats, as kept: none known here, so each counts as a group.
     if (name === `${service}_chats`) return { chats: [] };
     if (name !== `${service}_messages` || args.chat) throw new Error(`no tool ${name}`);
@@ -84,7 +88,8 @@ test("past its cap a source keeps where it stopped and reads on from there, the 
 // groups only unless types names p2p, pages by page_token; a chat's messages since start_time (seconds), by
 // page_token too.
 function larkWorld({ groups = [], p2p = [], messages = {} }) {
-  const tools = [{ name: "account_read", description: "Use the account name (lark:me), API hostname. Lark accounts that sign in as the owner (lark:me); any other" }];
+  const tools = [{ name: "account_read", description: "Use the account name (lark:me), API hostname. Lark accounts that sign in as the owner (lark:me); any other" },
+    { name: "inbox_chats" }];
   // fetched counts the messages the check was given, over every page of every chat.
   const counter = { fetched: 0 };
   const page = (items, url, size) => {
@@ -93,6 +98,7 @@ function larkWorld({ groups = [], p2p = [], messages = {} }) {
     return { items: items.slice(start, next), has_more: next < items.length, page_token: String(next) };
   };
   const call = async (name, args) => {
+    if (name === "inbox_chats") return choices;
     const url = new URL(`https://open.larksuite.com${args.path}`);
     if (url.pathname === "/open-apis/authen/v1/user_info") return { status: 200, records: { code: 0, data: { open_id: "ou_me" } } };
     if (url.pathname === "/open-apis/im/v1/chats") {

@@ -66,17 +66,22 @@ const json = (body: unknown) =>
   })
 
 // server answers the reads the detail makes: the meeting and the chat an item's text names, by their ids.
-function server() {
+function server(titlesReady?: Promise<void>) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = new URL((input as Request).url).pathname.replace("/api/v1", "")
     if (path === `/meetings/${meeting}`) {
+      await titlesReady
+
       return json({
         meeting: { id: meeting, title: "Họp với cô Laura về Cốc Cốc", speakers: [] },
         lines: [],
       })
     }
-    if (path === `/chats/${chat}`)
+    if (path === `/chats/${chat}`) {
+      await titlesReady
+
       return json({ id: chat, title: "Inbox: báo cáo", bot: "bot_main" })
+    }
     if (path === "/integrations") return json({ data: integrations })
     if (path === `/inbox/${other}`)
       return json({ ...todo({ id: other, title: "Backend push service" }), events: [] })
@@ -231,18 +236,28 @@ test("the detail shows the status by name, the avatar and a calendar", async () 
 // Scenario: issue #1173, plan rows 4 and 5. A description is Markdown, and a meeting's and a chat's ids in it are
 // links named by the meeting's and the chat's titles; an id in code stays as it was written.
 test("a description's ids are links with the meeting's title", async () => {
-  server()
+  let releaseTitles = () => {}
+  const titlesReady = new Promise<void>((resolve) => {
+    releaseTitles = resolve
+  })
+  server(titlesReady)
   show(
     todo({
       notes: `## Meeting\n25/11 (họp cô Laura, ${meeting}): Tasco mua Cốc Cốc.\nItem's chat: ${chat}\n\n## Plan\n1. Tasco\n2. Cốc Cốc\n\n\`${meeting}\``,
     }),
   )
 
-  const link = await screen.findByRole("link", { name: "Họp với cô Laura về Cốc Cốc" })
+  // First wait for the Markdown to render. Then release the title responses and wait for the same links to update.
+  const link = await screen.findByRole("link", { name: meeting })
   expect(link).toHaveAttribute("href", `/meetings/${meeting}`)
   expect(link).toHaveAttribute("title", meeting)
-  const chatLink = await screen.findByRole("link", { name: "Inbox: báo cáo" })
+  const chatLink = screen.getByRole("link", { name: chat })
   expect(chatLink).toHaveAttribute("href", `/chats/${chat}`)
+  releaseTitles()
+  await waitFor(() => {
+    expect(link).toHaveAccessibleName("Họp với cô Laura về Cốc Cốc")
+    expect(chatLink).toHaveAccessibleName("Inbox: báo cáo")
+  })
 
   const notes = document.querySelector("[data-slot=notes]") as HTMLElement
   expect(within(notes).getByRole("heading", { name: "Plan" })).toBeVisible()

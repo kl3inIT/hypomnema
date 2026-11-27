@@ -10,10 +10,10 @@ triage). Nothing here is built into the server; the server code it relies on is 
 | File | What it is |
 |---|---|
 | `setup.sh` | Makes or updates the two Routines of a Bot (the main Bot by default) with `hypomnema` commands, as the owner. It makes no Bot. |
-| `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: triage per conversation, drafts, meetings, accounts to log in again, a priority and a project on its items that have none, notes that say the need and the plan with every later update a comment (issue #1186), and what it learns of the owner. |
+| `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: triage per conversation, drafts, meetings, accounts to log in again, a priority and a project on its items that have none, notes that say the need and the plan with every later update a comment (issue #1186), the message lines an item it passes to a project Bot needs, since that Bot may not read his accounts (issue #1229), and what it learns of the owner. |
 | `triage.test.mjs`, `triage-world.mjs`, `triage-run.mjs` | A run of `triage.md` with a real Claude Code against the Bot's tools as an MCP server: a new message on a known item is a comment, not a line of its notes (issue #1186). Only with `HYPOMNEMA_TEST_CLAUDE=claude node --test deploy/thu-ky/triage.test.mjs`; CI skips it. |
 | `triage-cases.json`, `triage.eval.mjs` | The cases of the owner's short replies to asks ("dạ oki chị" to a request for work, "ok" to information, a sticker, a question back; issue #1182), each a thread and what the triage must add, close or leave, run with `triage.md` and a real model. Only with `THU_KY_EVAL=1 node --test deploy/thu-ky/triage.eval.mjs` on a node with the gateway; CI never runs it. Run it after a change to `triage.md`. |
-| `new-messages.mjs` | The check of `triage`: counts the new messages, others' and the owner's own apart, and wakes the Bot only when some are left. |
+| `new-messages.mjs` | The check of `triage`: counts the new messages, others' and the owner's own apart, of the chats he lets the secretary read (issue #1270), and wakes the Bot only when some are left. |
 | `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark: what waits on him, and what a Bot closed without him since the previous brief (issue #1204). |
 
 ## Set it up (the owner, on the machine where `hypomnema` is logged in as him)
@@ -22,28 +22,41 @@ triage). Nothing here is built into the server; the server code it relies on is 
    <the main Bot>` names its Connections and tools; `hypomnema integrations list` names the accounts (such as
    `lark:me`, `zalo:main`, `whatsapp:<label>`, `google:<label>`). It needs the `inbox`, `meetings`, `zalo` and
    `whatsapp` tools; `bots set <the main Bot> --connections …` adds an account.
-2. Run `deploy/thu-ky/setup.sh`. It sets the `triage` Routine of the main Bot, read only (`--bot <name or id>` for
-   another Bot).
+2. Run `deploy/thu-ky/setup.sh`. It moves the chat ids of the Bot's `dropChats` into the owner's choices (below),
+   then sets the `triage` Routine of the main Bot, read only (`--bot <name or id>` for another Bot).
 3. The brief is told in the owner's Lark chat with the main Bot, through its Lark Channel. Find that chat with
    `hypomnema chats --bot <the main Bot's id>`, then run `setup.sh` again with `--brief-chat <chat id>`.
 
-The filters of the check (no-reply senders, official accounts, newsletters, how many Lark chats) can be changed
-without a release: write the fields to change into `thu-ky/filters.json` in the Bot's folder (the names are those of
-`defaults` in `new-messages.mjs`). Its state, when each source was last read, is `thu-ky/new-messages.json` there;
-removing it makes the next check look back one hour.
+Which chats the triage reads is the owner's choice, per account and chat (issue #1270): the gear on the Inbox page
+opens Chats the secretary reads, a tab per account with a search, kind and state filters and a switch per chat
+(`hypomnema inbox chats [<integration>:<label>]` and `hypomnema inbox chats set <integration>:<label> <chat id>
+on|off` from the terminal). A chat he never set takes its kind's default, the same for every source: direct chats
+and groups are read, a bot's or an official account's (by its name or id: Zalo's own accounts, `OA`, official
+accounts, ads, newsletters, WhatsApp broadcasts) is not. A chat switched off is still synced and kept, and a Bot
+reads it when he asks; only the check skips it, before any model. The check reads the choices with `inbox_chats`
+once a run, so the Bot needs the `inbox` tools. When they cannot be read, or the run has no `inbox_chats`, it reads
+none of his chats that run and says so: their marks are kept and read next time, and mail and meetings still are. What
+a run had no room for is carried to the next one with the choices of that run: a chat switched off meanwhile is
+dropped, and a carried chat whose choice cannot be read is kept for a later run, not printed.
+
+Until 2026-11-27 the check left chats out by `dropChats` of `thu-ky/filters.json`, and the owner added chat ids
+there. `setup.sh` moves them once, before it sets the new check: each exact id (`^<id>$`) of a chat one of his
+accounts has becomes his choice, switched off (`hypomnema inbox chats move [--bot <name or id>]`, which prints what it
+moved, the ids no account has and the patterns that are not one chat's id). Run again, it changes nothing, and a
+chat he switched on since stays on. It fails, and `setup.sh` stops before it sets the check, until every such id is
+stored: while one of his accounts cannot be listed (a Zalo or WhatsApp session not open), and for an id none of his
+accounts has, which he takes out of `dropChats` or switches off on the screen once it is listed. Once the control plane has `inbox_chats`, the check no longer reads
+`dropChats`; the field may be removed from `filters.json`.
 
 The owner's own new messages wake the triage too (issue #1182): his "dạ oki chị" to a request for work is work he
 took, and is read even when no one writes after it. So his chats where only he writes would wake it for nothing: his
 Lark chat with the main Bot, where he answers the brief, and his chat with himself (Zalo's "My Documents", his own
-number on WhatsApp). Put their ids into `dropChats` of `filters.json`. A field there replaces the default, so copy the
-default list of `new-messages.mjs` and add the ids, each a regular expression:
+number on WhatsApp). Switch them off on that screen.
 
-```json
-{ "dropChats": ["^Zalo ", "\\bOA\\b", "official account", "quảng cáo", "newsletter", "@broadcast$",
-  "^oc_<the brief's Lark chat>$", "^<his Zalo self-chat id>$", "^<his number>@s\\.whatsapp\\.net$"] }
-```
-
-The brief's Lark chat id is the `oc_…` of the main Bot's Lark Channel chat with him (the brief Routine's chat).
+The other filters of the check (no-reply senders, how many Lark chats) can be changed without a release: write the
+fields to change into `thu-ky/filters.json` in the Bot's folder (the names are those of `defaults` in
+`new-messages.mjs`). Its state, when each source was last read, is `thu-ky/new-messages.json` there; removing it
+makes the next check look back one hour.
 
 Each run gets a batch the Bot finishes (issue #1101): the check names at most `perRun` conversations (15), and keeps
 the rest as `carry` in its state. Direct chats and conversations that tag the owner (Lark) or name him come first,

@@ -15,6 +15,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/prices"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -59,7 +60,7 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 		"  - {provider: claude-subscription, model: claude-sonnet-5-5}\n  - {provider: codex-subscription, model: gpt-6.1-sol}\n")
 	require.NoError(t, err)
 
-	_, err = w.svc.ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
+	_, err = w.svc.Profiles().ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
 		"base_url: http://172.22.0.1:20128/v1\napi_key_ref: file:ninerouter.key\nmodels: [cx/gpt-sol]\n")
 	require.NoError(t, err)
 
@@ -117,13 +118,13 @@ func newGatewayModels(t *testing.T, listed bool) *modelgateway.Service {
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
-	info := func(p orchestration.Provider) modelgateway.ProviderInfo {
+	info := func(p profilestore.Provider) modelgateway.ProviderInfo {
 		return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, Models: p.Models}
 	}
 
 	g := modelgateway.New(db, platform.SystemClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := orch.GetProvider(ctx, name)
+			p, err := orch.Profiles().GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}
@@ -136,7 +137,7 @@ func newGatewayModels(t *testing.T, listed bool) *modelgateway.Service {
 	}
 
 	return g.WithProviderList(func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
-		providers, err := orch.ListProviders(ctx)
+		providers, err := orch.Profiles().ListProviders(ctx)
 		if err != nil {
 			return nil, err
 		}

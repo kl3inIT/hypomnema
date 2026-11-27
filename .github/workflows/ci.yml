@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -12,7 +13,7 @@ permissions:
 # is built only from a commit whose run passed (issue #334). One group for main kept one pending run and cancelled the
 # others.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -26,21 +27,45 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      code: ${{ (github.event_name == 'workflow_dispatch' || steps.filter.outputs.docs_count != steps.filter.outputs.all_count) && 'true' || 'false' }}
+      go-generated: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.go-generated }}
+      web-generated: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.web-generated }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
-          # A file counts as code when it is neither under docs/ nor Markdown.
-          predicate-quantifier: every
+          # Count docs and all changes separately, as Coder does, so each
+          # generated-code filter also matches any one of its input paths.
           filters: |
-            code:
-              - '!docs/**'
-              - '!**/*.md'
+            all:
+              - '**'
+            docs:
+              - 'docs/**'
+              - '**/*.md'
+            go-generated:
+              - 'api/**'
+              - 'sqlc.yaml'
+              - 'internal/controlplane/**/queries/**'
+              - 'internal/controlplane/**/migrations/**'
+              - 'internal/controlplane/**/internal/store/**'
+              - 'internal/controlplane/clientapi/openapi/**'
+              - 'tools/ci/go.*'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+            web-generated:
+              - 'api/**'
+              - 'web/openapi-ts.config.ts'
+              - 'web/src/api/generated/**'
+              - 'web/package.json'
+              - 'web/pnpm-*.yaml'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
 
-  # The Go checks are three jobs side by side (issue #129): no reference runs them one after another, and the
-  # race tests alone were most of the old Verify job. `make verify` is still the three of them, for a laptop.
+  # Static, Unit and Race run side by side. `make verify` runs all three Go targets locally.
   static:
     name: Static
     needs: changes
@@ -72,17 +97,26 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             git fetch --no-tags --depth=1 origin "+$BEFORE:refs/remotes/origin/migration-base"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+            git update-ref refs/remotes/origin/migration-base HEAD^
           else
             git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/migration-base
           fi
       # A migration named by its time stays green on a pull request; main refuses it, so `make migration-fix` numbers
       # it before the merge (issue #954), and release.yml releases only a green commit.
-      - name: make verify-static
+      - name: Check migrations
         run: |
           timestamps=allow
-          if [ "$GITHUB_EVENT_NAME" = push ]; then timestamps=refuse; fi
-          make verify-static MIGRATION_BASE=origin/migration-base MIGRATION_TIMESTAMPS="$timestamps"
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then timestamps=refuse; fi
+          make migration-check MIGRATION_BASE=origin/migration-base MIGRATION_TIMESTAMPS="$timestamps"
+      - name: Check Go dependencies and lint
+        run: make tidy-check lint deps-check goose-version-check
+      - name: Check generated Go code
+        if: needs.changes.outputs.go-generated == 'true'
+        run: make sqlc-check openapi-check
       - name: govulncheck
+        if: github.event_name != 'pull_request'
         run: make govulncheck
       - name: Save Go cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
@@ -94,11 +128,15 @@ jobs:
           key: ${{ steps.go_cache.outputs.cache-primary-key }}
 
   unit:
-    name: Unit
+    name: Unit (${{ matrix.group }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [videos, other]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -114,11 +152,14 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
-          restore-keys: go-unit-${{ runner.os }}-
+          key: go-unit-${{ matrix.group }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            go-unit-${{ matrix.group }}-${{ runner.os }}-${{ runner.arch }}-
+            go-unit-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
       # The box each Bot's pi runs in (issue #260) is tested on a real bubblewrap: the runner is set up as the
       # coordinator's machine is, and the test fails rather than skips when the box cannot be made.
       - name: Set up the Bots' box
+        if: matrix.group == 'other'
         run: sudo sh deploy/coordinator/setup-box.sh "$USER"
       # The videos are made with the control plane's pinned ffmpeg (issue #818, row 9), installed here as the control
       # plane installs it, and kept between runs while its pin is unchanged. Its ffprobe also reads the phone's takes
@@ -138,8 +179,16 @@ jobs:
           echo "HYPOMNEMA_FFMPEG_DIR=$dir" >> "$GITHUB_ENV"
           dirname "$ffprobe" >> "$GITHUB_PATH"
       - name: make unit
-        run: make unit
+        shell: bash
+        run: |
+          if [ "$GROUP" = videos ]; then
+            packages=./internal/controlplane/videos/...
+          else
+            packages=$(go list ./... | grep -vE '/internal/controlplane/videos(/|$)' | paste -sd ' ' -)
+          fi
+          make unit UNIT_PACKAGES="$packages"
         env:
+          GROUP: ${{ matrix.group }}
           HYPOMNEMA_BOX_TEST: required
           HYPOMNEMA_NEED_FFPROBE: required
           HYPOMNEMA_NEED_FFMPEG: required
@@ -152,26 +201,29 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go_cache.outputs.cache-primary-key }}
       - name: Save the pinned ffmpeg cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.ffmpeg_cache.outputs.cache-hit != 'true'
+        if: matrix.group == 'videos' && github.event_name == 'push' && steps.ffmpeg_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/hypomnema-ffmpeg
           key: ${{ steps.ffmpeg_cache.outputs.cache-primary-key }}
 
   race:
-    name: Race
+    name: Race (${{ matrix.group }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Unit covers all packages on PRs. Main adds the remaining Race groups.
+        group: ${{ fromJSON(github.event_name == 'pull_request' && '["clients","control-plane"]' || '["api","clients","control-plane","other","orchestration"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: false
-      # Each job keeps its own build cache, as Omnara's matrix legs do: what the race detector builds is of no use
-      # to the others, and one shared key would keep only the first job's.
       - name: Restore Go cache
         id: go_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -179,12 +231,31 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-race-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
-          restore-keys: go-race-${{ runner.os }}-
+          key: go-race-${{ matrix.group }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            go-race-${{ matrix.group }}-${{ runner.os }}-${{ runner.arch }}-
+            go-race-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
       - name: make race
-        run: make race
+        env:
+          GROUP: ${{ matrix.group }}
+        run: |
+          module=$(go list -m)
+          packages=$(CGO_ENABLED=1 go list -race ./...)
+          selected=()
+          while IFS= read -r package; do
+            case "${package#"$module"/}" in
+              internal/controlplane/orchestration) group=orchestration ;;
+              internal/controlplane/clientapi|internal/controlplane/agentapi|internal/controlplane/nodeapi) group=api ;;
+              internal/controlplane/clientcli|internal/controlplane/coordinator) group=clients ;;
+              internal/controlplane|internal/controlplane/*) group=control-plane ;;
+              *) group=other ;;
+            esac
+            if [ "$group" = "$GROUP" ]; then selected+=("$package"); fi
+          done <<< "$packages"
+          test "${#selected[@]}" -gt 0
+          make race RACE_PACKAGES="${selected[*]}"
       - name: Save Go cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && steps.go_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -193,33 +264,87 @@ jobs:
           key: ${{ steps.go_cache.outputs.cache-primary-key }}
 
   web:
-    name: Web
+    name: Web checks
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 21
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: ./.github/actions/setup-web
         with:
-          package_json_file: web/package.json
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-      - name: Resolve the pnpm cache inputs
-        id: pnpm_store
-        run: |
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-          echo "arch=$(node -p 'process.arch')" >> "$GITHUB_OUTPUT"
-      - name: Restore pnpm cache
-        id: pnpm_cache
+          save-cache: ${{ github.event_name == 'push' }}
+      - name: make web-install
+        run: make web-install
+      - name: Check generated web API client
+        if: needs.changes.outputs.web-generated == 'true'
+        run: make web-api-check
+      - name: Lint and unit test the web client
+        # The production build checks TypeScript for these same inputs.
+        run: pnpm --dir web lint && pnpm --dir web test:unit
+      - name: Check unused code and formatting
+        if: github.event_name != 'pull_request'
+        run: pnpm --dir web knip && pnpm --dir web format:check
+      - name: The Zalo bridge's tests and build
+        if: github.event_name != 'pull_request'
+        run: make zalo-bridge-install zalo-bridge-check zalo-bridge-build
+      - name: pi's extension tests
+        if: github.event_name != 'pull_request'
+        run: make pi-extension-check
+
+  web-build:
+    name: Web build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-web
+      - name: Resolve build inputs
+        id: build
+        run: echo "key=web-dist-${RUNNER_OS}-${RUNNER_ARCH}-$(node -v)-$(git rev-parse HEAD:web)" >> "$GITHUB_OUTPUT"
+      - name: Restore the web build
+        id: web_dist
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.pnpm_store.outputs.path }}
-          key: node-cache-${{ runner.os }}-${{ steps.pnpm_store.outputs.arch }}-pnpm-${{ hashFiles('web/pnpm-lock.yaml') }}
-      # The browser tests run the control plane itself for what only its answers show, the headers of a page's
-      # frame among them (issue #737; web/tests/server).
+          path: web/dist
+          key: ${{ steps.build.outputs.key }}
+      - name: make web-install web-build
+        if: steps.web_dist.outputs.cache-hit != 'true'
+        run: make web-install web-build
+      # The artifact makes the exact build available to every shard even on a cache miss.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-web-dist
+          path: web/dist
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Save the web build
+        if: steps.web_dist.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: web/dist
+          key: ${{ steps.build.outputs.key }}
+
+  web-e2e:
+    name: Web e2e (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: web-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-web-dist
+          path: web/dist
+      # Browser tests also exercise the control plane directly for notification renewal.
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
@@ -235,12 +360,6 @@ jobs:
           restore-keys: go-web-${{ runner.os }}-
       - name: make web-install
         run: make web-install
-      - name: make web-check
-        run: make web-check
-      - name: The Zalo bridge's tests and build
-        run: make zalo-bridge-install zalo-bridge-check zalo-bridge-build
-      - name: pi's extension tests
-        run: make pi-extension-check
       # Chromium is kept between runs, as t3code's CI keeps it: downloading it and running apt on every run was
       # most of this job, and a stalled download held a pull request for minutes.
       - name: Resolve the Playwright version
@@ -264,17 +383,13 @@ jobs:
           if ldd "$browser" | grep '=> not found'; then
             pnpm --dir web exec playwright install-deps chromium
           fi
-      - name: make web-e2e
-        timeout-minutes: 15
-        run: make web-e2e
-      - name: Save pnpm cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.pnpm_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ steps.pnpm_store.outputs.path }}
-          key: ${{ steps.pnpm_cache.outputs.cache-primary-key }}
+      - name: Run Playwright
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          PLAYWRIGHT_PREBUILT: '1'
+        run: pnpm --dir web test:e2e --shard="$SHARD"
       - name: Save Go cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
+        if: matrix.shard == 1 && github.event_name == 'push' && steps.go_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -282,26 +397,29 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go_cache.outputs.cache-primary-key }}
       - name: Save Chromium cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.chromium_cache.outputs.cache-hit != 'true'
+        if: matrix.shard == 1 && github.event_name == 'push' && steps.chromium_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.chromium_cache.outputs.cache-primary-key }}
 
-  # The one check to wait for: it passes when no job failed, the skipped ones of a documentation change
-  # included (Coder's `required`).
   required:
     name: Required
-    needs: [changes, static, unit, race, web]
+    needs: [changes, static, unit, race, web, web-build, web-e2e]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
-      - name: Every job passed or was skipped
+      - name: Check job results
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          RESULTS: ${{ needs.static.result }} ${{ needs.unit.result }} ${{ needs.race.result }} ${{ needs.web.result }} ${{ needs.web-build.result }} ${{ needs.web-e2e.result }}
         run: |
-          echo "results: $RESULTS"
-          case " $RESULTS " in
-            *" failure "*|*" cancelled "*) exit 1 ;;
+          echo "Changes: $CHANGES, code: $CODE, results: $RESULTS"
+          test "$CHANGES" = success
+          case "$CODE:$RESULTS" in
+            'true:success success success success success success') ;;
+            'false:skipped skipped skipped skipped skipped skipped') ;;
+            *) exit 1 ;;
           esac

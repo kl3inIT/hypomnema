@@ -103,7 +103,7 @@ func browsing(t *testing.T, cp *controlPlane) *client {
 	t.Cleanup(srv.Close)
 
 	dir := t.TempDir()
-	require.NoError(t, bridge.SetAgent(dir, bridge.Agent{URL: srv.URL + "/", Key: dispatchKey}))
+	require.NoError(t, bridge.SetAgent(dir, bridge.Agent{URL: srv.URL + "/", Key: dispatchKey, Worktree: t.TempDir()}))
 
 	return newClientIn(t, dir)
 }

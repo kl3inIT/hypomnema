@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises"
 import { expect, test, type Page } from "@playwright/test"
 
 import { openMenu } from "./menu.js"
+import { pasteImage } from "./paste-image.js"
 import { shot } from "./shot.js"
 
 // One open chat against a fake client API, with its stream held open by the test: page.route can only answer a
@@ -939,30 +940,6 @@ test("an answered approval stays in the chat as a row", async ({ page }) => {
 const settled = (page: Page) =>
   page.waitForFunction("document.getAnimations().every((a) => a.playState !== 'running')")
 
-// pasteImage pastes a picture into the message box, as a screenshot copied to the clipboard is: a PNG drawn by the
-// page itself. It runs in the page, written as text since this package's types have no DOM.
-async function pasteImage(page: Page) {
-  await page.evaluate(`(async () => {
-    const canvas = document.createElement("canvas")
-    canvas.width = 480
-    canvas.height = 300
-    const g = canvas.getContext("2d")
-    const fill = g.createLinearGradient(0, 0, 480, 300)
-    fill.addColorStop(0, "#4f46e5")
-    fill.addColorStop(1, "#06b6d4")
-    g.fillStyle = fill
-    g.fillRect(0, 0, 480, 300)
-    g.fillStyle = "#ffffff"
-    g.font = "bold 36px sans-serif"
-    g.fillText("/health 200 OK", 110, 160)
-    const blob = await new Promise((done) => canvas.toBlob(done, "image/png"))
-    const data = new DataTransfer()
-    data.items.add(new File([blob], "image.png", { type: "image/png" }))
-    const box = document.querySelector('textarea[aria-label="Message"]')
-    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }))
-  })()`)
-}
-
 // Scenario: the owner attaches a report with the paperclip and pastes a screenshot (issue #343). Each is a chip
 // that uploads into the chat's folder of attachments in the Bot's folder, the report under "report (2).pdf" since
 // one is there; Send sends the text with both. In the chat the message shows the screenshot as a picture that
@@ -987,6 +964,7 @@ test("files attached by button and paste are sent and shown with the message", a
   await expect(chips.getByText("report.pdf")).toBeVisible()
   await expect(chips.getByText("image.png")).toBeVisible()
   await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
+  await expect(chips.locator('[title="report.pdf"] img')).toHaveAttribute("src", /\/pdf\.svg$/)
   await chips.getByRole("button", { name: "Remove stray.txt" }).click()
   await expect(chips.getByText("stray.txt")).toHaveCount(0)
   expect(calls).toContain("POST folders attachments/cht_1")

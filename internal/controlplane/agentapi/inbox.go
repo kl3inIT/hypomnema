@@ -410,12 +410,6 @@ type inboxSourceArgs struct {
 	Account string `json:"account"`
 }
 
-// sourceIntegration is the Integration whose Connection a source names its account by.
-var sourceIntegration = map[string]string{
-	inboxstore.FromZalo: "zalo", inboxstore.FromWhatsApp: "whatsapp", inboxstore.FromLark: "lark",
-	inboxstore.FromGmail: "google",
-}
-
 // readSource is where a Bot read an item, as it names it (issue #1105): what of the owner's it read, in any of its
 // chats or runs, accepted only when it may read it now as its reads are: an account it may use (Bot.MayUse, as
 // agentapi's tools and the service proxy check it), or a meeting that is there for a Bot that reads meetings. The
@@ -456,7 +450,7 @@ func (s *Server) readSource(ctx context.Context, a agent, in inboxArgs) (inboxst
 		return src, nil
 	}
 
-	integration := sourceIntegration[src.Kind]
+	integration := src.ConnectionIntegration()
 	if src.Account == "" {
 		return inboxstore.Source{}, fmt.Errorf("%w: a to-do from %s names the owner's account you read it with, "+
 			"the label of %s:<label>", orchestration.ErrInvalid, src.Kind, integration)
@@ -501,8 +495,13 @@ func (s *Server) accountLabel(ctx context.Context, a agent, integration, named s
 		}
 	}
 
-	return "", fmt.Errorf("%w: you may not use %s:%s, so nothing is added from it", orchestration.ErrForbidden,
-		integration, named)
+	labels := make([]string, 0, len(may))
+	for _, c := range may {
+		labels = append(labels, c.Label)
+	}
+
+	return "", fmt.Errorf("%w: you may not use %s:%s; available Connection labels: %s",
+		orchestration.ErrForbidden, integration, named, inboxstore.ConnectionLabelList(labels))
 }
 
 // sameAccount says whether two names of an account are one: a phone number with or without its + and spaces, and
@@ -788,6 +787,8 @@ func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxA
 	default:
 		n.State = inboxstore.Proposed
 	}
+
+	n.Chat = c.chat()
 
 	t, err := s.store.Inbox().Create(ctx, c.actor, n)
 	if err != nil {
@@ -1083,4 +1084,75 @@ func val[T any](p *T) T {
 	}
 
 	return *p
+}
+
+// chatsOfInboxChats are the services whose chats inbox_chats names, those the triage's check reads.
+var chatsOfInboxChats = []string{"zalo", "whatsapp", "lark"}
+
+// readsChatChoices says whether the agent is given inbox_chats (issue #1270): a Bot's pi, and the check of its
+// Routine, which has no chat and so none of the Inbox's other tools; never a worker.
+func readsChatChoices(a agent) bool { return a.bot != "" && a.dispatchID == "" }
+
+// inboxChatsTool is inbox_chats as a Bot is offered it.
+func inboxChatsTool(a agent) []agenttool.BrowserTool {
+	if !readsChatChoices(a) {
+		return nil
+	}
+
+	return []agenttool.BrowserTool{{
+		Name: agenttool.ToolInboxChats,
+		Description: "List the owner's choices of which of his chats the secretary reads: each chat of his " +
+			"accounts you may read (zalo:<label>, whatsapp:<label>, lark:<label>) that he switched off or on, and " +
+			"the default of every other chat (direct chats and groups read; a bot's or an official account's, by " +
+			"bot_patterns on its name or id, skipped). Use it in the triage's check to leave out the chats he " +
+			"switched off; such a chat is still read with your tools when he asks.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+	}}
+}
+
+// inboxChatsCall answers inbox_chats: the owner's choices of the accounts the Bot may read, with the default of the
+// others.
+func (s *Server) inboxChatsCall(w http.ResponseWriter, r *http.Request, a agent) {
+	type choice struct {
+		Account string    `json:"account"`
+		Chat    string    `json:"chat"`
+		Reads   bool      `json:"reads"`
+		SetAt   time.Time `json:"set_at"`
+	}
+
+	ctx := r.Context()
+	chats := []choice{}
+
+	for _, integration := range chatsOfInboxChats {
+		conns, err := s.allowed(ctx, a, integration)
+		if err != nil {
+			s.fail(w, r, err)
+
+			return
+		}
+
+		for _, c := range conns {
+			set, err := s.store.Inbox().ChatReads(ctx, integration, c.Label)
+			if err != nil {
+				s.fail(w, r, err)
+
+				return
+			}
+
+			for _, x := range set {
+				chats = append(chats, choice{
+					Account: integration + ":" + c.Label, Chat: x.Chat, Reads: x.Reads, SetAt: x.At,
+				})
+			}
+		}
+	}
+
+	s.answerJSON(w, r, map[string]any{
+		"defaults": map[string]any{
+			"direct": inboxstore.DefaultReads(inboxstore.ChatDirect),
+			"group":  inboxstore.DefaultReads(inboxstore.ChatGroup),
+			"bot":    inboxstore.DefaultReads(inboxstore.ChatBot), "bot_patterns": inboxstore.BotPatterns,
+		},
+		"chats": chats,
+	}, nil)
 }

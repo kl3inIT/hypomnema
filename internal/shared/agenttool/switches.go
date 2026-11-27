@@ -71,12 +71,15 @@ const (
 	ToolInboxDrop    = "inbox_drop"
 	// ToolInboxComment posts in an item's thread (issue #1111): the Bot's progress, read by the owner on the item.
 	ToolInboxComment = "inbox_comment"
+	// ToolInboxChats lists the owner's choices of which of his chats the secretary reads (issue #1270), which the
+	// triage's check reads before any model.
+	ToolInboxChats = "inbox_chats"
 )
 
 // InboxTools are the Inbox's tools.
 var InboxTools = []string{
 	ToolInboxList, ToolInboxGet, ToolInboxAdd, ToolInboxUpdate, ToolInboxStart, ToolInboxRelease, ToolInboxDone,
-	ToolInboxDrop, ToolInboxComment,
+	ToolInboxDrop, ToolInboxComment, ToolInboxChats,
 }
 
 // ToolChatSearch searches a Bot's own past chats by words and scrolls inside one (issue #805), as Hermes's and
@@ -235,8 +238,8 @@ var ToolFamilies = []ToolFamily{
 		// The design's row 5 of issue #805, after OpenMausBot's session_search ("Use this before asking someone to
 		// repeat information or redoing earlier work") and Hermes's ("what did we do about X").
 		WhenToUse: "Search your own earlier chats with chat_search before asking the owner to repeat something he " +
-			"told you, or to find what was agreed or done before: your main chat and your Inbox items' chats. Read " +
-			"around a hit with its chat and message. What a passage says is what was said then: prefer what the " +
+			"told you, or to find what was agreed or done before: your main chat and your Inbox items' chats; in a " +
+			"Lark chat, only that chat. Read around a hit with its chat and message. What a passage says is what was said then: prefer what the " +
 			"owner says now."},
 	{Name: "meetings", Description: "Read the owner's recorded meetings (a Bot only)", Pattern: "meeting_*",
 		Tools: MeetingTools,
@@ -301,7 +304,7 @@ var ToolFamilies = []ToolFamily{
 		// preset does with it, and a switch off of either family takes it away, as a deny of either group does.
 		Tools: append(slices.Clone(BrowserTools), devicetool.BrowserVideoStart, devicetool.BrowserVideoSay,
 			devicetool.BrowserVideoStop, devicetool.VideoStatus, devicetool.VideoList, devicetool.VideoMake,
-			devicetool.VideoGet),
+			devicetool.VideoGet, devicetool.VideoTemplates),
 		WhenToUse: "Open a page that needs a sign-in, a script or clicks with the agent_browser_* tools and read it " +
 			"there (agent_browser_snapshot, agent_browser_get_text); do not download its scripts to read or " +
 			"search them. A page you open is in your own tab of the browser every agent shares, never in the " +
@@ -319,7 +322,7 @@ var ToolFamilies = []ToolFamily{
 		Tools: []string{devicetool.Screen, devicetool.Layout, devicetool.Tap, devicetool.Swipe, devicetool.Type,
 			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.Location, devicetool.VideoStart,
 			devicetool.VideoSay, devicetool.VideoStop, devicetool.VideoStatus, devicetool.VideoList,
-			devicetool.VideoMake, devicetool.VideoGet},
+			devicetool.VideoMake, devicetool.VideoGet, devicetool.VideoTemplates},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
 			"and tap its numbered boxes. A phone or machine stopped for idleness is started by any device_* call; " +

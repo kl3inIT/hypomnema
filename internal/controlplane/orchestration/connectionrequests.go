@@ -226,7 +226,7 @@ func (s *Service) RequestConnection(ctx context.Context, botID, chatID, use, rea
 	return out, nil
 }
 
-// chatTurnOf is the chat's turn now (ChatTurn) and whether the owner started it (OwnerTurn), read in the caller's
+// chatTurnOf is the chat's turn now (ChatTurn) and whether the owner started it with his own words, read in the caller's
 // transaction.
 func chatTurnOf(ctx context.Context, q *store.Queries, chatID string) (turn string, ownerTurn bool, err error) {
 	chat, err := q.GetChat(ctx, chatID)
@@ -238,16 +238,14 @@ func chatTurnOf(ctx context.Context, q *store.Queries, chatID string) (turn stri
 		turn = fmt.Sprintf("%s@%d", chat.TurnToken.String, chat.TurnStartedAt.Int64)
 	}
 
-	last, err := q.LastTurnInput(ctx, chatID)
-
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return turn, false, nil
-	case err != nil:
-		return "", false, fmt.Errorf("reading whose turn chat %s is: %w", chatID, err)
+	t, err := whoseTurn(ctx, q, chatID)
+	if err != nil {
+		return "", false, err
 	}
 
-	return turn, ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid, nil
+	// A new ask is the owner's own (his message, or his words in the Inbox), not a hand-off that marked the chat for
+	// him: a Bot passing an item there again does not ask him anew after he declined (review of PR #1237).
+	return turn, t.own, nil
 }
 
 // GetConnectionRequest returns one Connection request.

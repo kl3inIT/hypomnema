@@ -7,7 +7,7 @@ type DispatchStatus string
 
 // Dispatch statuses. unknown and stop_unknown are not final: a report from
 // the proven epoch, a reattach, or the node's next hello (NodeConnect) ends
-// them. SettleUnknown and AbandonDispatch are called only from tests.
+// them.
 const (
 	DispatchQueued      DispatchStatus = "queued"
 	DispatchStarting    DispatchStatus = "starting"
@@ -265,21 +265,6 @@ type Effect struct {
 	Ref     string
 	Phase   EffectPhase
 	Payload string
-}
-
-// Resource is something a Dispatch holds on its node.
-type Resource struct {
-	Kind       string
-	Ref        string
-	Custody    string
-	ReleasedAt *time.Time
-}
-
-// Settlement is the coordinator's decision about an unknown Dispatch, after
-// checking its effects: it succeeded (Result says how) or it is lost.
-type Settlement struct {
-	Succeeded bool
-	Result    Result
 }
 
 // EscalationKind names something the coordinator or the owner must look at.

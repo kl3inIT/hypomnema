@@ -85,15 +85,10 @@ func Normalize(words []Word, minWordDuration, cueStart, cueEnd float64) []Word {
 	return out
 }
 
-// ASS is the captions as an ASS file for a video of width × height: each
-// cue at the bottom, wrapped as Wrap does, with one event for each stretch in
-// which the word spoken is the same.
-func ASS(cues []Cue, width, height int, cfg Config) string {
-	return positionedASS(cues, width, height, cfg, PositionPreset)
-}
-
-// positionedASS is ASS at a position (issue #908, row 9): its own, the preset's, is ASS's bottom as made before the
-// presets; a position chosen sets the style's alignment and vertical margin to the presets' offsets.
+// positionedASS is the captions as an ASS file for a video of width × height, at a position (issue #908, row 9): each
+// cue wrapped as Wrap does, with one event for each stretch in which the word spoken is the same. Its own position,
+// the preset's, is the bottom as made before the presets; a position chosen sets the style's alignment and vertical
+// margin to the presets' offsets.
 func positionedASS(cues []Cue, width, height int, cfg Config, at Position) string {
 	size := FontSize(width, height, cfg.MaxCharsPerLine)
 

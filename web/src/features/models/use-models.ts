@@ -12,6 +12,10 @@ import {
   getImagesQueryKey,
   getWebSearchOptions,
   getWebSearchQueryKey,
+  listAudioModelsOptions,
+  listAudioModelsQueryKey,
+  listAudioVoicesOptions,
+  listAudioVoicesQueryKey,
   listAccountsOptions,
   listAccountsQueryKey,
   listGatewayKeysOptions,
@@ -148,11 +152,26 @@ export function useAudio() {
   return useQuery({ ...getAudioOptions(), refetchInterval: 30_000 })
 }
 
+// useAudioModels and useAudioVoices are the providers' own lists for the model and voice pickers (issue #1283);
+// the server keeps each a day, so they are read when the page opens.
+export function useAudioModels() {
+  return useQuery({ ...listAudioModelsOptions(), staleTime: 60_000 })
+}
+
+export function useAudioVoices() {
+  return useQuery({ ...listAudioVoicesOptions(), staleTime: 60_000 })
+}
+
 // useShowAudio shows the providers the server answered a change with: the body of their read.
 export function useShowAudio() {
   const queryClient = useQueryClient()
 
-  return (audio: Audio) => queryClient.setQueryData(getAudioQueryKey(), audio)
+  return (audio: Audio) => {
+    queryClient.setQueryData(getAudioQueryKey(), audio)
+    // A key added or removed, or a provider switched, changes what can be listed.
+    void queryClient.invalidateQueries({ queryKey: listAudioModelsQueryKey() })
+    void queryClient.invalidateQueries({ queryKey: listAudioVoicesQueryKey() })
+  }
 }
 
 // The web search chain. A rest ends on its own, so the chain is read again now and then while the page is open.

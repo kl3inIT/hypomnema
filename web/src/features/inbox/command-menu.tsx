@@ -1,8 +1,8 @@
 // The Inbox's command menu is adapted from circle (https://github.com/ln-dev7/circle, commit b0ba7dd):
 // components/layout/command-palette.tsx, the ⌘K/Ctrl+K palette aware of the item in context: a chip naming it that ⌫
-// clears, the item's commands with their pages (Set priority…, Move to project…), Escape or Backspace back to the first page,
+// clears, the item's commands with their pages (Set priority…, Move to department…), Escape or Backspace back to the first page,
 // and with no item, the list to jump to; adapted to the app's CommandDialog (Base UI) and to the Inbox's actions
-// (issue #1157): priority, project, give to the main Bot, snooze, done and drop.
+// (issue #1157): priority, department, give to the main Bot, snooze, done and drop.
 //
 // MIT License
 //
@@ -59,7 +59,7 @@ export type MenuCommands = {
   jump: (key: string) => void
 }
 
-// CommandMenu is the Inbox's ⌘K/Ctrl+K menu. On the selected to-do it changes the priority, the project, gives it to
+// CommandMenu is the Inbox's ⌘K/Ctrl+K menu. On the selected to-do it changes the priority or department, gives it to
 // the main Bot (handName names it), snoozes it, marks it done or drops it; with none selected, or once its chip is
 // cleared, it searches the items by title and opens the one picked.
 export function CommandMenu({
@@ -193,9 +193,9 @@ export function CommandMenu({
                 </CommandItem>
               )}
               {editable && (
-                <CommandItem value="Move to project" onSelect={() => go("project")}>
+                <CommandItem value="Move to department" onSelect={() => go("project")}>
                   <Box className="text-muted-foreground" />
-                  Move to project…
+                  Move to department…
                 </CommandItem>
               )}
               {handable && (
@@ -273,14 +273,14 @@ export function CommandMenu({
           )}
 
           {route === "project" && todo && (
-            <CommandGroup heading="Move to project…">
+            <CommandGroup heading="Move to department…">
               <CommandItem
-                value="No project"
+                value="No department"
                 data-checked={!todo.todo.project_id}
                 onSelect={() => run(() => commands.project(todo, "", ""))}
               >
                 <FolderIcon className="text-muted-foreground" />
-                No project
+                No department
               </CommandItem>
               {projects.map((p) => (
                 <CommandItem

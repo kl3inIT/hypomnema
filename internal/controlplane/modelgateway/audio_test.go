@@ -383,3 +383,51 @@ func TestEachKindHasItsOwnOrderAndCounts(t *testing.T) {
 		counts["soniox"][speech.KindSTT].Today)
 	assert.Equal(t, modelgateway.AudioTally{Answered: 1, Characters: 5}, counts["soniox"][speech.KindTTS].Month)
 }
+
+// Scenario: the owner chooses ElevenLabs's speech model (issue #1283, row 1); it is in the settings each request
+// reads, empty sets back the default, and Soniox, which has one model, takes no choice. The speech spoken with the
+// model chosen before and with the one chosen now are both counted as speech.
+func TestTheOwnerChoosesElevenLabssSpeechModel(t *testing.T) {
+	t.Parallel()
+
+	g := audioGateway(t, &fakeSoniox{})
+	ctx := t.Context()
+
+	set, err := g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "eleven_v4", set.Model(speech.ProviderElevenLabs, speech.KindTTS), "the default")
+
+	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", " eleven_v3 "))
+
+	set, err = g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"elevenlabs": "eleven_v3"}, set.Models)
+	assert.Equal(t, "eleven_v3", set.Model(speech.ProviderElevenLabs, speech.KindTTS))
+
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "soniox", "tts-rt-v3"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "eleven v3"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "google", "x"), modelgateway.ErrNotFound)
+
+	speak := func(want string) {
+		t.Helper()
+
+		status, header, body := g.post(t, "/v1/audio/speech", g.key, `{"input":"Xin chào","provider":"elevenlabs"}`)
+		require.Equal(t, http.StatusOK, status, body)
+		assert.Contains(t, header.Get("X-Hypomnema-Model"), want)
+	}
+
+	speak("eleven_v3")
+
+	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", ""))
+
+	set, err = g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, set.Models)
+
+	speak("eleven_v4")
+
+	counts, err := g.svc.AudioCounts(ctx, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, modelgateway.AudioTally{Answered: 2, Characters: 16}, counts["elevenlabs"][speech.KindTTS].Today)
+	assert.Zero(t, counts["elevenlabs"][speech.KindSTT].Today)
+}

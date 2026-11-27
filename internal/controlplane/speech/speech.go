@@ -29,6 +29,8 @@
 package speech
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -60,19 +62,22 @@ const (
 // Kinds are both kinds, in the order shown.
 func Kinds() []string { return []string{KindSTT, KindTTS} }
 
-// The one model each provider is asked with for each kind (issue #694):
+// The model each provider is asked with for each kind by default (issue #694):
 // Soniox's async transcription and its TTS (OmniRoute audioRegistry.ts:203,
-// 465; MemoryOS SonioxAsync.DEFAULT_MODEL), ElevenLabs's Scribe and its
-// multilingual voice model (9router-go internal/providers/registry_models.go:
-// 139; OmniRoute audioRegistry.ts:486, Bifrost types.go:13).
+// 465; MemoryOS SonioxAsync.DEFAULT_MODEL), ElevenLabs's Scribe (9router-go
+// internal/providers/registry_models.go:139) and Eleven v4 (issue #1283, row
+// 1: ElevenLabs's models page and its 2026-11-02 changelog; multilingual v2,
+// the default before, does not cover Vietnamese). ElevenLabs's text-to-speech
+// model is the owner's to choose (Settings.Models), as LiveKit, pipecat,
+// openclaw and open-webui make it a setting; the others have one model.
 const (
 	SonioxSTTModel     = "stt-async-v5"
 	SonioxTTSModel     = "tts-rt-v2"
 	ElevenLabsSTTModel = "scribe_v2"
-	ElevenLabsTTSModel = "eleven_multilingual_v2"
+	ElevenLabsTTSModel = "eleven_v4"
 )
 
-// Model is the model a provider is asked with for a kind.
+// Model is the model a provider is asked with for a kind by default.
 func Model(provider, kind string) string {
 	switch {
 	case provider == ProviderSoniox && kind == KindSTT:
@@ -98,7 +103,7 @@ const (
 	// to 30 minutes (LiteLLM's SONIOX_DEFAULT_MAX_POLL_ATTEMPTS of 1 s), and
 	// the upload and transcript take their own time.
 	transcriptionBudget = 35 * time.Minute
-	// speechTimeout bounds one provider's spoken answer.
+	// speechTimeout bounds one provider's spoken answer: Soniox's, or one attempt of ElevenLabs's.
 	speechTimeout = 2 * time.Minute
 	// maxSpeechAnswer bounds the audio a provider sends back.
 	maxSpeechAnswer = 64 << 20
@@ -176,6 +181,19 @@ type Settings struct {
 	// Voices are the voice each provider speaks a video with when none is asked (issue #818, row 5); a
 	// provider not named speaks with its own default.
 	Voices map[string]string
+	// Models are the text-to-speech model each provider speaks with, as the owner chose it from the provider's list
+	// (issue #1283, row 1); a provider not named speaks with its default (Model). Only ElevenLabs has a choice.
+	Models map[string]string
+}
+
+// Model is the model a provider is asked with for a kind: the owner's choice of a text-to-speech model, else the
+// default.
+func (set Settings) Model(provider, kind string) string {
+	if m := set.Models[provider]; m != "" && kind == KindTTS && provider == ProviderElevenLabs {
+		return m
+	}
+
+	return Model(provider, kind)
 }
 
 // Order is the providers in the owner's order for a kind.
@@ -218,6 +236,8 @@ type Config struct {
 	// PollFor bounds the polling of one job; zero: 30 minutes (LiteLLM's
 	// SONIOX_DEFAULT_MAX_POLL_ATTEMPTS of 1 s).
 	PollFor time.Duration
+	// Wait is how a retry of ElevenLabs waits (retry.go); nil: a timer that stops with the context.
+	Wait func(ctx context.Context, d time.Duration) error
 	// Now is the clock rests read; nil: the wall clock.
 	Now    func() time.Time
 	Logger *slog.Logger
@@ -247,6 +267,7 @@ type Service struct {
 	// lastUsed is when each key was last asked, for least recently used first.
 	lastUsed map[string]time.Time
 	voices   map[string]voicesRead
+	models   map[string]modelsRead
 }
 
 // New returns a Service.
@@ -277,6 +298,10 @@ func New(cfg Config) *Service {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 
+	if cfg.Wait == nil {
+		cfg.Wait = wait
+	}
+
 	now := cfg.Now
 	if now == nil {
 		now = time.Now
@@ -288,6 +313,7 @@ func New(cfg Config) *Service {
 	return &Service{
 		cfg: cfg, client: &http.Client{Transport: transport}, now: now,
 		resting: map[string]rest{}, lastUsed: map[string]time.Time{}, voices: map[string]voicesRead{},
+		models: map[string]modelsRead{},
 	}
 }
 
@@ -298,6 +324,23 @@ type Audio struct {
 	MIME string
 	Size int64
 	Open func() (io.ReadCloser, error)
+}
+
+// RecordingOf is a recording held whole, as the service reads one: its type read from its bytes when none is given,
+// and "recording" its name when it has none.
+func RecordingOf(data []byte, name, mime string) Audio {
+	if mime == "" {
+		mime = http.DetectContentType(data)
+	}
+
+	if name == "" {
+		name = "recording"
+	}
+
+	return Audio{
+		Name: name, MIME: mime, Size: int64(len(data)),
+		Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil },
+	}
 }
 
 // TranscribeRequest is a recording and how it is to be heard.
@@ -351,12 +394,29 @@ type SpeakRequest struct {
 	Format string
 	// Speed is ElevenLabs's voice speed; zero: its default.
 	Speed float64
-	// Language is Soniox's language for the text; empty: en (OmniRoute's default).
+	// Language is the text's language as an ISO-639-1 code. Soniox speaks it, en when empty (OmniRoute's default);
+	// ElevenLabs is sent it as language_code when its model covers it, else not, with a warning (issue #1283, row 2).
 	Language string
 	Provider string
+	// Model is the model Provider is asked with; empty: the owner's choice, or the default. It is given only with
+	// Provider: a video names the model its clips are kept by (issue #1283).
+	Model string
+	// Timings asks for when each word is spoken: ElevenLabs answers its alignment (/with-timestamps), from which
+	// Speech.Words are built (issue #1283, row 3). Soniox has none.
+	Timings bool
 	// Pinned asks Provider alone, even when the owner turned it off since, and reads no settings: a video revision
 	// made again with the voice it was spoken with (issue #908, row 4).
 	Pinned bool
+}
+
+// KindOf is the kind of a call a provider was asked with a model: speech-to-text for its one transcription model,
+// text-to-speech for any other, since the owner may choose ElevenLabs's speech model.
+func KindOf(provider, model string) string {
+	if model == Model(provider, KindSTT) {
+		return KindSTT
+	}
+
+	return KindTTS
 }
 
 // Formats are the audio formats speech is made in, OpenAI's.
@@ -371,6 +431,9 @@ type Speech struct {
 	Provider   string
 	Model      string
 	Errors     []Failure
+	// Words are the words spoken with their times, built from ElevenLabs's alignment when Timings was asked and it
+	// sent one; nil otherwise.
+	Words []Word
 }
 
 // mimeOf is the content type of a format, as OmniRoute's speech handler
@@ -404,7 +467,7 @@ func (s *Service) Transcribe(ctx context.Context, req TranscribeRequest) (Transc
 
 	var out Transcript
 
-	err := s.each(ctx, KindSTT, req.Provider, false, func(ctx context.Context, r route) error {
+	err := s.each(ctx, KindSTT, req.Provider, "", false, func(ctx context.Context, r route) error {
 		var (
 			t   Transcript
 			err error
@@ -445,30 +508,37 @@ func (s *Service) Speak(ctx context.Context, req SpeakRequest) (Speech, error) {
 		return Speech{}, fmt.Errorf("%w: the format is one of %s", ErrInvalid, strings.Join(Formats(), ", "))
 	case req.Speed < 0:
 		return Speech{}, fmt.Errorf("%w: the speed is positive", ErrInvalid)
+	case req.Model != "" && req.Provider == "":
+		return Speech{}, fmt.Errorf("%w: a model is named with its provider", ErrInvalid)
 	}
 
 	var out Speech
 
-	err := s.each(ctx, KindTTS, req.Provider, req.Pinned, func(ctx context.Context, r route) error {
-		ctx, cancel := context.WithTimeout(ctx, speechTimeout)
-		defer cancel()
-
+	err := s.each(ctx, KindTTS, req.Provider, req.Model, req.Pinned, func(ctx context.Context, r route) error {
 		var (
 			audio []byte
+			words []Word
 			err   error
 		)
 
+		// Soniox's answer has speechTimeout; each of ElevenLabs's attempts has its own, the waits between them
+		// apart (retry.go), as the SDK's timeout is a request's and its retries wait outside it.
 		if r.key.Provider == ProviderSoniox {
+			ctx, cancel := context.WithTimeout(ctx, speechTimeout)
+			defer cancel()
+
 			audio, err = s.sonioxSpeak(ctx, r.key, req)
 		} else {
-			audio, err = s.elevenLabsSpeak(ctx, r.key, req)
+			audio, words, err = s.elevenLabsSpeak(ctx, r.key, r.model, req)
 		}
 
 		if err == nil && len(audio) == 0 {
 			err = errors.New("it sent no audio")
 		}
 
-		out = Speech{Audio: audio, Format: req.Format, MIME: mimeOf(req.Format), Characters: characters}
+		out = Speech{
+			Audio: audio, Format: req.Format, MIME: mimeOf(req.Format), Characters: characters, Words: words,
+		}
 
 		return err
 	}, func(provider, model string, failures []Failure) {
@@ -492,10 +562,11 @@ func (s *Service) settings(ctx context.Context) (Settings, error) {
 	return set, nil
 }
 
-// route is one of a provider's keys, as a call asks it.
+// route is one of a provider's keys, as a call asks it, and the model it is asked with.
 type route struct {
-	id  string
-	key Key
+	id    string
+	key   Key
+	model string
 }
 
 func keyRoute(k Key) route { return route{id: "key:" + k.Name, key: k} }
@@ -505,8 +576,8 @@ func keyRoute(k Key) route { return route{id: "key:" + k.Name, key: k} }
 // refused key) rests the key and asks the provider's next key; any other
 // failure goes to the next provider, as web search does (websearch.go,
 // search). answered is told who answered after whose failures. A pinned call asks its provider alone and reads
-// no settings.
-func (s *Service) each(ctx context.Context, kind, provider string, pinned bool,
+// no settings. model is the model the named provider is asked with; empty: the owner's choice, or the default.
+func (s *Service) each(ctx context.Context, kind, provider, asked string, pinned bool,
 	ask func(ctx context.Context, r route) error, answered func(provider, model string, failures []Failure),
 ) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
@@ -550,11 +621,12 @@ func (s *Service) each(ctx context.Context, kind, provider string, pinned bool,
 			continue
 		}
 
-		model := Model(p, kind)
+		model := cmp.Or(asked, set.Model(p, kind))
 
 		for _, k := range s.leastRecentlyUsed(keys[p]) {
 			keyed = true
 			r := keyRoute(k)
+			r.model = model
 
 			if until, why, ok := s.restingUntil(r.id); ok {
 				failures = append(failures, Failure{

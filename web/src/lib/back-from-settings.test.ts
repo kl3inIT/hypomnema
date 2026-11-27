@@ -27,27 +27,4 @@ describe("back from settings", () => {
     const reloaded = await import("./back-from-settings")
     expect(reloaded.appPage()).toBe("/bots/bot_1")
   })
-
-  it.each([
-    "/machines",
-    "/machines/?view=list",
-    "/agents",
-    "/agents/new?from=helper",
-    "/agents/helper#profile",
-  ])("returns home when an older tab stored the Settings redirect %s", async (href) => {
-    sessionStorage.setItem("hypomnema.app-page", href)
-    const { appPage } = await import("./back-from-settings")
-    expect(appPage()).toBe("/")
-  })
-
-  it("keeps the machine terminal when visiting a Settings redirect", async () => {
-    const { appPage, rememberAppPage } = await import("./back-from-settings")
-    const terminal = "/machines/node_1/terminal"
-    rememberAppPage(terminal)
-    rememberAppPage("/machines")
-    expect(appPage()).toBe(terminal)
-    vi.resetModules()
-    const reloaded = await import("./back-from-settings")
-    expect(reloaded.appPage()).toBe(terminal)
-  })
 })

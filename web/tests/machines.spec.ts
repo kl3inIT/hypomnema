@@ -240,14 +240,12 @@ test("the owner adds, resumes and fails to remove a machine", async ({ page, bas
   expect(calls).toEqual(["POST /nodes", "POST /nodes/nod_2/resume", "DELETE /nodes/nod_1"])
 })
 
-// Scenario: the Machines moved from the app's sidebar into Settings, under Workers beside the Agents (issue #857). An
-// old link to /machines leads there; a computer shows Settings' sidebar with Machines picked, a phone a way back to
-// the list of Settings' sections.
-test("the old address of the Machines opens them in Settings", async ({ page, isMobile }) => {
+// Scenario: the Machines are in Settings, under Workers beside the Agents (issue #857): a computer shows Settings'
+// sidebar with Machines picked, a phone a way back to the list of Settings' sections.
+test("the Machines open in Settings under Workers", async ({ page, isMobile }) => {
   await fakeServer(page)
-  await page.goto("/machines")
+  await page.goto("/settings/machines")
 
-  await expect(page).toHaveURL(/\/settings\/machines$/)
   await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible()
   await expect(page.getByRole("navigation", { name: "Places" })).toHaveCount(0)
   if (isMobile) {

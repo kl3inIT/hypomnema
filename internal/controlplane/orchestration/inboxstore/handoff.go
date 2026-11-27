@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/chatfile"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
@@ -47,8 +48,16 @@ type Wake struct {
 	Bot string
 	// Chat is the item's chat with that Bot when it has one; empty opens a new one.
 	Chat string
+	// ChatID is the chat reserved by the owner for the Hand's uploads (issue #357).
+	ChatID string
+	// Attachments are the owner's uploaded files.
+	Attachments []chatfile.Attachment
 	// Text is the owner's prompt (WakeGiven, optional) or his comment (WakeComment).
 	Text string
+	// From is the chat with the owner the Bot that passed the item acts in (Change.Chat), taken from its session;
+	// empty in a Routine's run. Whether that chat's turn answers the owner's line decides whether the hand-off
+	// carries his mark (issue #1229).
+	From string
 }
 
 // Waker opens the item's chat with a Bot when it has none and gives the Bot the wake-up there, in the transaction
@@ -64,43 +73,43 @@ func (s *Store) WithWaker(w Waker) *Store {
 	return s
 }
 
-// wakeTx wakes bot about the item id, in the item's chat with that Bot when it still has one, and keeps the chat it
-// was woken in as the item's.
-func (s *Store) wakeTx(ctx context.Context, q *store.Queries, now int64, by Actor, id, kind, bot, text string,
-) error {
+// wakeTx wakes the Bot about the item in its chat and keeps the chat it was woken in as the item's.
+func (s *Store) wakeTx(ctx context.Context, q *store.Queries, now int64, id string, w Wake) (string, error) {
 	if s.waker == nil {
-		return nil
+		if len(w.Attachments) > 0 {
+			return "", fmt.Errorf("%w: no chat can receive the attachments", storeerr.ErrUnavailable)
+		}
+
+		return "", nil
 	}
 
 	row, err := q.GetTodo(ctx, id)
 	if err != nil {
-		return storeutil.NotFound(err, "to-do", id)
+		return "", storeutil.NotFound(err, "to-do", id)
 	}
 
-	chat, err := chatOf(ctx, q, row, bot)
+	w.Chat, err = chatOf(ctx, q, row, w.Bot)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	t, err := fromRow(row, storeutil.Millis(now))
+	w.Todo, err = fromRow(row, storeutil.Millis(now))
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	woke, err := s.waker.WakeTx(ctx, q, now, Wake{Kind: kind, By: by, Todo: t, Bot: bot, Chat: chat, Text: text})
+	woke, err := s.waker.WakeTx(ctx, q, now, w)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	if woke == chat {
-		return nil
+	if woke != w.Chat {
+		if err := q.SetTodoChat(ctx, store.SetTodoChatParams{ChatID: nullString(woke), ID: id}); err != nil {
+			return "", fmt.Errorf("keeping the chat of to-do %s: %w", id, err)
+		}
 	}
 
-	if err := q.SetTodoChat(ctx, store.SetTodoChatParams{ChatID: nullString(woke), ID: id}); err != nil {
-		return fmt.Errorf("keeping the chat of to-do %s: %w", id, err)
-	}
-
-	return nil
+	return woke, nil
 }
 
 // chatOf is the item's own chat when it is bot's and still there; empty when the item has none for that Bot.
@@ -123,20 +132,27 @@ func chatOf(ctx context.Context, q *store.Queries, row store.Todo, bot string) (
 	return row.ChatID.String, nil
 }
 
-// givenTx wakes the Bot an item was just given to: assigned to a Bot when it was not that Bot's before.
-func (s *Store) givenTx(ctx context.Context, q *store.Queries, now int64, by Actor, id string, before *Assignee,
+// givenTx wakes the Bot an item was just given to: assigned to a Bot when it was not that Bot's before. from is the
+// chat the giver acts in, when a Bot gives it (Wake.From).
+func (s *Store) givenTx(ctx context.Context, q *store.Queries, now int64, by Actor, from, id string, before *Assignee,
 	after Assignee,
 ) error {
 	if after.Kind != ABot || (before != nil && *before == after) {
 		return nil
 	}
 
-	return s.wakeTx(ctx, q, now, by, id, WakeGiven, after.Name, "")
+	_, err := s.wakeTx(ctx, q, now, id, Wake{By: by, Kind: WakeGiven, Bot: after.Name, From: from})
+
+	return err
 }
 
-func checkComment(text string) error {
-	if strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > MaxComment {
-		return fmt.Errorf("%w: a comment is 1 to %d characters", storeerr.ErrInvalid, MaxComment)
+func checkComment(text string, hasFiles bool) error {
+	if utf8.RuneCountInString(text) > MaxComment {
+		return fmt.Errorf("%w: a comment is at most %d characters", storeerr.ErrInvalid, MaxComment)
+	}
+
+	if !hasFiles && strings.TrimSpace(text) == "" {
+		return fmt.Errorf("%w: a comment needs text or an attachment", storeerr.ErrInvalid)
 	}
 
 	return nil
@@ -167,7 +183,7 @@ func (s *Store) Comment(ctx context.Context, actor Actor, id, text string) (Todo
 	return s.CommentWith(ctx, actor, id, text, Attached{})
 }
 
-// CommentWith adds a comment as Comment does, with the files and Artifacts a Bot's comment carries (issue #1207).
+// CommentWith adds a comment with the owner's uploads (#1245) or a Bot's files and Artifacts (#1207).
 func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, att Attached) (Todo, error) {
 	if err := checkActor(actor); err != nil {
 		return Todo{}, err
@@ -177,7 +193,7 @@ func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, a
 		return Todo{}, fmt.Errorf("%w: the system does not comment", storeerr.ErrForbidden)
 	}
 
-	if err := checkComment(text); err != nil {
+	if err := checkComment(text, len(att.Uploads) > 0); err != nil {
 		return Todo{}, err
 	}
 
@@ -215,14 +231,23 @@ func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, a
 			return err
 		}
 
-		if err := commentTx(ctx, q, now, actor, id, cur.Revision, after); err != nil {
-			return err
+		if len(att.Uploads) > 0 && (chatBot == "" || cur.AssigneeKind != ABot || cur.Assignee != chatBot) {
+			return fmt.Errorf("%w: hand the item to a Bot to send files to it", storeerr.ErrConflict)
 		}
 
 		if actor.Kind == Owner && chatBot != "" {
-			if err := s.wakeTx(ctx, q, now, actor, id, WakeComment, chatBot, text); err != nil {
+			chat, err := s.wakeTx(ctx, q, now, id, Wake{
+				By: actor, Kind: WakeComment, Bot: chatBot, Text: text, Attachments: att.Uploads,
+			})
+			if err != nil {
 				return err
 			}
+
+			keepUploads(after, chat, att.Uploads)
+		}
+
+		if err := commentTx(ctx, q, now, actor, id, cur.Revision, after); err != nil {
+			return err
 		}
 
 		got, err = s.get(ctx, q, id)
@@ -242,12 +267,27 @@ func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, a
 // chat, a new one when it has none with that Bot. Handing an item again to the Bot it is given to wakes it again
 // with the new prompt. The Bot decides what follows: it does the item itself, starts a Run, or asks the owner.
 func (s *Store) Hand(ctx context.Context, c Change, bot, prompt string) (Todo, error) {
+	return s.HandWith(ctx, c, bot, HandInput{Prompt: prompt})
+}
+
+// HandInput is the owner's prompt, its files and the chat id reserved for uploading those files.
+type HandInput struct {
+	Prompt      string
+	ChatID      string
+	Attachments []chatfile.Attachment
+}
+
+// HandWith hands an item to a Bot, keeping the prompt's uploaded files with it.
+func (s *Store) HandWith(ctx context.Context, c Change, bot string, in HandInput) (Todo, error) {
 	if c.Actor.Kind != Owner {
 		return Todo{}, fmt.Errorf("%w: only the owner hands a to-do to a Bot", storeerr.ErrForbidden)
 	}
 
-	if strings.TrimSpace(prompt) != "" {
-		if err := checkComment(prompt); err != nil {
+	hasFiles := len(in.Attachments) > 0
+	commented := strings.TrimSpace(in.Prompt) != "" || hasFiles
+
+	if commented {
+		if err := checkComment(in.Prompt, hasFiles); err != nil {
 			return Todo{}, err
 		}
 	}
@@ -288,15 +328,19 @@ func (s *Store) Hand(ctx context.Context, c Change, bot, prompt string) (Todo, e
 			return err
 		}
 
-		if strings.TrimSpace(prompt) != "" {
-			first := map[string]any{"text": prompt}
+		chat, err := s.wakeTx(ctx, q, now, t.ID, Wake{
+			By: c.Actor, Kind: WakeGiven, Bot: to.Name, Text: in.Prompt, ChatID: in.ChatID, Attachments: in.Attachments,
+		})
+		if err != nil {
+			return err
+		}
+
+		if commented {
+			first := map[string]any{"text": in.Prompt}
+			keepUploads(first, chat, in.Attachments)
 			if err := commentTx(ctx, q, now, c.Actor, t.ID, int64(t.Revision), first); err != nil {
 				return err
 			}
-		}
-
-		if err := s.wakeTx(ctx, q, now, c.Actor, t.ID, WakeGiven, to.Name, prompt); err != nil {
-			return err
 		}
 
 		got, err = s.get(ctx, q, t.ID)

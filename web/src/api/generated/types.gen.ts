@@ -405,15 +405,40 @@ export type QuestionMode = 'wait' | 'gate';
 
 export type Option = {
   label: string;
+  /**
+   * One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option asked before has none.
+   */
+  description?: string;
   allows_text?: boolean;
 };
 
 /**
- * Pick one option by index, and add text when it allows; a question without options takes text.
+ * One decision a question asks after its first, on the same card (issue
+ */
+export type QuestionPart = {
+  /**
+   * A short title of the decision, at most 30 characters.
+   */
+  header?: string;
+  text: string;
+  options: Array<Option>;
+};
+
+/**
+ * The answer to one of a question's more decisions, as the first's.
+ */
+export type Choice = {
+  option?: number;
+  text?: string;
+};
+
+/**
+ * Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
  */
 export type Answer = {
   option?: number;
   text?: string;
+  more?: Array<Choice>;
 };
 
 export type Question = {
@@ -423,8 +448,20 @@ export type Question = {
   run_id: string;
   mode: QuestionMode;
   addressed_to: Addressee;
+  /**
+   * A short title of the first decision (issue #1219); none on a question asked before.
+   */
+  header?: string;
   text: string;
   options: Array<Option>;
+  /**
+   * The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the answer's more at the same place.
+   */
+  more?: Array<QuestionPart>;
+  /**
+   * For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with, shown above the options; none for a Gate asked before, which reads as it did.
+   */
+  summary?: string;
   status: QuestionStatus;
   cancel_reason?: string;
   answer?: Answer;
@@ -769,7 +806,7 @@ export type AudioKindLink = {
    */
   on: boolean;
   /**
-   * The one model it is asked with for this kind, as usage rows name it (audio/<model>).
+   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of ElevenLabs's speech model, else the default.
    */
   model: string;
   usage: AudioUsage;
@@ -798,6 +835,49 @@ export type AudioTally = {
 
 export type AudioVoice = {
   voice: string;
+};
+
+export type AudioModelChoice = {
+  model: string;
+};
+
+export type AudioModels = {
+  models: Array<AudioModelInfo>;
+  /**
+   * The lists that could not be read, and why.
+   */
+  errors?: Array<WebSearchError>;
+};
+
+export type AudioModelInfo = {
+  provider: AudioProvider;
+  id: string;
+  name: string;
+  /**
+   * The language codes it covers, as the provider lists them, such as vi.
+   */
+  languages: Array<string>;
+};
+
+export type AudioVoices = {
+  voices: Array<AudioVoiceInfo>;
+  /**
+   * The lists that could not be read, and why.
+   */
+  errors?: Array<WebSearchError>;
+};
+
+export type AudioVoiceInfo = {
+  provider: AudioProvider;
+  /**
+   * The voice's id
+   */
+  id: string;
+  name: string;
+  /**
+   * The voice's language as its provider labels it.
+   */
+  language?: string;
 };
 
 export type AudioProviderChange = {
@@ -902,7 +982,7 @@ export type SpeakRequest = {
    */
   speed?: number;
   /**
-   * The text's language for Soniox; en when left out.
+   * The text's language as an ISO-639-1 code, such as vi. Soniox speaks it, en when left out; ElevenLabs is sent it when its model covers it, and left to find it otherwise.
    */
   language?: string;
   provider?: AudioProvider;
@@ -1046,6 +1126,10 @@ export type MuseAccount = {
    * Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
    */
   usage: string;
+  /**
+   * Why the latest Usage read failed.
+   */
+  usage_error?: string;
   usage_read_at?: string;
   checked_at?: string;
 };
@@ -2369,7 +2453,7 @@ export type VideoRevision = {
    */
   voice?: string;
   captions: boolean;
-  aspect: '9:16' | '16:9';
+  aspect: VideoAspect;
   /**
    * The provider that spoke every scene.
    */
@@ -2456,12 +2540,9 @@ export type VideoMake = {
    * The video's title, on its first make; absent: the take's.
    */
   title?: string;
+  aspect?: VideoAspect;
   /**
-   * Absent: 9:16.
-   */
-  aspect?: '9:16' | '16:9';
-  /**
-   * Absent: true.
+   * Absent: the template's, else true.
    */
   captions?: boolean;
   /**
@@ -2469,6 +2550,10 @@ export type VideoMake = {
    */
   voice?: string;
   look?: VideoLookInput;
+  /**
+   * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
+   */
+  template?: string;
 };
 
 export type VideoLookChange = {
@@ -2477,19 +2562,91 @@ export type VideoLookChange = {
 
 export type VideoPreview = {
   take: string;
+  aspect?: VideoAspect;
   /**
-   * Absent: 9:16.
-   */
-  aspect?: '9:16' | '16:9';
-  /**
-   * Absent: true.
+   * Absent: the template's, else true.
    */
   captions?: boolean;
   look?: VideoLookInput;
   /**
+   * A template's id, the look resolved as a make with it; refused with rev.
+   */
+  template?: string;
+  /**
    * A revision of the take's video the look starts from, as a look change does; its first line is shown.
    */
   rev?: number;
+  /**
+   * A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+   */
+  card?: 'title' | 'end';
+};
+
+/**
+ * The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+ */
+export type VideoAspect = '9:16' | '16:9' | '886x1920';
+
+export type VideoTemplates = {
+  templates: Array<VideoTemplate>;
+};
+
+/**
+ * A template of a video (issue
+ */
+export type VideoTemplate = {
+  id: string;
+  name: string;
+  use_case: string;
+  length: VideoTemplateLength;
+  /**
+   * The aspects it is made in, its default first.
+   */
+  aspects: Array<VideoAspect>;
+  /**
+   * Whether its videos have captions unless the make says.
+   */
+  captions: boolean;
+  sections: Array<VideoTemplateSection>;
+  /**
+   * The sections' words.
+   */
+  words: number;
+  look: VideoLook;
+  cards?: VideoTemplateCards;
+};
+
+/**
+ * How long its videos are meant to be, in seconds.
+ */
+export type VideoTemplateLength = {
+  min_s: number;
+  max_s: number;
+};
+
+export type VideoTemplateSection = {
+  name: string;
+  purpose: string;
+  words: number;
+  /**
+   * Its words at 2.5 a second.
+   */
+  seconds: number;
+};
+
+/**
+ * The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+ */
+export type VideoTemplateCards = {
+  accent: string;
+  title?: VideoTemplateCard;
+  end?: VideoTemplateCard;
+};
+
+export type VideoTemplateCard = {
+  title: string;
+  subtitle?: string;
+  duration_ms: number;
 };
 
 /**
@@ -2500,6 +2657,32 @@ export type VideoLookInput = {
   frame?: VideoFrameInput;
   background?: VideoBackground;
   music?: VideoMusicInput;
+  cards?: VideoCardsInput;
+};
+
+/**
+ * The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+ */
+export type VideoCardsInput = {
+  /**
+   * The rule over the title and the URL; absent: #6c8cff.
+   */
+  accent?: string;
+  title?: VideoCardInput;
+  end?: VideoCardInput;
+};
+
+export type VideoCardInput = {
+  title: string;
+  subtitle?: string;
+  /**
+   * Where the viewer is sent, drawn in the accent.
+   */
+  cta_url?: string;
+  /**
+   * Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms.
+   */
+  duration_ms?: number;
 };
 
 /**
@@ -2550,6 +2733,23 @@ export type VideoLook = {
   background?: VideoBackground;
   fell_back_from?: VideoChrome;
   music?: VideoMusic;
+  cards?: VideoCards;
+};
+
+/**
+ * A revision's title card and end card; absent, it has none.
+ */
+export type VideoCards = {
+  accent: string;
+  title?: VideoCard;
+  end?: VideoCard;
+};
+
+export type VideoCard = {
+  title: string;
+  subtitle?: string;
+  cta_url?: string;
+  duration_ms: number;
 };
 
 /**
@@ -2773,11 +2973,27 @@ export type GatewayKey = {
    * What it may use besides chat (issue
    */
   endpoints: Array<GatewayEndpoint>;
+  /**
+   * The only accounts it may use (issue #1277), each with its runtime; absent when it may use every account. Its requests go only to these, in their order among them; a provider none of them is of is not used.
+   */
+  accounts?: Array<GatewayKeyAccount>;
+  /**
+   * Its own web search order (issue #1277): these are asked first, the others after in the order of Settings. Empty for the order of Settings.
+   */
+  search_order: Array<WebSearchProvider>;
   created_at: string;
   /**
    * When the gateway last served a request with it; absent when never.
    */
   last_used_at?: string;
+};
+
+export type GatewayKeyAccount = {
+  id: string;
+  /**
+   * The account's runtime: claude, codex, antigravity, opencode_go…
+   */
+  runtime: string;
 };
 
 export type GatewayKeyList = {
@@ -2801,6 +3017,14 @@ export type NewGatewayKey = {
    * What it may use besides chat; every kind when left out, none when empty. A key that may use every kind should leave it out, so a kind added later is given too.
    */
   endpoints?: Array<GatewayEndpoint>;
+  /**
+   * The ids of the only accounts it may use (issue #1277); every account when left out, as an account added later is then. An account added later is not added to a key that names its accounts.
+   */
+  accounts?: Array<string>;
+  /**
+   * Its own web search order (issue #1277): these are asked first, the others after in the order of Settings; the order of Settings when left out or empty. A provider switched off stays off.
+   */
+  search_order?: Array<WebSearchProvider>;
 };
 
 export type GatewayKeyUpdate = {
@@ -2816,6 +3040,14 @@ export type GatewayKeyUpdate = {
    * The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
    */
   endpoints?: Array<GatewayEndpointSelection>;
+  /**
+   * The ids of the only accounts it may use from now on (issue #1277); ["*"] means every account again, omitted means unchanged. The wildcard cannot be combined with named accounts.
+   */
+  accounts?: Array<string>;
+  /**
+   * Its own web search order (issue #1277); empty means the order of Settings again, omitted means unchanged.
+   */
+  search_order?: Array<WebSearchProvider>;
 };
 
 export type GatewayEndpointSelection = 'search' | 'fetch' | 'images' | 'audio' | '*';
@@ -2834,7 +3066,7 @@ export type CreatedGatewayKey = {
 };
 
 /**
- * A tool Settings → Connect a tool writes a file for.
+ * A tool that can be configured from the Connect a tool button on Gateway keys.
  */
 export type GatewayTool = 'claude_code' | 'codex' | 'omp' | 'opencode';
 
@@ -5351,7 +5583,7 @@ export type TodoEvent = {
   revision: number;
   actor: TodoActor;
   /**
-   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
    */
   kind: string;
   /**
@@ -5444,6 +5676,146 @@ export type TodoList = {
    * Present when more items follow.
    */
   next_cursor?: string;
+};
+
+/**
+ * A direct chat, a group, or a bot's or an official account's chat.
+ */
+export type InboxChatKind = 'direct' | 'group' | 'bot';
+
+/**
+ * Whether the secretary reads the chat or skips it.
+ */
+export type InboxChatState = 'read' | 'skipped';
+
+/**
+ * Why the chat is in its state, its kind's default or the owner's choice.
+ */
+export type InboxChatSetBy = 'default' | 'owner';
+
+export type InboxChatCounts = {
+  all: number;
+  read: number;
+  skipped: number;
+  direct: number;
+  group: number;
+  bot: number;
+};
+
+/**
+ * Whether a chat the owner never set is read, by its kind, the same for every source; bot_patterns name a bot's or an official account's chat by its name or id (regular expressions, in any case).
+ */
+export type InboxChatDefaults = {
+  direct: boolean;
+  group: boolean;
+  bot: boolean;
+  bot_patterns: Array<string>;
+};
+
+export type InboxChatSource = {
+  /**
+   * zalo, whatsapp or lark.
+   */
+  integration: string;
+  label: string;
+  /**
+   * The account as the owner knows it: a number, a name.
+   */
+  account: string;
+  counts?: InboxChatCounts;
+  /**
+   * Why its chats cannot be listed now.
+   */
+  problem?: string;
+};
+
+export type InboxChatSourceList = {
+  data: Array<InboxChatSource>;
+  defaults: InboxChatDefaults;
+};
+
+export type InboxChat = {
+  /**
+   * The service's id of the chat.
+   */
+  id: string;
+  name: string;
+  kind: InboxChatKind;
+  /**
+   * When its latest kept message was sent; Lark gives none.
+   */
+  last_message_at?: string;
+  /**
+   * Whether the triage's check reads it.
+   */
+  reads: boolean;
+  set_by: InboxChatSetBy;
+  /**
+   * When the owner set it.
+   */
+  set_at?: string;
+};
+
+export type InboxChatList = {
+  data: Array<InboxChat>;
+  counts: InboxChatCounts;
+  search_counts?: InboxChatCounts;
+  /**
+   * How many chats the filters keep.
+   */
+  matched: number;
+};
+
+export type InboxChatChoice = {
+  reads: boolean;
+};
+
+export type InboxChatSet = {
+  integration: string;
+  label: string;
+  chat: string;
+  reads: boolean;
+  set_at: string;
+};
+
+export type InboxChatMove = {
+  /**
+   * The Bot's id, whose folder holds thu-ky/filters.json; the main Bot when left out.
+   */
+  bot?: string;
+};
+
+export type InboxChatRef = {
+  integration: string;
+  label: string;
+  chat: string;
+};
+
+export type InboxChatMoved = {
+  /**
+   * The chats switched off as the owner's choice now.
+   */
+  moved: Array<InboxChatRef>;
+  /**
+   * The chats the owner had set already, left as they are.
+   */
+  kept: Array<InboxChatRef>;
+  /**
+   * The chat ids none of his accounts has.
+   */
+  unknown: Array<string>;
+  /**
+   * The patterns that are not one chat's id, not moved.
+   */
+  left: Array<string>;
+  /**
+   * The default patterns, which the bot default holds.
+   */
+  defaults: Array<string>;
+  /**
+   * The accounts whose chats could not be listed, with why.
+   */
+  not_read: Array<string>;
 };
 
 export type InboxNeedsYou = {
@@ -5560,13 +5932,28 @@ export type TodoHand = {
    */
   bot?: string;
   /**
-   * What the owner asks of the Bot, its first comment; optional.
+   * What the owner asks of the Bot, its first comment; may be empty when it carries files.
    */
   prompt?: string;
+  /**
+   * The chat id reserved before uploading files when the item has no chat with this Bot.
+   */
+  chat_id?: string;
+  /**
+   * Files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
+/**
+ * The text may be empty when the owner sends files.
+ */
 export type TodoComment = {
   text: string;
+  /**
+   * The owner's files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
 export type TodoSend = {
@@ -7070,6 +7457,31 @@ export type ListVideoLooksResponses = {
 
 export type ListVideoLooksResponse = ListVideoLooksResponses[keyof ListVideoLooksResponses];
 
+export type ListVideoTemplatesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/videos/templates';
+};
+
+export type ListVideoTemplatesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListVideoTemplatesError = ListVideoTemplatesErrors[keyof ListVideoTemplatesErrors];
+
+export type ListVideoTemplatesResponses = {
+  /**
+   * The templates.
+   */
+  200: VideoTemplates;
+};
+
+export type ListVideoTemplatesResponse = ListVideoTemplatesResponses[keyof ListVideoTemplatesResponses];
+
 export type PreviewVideoLookData = {
   body: VideoPreview;
   path?: never;
@@ -7539,60 +7951,6 @@ export type PutGitHostResponses = {
 };
 
 export type PutGitHostResponse = PutGitHostResponses[keyof PutGitHostResponses];
-
-export type DeleteGitHostTokenData = {
-  body?: never;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type DeleteGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type DeleteGitHostTokenError = DeleteGitHostTokenErrors[keyof DeleteGitHostTokenErrors];
-
-export type DeleteGitHostTokenResponses = {
-  /**
-   * The host, now without a token.
-   */
-  200: GitHost;
-};
-
-export type DeleteGitHostTokenResponse = DeleteGitHostTokenResponses[keyof DeleteGitHostTokenResponses];
-
-export type PutGitHostTokenData = {
-  body: NewGitHostToken;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type PutGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type PutGitHostTokenError = PutGitHostTokenErrors[keyof PutGitHostTokenErrors];
-
-export type PutGitHostTokenResponses = {
-  /**
-   * The host, now with a token.
-   */
-  200: GitHost;
-};
-
-export type PutGitHostTokenResponse = PutGitHostTokenResponses[keyof PutGitHostTokenResponses];
 
 export type DeleteGitHostConnectionData = {
   body?: never;
@@ -10088,6 +10446,83 @@ export type SetAudioVoiceResponses = {
 };
 
 export type SetAudioVoiceResponse = SetAudioVoiceResponses[keyof SetAudioVoiceResponses];
+
+export type SetAudioModelData = {
+  body: AudioModelChoice;
+  path: {
+    provider: AudioProvider;
+  };
+  query?: never;
+  url: '/gateway/audio/providers/{provider}/model';
+};
+
+export type SetAudioModelErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetAudioModelError = SetAudioModelErrors[keyof SetAudioModelErrors];
+
+export type SetAudioModelResponses = {
+  /**
+   * The providers after the change.
+   */
+  200: Audio;
+};
+
+export type SetAudioModelResponse = SetAudioModelResponses[keyof SetAudioModelResponses];
+
+export type ListAudioModelsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/audio/models';
+};
+
+export type ListAudioModelsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListAudioModelsError = ListAudioModelsErrors[keyof ListAudioModelsErrors];
+
+export type ListAudioModelsResponses = {
+  /**
+   * The models.
+   */
+  200: AudioModels;
+};
+
+export type ListAudioModelsResponse = ListAudioModelsResponses[keyof ListAudioModelsResponses];
+
+export type ListAudioVoicesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/audio/voices';
+};
+
+export type ListAudioVoicesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListAudioVoicesError = ListAudioVoicesErrors[keyof ListAudioVoicesErrors];
+
+export type ListAudioVoicesResponses = {
+  /**
+   * The voices.
+   */
+  200: AudioVoices;
+};
+
+export type ListAudioVoicesResponse = ListAudioVoicesResponses[keyof ListAudioVoicesResponses];
 
 export type SetAudioOrderData = {
   body: AudioOrder;
@@ -14127,6 +14562,118 @@ export type GetInboxNeedsYouResponses = {
 };
 
 export type GetInboxNeedsYouResponse = GetInboxNeedsYouResponses[keyof GetInboxNeedsYouResponses];
+
+export type ListInboxChatSourcesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/inbox/chat-sources';
+};
+
+export type ListInboxChatSourcesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListInboxChatSourcesError = ListInboxChatSourcesErrors[keyof ListInboxChatSourcesErrors];
+
+export type ListInboxChatSourcesResponses = {
+  /**
+   * The sources.
+   */
+  200: InboxChatSourceList;
+};
+
+export type ListInboxChatSourcesResponse = ListInboxChatSourcesResponses[keyof ListInboxChatSourcesResponses];
+
+export type MoveInboxDropChatsData = {
+  body: InboxChatMove;
+  path?: never;
+  query?: never;
+  url: '/inbox/chat-sources/moves';
+};
+
+export type MoveInboxDropChatsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MoveInboxDropChatsError = MoveInboxDropChatsErrors[keyof MoveInboxDropChatsErrors];
+
+export type MoveInboxDropChatsResponses = {
+  /**
+   * What was moved.
+   */
+  200: InboxChatMoved;
+};
+
+export type MoveInboxDropChatsResponse = MoveInboxDropChatsResponses[keyof MoveInboxDropChatsResponses];
+
+export type ListInboxChatsData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: {
+    q?: string;
+    kind?: InboxChatKind;
+    state?: InboxChatState;
+    limit?: number;
+  };
+  url: '/inbox/chat-sources/{integration}/{label}';
+};
+
+export type ListInboxChatsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListInboxChatsError = ListInboxChatsErrors[keyof ListInboxChatsErrors];
+
+export type ListInboxChatsResponses = {
+  /**
+   * The chats.
+   */
+  200: InboxChatList;
+};
+
+export type ListInboxChatsResponse = ListInboxChatsResponses[keyof ListInboxChatsResponses];
+
+export type SetInboxChatData = {
+  body: InboxChatChoice;
+  path: {
+    integration: string;
+    label: string;
+    chat: string;
+  };
+  query?: never;
+  url: '/inbox/chat-sources/{integration}/{label}/{chat}';
+};
+
+export type SetInboxChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetInboxChatError = SetInboxChatErrors[keyof SetInboxChatErrors];
+
+export type SetInboxChatResponses = {
+  /**
+   * The choice.
+   */
+  200: InboxChatSet;
+};
+
+export type SetInboxChatResponse = SetInboxChatResponses[keyof SetInboxChatResponses];
 
 export type GetTodoData = {
   body?: never;

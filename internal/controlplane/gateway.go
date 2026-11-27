@@ -7,16 +7,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
@@ -28,8 +26,10 @@ import (
 // or a login.
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
-	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none] | gateway keys list | gateway keys revoke <key id> | " +
-	"gateway keys set <key id> [--name NAME] [--models a,b|*] [--endpoints search,fetch,images,audio|none|*] | " +
+	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none] [--accounts a,b] " +
+	"[--search-order codex,claude,exa] | gateway keys list | gateway keys revoke <key id> | " +
+	"gateway keys set <key id> [--name NAME] [--models a,b|*] [--endpoints search,fetch,images,audio|none|*] " +
+	"[--accounts a,b|*] [--search-order codex,claude,exa|settings] | " +
 	"gateway keys show-value <key id> | " +
 	"gateway antigravity-rewrites list | gateway antigravity-rewrites set FILE | " +
 	"gateway usage [--limit N] | gateway usage --by provider|account [--period 24h|7d|30d|90d|12m]"
@@ -61,14 +61,23 @@ type gatewayAccounts struct{ subs *subscription.Service }
 func (g gatewayAccounts) Token(
 	ctx context.Context, runtime, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
+	return accountToken(g.subs.Token(keyAccounts(ctx), runtime, session, skip...))
 }
 
 // TokenFor is Token for a request for a model: only the accounts whose vendor lists it, when one does (issue #814).
 func (g gatewayAccounts) TokenFor(
 	ctx context.Context, runtime, model, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.TokenFor(listDeadline(ctx), runtime, model, session, skip...))
+	return accountToken(g.subs.TokenFor(keyAccounts(listDeadline(ctx)), runtime, model, session, skip...))
+}
+
+// keyAccounts gives the subscriptions the only accounts the gateway's request may use: its key's own (issue #1277).
+func keyAccounts(ctx context.Context) context.Context {
+	if ids, ok := modelgateway.KeyAccounts(ctx); ok {
+		return subscription.WithAccounts(ctx, ids)
+	}
+
+	return ctx
 }
 
 // listDeadline gives the subscriptions the moment the gateway's request stops waiting for the accounts' lists of
@@ -84,7 +93,7 @@ func listDeadline(ctx context.Context) context.Context {
 func (g gatewayAccounts) FirstFree(
 	ctx context.Context, runtime string, modelReset func(string) time.Time,
 ) (time.Time, error) {
-	return g.subs.FirstFree(ctx, runtime, modelReset)
+	return g.subs.FirstFree(keyAccounts(ctx), runtime, modelReset)
 }
 
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
@@ -209,9 +218,11 @@ func gatewayServedLimits(
 ) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 		switch kind {
-		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo,
-			orchestration.ProviderOpenCodeZen:
-			return subs.ServedLimits(listDeadline(ctx), subscriptionRuntimes[kind], upstream)
+		case profilestore.ProviderAntigravitySubscription, profilestore.ProviderOpenCodeGo,
+			profilestore.ProviderOpenCodeZen:
+			runtime, _ := subscription.ProviderRuntime(kind)
+
+			return subs.ServedLimits(keyAccounts(listDeadline(ctx)), runtime, upstream)
 		default:
 			return 0, 0, false
 		}
@@ -222,18 +233,20 @@ func gatewayServedLimits(
 // model on, from its model list, waiting as gatewayServedLimits does.
 func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstream string) (string, bool) {
 	return func(ctx context.Context, kind, upstream string) (string, bool) {
-		if kind != orchestration.ProviderOpenCodeGo && kind != orchestration.ProviderOpenCodeZen {
+		if kind != profilestore.ProviderOpenCodeGo && kind != profilestore.ProviderOpenCodeZen {
 			return "", false
 		}
 
-		return subs.ServedWire(listDeadline(ctx), subscriptionRuntimes[kind], upstream)
+		runtime, _ := subscription.ProviderRuntime(kind)
+
+		return subs.ServedWire(keyAccounts(listDeadline(ctx)), runtime, upstream)
 	}
 }
 
 // gatewayProviderList lists every provider for the gateway, which serves each subscription's models (issue #549).
 func gatewayProviderList(svc *orchestration.Service) func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
 	return func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
-		ps, err := svc.ListProviders(ctx)
+		ps, err := svc.Profiles().ListProviders(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -252,7 +265,7 @@ func gatewayProviderList(svc *orchestration.Service) func(ctx context.Context) (
 // gatewayProviders gives the gateway the providers orchestration keeps.
 func gatewayProviders(svc *orchestration.Service) modelgateway.Providers {
 	return func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-		p, err := svc.GetProvider(ctx, name)
+		p, err := svc.Profiles().GetProvider(ctx, name)
 		if errors.Is(err, orchestration.ErrNotFound) {
 			return modelgateway.ProviderInfo{}, fmt.Errorf("%w: provider %q", modelgateway.ErrNotFound, name)
 		}
@@ -460,6 +473,10 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 	endpoints := fs.String("endpoints", "*",
 		"what the key may use besides chat: search, fetch, images, audio, separated by commas, or none (default: "+
 			"every kind)")
+	accounts := fs.String("accounts", "*", "the only accounts the key may use, separated by commas (default: every "+
+		"account)")
+	order := fs.String("search-order", "settings", "the web search providers the key asks first, in order, separated "+
+		"by commas (default: the order of Settings)")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
@@ -470,12 +487,17 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 		allowed = strings.Split(*models, ",")
 	}
 
-	k, secret, err := o.gateway.AddKey(ctx, name, allowed, parseKeyEndpoints(*endpoints))
+	routing := modelgateway.KeyRouting{SearchOrder: parseSearchOrder(*order)}
+	if *accounts != modelgateway.AllAccounts {
+		routing.Accounts = splitList(*accounts)
+	}
+
+	k, secret, err := o.gateway.AddRoutedKey(ctx, name, allowed, parseKeyEndpoints(*endpoints), routing)
 	if err != nil {
 		return err
 	}
 
-	o.printf("key %s (%s) for %s; %s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k))
+	o.printf("key %s (%s) for %s; %s%s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k), keyRouting(k))
 	if k.MaskedValue == "" {
 		o.printf("give it to the client as its API key; the value is not stored, so copy it now:\n%s\n", secret)
 	} else {
@@ -491,6 +513,10 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 	name := fs.String("name", "", "the new name")
 	models := fs.String("models", "", "comma-separated models, or * for every model")
 	endpoints := fs.String("endpoints", "", "comma-separated endpoint kinds, none, or * for every kind")
+	accounts := fs.String("accounts", "", "comma-separated accounts, the only ones the key may use, or * for every "+
+		"account")
+	order := fs.String("search-order", "", "comma-separated web search providers asked first, or settings for the "+
+		"order of Settings")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || fs.NFlag() == 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
@@ -511,6 +537,10 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 			if *endpoints == "*" {
 				change.Endpoints = []modelgateway.Endpoint{modelgateway.AllEndpoints}
 			}
+		case "accounts":
+			change.Accounts = splitList(*accounts)
+		case "search-order":
+			change.SearchOrder = parseSearchOrder(*order)
 		}
 	})
 
@@ -519,7 +549,7 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 		return err
 	}
 
-	o.printf("key %s (%s) for %s; %s\n", key.Name, key.ID, keyModels(key), keyEndpoints(key))
+	o.printf("key %s (%s) for %s; %s%s\n", key.Name, key.ID, keyModels(key), keyEndpoints(key), keyRouting(key))
 
 	return nil
 }
@@ -540,6 +570,28 @@ func parseKeyEndpoints(value string) []modelgateway.Endpoint {
 	}
 }
 
+// splitList is a list given separated by commas; empty is a list of none.
+func splitList(value string) []string {
+	out := []string{}
+
+	for item := range strings.SplitSeq(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+
+	return out
+}
+
+// parseSearchOrder is a key's own search order; "settings" (or nothing) is the global order (issue #1277).
+func parseSearchOrder(value string) []string {
+	if strings.TrimSpace(value) == "settings" {
+		return []string{}
+	}
+
+	return splitList(value)
+}
+
 func (o *owner) gatewayKeysList(ctx context.Context) error {
 	keys, err := o.gateway.ListKeys(ctx)
 	if err != nil {
@@ -552,7 +604,7 @@ func (o *owner) gatewayKeysList(ctx context.Context) error {
 			state = "revoked " + k.RevokedAt.Format(time.RFC3339)
 		}
 
-		o.printf("%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, state, keyModels(k), keyEndpoints(k))
+		o.printf("%s\t%s\t%s\t%s\t%s%s\n", k.ID, k.Name, state, keyModels(k), keyEndpoints(k), keyRouting(k))
 	}
 
 	return nil
@@ -564,6 +616,26 @@ func keyModels(k modelgateway.Key) string {
 	}
 
 	return strings.Join(k.Models, ", ")
+}
+
+// keyRouting says a key's own routing (issue #1277), after what it may use; nothing for a key routed as the others.
+func keyRouting(k modelgateway.Key) string {
+	var out string
+
+	if k.OwnAccounts() {
+		ids := make([]string, 0, len(k.Accounts))
+		for _, a := range k.Accounts {
+			ids = append(ids, a.ID)
+		}
+
+		out += "; only accounts " + orDash(strings.Join(ids, ", "))
+	}
+
+	if len(k.SearchOrder) > 0 {
+		out += "; searches " + strings.Join(k.SearchOrder, ", ") + " first"
+	}
+
+	return out
 }
 
 // keyEndpoints says what a key may use besides chat.
@@ -685,213 +757,4 @@ func millis(d *time.Duration) string {
 	}
 
 	return d.Round(time.Millisecond).String()
-}
-
-// subscriptionRuntimes is the runtime of the accounts of each kind of subscription provider.
-var subscriptionRuntimes = map[string]string{
-	orchestration.ProviderCodexSubscription:       "codex",
-	orchestration.ProviderClaudeSubscription:      "claude",
-	orchestration.ProviderAntigravitySubscription: "antigravity",
-	orchestration.ProviderOpenCodeGo:              orchestration.OpenCodeGoRuntime,
-	orchestration.ProviderOpenCodeZen:             orchestration.OpenCodeZenRuntime,
-}
-
-// vendorModelsEvery is how often the subscription providers are given the models their vendors serve, and
-// vendorModelsFirst how long after the start the first time is: the accounts' tokens are made fresh first. The
-// vendor is asked at most once an hour anyway (subscription.ServedNames).
-const (
-	vendorModelsEvery = time.Hour
-	vendorModelsFirst = 2 * time.Minute
-)
-
-// servedNames is what a runtime's accounts are served (subscription.Service.ServedNames).
-type servedNames interface {
-	// ServedList is what they are served, with when the latest list it was made from was read.
-	ServedList(ctx context.Context, runtime string) ([]string, time.Time, bool)
-}
-
-// providerModels lists the providers and adds models to one (orchestration.Service).
-type providerModels interface {
-	ListProviders(ctx context.Context) ([]orchestration.Provider, error)
-	AddProviderModels(ctx context.Context, name string, models []string) ([]string, error)
-	SetProviderModels(ctx context.Context, name string, models []string) (added, removed []string, err error)
-	RemoveProviderModel(ctx context.Context, name, model string) (bool, error)
-}
-
-// rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
-// authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639), and as OpenClaw, Hermes and pi take
-// OpenCode Go's live /v1/models (issue #854). The others only gain models: Anthropic's list does not name every model
-// it serves (OpenClaw, Hermes), and Codex's and OpenCode Zen's are read per account (droppingRuntimes).
-var rosterRuntimes = map[string]bool{"antigravity": true, orchestration.OpenCodeGoRuntime: true}
-
-// vendorModels gives the subscription providers the models their vendors serve, one update at a time: every hour
-// (vendorModelsLoop) and when an account's first list of models is read (issue #814).
-type vendorModels struct {
-	mu        sync.Mutex
-	subs      servedNames
-	providers providerModels
-	logger    *slog.Logger
-	drops     *drops
-}
-
-func (v *vendorModels) update(ctx context.Context) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	if v.drops == nil {
-		v.drops = &drops{misses: map[string]map[string]int{}, reads: map[string]time.Time{}}
-	}
-
-	addVendorModels(ctx, v.subs, v.providers, v.logger, v.drops)
-}
-
-// dropAfter is how many readings in a row must leave a model out before a Codex provider drops it (review of #832):
-// one is not enough, as an account can be read without it once.
-const dropAfter = 2
-
-// droppingRuntimes are the runtimes whose providers drop, after dropAfter readings, a model their vendor's lists
-// leave out: Codex, whose requests go only to the accounts whose list has the model (issue #814), so a model no list
-// names would be listed by /v1/models and refused, and OpenCode Zen, whose keys are routed the same way by their
-// workspace's Console list (issue #965). Each model is dropped on its own, so one a Bot or profile still uses keeps
-// only itself and the new ones are added all the same (review of PR #1000). Claude's list does not name every model
-// it serves.
-var droppingRuntimes = map[string]bool{"codex": true, orchestration.OpenCodeZenRuntime: true}
-
-// drops counts, by provider and model, the readings in a row that left a model out; a reading is counted once, by
-// when it was read, however many updates see it.
-type drops struct {
-	misses map[string]map[string]int
-	reads  map[string]time.Time
-}
-
-// due are the models a provider lists that dropAfter readings in a row, the one read at read the last, left out.
-func (d *drops) due(provider string, listed, served []string, read time.Time) []string {
-	if !read.After(d.reads[provider]) {
-		return nil
-	}
-
-	d.reads[provider] = read
-
-	misses := d.misses[provider]
-	if misses == nil {
-		misses = map[string]int{}
-		d.misses[provider] = misses
-	}
-
-	for name := range misses {
-		if slices.Contains(served, name) || !slices.Contains(listed, name) {
-			delete(misses, name)
-		}
-	}
-
-	var out []string
-
-	for _, name := range listed {
-		if slices.Contains(served, name) {
-			continue
-		}
-
-		if misses[name]++; misses[name] >= dropAfter {
-			out = append(out, name)
-		}
-	}
-
-	return out
-}
-
-// drop takes each due model off a provider's list on its own, so that one a profile uses, which is refused, keeps
-// none of the others.
-func drop(
-	ctx context.Context, providers providerModels, logger *slog.Logger, provider string, due []string,
-) (removed []string) {
-	for _, name := range due {
-		ok, err := providers.RemoveProviderModel(ctx, provider, name)
-		if err != nil {
-			logger.WarnContext(ctx, "a model its vendor no longer serves was kept",
-				slog.String("event", "gateway.vendor_models_kept"), slog.String("provider", provider),
-				slog.String("model", name), slog.String("error", err.Error()))
-
-			continue
-		}
-
-		if ok {
-			removed = append(removed, name)
-		}
-	}
-
-	return removed
-}
-
-// vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
-// the start and then every hour, until ctx ends.
-func vendorModelsLoop(ctx context.Context, v *vendorModels) {
-	timer := time.NewTimer(vendorModelsFirst)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-
-		v.update(ctx)
-		timer.Reset(vendorModelsEvery)
-	}
-}
-
-// addVendorModels adds to each subscription provider the models its vendor serves that it does not list, as Codex,
-// OpenClaw, omp and Hermes take a subscription's models from its vendor. A vendor that does not answer, or a runtime
-// with no account logged in, leaves the provider as it is: its list is the fallback.
-func addVendorModels(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger, d *drops) {
-	list, err := providers.ListProviders(ctx)
-	if err != nil {
-		logger.WarnContext(ctx, "the providers could not be read for their vendors' models",
-			slog.String("event", "gateway.vendor_models_failed"), slog.String("error", err.Error()))
-
-		return
-	}
-
-	for _, p := range list {
-		runtime, ok := subscriptionRuntimes[p.Kind]
-		if !ok {
-			continue
-		}
-
-		names, read, ok := subs.ServedList(ctx, runtime)
-		if !ok {
-			continue
-		}
-
-		var (
-			added, removed []string
-			err            error
-		)
-
-		switch {
-		case rosterRuntimes[runtime]:
-			added, removed, err = providers.SetProviderModels(ctx, p.Name, names)
-		case droppingRuntimes[runtime] && d != nil:
-			added, err = providers.AddProviderModels(ctx, p.Name, names)
-			if err == nil {
-				removed = drop(ctx, providers, logger, p.Name, d.due(p.Name, p.Models, names, read))
-			}
-		default:
-			added, err = providers.AddProviderModels(ctx, p.Name, names)
-		}
-
-		if err != nil {
-			logger.WarnContext(ctx, "a provider was not given its vendor's models",
-				slog.String("event", "gateway.vendor_models_failed"), slog.String("provider", p.Name),
-				slog.String("error", err.Error()))
-
-			continue
-		}
-
-		if len(added) > 0 || len(removed) > 0 {
-			logger.InfoContext(ctx, "a provider was given the models its vendor serves",
-				slog.String("event", "gateway.vendor_models_added"), slog.String("provider", p.Name),
-				slog.String("models", strings.Join(added, ",")), slog.String("removed", strings.Join(removed, ",")))
-		}
-	}
 }

@@ -29,6 +29,8 @@ type cliVideos struct {
 	looks    []string
 	previews []videos.PreviewRequest
 	tracks   []videos.Track
+	// templates are the templates the makes named.
+	templates []string
 }
 
 func (c *cliVideos) List(context.Context) ([]videos.Video, error) { return []videos.Video{c.v}, nil }
@@ -45,8 +47,18 @@ func (c *cliVideos) Make(_ context.Context, req videos.MakeRequest) (videos.Vide
 	c.asked = append(c.asked, "make "+req.Take+" "+req.Aspect+" "+req.Voice)
 	c.keys = append(c.keys, req.RequestID)
 	c.looks = append(c.looks, lookJSON(req.Look))
+	c.templates = append(c.templates, req.Template)
 
 	return c.v, c.v.Latest(), nil
+}
+
+func (c *cliVideos) Templates(context.Context) ([]videos.TemplateLook, error) {
+	out := []videos.TemplateLook{}
+	for _, t := range videos.Templates() {
+		out = append(out, videos.TemplateLook{Template: t, Look: videos.DefaultLook()})
+	}
+
+	return out, nil
 }
 
 func (c *cliVideos) Approve(_ context.Context, id string, rev int) (videos.Video, error) {
@@ -266,6 +278,49 @@ func TestTheCLISendsOnlyTheFlaggedLook(t *testing.T) {
 	assert.Equal(t, []byte{0xFF, 0xD8, 0xFF}, raw)
 }
 
+// Scenario: the owner gives a video its cards with the CLI (issue #1230, row 1): a card is sent with its title and
+// the fields flagged, -no-cards sends the section with none, a card's field without its title is refused before
+// anything is sent, the cards are shown in the look's line, and a sample draws one.
+func TestTheCLISendsTheCards(t *testing.T) {
+	t.Parallel()
+
+	look := videos.DefaultLook()
+	look.Cards = &compose.Cards{Accent: "#6c8cff", End: &compose.Card{Title: "Tải SecondBite", DurationMs: 3000}}
+	fake := &cliVideos{v: videos.Video{
+		ID: "vid_abc", Take: "tk_0123456789abcdef", Title: "Đăng nhập", CreatedAt: time.Now(),
+		Revisions: []videos.Revision{{Rev: 1, State: videos.Review, Lines: []string{"Mở"}, Aspect: "9:16",
+			Captions: true, Warnings: []string{}, Look: look}},
+	}}
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithVideos(fake) })
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--title-card", "SecondBite",
+		"--end-card", "Tải SecondBite", "--end-card-url", "secondbite.vn", "--end-card-ms", "4000",
+		"--card-accent", "#ff3366")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"cards":{"accent":"#ff3366","title":{"title":"SecondBite"},`+
+		`"end":{"title":"Tải SecondBite","cta_url":"secondbite.vn","duration_ms":4000}}}`, fake.looks[0])
+	assert.Contains(t, out, `end card "Tải SecondBite" 3.0 s`)
+
+	_, err = w.cmd(t, "videos", "look", "vid_abc", "1", "--no-cards")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"cards":{}}`, fake.looks[1])
+
+	for _, args := range [][]string{{"--end-card-url", "secondbite.vn"}, {"--no-cards", "--title-card", "A"}} {
+		_, err = w.cmd(t, append([]string{"videos", "make", "tk_0123456789abcdef"}, args...)...)
+		require.ErrorIs(t, err, ErrUsage, "%v", args)
+	}
+
+	assert.Len(t, fake.looks, 2, "nothing sent for a refused flag")
+
+	_, err = w.cmd(t, "videos", "preview", "tk_0123456789abcdef", "--rev", "1", "--card", "end",
+		"--out", filepath.Join(t.TempDir(), "card.jpg"))
+	require.NoError(t, err)
+	require.Len(t, fake.previews, 1)
+	assert.Equal(t, videos.CardEnd, fake.previews[0].Card)
+}
+
 // Scenario: the owner keeps the music library with the CLI and chooses a video's music (issue #910): a file
 // uploaded as it is, with its name, then listed and deleted; -music sends the music section, with -music-gain when
 // given, and -music-gain alone is refused before anything is sent.
@@ -315,4 +370,44 @@ func TestTheCLIKeepsTheMusicAndChoosesIt(t *testing.T) {
 	_, err = w.cmd(t, "videos", "look", "vid_abc", "1", "--music", "none")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"music":{"track":"none"}}`, fake.looks[1])
+}
+
+// Scenario: the owner lists the templates and makes a video from one with the CLI (issue #1230, row 5).
+func TestTheCLIMakesAVideoFromATemplate(t *testing.T) {
+	t.Parallel()
+
+	fake := &cliVideos{v: videos.Video{
+		ID: "vid_abc", Take: "tk_0123456789abcdef", Title: "Đăng nhập", CreatedAt: time.Now(),
+		Revisions: []videos.Revision{{Rev: 1, State: videos.Queued, Lines: []string{"Mở"}, Aspect: "9:16",
+			Captions: true, Warnings: []string{}, Look: videos.DefaultLook()}},
+	}}
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithVideos(fake) })
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "videos", "templates")
+	require.NoError(t, err)
+	assert.Contains(t, out, "app-ad  App ad, 15-30 s, 9:16, an end card")
+	assert.Contains(t, out, "  Hook, 10 words (4 s): ")
+	assert.Contains(t, out, "feature-announcement  Feature announcement, 30 s, 9:16 or 16:9, no cards")
+	assert.Contains(t, out, "product-walkthrough  Product walkthrough, 60-90 s, 16:9, a title card and an end card")
+	assert.Contains(t, out, "app-store-preview  App Store preview, 15-30 s, 886x1920, no captions, no cards")
+
+	out, err = w.cmd(t, "videos", "templates", "--json")
+	require.NoError(t, err)
+	assert.Contains(t, out, `"use_case"`)
+
+	_, err = w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--template", "app-ad")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app-ad"}, fake.templates)
+	assert.Equal(t, "make tk_0123456789abcdef  ", fake.asked[0], "the aspect left to the template")
+
+	_, err = w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--template", "App Ad")
+	require.Error(t, err, "the API refuses a template that is not an id")
+
+	jpg := filepath.Join(t.TempDir(), "look.jpg")
+	_, err = w.cmd(t, "videos", "preview", "tk_0123456789abcdef", "--template", "app-store-preview", "--out", jpg)
+	require.NoError(t, err)
+	require.Len(t, fake.previews, 1)
+	assert.Equal(t, "app-store-preview", fake.previews[0].Template)
 }

@@ -227,28 +227,6 @@ func (q *Queries) GetConversation(ctx context.Context, id string) (Conversation,
 	return i, err
 }
 
-const getCooldown = `-- name: GetCooldown :one
-SELECT runtime, account_ref, until, reason FROM account_cooldowns WHERE runtime = ?1 AND account_ref = ?2 AND until > ?3
-`
-
-type GetCooldownParams struct {
-	Runtime    string
-	AccountRef string
-	Now        int64
-}
-
-func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (AccountCooldown, error) {
-	row := q.db.QueryRowContext(ctx, getCooldown, arg.Runtime, arg.AccountRef, arg.Now)
-	var i AccountCooldown
-	err := row.Scan(
-		&i.Runtime,
-		&i.AccountRef,
-		&i.Until,
-		&i.Reason,
-	)
-	return i, err
-}
-
 const getDispatch = `-- name: GetDispatch :one
 SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry, declined_low_disk FROM dispatches WHERE id = ?1
 `
@@ -430,58 +408,6 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) er
 		arg.Now,
 	)
 	return err
-}
-
-const lastDispatchOfConversation = `-- name: LastDispatchOfConversation :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry, declined_low_disk FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
-`
-
-func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID string) (Dispatch, error) {
-	row := q.db.QueryRowContext(ctx, lastDispatchOfConversation, conversationID)
-	var i Dispatch
-	err := row.Scan(
-		&i.ID,
-		&i.TaskID,
-		&i.ConversationID,
-		&i.NodeID,
-		&i.Status,
-		&i.Epoch,
-		&i.FailureClass,
-		&i.UnknownCause,
-		&i.Recovery,
-		&i.ProcessRef,
-		&i.Result,
-		&i.ResetsAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.AcceptedAt,
-		&i.StartedAt,
-		&i.LeaseExpiresAt,
-		&i.ProgressAt,
-		&i.StopRequestedAt,
-		&i.StopAckedAt,
-		&i.StalledAt,
-		&i.OverrunAt,
-		&i.SettledAt,
-		&i.WaitingSince,
-		&i.WaitedMs,
-		&i.GateQuestionID,
-		&i.Model,
-		&i.Effort,
-		&i.ProfileVersionID,
-		&i.Activity,
-		&i.FallbackFor,
-		&i.FallbackUntil,
-		&i.Handoff,
-		&i.StalledReason,
-		&i.FollowUpID,
-		&i.CpuMillis,
-		&i.MemoryBytes,
-		&i.RoleChain,
-		&i.ChainEntry,
-		&i.DeclinedLowDisk,
-	)
-	return i, err
 }
 
 const lastDispatchOfTask = `-- name: LastDispatchOfTask :one
@@ -736,40 +662,6 @@ func (q *Queries) ListQueuedSince(ctx context.Context, createdBefore int64) ([]s
 			return nil, err
 		}
 		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listResources = `-- name: ListResources :many
-SELECT dispatch_id, kind, ref, custody, created_at, released_at FROM dispatch_resources WHERE dispatch_id = ?1 ORDER BY created_at, kind, ref
-`
-
-func (q *Queries) ListResources(ctx context.Context, dispatchID string) ([]DispatchResource, error) {
-	rows, err := q.db.QueryContext(ctx, listResources, dispatchID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []DispatchResource{}
-	for rows.Next() {
-		var i DispatchResource
-		if err := rows.Scan(
-			&i.DispatchID,
-			&i.Kind,
-			&i.Ref,
-			&i.Custody,
-			&i.CreatedAt,
-			&i.ReleasedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1240,56 +1132,6 @@ func (q *Queries) RecordPublishedHead(ctx context.Context, arg RecordPublishedHe
 		arg.Now,
 	)
 	return err
-}
-
-const recordResource = `-- name: RecordResource :exec
-INSERT INTO dispatch_resources (dispatch_id, kind, ref, custody, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5)
-ON CONFLICT (dispatch_id, kind, ref) DO NOTHING
-`
-
-type RecordResourceParams struct {
-	DispatchID string
-	Kind       string
-	Ref        string
-	Custody    string
-	Now        int64
-}
-
-func (q *Queries) RecordResource(ctx context.Context, arg RecordResourceParams) error {
-	_, err := q.db.ExecContext(ctx, recordResource,
-		arg.DispatchID,
-		arg.Kind,
-		arg.Ref,
-		arg.Custody,
-		arg.Now,
-	)
-	return err
-}
-
-const releaseResource = `-- name: ReleaseResource :execrows
-UPDATE dispatch_resources SET released_at = CAST(?1 AS INTEGER)
-WHERE dispatch_id = ?2 AND kind = ?3 AND ref = ?4 AND released_at IS NULL
-`
-
-type ReleaseResourceParams struct {
-	Now        int64
-	DispatchID string
-	Kind       string
-	Ref        string
-}
-
-func (q *Queries) ReleaseResource(ctx context.Context, arg ReleaseResourceParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, releaseResource,
-		arg.Now,
-		arg.DispatchID,
-		arg.Kind,
-		arg.Ref,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 const renewLease = `-- name: RenewLease :execrows

@@ -1,7 +1,6 @@
 package agentapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -115,8 +114,8 @@ func speakTool(bot bool) agenttool.BrowserTool {
 			`"format":{"type":"string","enum":["mp3","wav","pcm","opus"],"description":"The file's format; ` +
 			`mp3 when left out, or the path's extension when it is one of them."},` +
 			`"speed":{"type":"number","minimum":0.25,"maximum":4,"description":"ElevenLabs's voice speed."},` +
-			`"language":{"type":"string","description":"The text's language as an ISO-639-1 code, for ` +
-			`Soniox; en when left out."},` +
+			`"language":{"type":"string","description":"The text's language as an ISO-639-1 code, such as ` +
+			`vi: Soniox speaks it, en when left out; ElevenLabs is told it when its model covers it."},` +
 			`"path":{"type":"string","description":"Where to save the speech, absolute or relative to the ` +
 			`folder you work in; a file already there is replaced. ` + where + `"}},"required":["text"]}`),
 	}
@@ -233,20 +232,9 @@ func (s *Server) audioFailed(w http.ResponseWriter, r *http.Request, err error) 
 	return true
 }
 
-// RecordingOf is a recording held whole, as the speech service reads one.
+// RecordingOf is a recording held whole, as the speech service reads one (speech.RecordingOf).
 func RecordingOf(data []byte, name, mime string) speech.Audio {
-	if mime == "" {
-		mime = http.DetectContentType(data)
-	}
-
-	if name == "" {
-		name = "recording"
-	}
-
-	return speech.Audio{
-		Name: name, MIME: mime, Size: int64(len(data)),
-		Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil },
-	}
+	return speech.RecordingOf(data, name, mime)
 }
 
 // TranscriptText is a transcript as an agent reads it: the text, or with

@@ -29,6 +29,7 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 
 	d := offered()
 	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
 	d.Offer.RoleRouted = true
 	for _, role := range []string{"planner", "explorer", "reviewer"} {
 		d.Offer.Profile = role
@@ -45,6 +46,8 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		assert.NotContains(t, prompt, "is a flake", "a read-only worker fixes no check")
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "publish_branch")
+		assert.Contains(t, prompt, "If GitHub reports a rate limit, run `gh api rate_limit`",
+			"a %s shares the GitHub quota too (issue #1259)", role)
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
 		assert.NotContains(t, prompt, "never a polling loop", "a read-only worker pushes nothing")
 		if role == "planner" {
@@ -123,6 +126,41 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	assert.Contains(t, p, "Rules:")
 	assert.Greater(t, strings.Index(p, "For this kind of task:\nReport problems; change nothing."),
 		strings.Index(p, "Rules:"), "the profile's instruction follows the rules")
+}
+
+// Scenario: the owner must decide before a worker can go on (issue #1219).
+// The rule says the gate stands alone: one decision a question, at most
+// three, each naming its case, each option with what it changes and its
+// reference, the recommended one first. When the owner answers a gate of two
+// decisions, the next turn tells each decision with its own answer.
+func TestTheGateStandsAloneAndEachAnswerIsTold(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	p := Prompt(d)
+	assert.Contains(t, p, "pass that question as `gate` to `finish` instead of waiting. The owner reads the gate on "+
+		"its own, without your report, and may not remember the work: ask one decision a question, at most three, "+
+		"each naming the case it is about; give each option a sentence on what changes if it is chosen and the "+
+		"reference it is learned from, or say that no reference does it; put the option you recommend first.\n")
+	assert.Less(t, strings.Index(p, "The owner reads the gate on its own"), strings.Index(p, "Task (implementer):"),
+		"the rule comes before the task, for the prompt cache (issue #672)")
+
+	first, second := 0, 1
+	options := []nodeproto.Option{
+		{Label: "One item each", Description: "Each request is its own item."}, {Label: "Other", AllowsText: true},
+	}
+	d.Accepted = &nodeproto.Accepted{Epoch: 1, Gate: &nodeproto.Question{
+		Header: "Items", Text: "Is each request one item?", Options: options,
+		More:   []nodeproto.Part{{Header: "Server", Text: "Fix the server now?", Options: options}},
+		Answer: &nodeproto.Answer{Option: &first, More: []nodeproto.Choice{{Option: &second, Text: "after the release"}}},
+	}}
+
+	assert.Contains(t, Prompt(d), "The owner answered the questions you asked at `finish`.\n"+
+		"- Items: Is each request one item?\n  The answer: One item each\n"+
+		"- Server: Fix the server now?\n  The answer: Other after the release\n"+
+		"Continue from there.\n")
+	assert.Equal(t, "Items: One item each\nServer: Other after the release", answerText(*d.Accepted.Gate),
+		"a waiting ask is told each answer after its header")
 }
 
 // Scenario: the offer carries the agent's memory and the one about the owner
@@ -264,6 +302,11 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	p := Prompt(d)
 
 	for _, want := range []string{
+		"If GitHub reports a rate limit, run `gh api rate_limit`",
+		"does not count against the primary limit",
+		"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming.",
+		"For a secondary limit, honor `Retry-After`",
+		"Report the limit and the wait in your summary.",
 		"never merge it directly",
 		"When the task says a review comes first, that the owner merges, or to ask before merging, skip this",
 		"`gh api --hostname github.com repos/kl3inIT/second-bite --jq .allow_auto_merge`: prints true",
@@ -286,7 +329,7 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"The control plane follows the pull request from there and sends you a follow-up if a check goes red or " +
 			"a conflict appears.",
 		"When auto-merge is not turned on, wait for the required checks with " +
-			"`gh pr checks <url> --required --watch` only when the task needs their result.",
+			"`gh pr checks <url> --required --watch --interval 60` only when the task needs their result.",
 		"Wait for CI only when the task needs its result or the merge steps below say to. When the task says a " +
 			"review comes first, do not wait: report the pushed commit and finish; the coordinator follows CI.",
 	} {
@@ -323,6 +366,7 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	}
 
 	assert.NotContains(t, p, "gh pr merge")
+	assert.NotContains(t, p, "gh api rate_limit")
 
 	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "kl3inIT/second-bite", "github.example.com", "github"
 	assert.Contains(t, Prompt(d),
@@ -343,9 +387,9 @@ func TestPromptWaitsForTheChecksWhenTheControlPlaneCannotFollow(t *testing.T) {
 	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
 
 	p := Prompt(d)
-	assert.Contains(t, p, "4. Wait for the required checks with `gh pr checks <url> --required --watch`; fix a red "+
-		"one your diff causes and push, rerun a flake once as the rules say, and do step 2 again if a conflict "+
-		"appears. Once they are green, call `finish`")
+	assert.Contains(t, p, "4. Wait for the required checks with `gh pr checks <url> --required --watch --interval 60`; "+
+		"fix a red one your diff causes and push, rerun a flake once as the rules say, and do step 2 again if a "+
+		"conflict appears. Once they are green, call `finish`")
 	assert.NotContains(t, p, "The control plane follows the pull request")
 
 	d.Offer.RepoToken = "ghp_x"

@@ -140,15 +140,15 @@ func TestAWorkerIsGivenTheSkillsOfItsProfile(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, _, err := w.s.ApplyProfile(ctx, "",
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "",
 		"name: implementer\ndescription: d\nruntime: claude\nskills: [nowhere]\n")
 	require.ErrorIs(t, err, ErrNotFound)
 
-	_, _, err = w.s.ApplyProfile(ctx, "",
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "",
 		"name: implementer\ndescription: d\nruntime: claude\nskills: [pdf]\nskills_off: [pdf]\n")
 	require.ErrorIs(t, err, ErrInvalid)
 
-	p, _, err := w.s.ApplyProfile(ctx, "",
+	p, _, err := w.s.Profiles().ApplyProfile(ctx, "",
 		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway}\nskills: [lark-docs]\n"+
 			"skills_off: [pdf]\n")
 	require.NoError(t, err)
@@ -450,7 +450,7 @@ func TestAGuideGoesOnlyToAnAgentThatMayUseItsIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.s.NodeHello(ctx, phone.ID, Hello{WorktreeRoot: "/srv/wt", Device: DeviceAndroid}))
 	assert.Equal(t, []string{"pdf", "superset"}, names(offered(w.dispatch(taskOf(withSuperset())))))
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\ntools: [phone]\n")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"android-device", "pdf", "superset"}, names(offered(w.dispatch(taskOf(withSuperset())))))

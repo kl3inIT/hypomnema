@@ -113,6 +113,11 @@ func TestOnlyTheOwnersOwnTurnsRecall(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, recalled(scripted(t, svc, other.ID)()), "the owner's message recalls")
 
+	_, err = svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Secret: "fixture",
+	})
+	require.NoError(t, err)
+
 	passed, err := svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: orchestration.DefaultBotID},
 		inboxstore.NewTodo{
 			Title: "Check the revenue dashboard", State: inboxstore.Proposed,
@@ -181,4 +186,152 @@ func TestOnlyTheOwnersOwnTurnsRecall(t *testing.T) {
 	prompt = scripted(t, svc, runChat.ID)()
 	assert.Contains(t, prompt, "Message from the Hypomnema control plane")
 	assert.Empty(t, recalled(prompt), "a wake-up of the control plane")
+}
+
+// Scenario: issue #1218, row 1. Bot vmap's recall follows its tool switches, as OpenMausBot recalls nothing for a
+// bot whose memory is off (server/index.ts:1152): with the report preset, or with its chats family switched off, the
+// owner's message in another chat recalls nothing of the main chat; switched back on, it does.
+func TestABotWithoutChatSearchRecallsNothing(t *testing.T) {
+	t.Parallel()
+
+	svc, vmap, _ := recallWorld(t)
+	ctx := t.Context()
+
+	for name, switches := range map[string]orchestration.Bot{
+		"the report preset":        {Preset: "report"},
+		"the chats family off":     {ToolsOff: []string{"chats"}},
+		"chat_search switched off": {ToolsOff: []string{"chat_search"}},
+	} {
+		vmap.Preset, vmap.Tools, vmap.ToolsOff = switches.Preset, switches.Tools, switches.ToolsOff
+		_, err := svc.PutBot(ctx, vmap)
+		require.NoError(t, err)
+
+		other, err := svc.CreateChat(ctx, vmap.ID, "")
+		require.NoError(t, err)
+		_, err = svc.AddChatMessage(ctx, other.ID, orchestration.ChatOwner, "What does the revenue dashboard count?")
+		require.NoError(t, err)
+
+		prompt := scripted(t, svc, other.ID)()
+		assert.Contains(t, prompt, "What does the revenue dashboard count?", name)
+		assert.Empty(t, recalled(prompt), name)
+	}
+
+	vmap.Preset, vmap.Tools, vmap.ToolsOff = "", nil, nil
+	_, err := svc.PutBot(ctx, vmap)
+	require.NoError(t, err)
+
+	other, err := svc.CreateChat(ctx, vmap.ID, "")
+	require.NoError(t, err)
+	_, err = svc.AddChatMessage(ctx, other.ID, orchestration.ChatOwner, "What does the revenue dashboard count?")
+	require.NoError(t, err)
+	assert.NotEmpty(t, recalled(scripted(t, svc, other.ID)()), "switched on, it recalls")
+}
+
+// Scenario: issue #1218, row 4 (ARCHITECTURE.md's claims). The line that continues a cut turn, a steer the owner
+// sends while the Bot works, and his message in a Lark direct chat recall nothing, though each shares the main chat's
+// words.
+func TestNoRecallOnAContinueLineASteerOrALarkDirectChat(t *testing.T) {
+	t.Parallel()
+
+	svc, vmap, _ := recallWorld(t)
+	ctx := t.Context()
+
+	cut, err := svc.CreateChat(ctx, vmap.ID, "")
+	require.NoError(t, err)
+	_, err = svc.AddChatMessage(ctx, cut.ID, orchestration.ChatOwner, "What does the revenue dashboard count?")
+	require.NoError(t, err)
+
+	next := scripted(t, svc, cut.ID)
+	require.NotEmpty(t, recalled(next()), "the owner's message recalls")
+	require.NoError(t, svc.ContinueCutTurn(ctx, cut.ID))
+
+	prompt := next()
+	assert.Contains(t, prompt, "cut your previous turn")
+	assert.Empty(t, recalled(prompt), "the line that continues a cut turn")
+
+	busy, err := svc.CreateChat(ctx, vmap.ID, "")
+	require.NoError(t, err)
+	_, err = svc.AddChatMessage(ctx, busy.ID, orchestration.ChatOwner, "Write the weekly sales note.")
+	require.NoError(t, err)
+
+	sup, _, pi := scriptedSupervisor(t, svc, busy.ID)
+	require.NoError(t, sup.deliver(ctx, busy.ID))
+	require.True(t, sup.Working(busy.ID))
+
+	_, err = svc.AddChatMessage(ctx, busy.ID, orchestration.ChatOwner, "Also, does the revenue dashboard count refunds?")
+	require.NoError(t, err)
+	require.NoError(t, sup.deliver(ctx, busy.ID))
+	require.Len(t, pi.prompts, 2)
+	assert.Contains(t, pi.prompts[1], "does the revenue dashboard count refunds?")
+	assert.Empty(t, recalled(pi.prompts[1]), "a steer")
+
+	_, err = svc.Channels().SetChannel(ctx, channelstore.Channel{
+		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: vmap.ID,
+		Mode: channelstore.ChannelOwner, OwnerID: "ou_owner", Enabled: true,
+	})
+	require.NoError(t, err)
+
+	direct, err := svc.ChannelChatFor(ctx, "maps", "oc_direct", "ou_owner", "Lark: the owner")
+	require.NoError(t, err)
+	_, err = svc.AddChatMessage(ctx, direct.ChatID, orchestration.ChatOwner, "Is the revenue dashboard paid orders?")
+	require.NoError(t, err)
+	assert.Empty(t, recalled(scripted(t, svc, direct.ChatID)()), "a Lark direct chat")
+}
+
+// Scenario: issue #1218, row 5. pi refuses the owner's turn, and the main chat gains a passage that shares its words
+// before the supervisor gives it again: the turn is given with the recall it had, computed once.
+func TestATurnGivenAgainKeepsItsRecall(t *testing.T) {
+	t.Parallel()
+
+	svc, vmap, main := recallWorld(t)
+	ctx := t.Context()
+
+	other, err := svc.CreateChat(ctx, vmap.ID, "")
+	require.NoError(t, err)
+	_, err = svc.AddChatMessage(ctx, other.ID, orchestration.ChatOwner, "What does the revenue dashboard count?")
+	require.NoError(t, err)
+
+	sup, _, pi := scriptedSupervisor(t, svc, other.ID)
+	pi.refuse = 1
+
+	require.Error(t, sup.deliver(ctx, other.ID), "pi refused the turn")
+	require.Len(t, pi.prompts, 1)
+	require.NotEmpty(t, recalled(pi.prompts[0]))
+
+	_, err = svc.AddChatMessage(ctx, main.ID, orchestration.ChatOwner,
+		"From December the revenue dashboard counts refunds as negative revenue.")
+	require.NoError(t, err)
+
+	require.NoError(t, sup.deliver(ctx, other.ID))
+	require.Len(t, pi.prompts, 2)
+	assert.Equal(t, pi.prompts[0], pi.prompts[1], "the turn is given as it was")
+}
+
+// Scenario: review of PR #1227, row 1. pi refuses the owner's turn, then the owner switches vmap's chats family off
+// before the supervisor gives the turn again: the turn is given without the recall it had, as a new turn would be.
+func TestATurnGivenAgainAfterChatsIsSwitchedOffRecallsNothing(t *testing.T) {
+	t.Parallel()
+
+	svc, vmap, _ := recallWorld(t)
+	ctx := t.Context()
+
+	other, err := svc.CreateChat(ctx, vmap.ID, "")
+	require.NoError(t, err)
+	_, err = svc.AddChatMessage(ctx, other.ID, orchestration.ChatOwner, "What does the revenue dashboard count?")
+	require.NoError(t, err)
+
+	sup, _, pi := scriptedSupervisor(t, svc, other.ID)
+	pi.refuse = 1
+
+	require.Error(t, sup.deliver(ctx, other.ID), "pi refused the turn")
+	require.NotEmpty(t, recalled(pi.prompts[0]))
+
+	vmap.ToolsOff = []string{"chats"}
+	_, err = svc.PutBot(ctx, vmap)
+	require.NoError(t, err)
+
+	require.NoError(t, sup.deliver(ctx, other.ID))
+	require.Len(t, pi.prompts, 2)
+	assert.Contains(t, pi.prompts[1], "What does the revenue dashboard count?")
+	assert.Empty(t, recalled(pi.prompts[1]), "switched off, the kept recall is not given")
 }

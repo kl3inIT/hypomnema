@@ -17,6 +17,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -628,6 +629,8 @@ type scriptedPi struct {
 	t       *testing.T
 	p       *proc
 	prompts []string
+	// refuse is how many prompts pi refuses before it takes one.
+	refuse int
 }
 
 func (w *scriptedPi) Write(line []byte) (int, error) {
@@ -636,14 +639,19 @@ func (w *scriptedPi) Write(line []byte) (int, error) {
 		return 0, err
 	}
 
-	data := json.RawMessage(`{}`)
+	data, success := json.RawMessage(`{}`), true
 	if cmd["type"] == "prompt" {
 		w.prompts = append(w.prompts, fmt.Sprint(cmd["message"]))
 		data = json.RawMessage(`{"disposition":"started"}`)
+
+		if w.refuse > 0 {
+			w.refuse--
+			success = false
+		}
 	}
 
 	reply, err := json.Marshal(map[string]any{
-		"type": "response", "id": cmd["id"], "command": cmd["type"], "success": true, "data": data,
+		"type": "response", "id": cmd["id"], "command": cmd["type"], "success": success, "data": data,
 	})
 	if err != nil {
 		return 0, err
@@ -661,14 +669,7 @@ func (*scriptedPi) Close() error { return nil }
 func scripted(t *testing.T, svc *orchestration.Service, chatID string) func() string {
 	t.Helper()
 
-	sup := New(svc, Config{Command: []string{"pi"}})
-	p := &proc{
-		s: sup, chatID: chatID, token: "scripted", done: make(chan struct{}), lastActive: time.Now(),
-		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
-	}
-	pi := &scriptedPi{t: t, p: p}
-	p.stdin = pi
-	sup.procs[chatID] = p
+	sup, p, pi := scriptedSupervisor(t, svc, chatID)
 
 	return func() string {
 		t.Helper()
@@ -685,6 +686,22 @@ func scripted(t *testing.T, svc *orchestration.Service, chatID string) func() st
 
 		return pi.prompts[len(pi.prompts)-1]
 	}
+}
+
+// scriptedSupervisor is a supervisor that does not run, whose chat's pi is a scriptedPi.
+func scriptedSupervisor(t *testing.T, svc *orchestration.Service, chatID string) (*Supervisor, *proc, *scriptedPi) {
+	t.Helper()
+
+	sup := New(svc, Config{Command: []string{"pi"}})
+	p := &proc{
+		s: sup, chatID: chatID, token: "scripted", done: make(chan struct{}), lastActive: time.Now(),
+		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
+	}
+	pi := &scriptedPi{t: t, p: p}
+	p.stdin = pi
+	sup.procs[chatID] = p
+
+	return sup, p, pi
 }
 
 // Scenario (issue #1172): the owner writes to a busy Bot whose Runs keep waking it. Each idle pi is given one kind,
@@ -808,7 +825,8 @@ func TestPiIsGivenThePathsOfTheOwnersFiles(t *testing.T) {
 		"- attachments/cht_1/notes (file, 5 bytes)",
 		"\n\n",
 		"The owner attached these files, in your working directory:\n",
-		"- attachments/cht_1/a.png (image/png, 3 bytes)"), got)
+		"- attachments/cht_1/a.png (image/png, 3 bytes)\n",
+		"Use the read tool to view the attached images."), got)
 }
 
 func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
@@ -832,7 +850,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--bot", orchestration.DefaultBotID}, args, "the starting set leaves pi's own default model")
 
-	_, err = svc.ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
+	_, err = svc.Profiles().ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
 		"base_url: http://172.22.0.1:20128/v1\napi_key_ref: file:ninerouter.key\nmodels: [cx/gpt-6.1-sol]\n")
 	require.NoError(t, err)
 
@@ -1222,7 +1240,7 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 	svc, sup := newSupervisor(t)
 	ctx := t.Context()
 
-	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+	_, err := svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
@@ -1263,8 +1281,8 @@ func TestBotFallbacksUseChatCompletionsOnlyForTheInheritedModel(t *testing.T) {
 		choice   orchestration.ChatModel
 		provider string
 	}{
-		{orchestration.ChatModel{Effort: "high"}, orchestration.PiFallbackProvider},
-		{orchestration.ChatModel{Provider: bot.Provider, Model: bot.Model}, orchestration.PiProvider},
+		{orchestration.ChatModel{Effort: "high"}, profilestore.PiFallbackProvider},
+		{orchestration.ChatModel{Provider: bot.Provider, Model: bot.Model}, profilestore.PiProvider},
 	} {
 		chat, err := svc.CreateChatWithID(ctx, "", bot.ID, "", candidate.choice)
 		require.NoError(t, err)
@@ -1285,7 +1303,7 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 	svc, sup := newSupervisorWith(t, keys)
 	ctx := t.Context()
 
-	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+	_, err := svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
@@ -1537,4 +1555,23 @@ func TestAStopGivesAnUnreadSteerAgainAsItsOwnTurn(t *testing.T) {
 	assert.Equal(t, []string{
 		"owner: hang settled", "owner: look here", "system: Stopped", "coordinator: echo: look here",
 	}, said(t, svc, chat.ID))
+}
+
+// Inbox wakes keep the control plane's instructions and the owner's input in
+// the same turn. Pi's read tool supplies the image to a vision model.
+func TestInboxWakeGivesPiTheOwnersAttachments(t *testing.T) {
+	t.Parallel()
+
+	got := promptText([]orchestration.ChatMessage{{
+		Role: orchestration.ChatSystem, Kind: orchestration.ChatWake, Text: "The owner commented on an Inbox item.",
+		Attachments: []orchestration.ChatAttachment{
+			{Name: "screen.png", Path: "attachments/cht_item/screen.png", Size: 41, Type: "image/png"},
+			{Name: "brief.pdf", Path: "attachments/cht_item/brief.pdf", Size: 23, Type: "application/pdf"},
+		},
+	}})
+	assert.Contains(t, got, "Message from the Hypomnema control plane:")
+	assert.Contains(t, got, "The owner commented on an Inbox item.")
+	assert.Contains(t, got, "Use the read tool to view the attached images.")
+	assert.Contains(t, got, "attachments/cht_item/screen.png (image/png, 41 bytes)")
+	assert.Contains(t, got, "attachments/cht_item/brief.pdf (application/pdf, 23 bytes)")
 }

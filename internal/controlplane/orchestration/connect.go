@@ -8,6 +8,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -254,6 +255,9 @@ type Offer struct {
 	// tools the worker gets, from which its node writes the "Tools" block
 	// (issue #723).
 	Tools []string `json:"tools,omitempty"`
+	// QuestionParts is set by the node API as the offer is sent: this control
+	// plane keeps a question's several decisions (issue #1219).
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // StopRequest is a stop asked of a Dispatch on the node.
@@ -390,7 +394,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		}
 	}
 
-	api, err := modelAPI(ctx, q, conv.AccountRef, d.Model.String)
+	api, err := profilestore.ModelAPITx(ctx, q, conv.AccountRef, d.Model.String)
 	if err != nil {
 		return Offer{}, err
 	}

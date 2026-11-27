@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 
@@ -81,4 +81,78 @@ test("a question without options takes text", async () => {
   await user.type(screen.getByRole("textbox", { name: "Answer" }), "use port 18990{Enter}")
 
   expect((await sent(fetch)).body).toEqual({ text: "use port 18990" })
+})
+
+// A Gate of two decisions, each option saying what it changes, after the worker's summary (issue #1219).
+const twoDecisions = question("q2", task("t", "run_1"), {
+  mode: "gate",
+  summary:
+    "Planned #1206.\nThree things were asked; two need you.\nThe rest is in the issue.\nA fourth line.",
+  header: "Items",
+  text: "Is each request one Inbox item?",
+  options: [
+    {
+      label: "One item each (Recommended)",
+      description: "Each request is its own item. From: Linear.",
+    },
+    { label: "One item for all", description: "No reference does this." },
+    { label: "Other", allows_text: true },
+  ],
+  more: [
+    {
+      header: "Server",
+      text: "Fix the server now?",
+      options: [
+        { label: "Now", description: "A small change on zm today." },
+        { label: "Other", allows_text: true },
+      ],
+    },
+  ],
+})
+
+// Scenario: the owner reads both decisions in one card, each with its header and each option with its description,
+// under the worker's summary; he answers both, and one answer is sent for the two.
+test("a gate of two decisions is read and answered as one card", async () => {
+  const user = userEvent.setup()
+  const fetch = answerServer()
+  renderForm(twoDecisions)
+
+  const items = screen.getByRole("group", { name: "Items" })
+  const server = screen.getByRole("group", { name: "Server" })
+  expect(items).toHaveTextContent("Is each request one Inbox item?")
+  expect(within(items).getByRole("radio", { name: /One item each/ })).toHaveAccessibleName(
+    /Each request is its own item\. From: Linear\./,
+  )
+  expect(within(server).getByRole("radio", { name: /Now/ })).toHaveAccessibleName(
+    /A small change on zm today/,
+  )
+
+  // Whether the summary runs past three lines is measured in a browser (web/tests/inbox-1219.spec.ts).
+  expect(screen.getByRole("region", { name: "The worker's summary" })).toHaveTextContent(
+    "Planned #1206.",
+  )
+
+  await user.click(within(server).getByRole("radio", { name: /Other/ }))
+  await user.type(within(server).getByRole("textbox", { name: "Details" }), "after the release")
+  await user.click(screen.getByRole("button", { name: "Send answer" }))
+
+  expect((await sent(fetch)).body).toEqual({
+    option: 0,
+    more: [{ option: 1, text: "after the release" }],
+  })
+})
+
+// Scenario: a question asked before issue #1219, with bare labels and no header, summary or more, reads as it did:
+// its text and its rows, no group, no description and no summary.
+test("an old gate renders as before", () => {
+  renderForm({ ...asked, mode: "gate" })
+
+  expect(screen.getByText("Public or behind a login?")).toBeInTheDocument()
+  expect(screen.getAllByRole("radio").map((r) => r.getAttribute("name"))).toEqual([
+    "q-q1-0",
+    "q-q1-0",
+    "q-q1-0",
+  ])
+  expect(screen.getAllByRole("group")).toEqual([screen.getByRole("group", { name: "Options" })])
+  expect(screen.queryByRole("region", { name: "The worker's summary" })).toBeNull()
 })

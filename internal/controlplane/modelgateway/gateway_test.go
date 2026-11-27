@@ -47,13 +47,13 @@ func newGatewayAndDB(t *testing.T) (*modelgateway.Service, *sql.DB) {
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
-	_, err = orch.ApplyProvider(t.Context(), "", "name: router\nkind: openai_compatible\n"+
+	_, err = orch.Profiles().ApplyProvider(t.Context(), "", "name: router\nkind: openai_compatible\n"+
 		"base_url: https://router.example/v1\napi_key_ref: vault:router\nmodels: [cx/gpt-6.1-sol, small]\n")
 	require.NoError(t, err)
 
 	// anthropic is a provider kind the gateway has no chat adapter for: a
 	// model that targets it cannot be served.
-	_, err = orch.ApplyProvider(t.Context(), "",
+	_, err = orch.Profiles().ApplyProvider(t.Context(), "",
 		"name: anth\nkind: anthropic\nbase_url: https://api.anthropic.example/v1\napi_key_ref: vault:anth\n"+
 			"models: [opus-x]\n")
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func newGatewayAndDB(t *testing.T) (*modelgateway.Service, *sql.DB) {
 
 		return fmt.Sprintf("%s_%04d", prefix, n)
 	}, func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-		p, err := orch.GetProvider(ctx, name)
+		p, err := orch.Profiles().GetProvider(ctx, name)
 		if err != nil {
 			return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 		}

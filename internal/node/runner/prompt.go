@@ -110,8 +110,17 @@ const rules =
 	"when the work is not done, say so in its first line; then what you did, what you found and what is left; " +
 	"which checks you ran and which you skipped; then the evidence (paths with lines, commands with their " +
 	"output, the pull request as its URL).\n" +
+	// Issue #1219: the Gate stands alone, after the summary rule above, Codex's request_user_input (1-3 questions,
+	// each option "One short sentence explaining impact/tradeoff if selected", the recommended one first;
+	// codex-rs/core/src/tools/handlers/request_user_input_spec.rs:20-35,72) and Gemini CLI's plan mode ("pros/cons
+	// and your recommendation", "detailed descriptions for each option to help the user understand the
+	// implications"; packages/core/src/prompts/snippets.ts:606-607,633); the reference of each option is this
+	// repository's "From" rule (AGENTS.md, "Do not invent logic").
 	"- If the owner must decide before the work goes on (such as a choice between designs), " +
-	"pass that question as `gate` to `finish` instead of waiting.\n" +
+	"pass that question as `gate` to `finish` instead of waiting. The owner reads the gate on its own, without " +
+	"your report, and may not remember the work: ask one decision a question, at most three, each naming the " +
+	"case it is about; give each option a sentence on what changes if it is chosen and the reference it is " +
+	"learned from, or say that no reference does it; put the option you recommend first.\n" +
 	// Issue #513, after OpenClaw's and Hermes's AGENTS.md (verify the claim against source and observed
 	// behavior; close as implemented_on_main or cannot_reproduce) and Coder's ("state uncertainty instead of
 	// guessing").
@@ -366,17 +375,27 @@ func gate(d statedb.Dispatch) string {
 		return ""
 	}
 
-	q, a := d.Accepted.Gate, d.Accepted.Gate.Answer
-	answer := a.Text
-
-	if a.Option != nil && *a.Option >= 0 && *a.Option < len(q.Options) {
-		answer = strings.TrimSpace(q.Options[*a.Option].Label + " " + a.Text)
-	}
+	ds := decisions(*d.Accepted.Gate)
 
 	// A plain sentence rather than Orca's upper-case "DECISION GATE RESOLVED" (issue #672, after Anthropic's
 	// prompting guide on emphatic wording).
-	return fmt.Sprintf("The owner answered the question you asked at `finish`.\nYou asked: %s\nThe answer: %s\n"+
-		"Continue from there.\n", q.Text, answer)
+	if len(ds) == 1 {
+		return fmt.Sprintf("The owner answered the question you asked at `finish`.\nYou asked: %s\nThe answer: %s\n"+
+			"Continue from there.\n", ds[0].text, ds[0].answer)
+	}
+
+	// A Gate of several decisions (issue #1219) is told one decision after another, each with its answer.
+	var b strings.Builder
+
+	b.WriteString("The owner answered the questions you asked at `finish`.\n")
+
+	for _, q := range ds {
+		fmt.Fprintf(&b, "- %s: %s\n  The answer: %s\n", q.header, q.text, q.answer)
+	}
+
+	b.WriteString("Continue from there.\n")
+
+	return b.String()
 }
 
 // memoryGuide says what a worker keeps, after Coder's guidance for its
@@ -436,6 +455,15 @@ func memoryBrief(agent, owner string, notes []string, hasTool bool) string {
 // (issue #690).
 func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 	var b strings.Builder
+
+	// Issue #1259 follows GitHub's REST API rate limit guidance for all repository roles.
+	if githost.Kind(o.RepoKind) == githost.GitHub {
+		b.WriteString("\nIf GitHub reports a rate limit, run `gh api rate_limit` on the affected host. " +
+			"This call does not count against the primary limit. " +
+			"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming. " +
+			"For a secondary limit, honor `Retry-After` if present. If neither delay is given for a secondary limit, " +
+			"wait at least one minute before resuming. Report the limit and the wait in your summary.\n")
+	}
 
 	own, push, base := worktree.Branch(o.TaskID), pushBranch(o), prBase(o)
 

@@ -215,14 +215,8 @@ func usageText(st accountState) string {
 // recheckRest reads a resting account's Usage and takes it back when it
 // shows room. The caller holds the turn.
 func (s *Service) recheckRest(ctx context.Context, a orchestration.Account, st accountState) accountState {
-	u, err := s.readUsage(ctx, a.ID)
+	u, err := s.readUsage(ctx, a.ID, false)
 	if err != nil {
-		s.cfg.Logger.InfoContext(ctx, "a resting Muse account's usage could not be read",
-			slog.String("event", "muse.usage_unread"), slog.String("account", a.ID), slog.Any("err", err))
-
-		// Read again after usageEvery, not at every question.
-		_ = s.store.setUsage(ctx, a.ID, usageOr(st.Usage), s.cfg.Clock.Now())
-
 		return st
 	}
 
@@ -236,17 +230,38 @@ func (s *Service) recheckRest(ctx context.Context, a orchestration.Account, st a
 	return st
 }
 
-func usageOr(u *Usage) Usage {
-	if u == nil {
-		return Usage{}
+// readUsage keeps the result and time of the attempt. A quota answer clears
+// the old reading on failure because it already showed the account is full.
+// The caller holds the turn.
+func (s *Service) readUsage(ctx context.Context, id string, clearOnFailure bool) (Usage, error) {
+	u, err := s.fetchUsage(ctx, id)
+	if err == nil {
+		return u, s.store.setUsage(ctx, id, u, "", s.cfg.Clock.Now())
 	}
 
-	return *u
+	// An interrupted read still has a reason and counts toward usageEvery.
+	ctx = context.WithoutCancel(ctx)
+	st, stateErr := s.store.state(ctx, id)
+	reason := err.Error()
+
+	if reason != st.UsageError {
+		s.cfg.Logger.WarnContext(ctx, "a Muse account's usage could not be read",
+			slog.String("event", "muse.usage_unread"), slog.String("account", id), slog.Any("err", err))
+	}
+
+	if stateErr != nil {
+		return Usage{}, errors.Join(err, stateErr)
+	}
+
+	var previous Usage
+	if !clearOnFailure && st.Usage != nil {
+		previous = *st.Usage
+	}
+
+	return Usage{}, errors.Join(err, s.store.setUsage(ctx, id, previous, reason, s.cfg.Clock.Now()))
 }
 
-// readUsage reads an account's Usage in its tab and keeps it. The caller
-// holds the turn.
-func (s *Service) readUsage(ctx context.Context, id string) (Usage, error) {
+func (s *Service) fetchUsage(ctx context.Context, id string) (Usage, error) {
 	read, err := s.openJar(ctx, id)
 	if err != nil {
 		return Usage{}, err
@@ -266,11 +281,7 @@ func (s *Service) readUsage(ctx context.Context, id string) (Usage, error) {
 
 	s.saveJar(ctx, id, read, page)
 
-	if err != nil {
-		return Usage{}, err
-	}
-
-	return u, s.store.setUsage(ctx, id, u, s.cfg.Clock.Now())
+	return u, err
 }
 
 func (s *Service) driver(page Page) *driver {
@@ -359,9 +370,7 @@ func (s *Service) askWith(
 	// The Usage shown on the Muse page is read again after an answer once it is old.
 	if res.Outcome == OutcomeAnswered {
 		if st, err := s.store.state(ctx, a.ID); err == nil && s.cfg.Clock.Now().Sub(st.UsageReadAt) >= usageEvery {
-			if _, err := s.readUsage(ctx, a.ID); err != nil {
-				_ = s.store.setUsage(ctx, a.ID, usageOr(st.Usage), s.cfg.Clock.Now())
-			}
+			_, _ = s.readUsage(ctx, a.ID, false)
 		}
 	}
 
@@ -380,9 +389,7 @@ func (s *Service) outcome(ctx context.Context, a orchestration.Account, res *Res
 		res.Note = fmt.Sprintf("Muse account %s is out of quota and rests until its Usage shows room.", a.Label)
 		_ = s.store.rest(ctx, a.ID, true, err.Error())
 
-		if _, err := s.readUsage(ctx, a.ID); err != nil {
-			_ = s.store.setUsage(ctx, a.ID, Usage{}, s.cfg.Clock.Now())
-		}
+		_, _ = s.readUsage(ctx, a.ID, true)
 	case errors.Is(err, ErrAsksPermission):
 		// Never clicked: the owner answers it in his own Muse (row 16).
 		res.Outcome = OutcomeAsks

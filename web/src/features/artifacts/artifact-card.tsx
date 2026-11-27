@@ -61,7 +61,11 @@ export function ArtifactCard({ card }: { card: Card }) {
             v{card.revision} · Updated {since(card.updated_at)}
           </span>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <ArtifactIcon type={card.type} revision={revision} className="size-3" />
+            <ArtifactIcon
+              type={card.type}
+              name={revision?.entry ?? artifact.data?.entry}
+              className="size-3"
+            />
             {typeLabel(card.type, revision)} ·{" "}
             {isPhone() || !open ? "Tap to open" : "Click to open"}
           </span>
@@ -92,7 +96,11 @@ function Thumbnail({ card }: { card: Card }) {
   if (revision?.type === "image") return <ImageThumbnail id={card.id} revision={revision} />
 
   return (
-    <ArtifactIcon type={card.type} revision={revision} className="size-6 text-muted-foreground" />
+    <ArtifactIcon
+      type={card.type}
+      name={revision?.entry ?? artifact.data?.entry}
+      className="size-6 text-muted-foreground"
+    />
   )
 }
 
@@ -130,7 +138,7 @@ function PageThumbnail({ id, revision }: { id: string; revision: ArtifactRevisio
 function ImageThumbnail({ id, revision }: { id: string; revision: ArtifactRevision }) {
   const { src: url } = useImageSource(id, revision)
 
-  if (!url) return <ArtifactIcon type="image" className="size-6 text-muted-foreground" />
+  if (!url) return <ArtifactIcon type="image" name={revision.entry} className="size-6" />
 
   return <img src={url} alt="" className="size-full object-cover" />
 }

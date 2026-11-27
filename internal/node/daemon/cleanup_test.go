@@ -112,7 +112,7 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 		ShimRoot: filepath.Join(root, "run"),
 		Stopped:  func(id string, _ bool) bool { return id == dispatch && stopped },
 		CleanWorktree: func(ctx context.Context, path string, _ bool, recheck func() bool) error {
-			return diskguard.RemoveTree(ctx, path, recheck)
+			return diskguard.RemoveManagedTree(ctx, path, "", "", recheck)
 		},
 		TrimCaches: func(context.Context, func(func())) bool { swept <- struct{}{}; return false },
 	}}, db, nil, slog.New(slog.DiscardHandler))

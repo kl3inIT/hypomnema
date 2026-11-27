@@ -5,6 +5,7 @@ package browser
 import (
 	"encoding/base64"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,7 +41,12 @@ func filmedEngine(t *testing.T, cdp, agent string) (*Engine, string) {
 
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "agent-browser")
-	require.NoError(t, os.WriteFile(bin, []byte(filmStandIn), 0o700)) //nolint:gosec // A test's own program.
+	// Write in a child shell so a parallel test's fork cannot inherit a writable descriptor and cause ETXTBSY.
+	//nolint:gosec // The test's own shell, writing into its own folder.
+	write := exec.CommandContext(t.Context(), "/bin/sh", "-c", `cat > "$1" && chmod 700 "$1"`, "sh", bin)
+	write.Stdin = strings.NewReader(filmStandIn)
+	out, err := write.CombinedOutput()
+	require.NoError(t, err, "%s", out)
 
 	e := runningEngine(cdp)
 	e.cfg.Dir, e.binary = dir, bin

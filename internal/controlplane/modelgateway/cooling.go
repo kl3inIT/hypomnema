@@ -72,7 +72,14 @@ func (s *Server) coolingResponse(ctx context.Context, route string, c modelCooli
 	return accountCoolingResponse(route, c.first, now)
 }
 
+// recordModelCooling writes when a model is free again on a route, which the scheduler reads to hold back work on it
+// (orchestration placeTask). Only a request that may use every account speaks for them all: a key limited to some
+// accounts (issue #1277) that finds them all resting says nothing of the others, which still serve.
 func (s *Server) recordModelCooling(ctx context.Context, route, model string, until, now time.Time) {
+	if _, limited := KeyAccounts(ctx); limited {
+		return
+	}
+
 	kept := context.WithoutCancel(ctx)
 	if err := s.svc.write(kept, func(q *store.Queries, _ int64) error {
 		return q.RecordModelCooling(kept, store.RecordModelCoolingParams{

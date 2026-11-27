@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync"
 
@@ -44,9 +43,11 @@ func (s *Server) HandTodo(ctx context.Context, req openapi.HandTodoRequestObject
 		bot = orchestration.DefaultBotID
 	}
 
-	t, err := s.svc.Inbox().Hand(ctx, inboxstore.Change{
+	t, err := s.svc.Inbox().HandWith(ctx, inboxstore.Change{
 		Actor: inboxstore.Actor{Kind: inboxstore.Owner}, ID: req.TodoId, Revision: b.Revision,
-	}, bot, val(b.Prompt))
+	}, bot, inboxstore.HandInput{
+		Prompt: val(b.Prompt), ChatID: val(b.ChatId), Attachments: fromAttachments(val(b.Attachments)),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -62,16 +63,15 @@ func (s *Server) CommentTodo(ctx context.Context, req openapi.CommentTodoRequest
 		return nil, err
 	}
 
-	t, err := s.svc.Inbox().Comment(ctx, c.actor, req.TodoId, req.Body.Text)
+	t, err := s.svc.Inbox().CommentWith(ctx, c.actor, req.TodoId, req.Body.Text, inboxstore.Attached{
+		Uploads: fromAttachments(val(req.Body.Attachments)),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return openapi.CommentTodo200JSONResponse(todoOut(t, true)), nil
 }
-
-// sendable are the sources a reply is sent to: a chat or thread of the owner's own account.
-var sendable = []string{inboxstore.FromZalo, inboxstore.FromWhatsApp, inboxstore.FromLark, inboxstore.FromGmail}
 
 // SendTodoDraft sends the owner's reply to the item's own chat or thread and closes the item done by him, with the
 // message sent as its evidence. Only the item's source is sent to: the request names no chat.
@@ -110,9 +110,13 @@ func (s *Server) SendTodoDraft(ctx context.Context, req openapi.SendTodoDraftReq
 			t.ID, t.Revision, b.Revision)
 	case inboxstore.Closed(t.State):
 		return nil, fmt.Errorf("%w: to-do %s is %s; nothing was sent", orchestration.ErrConflict, t.ID, t.State)
-	case !slices.Contains(sendable, t.Source.Kind):
+	case t.Source.ConnectionIntegration() == "":
 		return nil, fmt.Errorf("%w: to-do %s came from %s, which has no chat of the owner's to send to",
 			orchestration.ErrInvalid, t.ID, t.Source.Kind)
+	}
+
+	if err := inbox.CheckSourceAccount(ctx, t.Source); err != nil {
+		return nil, err
 	}
 
 	sent, err := s.inboxSender.SendAsOwner(ctx, t, b.Text)

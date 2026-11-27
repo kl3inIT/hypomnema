@@ -100,6 +100,11 @@ type Key struct {
 	Models []string
 	// Endpoints are the kinds the key may use besides chat (issue #664); nil is every kind.
 	Endpoints []Endpoint
+	// Accounts are the only accounts the key may use (issue #1277); nil is every account. Read with the key by
+	// Authenticate, ListKeys and the owner's edits.
+	Accounts []KeyAccount
+	// SearchOrder is the key's own web search order (issue #1277); empty is the global order.
+	SearchOrder []string
 	// DispatchID is set on a key made for one Dispatch.
 	DispatchID string
 	// ChatID is set on a key made for one chat's pi.
@@ -572,6 +577,13 @@ func (s *Service) WithKeyVault(secrets *vault.Service) *Service {
 // endpoints lists the kinds it may use besides chat; nil means every kind, and
 // an empty list none.
 func (s *Service) AddKey(ctx context.Context, name string, models []string, endpoints []Endpoint) (Key, string, error) {
+	return s.AddRoutedKey(ctx, name, models, endpoints, KeyRouting{})
+}
+
+// AddRoutedKey is AddKey for a key with its own routing (issue #1277).
+func (s *Service) AddRoutedKey(
+	ctx context.Context, name string, models []string, endpoints []Endpoint, routing KeyRouting,
+) (Key, string, error) {
 	if !keyNamePattern.MatchString(name) {
 		return Key{}, "", fmt.Errorf("%w: a key's name is lowercase letters, digits and dashes", ErrInvalid)
 	}
@@ -580,11 +592,15 @@ func (s *Service) AddKey(ctx context.Context, name string, models []string, endp
 		return Key{}, "", err
 	}
 
+	if err := validateRouting(routing.Accounts, routing.SearchOrder); err != nil {
+		return Key{}, "", err
+	}
+
 	if len(models) == 0 {
 		models = []string{AllModels}
 	}
 
-	return s.addKey(ctx, name, models, keyOwner{endpoints: endpoints, keepValue: true})
+	return s.addKey(ctx, name, models, keyOwner{endpoints: endpoints, keepValue: true, routing: routing})
 }
 
 func validateKeyAccess(models []string, endpoints []Endpoint) error {
@@ -844,6 +860,8 @@ type keyOwner struct {
 	keepValue bool
 	// coordinatorTokenID is the coordinator token a chat's pi runs under: revoking it ends the key (issue #996).
 	coordinatorTokenID string
+	// routing is an owner's key's own (issue #1277).
+	routing KeyRouting
 }
 
 func (s *Service) addKey(ctx context.Context, name string, models []string, owner keyOwner) (Key, string, error) {
@@ -918,7 +936,13 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 			return fmt.Errorf("%w: storing key %q: %w", ErrConflict, name, err)
 		}
 
-		return nil
+		if owner.routing.Accounts != nil {
+			if err := setAccounts(ctx, q, id, owner.routing.Accounts); err != nil {
+				return err
+			}
+		}
+
+		return setSearchOrder(ctx, q, id, owner.routing.SearchOrder)
 	})
 	if err != nil {
 		return Key{}, "", fmt.Errorf("adding a key: %w", err)
@@ -930,7 +954,9 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 }
 
 func (s *Service) getKey(ctx context.Context, id string) (Key, error) {
-	row, err := store.New(s.db).GetGatewayKey(ctx, id)
+	q := store.New(s.db)
+
+	row, err := q.GetGatewayKey(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Key{}, fmt.Errorf("%w: key %s", ErrNotFound, id)
 	}
@@ -939,7 +965,12 @@ func (s *Service) getKey(ctx context.Context, id string) (Key, error) {
 		return Key{}, fmt.Errorf("reading key %s: %w", id, err)
 	}
 
-	return keyFromRow(row)
+	k, err := keyFromRow(row)
+	if err != nil {
+		return Key{}, err
+	}
+
+	return withRouting(ctx, q, k, row.OwnAccounts == 1)
 }
 
 // ListKeys returns every key, revoked ones included, by name.
@@ -961,12 +992,37 @@ func (s *Service) ListKeys(ctx context.Context) ([]Key, error) {
 		lastUsed[u.KeyID] = time.UnixMilli(u.LastUsed).UTC()
 	}
 
+	accounts, err := q.ListAllGatewayKeyAccounts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the keys' accounts: %w", err)
+	}
+
+	orders, err := q.ListAllGatewayKeySearchOrders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the keys' search orders: %w", err)
+	}
+
 	out := make([]Key, 0, len(rows))
 
 	for _, r := range rows {
 		k, err := keyFromRow(r)
 		if err != nil {
 			return nil, err
+		}
+
+		if r.OwnAccounts == 1 {
+			k.Accounts = []KeyAccount{}
+			for _, a := range accounts {
+				if a.KeyID == k.ID {
+					k.Accounts = append(k.Accounts, KeyAccount{ID: a.AccountID, Runtime: a.Runtime})
+				}
+			}
+		}
+
+		for _, o := range orders {
+			if o.KeyID == k.ID {
+				k.SearchOrder = append(k.SearchOrder, o.Provider)
+			}
 		}
 
 		if t, ok := lastUsed[k.ID]; ok {
@@ -1046,18 +1102,25 @@ func (s *Service) Authenticate(ctx context.Context, secret string) (Key, error) 
 		}
 	}
 
-	return keyFromRow(row)
+	k, err := keyFromRow(row)
+	if err != nil {
+		return Key{}, err
+	}
+
+	return withRouting(ctx, store.New(s.db), k, row.OwnAccounts == 1)
 }
 
 // ModelsFor returns the models a key may use, by name: what GET /v1/models
 // answers.
 func (s *Service) ModelsFor(ctx context.Context, k Key) ([]Model, error) {
+	ctx = keyContext(ctx, k)
+
 	all, err := s.ListModels(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return slices.DeleteFunc(all, func(m Model) bool { return !k.Allows(m.Name) }), nil
+	return slices.DeleteFunc(all, func(m Model) bool { return !k.Allows(m.Name) || !s.KeyServes(ctx, k, m) }), nil
 }
 
 func keyFromRow(r store.GatewayKey) (Key, error) {

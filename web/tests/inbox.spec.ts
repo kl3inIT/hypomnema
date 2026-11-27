@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { openMenu } from "./menu.js"
+import { pasteImage } from "./paste-image.js"
 import { shot } from "./shot.js"
 
 // The Inbox page (issue #1093), built, against a fake client API, on a phone and a desktop: what waits on the owner
@@ -59,6 +60,8 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // she took it in, and adds a meeting's action Hà took on, waiting on her from its line (issue #1142).
 // described adds the owner's own report for Laura, two days late, its
 // description in Markdown sections naming a meeting and a chat by their ids (issue #1173).
+type SentFile = { path: string; name: string; type?: string; size: number }
+
 function world({
   review = false,
   sources = false,
@@ -69,6 +72,7 @@ function world({
   projects: withProjects = false,
   waiting = false,
   described = false,
+  longThread = false,
 }: {
   review?: boolean
   sources?: boolean
@@ -79,6 +83,7 @@ function world({
   projects?: boolean
   waiting?: boolean
   described?: boolean
+  longThread?: boolean
 } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
@@ -107,7 +112,7 @@ function world({
       assignee: { kind: "person", name: "Lan" },
       source: {
         kind: "zalo",
-        id: "2261258766901429891",
+        id: "1000000000000000001",
         account: "main",
         ref: { kind: "zalo_message", ref: "z1" },
       },
@@ -484,6 +489,25 @@ function world({
     const thread = (threads[t.id] ??= [])
     thread.push({ id: thread.length + 2, at: at(0), revision: t.revision, before: {}, ...event })
   }
+  const botComment = (text: string) => {
+    const t = todos.find((todo) => todo.id === "tdo_reply")!
+    t.revision += 1
+    remember(t, { actor: { kind: "bot", id: "bot_main" }, kind: "commented", after: { text } })
+  }
+  if (longThread) {
+    todos.find((todo) => todo.id === "tdo_reply")!.notes =
+      "Confirm the dates in the contract before replying to Kai."
+    todos.find((todo) => todo.id === "tdo_login")!.notes =
+      "Check the connection settings and confirm the last successful sync.\n\n".repeat(40)
+    for (let i = 1; i <= 10; i++) {
+      botComment(
+        `Contract update ${i}\n\n` +
+          "I checked the delivery dates against the signed agreement. I will confirm the remaining details with Kai and update the draft before it goes out.".repeat(
+            2,
+          ),
+      )
+    }
+  }
   const run = (id: string, m: object = {}) => ({
     id,
     routine_id: "rtn_triage",
@@ -496,9 +520,21 @@ function world({
     ...m,
   })
   let lastRun = run("rrn_1")
+  const uploads = new Map<string, { path: string; bot: string | null; pieces: Buffer[] }>()
+  const files = new Map<string, { bot: string | null; bytes: Buffer }>()
 
   return {
     sent,
+    botComment,
+    files,
+    give(id: string, bot: string, chat: string) {
+      const t = todos.find((each) => each.id === id)!
+      Object.assign(t, {
+        assignee: { kind: "bot", name: bot },
+        chat_id: chat,
+        revision: t.revision + 1,
+      })
+    },
     hold() {
       held = new Promise((done) => (release = done))
     },
@@ -540,6 +576,46 @@ function world({
               approvals.length +
               questions.length,
           })
+        const workspace = /^\/chats\/(cht_\w+)\/workspaces\/bot\/(.+)$/.exec(path)
+        if (workspace) {
+          const body = request.postData() ? request.postDataJSON() : {}
+          const bot = url.searchParams.get("bot")
+          switch (workspace[2]) {
+            case "folders":
+              return json({ path: body.path }, 201)
+            case "tree":
+              return json({ entries: [], has_more: false })
+            case "uploads": {
+              if (body.path.endsWith("/blocked.txt"))
+                return json({ code: "unavailable", message: "The Bot's folder is full." }, 503)
+              const upload = `u${uploads.size + 1}`
+              uploads.set(upload, { path: body.path, bot, pieces: [] })
+
+              return json({ path: body.path, upload }, 201)
+            }
+            case "uploads/chunk":
+              uploads.get(body.upload)?.pieces.push(Buffer.from(body.data, "base64"))
+
+              return route.fulfill({ status: 204 })
+            case "uploads/commit": {
+              const up = uploads.get(body.upload)!
+              files.set(up.path, { bot: up.bot, bytes: Buffer.concat(up.pieces) })
+
+              return json({ path: up.path, sha256: "x" })
+            }
+            case "file":
+              files.delete(url.searchParams.get("path") ?? "")
+
+              return route.fulfill({ status: 204 })
+            case "raw": {
+              const file = files.get(url.searchParams.get("path") ?? "")
+
+              return file
+                ? route.fulfill({ contentType: "image/png", body: file.bytes })
+                : json({ code: "not_found", message: "File not found." }, 404)
+            }
+          }
+        }
         const acted = /^\/inbox\/(tdo_\w+)(?:\/(\w+))?$/.exec(path)
         if (acted) {
           const t = todos.find((x) => x.id === acted[1])!
@@ -580,24 +656,29 @@ function world({
                 ...(threads[t.id] ?? []),
               ],
             })
-          const body = request.postDataJSON() as Record<string, string>
+          const body = request.postDataJSON() as Record<string, string> & {
+            attachments?: SentFile[]
+          }
           sent.push({ path, body })
           // Issue #1111: the hand-over gives the item to the Bot with its chat and the prompt as its first comment;
           // a comment is added to the thread; Send closes the item with the message sent.
           if (acted[2] === "hand") {
             t.revision += 1
-            Object.assign(t, { assignee: { kind: "bot", name: body.bot }, chat_id: "cht_item" })
+            Object.assign(t, {
+              assignee: { kind: "bot", name: body.bot },
+              chat_id: body.chat_id ?? "cht_item",
+            })
             remember(t, {
               actor: { kind: "owner" },
               kind: "edited",
               after: { assignee_kind: "bot", assignee: body.bot },
             })
-            if (body.prompt) {
+            if (body.prompt || body.attachments?.length) {
               t.revision += 1
               remember(t, {
                 actor: { kind: "owner" },
                 kind: "commented",
-                after: { text: body.prompt },
+                after: { text: body.prompt ?? "", attachments: body.attachments, chat: t.chat_id },
               })
             }
 
@@ -605,7 +686,11 @@ function world({
           }
           if (acted[2] === "comments") {
             t.revision += 1
-            remember(t, { actor: { kind: "owner" }, kind: "commented", after: { text: body.text } })
+            remember(t, {
+              actor: { kind: "owner" },
+              kind: "commented",
+              after: { text: body.text, attachments: body.attachments, chat: t.chat_id },
+            })
 
             return json(t)
           }
@@ -762,7 +847,7 @@ function world({
           case "/integrations/zalo/connections/main/chats":
             return json({
               data: [
-                { id: "2261258766901429891", kind: "dm", name: "Lan", last_message_at: at(-day) },
+                { id: "1000000000000000001", kind: "dm", name: "Lan", last_message_at: at(-day) },
               ],
             })
           case "/integrations/whatsapp/connections/main/messages":
@@ -793,7 +878,7 @@ function world({
                   ? [
                       {
                         id: "z2",
-                        chat: "2261258766901429891",
+                        chat: "1000000000000000001",
                         chat_name: "Lan",
                         sender: "lan",
                         sender_name: "Lan Phạm",
@@ -935,6 +1020,166 @@ const list = (page: Page) => page.getByRole("region", { name: "Inbox list" })
 const group = (page: Page, name: string) => list(page).getByRole("region", { name, exact: true })
 const rowsOf = (page: Page, name: string) => group(page, name).getByTestId("inbox-row")
 const item = (page: Page) => page.getByRole("article", { name: "Item" })
+
+test("an Inbox item opens at its newest comment from the list and arrows", async ({
+  page,
+  isMobile,
+}) => {
+  await world({ longThread: true }).serve(page)
+  await page.goto(isMobile ? "/inbox" : "/inbox?item=todo%3Atdo_login")
+  await rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" }).click()
+
+  const detail = item(page)
+  const newest = detail.getByText("Contract update 10", { exact: true })
+  const box = detail.getByRole("textbox", { name: "Message" })
+  const description = detail.getByText("Confirm the dates in the contract before replying to Kai.")
+  await expect(newest).toBeInViewport()
+  await expect(box).toBeInViewport({ ratio: 1 })
+  await expect(description).not.toBeInViewport()
+  await shot(page, "inbox-newest-comment")
+
+  await detail.getByRole("button", { name: "Next" }).click()
+  await expect(
+    detail.getByRole("region", { name: "Comments" }).getByRole("listitem").first(),
+  ).toBeAttached()
+  await expect(detail.getByRole("heading", { name: "Log in again: lark:me" })).toBeInViewport()
+  await expect(box).not.toBeInViewport()
+  await detail.getByRole("button", { name: "Previous" }).click()
+  await expect(newest).toBeInViewport()
+  await expect(box).toBeInViewport({ ratio: 1 })
+})
+
+test("an open Inbox thread follows Bot comments only from the bottom", async ({ page }) => {
+  const w = world({ longThread: true })
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_reply")
+
+  const detail = item(page)
+  const box = detail.getByRole("textbox", { name: "Message" })
+  const description = detail.getByText("Confirm the dates in the contract before replying to Kai.")
+  const down = detail.getByRole("button", { name: "Scroll to the latest comment" })
+  await expect(detail.getByText("Contract update 10", { exact: true })).toBeAttached()
+  await box.scrollIntoViewIfNeeded()
+  w.botComment("The revised delivery date is confirmed.")
+  await expect(detail.getByText("The revised delivery date is confirmed.")).toBeInViewport({
+    timeout: 15_000,
+  })
+  await expect(box).toBeInViewport({ ratio: 1 })
+
+  await description.scrollIntoViewIfNeeded()
+  await expect(description).toBeInViewport()
+  w.botComment("The final draft is ready for review.")
+  const newest = detail.getByText("The final draft is ready for review.")
+  await expect(newest).toBeAttached({ timeout: 15_000 })
+  await expect(description).toBeInViewport()
+  await expect(newest).not.toBeInViewport()
+  await expect(down).toBeVisible()
+  await shot(page, "inbox-scrolled-up")
+
+  await down.click()
+  await expect(newest).toBeInViewport()
+  await expect(box).toBeInViewport({ ratio: 1 })
+  await expect(down).toBeHidden()
+})
+
+test.describe("iPhone Home Screen layout", () => {
+  test.use({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1 })
+
+  test("the top band clears both Inbox headers and the item actions fit on one row", async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, "iPhone layout")
+    await world({ triage: true }).serve(page)
+    const band = page.locator("body > .ios-top-edge-band")
+    const menu = list(page).getByRole("button", { name: "Menu", exact: true })
+    const detailHeader = item(page).locator("header").first()
+    const reply = "/inbox?item=todo%3Atdo_reply"
+
+    // Map standalone to a media feature Chromium can emulate. Keep the WebKit
+    // feature query in place until the simulated iOS visits.
+    let ios = false
+    await page.route("**/assets/*.css", async (route) => {
+      const response = await route.fetch()
+      let body = (await response.text()).replace(
+        /display-mode\s*:\s*standalone/g,
+        "prefers-reduced-motion: reduce",
+      )
+      if (ios) {
+        body = body.replace(
+          /-webkit-touch-callout\s*:\s*none(?=\)\s*{\s*\.ios-top-edge-band)/g,
+          "display: block",
+        )
+      }
+      await route.fulfill({ response, body })
+    })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.goto("/inbox")
+    await expect(menu).toBeVisible()
+    await expect(band).toBeHidden()
+    const tabMenuTop = (await menu.boundingBox())!.y
+
+    ios = true
+    for (const theme of ["light", "dark"] as const) {
+      await page.evaluate((choice) => globalThis.localStorage.setItem("theme", choice), theme)
+      await page.goto("/inbox")
+      await expect(menu).toBeVisible()
+      await expect(band).toHaveCSS("position", "fixed")
+      await expect(band).toHaveCSS("pointer-events", "none")
+      const pageColor = await page.evaluate<string>(
+        "getComputedStyle(document.body).backgroundColor",
+      )
+      await expect(band).toHaveCSS("background-color", pageColor)
+      await expect(page.locator("html")).toHaveCSS("background-color", pageColor)
+      expect(await band.boundingBox()).toEqual({ x: 0, y: 0, width: 393, height: 12 })
+      expect((await menu.boundingBox())!.y).toBeGreaterThanOrEqual(30)
+      await expect(rowsOf(page, "Needs you").first()).toBeVisible()
+      await shot(page, `inbox-standalone-list-${theme}`)
+
+      if (theme === "light") {
+        await openMenu(page)
+        // The band must leave the top of the sidebar's backdrop visually intact.
+        const clip = { x: 350, y: 0, width: 32, height: 12 }
+        const backdrop = await page.screenshot({ clip, animations: "disabled" })
+        const withoutBand = await page.screenshot({
+          clip,
+          animations: "disabled",
+          style: ".ios-top-edge-band { visibility: hidden }",
+        })
+        expect(backdrop.equals(withoutBand), "the band must not paint above the backdrop").toBe(
+          true,
+        )
+      }
+
+      await page.goto(reply)
+      const position = detailHeader.getByText(/\d+ of \d+ in Needs you/)
+      await expect(position).toBeVisible()
+      const positionBox = (await position.boundingBox())!
+      expect(positionBox.y).toBeGreaterThanOrEqual(30)
+      for (const name of ["Inbox", "Previous", "Next", "Snooze", "Drop", "Done"]) {
+        const button = detailHeader.getByRole("button", { name, exact: true })
+        await expect(button).toBeVisible()
+        const box = (await button.boundingBox())!
+        expect(box.y).toBeGreaterThanOrEqual(30)
+        expect(box.x + box.width).toBeLessThanOrEqual(393)
+        expect(box.y + box.height / 2).toBeCloseTo(positionBox.y + positionBox.height / 2, 0)
+      }
+      await expect(item(page).getByRole("heading", { name: "Reply to Kai Yong" })).toBeVisible()
+      await shot(page, `inbox-standalone-item-${theme}`)
+    }
+
+    await page.emulateMedia({ reducedMotion: "no-preference" })
+    await page.goto("/inbox")
+    await expect(menu).toBeVisible()
+    await expect(band).toBeHidden()
+    expect((await menu.boundingBox())!.y).toBe(tabMenuTop)
+    await page.goto(reply)
+    await expect(detailHeader.getByRole("button", { name: "Inbox" })).toBeVisible()
+    expect(
+      (await detailHeader.getByRole("button", { name: "Inbox" }).boundingBox())!.y,
+    ).toBeLessThan(30)
+  })
+})
 
 // Scenario: the owner opens the Inbox from the sidebar, whose count is what waits on him. Needs you lists the
 // Approval and the worker's question first, then the reply to Kai Yong, due today, with its draft, then the
@@ -1242,6 +1487,130 @@ test("the owner hands an item to Hypo by writing, and his comment shows", async 
   await shot(page, "inbox-thread")
 })
 
+// The first file goes to the chat the Inbox reserves for Hand. Later uploads
+// use that live chat, and a pasted screenshot can be sent by itself and opened.
+test("the Inbox hands over files and shows a pasted screenshot in an owner comment", async ({
+  page,
+}) => {
+  const w = world()
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_invoice")
+  const comments = item(page).getByRole("region", { name: "Comments" })
+  const picker = comments.getByLabel("Files to attach")
+  await expect(comments.getByRole("button", { name: "Attach files" })).toBeVisible()
+  await picker.setInputFiles({
+    name: "brief.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Check the November invoice"),
+  })
+  const chips = comments.getByLabel("Files to send")
+  await expect(chips.getByText("brief.txt")).toBeVisible()
+  await comments.getByRole("button", { name: "Hand to Hypo" }).click()
+
+  const link = comments.getByRole("link", { name: "Open Hypo's chat for this item" })
+  await expect(link).toHaveAttribute("href", /^\/chats\/cht_[a-z2-7]{26}$/)
+  const chat = (await link.getAttribute("href"))?.split("/").at(-1)
+  const folder = `attachments/${chat}`
+  expect(w.files.get(`${folder}/brief.txt`)).toEqual({
+    bot: "bot_main",
+    bytes: Buffer.from("Check the November invoice"),
+  })
+  expect(w.sent[0]?.body).toMatchObject({
+    chat_id: chat,
+    attachments: [{ name: "brief.txt", path: `${folder}/brief.txt` }],
+  })
+  await expect(comments.getByRole("link", { name: "Download brief.txt" })).toBeVisible()
+
+  await picker.setInputFiles({
+    name: "blocked.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("cannot upload"),
+  })
+  await expect(chips.getByText("Not uploaded")).toBeVisible()
+  const send = comments.getByRole("button", { name: "Send", exact: true })
+  await send.click()
+  await expect(comments.getByRole("alert")).toContainText("The Bot's folder is full.")
+  expect(w.sent).toHaveLength(1)
+  await chips.getByRole("button", { name: "Remove blocked.txt" }).click()
+  await comments.getByRole("button", { name: "Dismiss" }).click()
+
+  await pasteImage(page)
+  await page.evaluate(`(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(["November rate"], "notes.txt", { type: "text/plain" }))
+    document.querySelector('textarea[aria-label="Message"]').dispatchEvent(
+      new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }),
+    )
+  })()`)
+  await expect(chips.getByText("notes.txt")).toBeVisible()
+  await expect(chips.getByText("image.png")).toBeVisible()
+  await expect(chips.locator('img[src^="blob:"]')).toBeVisible()
+  await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
+  await send.scrollIntoViewIfNeeded()
+  await shot(page, "inbox-1245-chips")
+  await send.click()
+
+  const preview = comments.getByRole("button", { name: "Preview image.png" })
+  await expect(preview.locator("img")).toBeVisible()
+  await preview.scrollIntoViewIfNeeded()
+  await shot(page, "inbox-1245-comment")
+  expect(w.sent[1]?.body).toMatchObject({
+    text: "",
+    attachments: [
+      { name: "image.png", path: `${folder}/image.png`, type: "image/png" },
+      { name: "notes.txt", path: `${folder}/notes.txt`, type: "text/plain" },
+    ],
+  })
+  await preview.click()
+  await expect(page.getByRole("dialog").getByRole("img", { name: "image.png" })).toBeVisible()
+})
+
+// The detail refetches while the owner is writing. Both a Hand in another tab
+// and a subsequent pass change the destination of the same unsent draft.
+test("a Hand in another tab and a pass keep the Inbox draft", async ({ page }) => {
+  const w = world()
+  await w.serve(page)
+  await page.clock.install()
+  await page.goto("/inbox?item=todo%3Atdo_invoice")
+  const comments = item(page).getByRole("region", { name: "Comments" })
+  const box = comments.getByRole("textbox", { name: "Message" })
+  const picker = comments.getByLabel("Files to attach")
+  const chips = comments.getByLabel("Files to send")
+  const bytes = Buffer.from("Check the November rate")
+  await expect(picker).toBeAttached()
+  await box.fill("Please check this rate.")
+  await picker.setInputFiles({ name: "rate.txt", mimeType: "text/plain", buffer: bytes })
+  await expect.poll(() => w.files.size).toBe(1)
+
+  for (const [chat, bot, label] of [
+    ["cht_other_tab", "bot_main", "Hypo"],
+    ["cht_passed", "bot_beyond", "BeyondPilot"],
+  ] as const) {
+    w.give("tdo_invoice", bot, chat)
+    await page.clock.fastForward(11_000)
+    await expect(
+      comments.getByRole("link", { name: `Open ${label}'s chat for this item` }),
+    ).toHaveAttribute("href", `/chats/${chat}`, { timeout: 15_000 })
+    await expect(box).toHaveValue("Please check this rate.")
+    await expect(chips.getByText("rate.txt")).toBeVisible()
+    await expect.poll(() => w.files.get(`attachments/${chat}/rate.txt`)).toEqual({ bot, bytes })
+    await expect.poll(() => [...w.files.keys()]).toEqual([`attachments/${chat}/rate.txt`])
+  }
+
+  await comments.getByRole("button", { name: "Send", exact: true }).click()
+  await expect
+    .poll(() => w.sent[0])
+    .toMatchObject({
+      path: "/inbox/tdo_invoice/comments",
+      body: {
+        text: "Please check this rate.",
+        attachments: [{ path: "attachments/cht_passed/rate.txt" }],
+      },
+    })
+  await expect(comments.getByRole("link", { name: "Download rate.txt" })).toBeVisible()
+  expect(w.files.get("attachments/cht_passed/rate.txt")?.bytes).toEqual(bytes)
+})
+
 // Scenario: issue #1143, Logic 6. Hypo closed the fix as done: its line is the violet "closed it as done" with its
 // evidence; writing again reopens it and hands it back to Hypo with the text.
 test("writing on a done item reopens it and hands it back", async ({ page }) => {
@@ -1469,7 +1838,7 @@ test("the owner changes a priority with one click and the list orders by it", as
 })
 
 // Scenario: issue #1157, decision 5. On the open item, Cmd+K (Ctrl+K) names it in a chip and offers its commands:
-// the owner sets its priority, moves it to a project and gives it to Hypo, each in a few keys. With the chip cleared,
+// the owner sets its priority, moves it to a department and gives it to Hypo, each in a few keys. With the chip cleared,
 // he types a title and the item he picks opens.
 test("Cmd+K changes the selected item and jumps to another", async ({ page }) => {
   const w = world({ projects: true })
@@ -1493,16 +1862,21 @@ test("Cmd+K changes the selected item and jumps to another", async ({ page }) =>
 
   await page.keyboard.press("ControlOrMeta+k")
   await expect(menu.getByRole("combobox")).toBeFocused()
-  await page.keyboard.type("project")
+  await page.keyboard.type("department")
+  await expect(menu.getByRole("option", { name: "Move to department…" })).toBeVisible()
   await page.keyboard.press("Enter")
   await expect(menu.getByRole("option", { name: "BeyondPilot" })).toBeVisible()
-  await shot(page, "inbox-command-menu-project")
+  await expect(menu.getByRole("option", { name: "No department" })).toBeVisible()
+  await shot(page, "inbox-command-menu-department")
   await menu.getByRole("option", { name: "BeyondPilot" }).click()
   await expect
     .poll(() => w.sent.filter((s) => s.path === "/inbox/tdo_invoice").at(-1)?.body)
     .toEqual({ revision: 2, project_id: "dep_bp" })
-  await expect(item(page).getByRole("combobox", { name: "Project: BeyondPilot" })).toBeVisible()
-  await shot(page, "inbox-item-priority-project")
+  const selector = item(page).getByRole("combobox", { name: "Department: BeyondPilot" })
+  await selector.click()
+  await expect(page.getByPlaceholder("Set department...")).toBeVisible()
+  await shot(page, "inbox-department-selector")
+  await page.getByRole("option", { name: "BeyondPilot" }).click()
 
   await page.keyboard.press("ControlOrMeta+k")
   await menu.getByRole("option", { name: "Give to Hypo" }).click()
@@ -1518,32 +1892,31 @@ test("Cmd+K changes the selected item and jumps to another", async ({ page }) =>
   await expect(item(page).getByRole("heading", { name: "Renew the domain" })).toBeVisible()
 })
 
-// Scenario: issue #1157, decision 4, and issue #1188, decision 2. The project filter, next to the other filter,
-// shows every project at first; it lists the sidebar's departments in its order, VMAP then BeyondPilot, and no way
-// to add, rename or remove one, which the sidebar does. The owner picks VMAP and sees its items only, then No
-// project.
-test("the project filter lists the departments and shows one's items", async ({ page }) => {
+// Scenario: issue #1157, decision 4, and issue #1188, decision 2. The department filter lists the sidebar's
+// departments in order, VMAP then BeyondPilot. The owner picks VMAP and sees its items only, then No department.
+test("the department filter lists the departments and shows one's items", async ({ page }) => {
   const w = world({ projects: true })
   await w.serve(page)
   await page.goto("/inbox")
   await expect(rowsOf(page, "Open")).toHaveCount(2)
 
-  const filter = list(page).getByRole("button", { name: "Project: Every project" })
+  const filter = list(page).getByRole("button", { name: "Department: Every department" })
   await filter.click()
+  await expect(page.getByPlaceholder("Filter by department...")).toBeVisible()
   await expect(page.getByRole("option")).toHaveText([
-    "Every project",
-    /^No project/,
+    "Every department",
+    /^No department/,
     /^VMAP/,
     /^BeyondPilot/,
   ])
-  await expect(page.getByRole("option", { name: /New project|Edit/ })).toHaveCount(0)
-  await shot(page, "inbox-project-filter")
+  await expect(page.getByRole("option", { name: /New department|Edit/ })).toHaveCount(0)
+  await shot(page, "inbox-department-filter")
   await page.getByRole("option", { name: /^VMAP/ }).click()
   await expect(rowsOf(page, "Open")).toHaveCount(2)
   await expect(group(page, "Needs you")).toHaveCount(0)
 
-  await list(page).getByRole("button", { name: "Project: VMAP" }).click()
-  await page.getByRole("option", { name: /^No project/ }).click()
+  await list(page).getByRole("button", { name: "Department: VMAP" }).click()
+  await page.getByRole("option", { name: /^No department/ }).click()
   await expect(rowsOf(page, "Open").filter({ hasText: "VMAP" })).toHaveCount(0)
 })
 

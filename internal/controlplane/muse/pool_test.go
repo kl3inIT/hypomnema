@@ -1,9 +1,11 @@
 package muse
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sync"
@@ -215,7 +217,8 @@ func signedInSite() *museSite {
 
 type accountPage struct {
 	*navigating
-	b *fakeBrowser
+	b       *fakeBrowser
+	cookies []browser.Cookie
 }
 
 func (p *accountPage) Cookies(context.Context) ([]browser.Cookie, error) {
@@ -224,7 +227,7 @@ func (p *accountPage) Cookies(context.Context) ([]browser.Cookie, error) {
 
 	value := p.b.renewed
 	if value == "" {
-		value = "s1"
+		return p.cookies, nil
 	}
 
 	return []browser.Cookie{
@@ -271,7 +274,9 @@ func (f *fakeBrowser) Page(_ context.Context, key string, cookies []browser.Cook
 		return m.eval(script)
 	}}
 
-	return &countedPage{accountPage: &accountPage{navigating: &navigating{fakePage: page, site: m}, b: f}}, nil
+	return &countedPage{accountPage: &accountPage{
+		navigating: &navigating{fakePage: page, site: m}, b: f, cookies: cookies,
+	}}, nil
 }
 
 // countedPage counts the pages in use: one ends with its last read of cookies.
@@ -467,7 +472,7 @@ func TestAThreadIsNotMovedOffItsAccount(t *testing.T) {
 
 	require.NoError(t, p.store.rest(t.Context(), "acc_1", true, "out of quota"))
 	require.NoError(t, p.store.setUsage(t.Context(), "acc_1", Usage{UsedPercent: 100, Reset: "Sep 30", Found: true},
-		p.clock.Now()))
+		"", p.clock.Now()))
 
 	_, err := p.Ask(t.Context(), Question{Prompt: "more", Thread: aThread})
 	require.ErrorIs(t, err, ErrNoAccount)
@@ -516,6 +521,67 @@ func TestQuotaRestsAnAccountUntilUsageShowsRoom(t *testing.T) {
 
 	p.clock.add(6 * time.Hour)
 	assert.Equal(t, "acc_1", p.ask(t, "").Account)
+}
+
+func TestUsageReadWarnsWhenTheReasonChangesAndClearsOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	p := newPool(t, "research")
+	require.NoError(t, p.store.setUsage(t.Context(), "acc_1",
+		Usage{UsedPercent: 10, Reset: "Sep 30", Found: true}, "", p.clock.Now()))
+	var logs bytes.Buffer
+	p.cfg.Logger = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	m := p.browser.site("acc_1")
+
+	read := func(reason, wantUsage string, warnings int) {
+		t.Helper()
+
+		p.clock.add(usageEvery)
+		require.Equal(t, OutcomeAnswered, p.ask(t, "").Outcome)
+		accounts, err := p.Accounts(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, wantUsage, accounts[0].Usage)
+		raw, err := json.Marshal(accounts[0])
+		require.NoError(t, err)
+		var view struct {
+			UsageError string `json:"usage_error"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &view))
+		assert.Equal(t, reason, view.UsageError)
+
+		var usageWarnings []string
+		for line := range bytes.Lines(logs.Bytes()) {
+			var entry struct {
+				Event   string `json:"event"`
+				Level   string `json:"level"`
+				Account string `json:"account"`
+				Error   string `json:"err"`
+			}
+			require.NoError(t, json.Unmarshal(line, &entry))
+			if entry.Event == "muse.usage_unread" {
+				assert.Equal(t, "WARN", entry.Level)
+				assert.Equal(t, "acc_1", entry.Account)
+				usageWarnings = append(usageWarnings, entry.Error)
+			}
+		}
+
+		assert.Len(t, usageWarnings, warnings)
+		if reason != "" {
+			assert.Contains(t, usageWarnings, reason)
+		}
+	}
+
+	const missingSettings = "muse.ai's page did not become ready: Muse's Settings were not found"
+	const missingUsage = "muse.ai's page did not become ready: Muse's Usage was not shown"
+	m.settingsMissing = true
+	read(missingSettings, "10% used · resets Sep 30", 1)
+	read(missingSettings, "10% used · resets Sep 30", 1)
+	m.settingsMissing, m.usageText = false, ""
+	read(missingUsage, "10% used · resets Sep 30", 2)
+	m.usageText = "Usage\nWeekly limit resets on Sep 30\n15% used"
+	read("", "15% used · resets Sep 30", 2)
+	m.settingsMissing = true
+	read(missingSettings, "15% used · resets Sep 30", 3)
 }
 
 // A 403 marks the account refused and the question goes to the next; it is
@@ -724,7 +790,7 @@ func TestARenewedJarNeverOverwritesANewerSignIn(t *testing.T) {
 	p.browser.renewed = "renewed"
 	name := secretName("acc_1")
 	// The Usage was just read: no read after the answer saves the jar a second time.
-	require.NoError(t, p.store.setUsage(t.Context(), "acc_1", Usage{}, p.clock.Now()))
+	require.NoError(t, p.store.setUsage(t.Context(), "acc_1", Usage{}, "", p.clock.Now()))
 
 	p.vault.beforeRotateAt = func(name string) {
 		p.vault.beforeRotateAt = nil
@@ -829,7 +895,8 @@ func TestASignInIsCapturedAndClearedFromTheProfile(t *testing.T) {
 	require.True(t, in.Done)
 	assert.Equal(t, "research", in.Account.Label)
 	assert.Equal(t, StateSignedIn, in.Account.State)
-	assert.Equal(t, "unknown", in.Account.Usage)
+	assert.Equal(t, "10% used · resets Sep 30", in.Account.Usage)
+	assert.Equal(t, 1, p.browser.site("acc_1").usageReads)
 	assert.Len(t, p.vault.jar(secretName("acc_1")), 2, "only muse.ai's cookies are kept")
 	assert.Len(t, p.browser.cleared, 2, "only muse.ai's cookies are cleared")
 	assert.Equal(t, []string{ownerAuthCheck}, p.browser.ownerScripts, "the check is fetched in the owner's tab")
@@ -839,6 +906,7 @@ func TestASignInIsCapturedAndClearedFromTheProfile(t *testing.T) {
 	in, err = p.SignInCheck(t.Context(), "acc_1", "")
 	require.NoError(t, err)
 	require.True(t, in.Done)
+	assert.Equal(t, 2, p.browser.site("acc_1").usageReads, "signing in again reads once")
 	assert.Equal(t, "s2", p.vault.jar(secretName("acc_1"))[0].Value)
 	assert.Contains(t, p.browser.disposed, "acc_1", "the old context goes")
 
