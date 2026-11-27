@@ -1,7 +1,7 @@
-import { ArrowDown } from "lucide-react"
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
+import { ScrollToBottomButton } from "@/components/scroll-to-bottom-button"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
@@ -254,13 +254,9 @@ function ScrollDown() {
   if (isAtBottom) return null
 
   return (
-    <button
-      type="button"
-      aria-label="Scroll to the latest message"
-      className="absolute bottom-3 left-1/2 flex size-8 -translate-x-1/2 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-xs hover:text-foreground"
+    <ScrollToBottomButton
+      label="Scroll to the latest message"
       onClick={() => void scrollToBottom()}
-    >
-      <ArrowDown className="size-4" />
-    </button>
+    />
   )
 }
