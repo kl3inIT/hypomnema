@@ -48,3 +48,37 @@ func TestAFollowedPullRequestIsReadWithItsRepositorysToken(t *testing.T) {
 	}, st)
 	assert.Contains(t, hosts.askedSoFar(), "api.github.com/graphql ghp_octo")
 }
+
+// Scenario (issue #1279): the `review` status is posted with the token of its repository's Connection, the one
+// its pull request is read with, and links the Task that decided it on the control plane's page. A repository
+// without a token is not asked at all: nothing is posted there.
+func TestAReviewStatusIsPostedWithItsRepositorysToken(t *testing.T) {
+	t.Parallel()
+
+	plain, _, _ := tokensWorld(t, true)
+	ctx := t.Context()
+
+	hosts := &fakeHosts{users: map[string]string{"ghp_octo": `{"id":1}`}}
+	tokens, _ := withIdentities(plain, hosts)
+	host := tokens.reviewStatusHost("https://hypomnema.example")
+
+	const sha = "0c6ca51b4e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b"
+
+	repo := githost.Repo{Host: githost.GitHubHost, Path: "kl3inIT/hypomnema"}
+	status := orchestration.ReviewStatus{
+		PullRequest: "https://github.com/kl3inIT/hypomnema/pull/1279", Kind: githost.GitHub,
+		Request: githost.Request{Repo: repo, Number: 1279}, Head: sha, State: githost.StatusSuccess,
+		Description: "correct: reviewed by Task tsk_r", TaskID: "tsk_r",
+	}
+
+	require.ErrorIs(t, host.Post(ctx, status), orchestration.ErrCannotFollow, "no token, nothing posted")
+	_, err := host.Read(ctx, githost.GitHub, status.Request)
+	require.ErrorIs(t, err, orchestration.ErrCannotFollow)
+	assert.Empty(t, hosts.askedSoFar())
+
+	require.NoError(t, tokens.Connect(ctx, githost.GitHubHost, "default", "ghp_octo"))
+	require.NoError(t, host.Post(ctx, status))
+	assert.Contains(t, hosts.askedSoFar(), "api.github.com/repos/kl3inIT/hypomnema/statuses/"+sha+" ghp_octo")
+	assert.JSONEq(t, `{"state":"success","context":"review","description":"correct: reviewed by Task tsk_r",
+		"target_url":"https://hypomnema.example/team?task=tsk_r"}`, hosts.lastBody())
+}
