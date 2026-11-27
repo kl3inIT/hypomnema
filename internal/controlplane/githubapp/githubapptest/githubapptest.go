@@ -37,6 +37,10 @@ type GitHub struct {
 	mu sync.Mutex
 	// checks is the conclusion of the head's one required check: "" while it runs.
 	checks string
+	// completedAt is when the head's required check ended, as GitHub says it; state is the pull request's, OPEN,
+	// CLOSED or MERGED.
+	completedAt string
+	state       string
 	// reads counts the reads of the pull request's checks, minted the installation tokens made; asked holds the
 	// Authorization of each read.
 	reads  int
@@ -117,11 +121,31 @@ func New(t *testing.T) *GitHub {
 func (g *GitHub) Client() *http.Client { return &http.Client{Transport: g, Timeout: time.Minute} }
 
 // Conclude sets the conclusion of the head's required check: "" runs it again.
-func (g *GitHub) Conclude(conclusion string) {
+func (g *GitHub) Conclude(conclusion string) { g.ConcludeAt(conclusion, "2026-11-27T10:05:00Z") }
+
+// ConcludeAt sets the conclusion of the head's required check and when it ended: a rerun of the same head ends later.
+func (g *GitHub) ConcludeAt(conclusion, completedAt string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.checks = conclusion
+	g.checks, g.completedAt = conclusion, completedAt
+}
+
+// SetState sets the pull request's state: OPEN, CLOSED or MERGED.
+func (g *GitHub) SetState(state string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.state = state
+}
+
+// prState is the pull request's state as GitHub answers it. g.mu is held.
+func (g *GitHub) prState() string {
+	if g.state == "" {
+		return "OPEN"
+	}
+
+	return g.state
 }
 
 // Reads is how many times the pull request's checks were read.
@@ -197,20 +221,20 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 		g.reads++
 		g.asked = append(g.asked, auth)
 
-		status, conclusion := "IN_PROGRESS", any(nil)
+		status, conclusion, completed := "IN_PROGRESS", any(nil), any(nil)
 		if g.checks != "" {
-			status, conclusion = "COMPLETED", g.checks
+			status, conclusion, completed = "COMPLETED", g.checks, g.completedAt
 		}
 
 		resp, err := answer(http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{
 			"pullRequest": map[string]any{
-				"state": "OPEN", "mergeable": "MERGEABLE", "headRefOid": g.head, "headRefName": "hyp/tsk_1",
+				"state": g.prState(), "mergeable": "MERGEABLE", "headRefOid": g.head, "headRefName": "hyp/tsk_1",
 				"commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{
 					"statusCheckRollup": map[string]any{"contexts": map[string]any{
 						"pageInfo": map[string]any{"hasNextPage": false},
 						"nodes": []any{map[string]any{
 							"__typename": "CheckRun", "name": "Required", "status": status, "conclusion": conclusion,
-							"startedAt": "2026-11-27T10:00:00Z", "isRequired": true,
+							"startedAt": "2026-11-27T10:00:00Z", "completedAt": completed, "isRequired": true,
 						}},
 					}},
 				}}}},

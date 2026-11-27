@@ -566,3 +566,119 @@ func TestReviewCompletionDuringRead(t *testing.T) {
 	assert.Equal(t, "passed", st.State, "the wait ends on the delivery, not five minutes later")
 	assert.Equal(t, 2, w.gh.Reads(), "no read more than the two")
 }
+
+// Scenario (issue #1262, review round 4): a wait's read finds the pull request closed. Before that read is kept, the
+// pull_request closed and then reopened deliveries arrive: reopened keeps the head and resets its CI to pending. The
+// stale closed read must not overwrite the reopen, so the next completion ends the wait passed instead of the wait
+// staying closed for good.
+func TestReviewReopenDuringRead(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	resp, _ := w.register()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	w.install()
+
+	pr := "https://github.com/kl3inIT/hypomnema/pull/1262"
+	prEvent := func(action string) []byte {
+		return []byte(`{"action":"` + action + `","installation":{"id":77},` +
+			`"repository":{"full_name":"kl3inIT/hypomnema"},"pull_request":{"number":1262,"state":"open",` +
+			`"merged":false,"head":{"sha":"` + githubapptest.Head + `","ref":"hyp/tsk_1"}}}`)
+	}
+
+	w.gh.SetState("CLOSED")
+
+	read, release := w.gh.HoldNextRead()
+	t.Cleanup(release)
+
+	waited := make(chan error, 1)
+
+	go func() {
+		_, err := w.app.WaitCI(context.WithoutCancel(t.Context()), pr, 0)
+		waited <- err
+	}()
+
+	<-read // the wait's read found the pull request closed
+
+	assert.Equal(t, http.StatusAccepted, w.deliver("pull_request", "delivery-closed", prEvent("closed"), w.gh.Secret))
+	w.gh.SetState("OPEN")
+	assert.Equal(t, http.StatusAccepted, w.deliver("pull_request", "delivery-reopened", prEvent("reopened"),
+		w.gh.Secret))
+
+	release()
+	require.NoError(t, <-waited)
+
+	kept, ok, err := w.svc.GitHub().CIOf(t.Context(), "kl3init/hypomnema", 1262)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.NotEqual(t, githubstore.CIClosed, kept.State, "the reopen stands")
+
+	w.gh.Conclude("SUCCESS")
+	assert.Equal(t, http.StatusAccepted, w.deliver("workflow_run", "delivery-done",
+		githubapptest.WorkflowRunCompleted(1262, "success"), w.gh.Secret))
+
+	st, err := w.app.WaitCI(t.Context(), pr, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "passed", st.State)
+}
+
+// Scenario (issue #1262, review round 4): a workflow of a head failed, and its rerun on the same head passed. Two
+// reads of that head overlap, one finding the failure, the other the rerun's pass, which GitHub says ended later.
+// Whichever is kept first, the later result, by the check's completedAt, is the one kept.
+func TestReviewSameHeadRerunWriteOrder(t *testing.T) {
+	t.Parallel()
+
+	for _, olderFirst := range []bool{true, false} {
+		w := newAppWorld(t)
+		resp, _ := w.register()
+		require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+		w.install()
+
+		pr := "https://github.com/kl3inIT/hypomnema/pull/1262"
+
+		w.gh.ConcludeAt("FAILURE", "2026-11-27T10:05:00Z")
+
+		olderRead, releaseOlder := w.gh.HoldNextRead()
+		newerRead, releaseNewer := w.gh.HoldNextRead()
+		t.Cleanup(releaseOlder)
+		t.Cleanup(releaseNewer)
+
+		waited := make(chan error, 1)
+
+		go func() {
+			_, err := w.app.WaitCI(context.WithoutCancel(t.Context()), pr, 0)
+			waited <- err
+		}()
+
+		<-olderRead // the wait read the first run's failure
+
+		w.gh.ConcludeAt("SUCCESS", "2026-11-27T10:20:00Z") // the rerun passed
+
+		delivered := make(chan int, 1)
+
+		go func() {
+			delivered <- w.deliver("workflow_run", "delivery-rerun",
+				githubapptest.WorkflowRunCompleted(1262, "success"), w.gh.Secret)
+		}()
+
+		<-newerRead // the delivery read the rerun's pass
+
+		if olderFirst {
+			releaseOlder()
+			require.NoError(t, <-waited)
+			releaseNewer()
+			assert.Equal(t, http.StatusAccepted, <-delivered)
+		} else {
+			releaseNewer()
+			assert.Equal(t, http.StatusAccepted, <-delivered)
+			releaseOlder()
+			require.NoError(t, <-waited)
+		}
+
+		kept, ok, err := w.svc.GitHub().CIOf(t.Context(), "kl3init/hypomnema", 1262)
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, githubstore.CIPassed, kept.State, "the rerun's later pass is kept (older kept first: %v)",
+			olderFirst)
+	}
+}
