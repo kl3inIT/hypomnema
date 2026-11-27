@@ -93,7 +93,7 @@ func TestABadTemplateFileIsRefused(t *testing.T) {
 
 	for name, raw := range map[string]string{
 		"an unknown field": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},"aspects":["9:16"],` +
-			`"sections":[{"name":"S","purpose":"P","words":10}],"look":{"cards":{}},"colour":"red"}`,
+			`"sections":[{"name":"S","purpose":"P","words":10}],"look":{"cards":{}},"tone":"warm"}`,
 		"a card titled": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},"aspects":["9:16"],` +
 			`"sections":[{"name":"S","purpose":"P","words":10}],"look":{"cards":{"end":{"title":"Buy"}}}}`,
 		"an aspect not made": `{"id":"a","name":"A","use_case":"U","length":{"min_s":10,"max_s":20},` +

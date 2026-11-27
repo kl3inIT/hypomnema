@@ -342,7 +342,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		return Video{}, Revision{}, err
 	}
 
-	if req.Aspect, err = tpl.aspect(req.Aspect); err != nil {
+	if req.Aspect, err = aspectWith(tpl, req.Aspect); err != nil {
 		return Video{}, Revision{}, err
 	}
 
@@ -350,7 +350,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		req.Aspect = string(compose.Portrait)
 	}
 
-	req.Captions = tpl.captions(req.Captions)
+	req.Captions = captionsWith(tpl, req.Captions)
 	captionsOn := req.Captions == nil || *req.Captions
 
 	switch {
@@ -464,7 +464,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 			return err
 		}
 
-		look, err := resolveLook(tpl.lookFor(title, req.Look), saved)
+		look, err := resolveLook(lookWith(tpl, title, req.Look), saved)
 		if err != nil {
 			return err
 		}

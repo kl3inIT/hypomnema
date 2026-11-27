@@ -131,7 +131,7 @@ func checkPreview(req PreviewRequest) (PreviewRequest, *Template, error) {
 		return req, nil, fmt.Errorf("%w: a template starts a make, not a look change of a revision", ErrInvalid)
 	}
 
-	if req.Aspect, err = tpl.aspect(req.Aspect); err != nil {
+	if req.Aspect, err = aspectWith(tpl, req.Aspect); err != nil {
 		return req, nil, err
 	}
 
@@ -139,7 +139,7 @@ func checkPreview(req PreviewRequest) (PreviewRequest, *Template, error) {
 		req.Aspect = string(compose.Portrait)
 	}
 
-	req.Captions = tpl.captions(req.Captions)
+	req.Captions = captionsWith(tpl, req.Captions)
 
 	switch {
 	case !takeIDs.MatchString(req.Take):
@@ -197,7 +197,7 @@ func (s *Service) planPreview(ctx context.Context, req PreviewRequest) (previewP
 		return previewPlan{}, err
 	}
 
-	look, err := resolveLook(tpl.lookFor(title, req.Look), base)
+	look, err := resolveLook(lookWith(tpl, title, req.Look), base)
 	if err != nil {
 		return previewPlan{}, err
 	}

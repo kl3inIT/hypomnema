@@ -254,8 +254,8 @@ func templateNames() []string {
 	return out
 }
 
-// aspect is the aspect of a make with the template: the one asked, which must be one of its, else its first.
-func (t *Template) aspect(asked string) (string, error) {
+// aspectWith is the aspect of a make with the template: the one asked, which must be one of its, else its first.
+func aspectWith(t *Template, asked string) (string, error) {
 	if t == nil {
 		return asked, nil
 	}
@@ -272,8 +272,8 @@ func (t *Template) aspect(asked string) (string, error) {
 	return asked, nil
 }
 
-// captions is whether a make with the template has captions: as asked, else the template's.
-func (t *Template) captions(asked *bool) *bool {
+// captionsWith is whether a make with the template has captions: as asked, else the template's.
+func captionsWith(t *Template, asked *bool) *bool {
 	if asked != nil || t == nil {
 		return asked
 	}
@@ -283,9 +283,9 @@ func (t *Template) captions(asked *bool) *bool {
 	return &on
 }
 
-// lookFor is the look a make with the template sends: the template's sections, each one the request sent in its
+// lookWith is the look a make with the template sends: the template's sections, each one the request sent in its
 // place, the template's cards titled with the video's title. Without a template it is the request's.
-func (t *Template) lookFor(title string, sent *LookInput) *LookInput {
+func lookWith(t *Template, title string, sent *LookInput) *LookInput {
 	if t == nil {
 		return sent
 	}
