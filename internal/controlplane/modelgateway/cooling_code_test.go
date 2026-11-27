@@ -326,3 +326,76 @@ func TestAResetIsReadFromTheHeadersThenTheWords(t *testing.T) {
 		assert.Equal(t, now.Add(c.want), got.UTC(), name)
 	}
 }
+
+// Scenario (review of PR #1307): Google answers 429 with ErrorInfo's INSUFFICIENT_G1_CREDITS_BALANCE, the credits
+// balance spent. The shared reading names it billing, as omp does (packages/ai/test/rate-limit-utils.test.ts:357-363),
+// and the gateway's 429 says so; the model waits as long as any throttle with no named delay, as before (row 8).
+func TestAnAntigravityCreditsBalanceSpentIsBilling(t *testing.T) {
+	t.Parallel()
+
+	backend, _ := cloudCode(t, plain(http.StatusTooManyRequests, `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED",`+
+		`"message":"Credit balance is unavailable","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",`+
+		`"reason":"INSUFFICIENT_G1_CREDITS_BALANCE"}]}}`))
+	g := newAntigravityGateway(t, backend, &googleAccount{})
+
+	_, _, first := g.call(t, g.key, askFlash+`}`)
+
+	status, headers, body := g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusTooManyRequests, status, first+"\n"+body)
+
+	var refusal struct {
+		Error struct {
+			CoolingCode string `json:"cooling_code"`
+		} `json:"error"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(body), &refusal), body)
+	assert.Equal(t, "billing", refusal.Error.CoolingCode)
+	assert.LessOrEqual(t, atoi(t, headers.Get("Retry-After")), 31.0, "the throttle's wait, as before")
+}
+
+// Scenario (review of PR #1307): OpenCode Go answers 402 with GoUsageLimitError and names no reset. A 402 is billing
+// (row 2), and the key keeps the used-up allowance's wait of an hour it had before, so a spent key is not asked again
+// every two minutes (9router-go internal/providers/errorclassify.go:73-79).
+func TestAGo402UsageLimitIsBillingAndRestsAnHour(t *testing.T) {
+	t.Parallel()
+
+	backend := newGoBackend(t, plain(http.StatusPaymentRequired,
+		`{"type":"error","error":{"type":"GoUsageLimitError","message":"Go usage limit exceeded"}}`))
+	subs := &accounts{}
+	g := newGoGateway(t, backend, subs)
+
+	status, _, body := g.call(t, g.key, fmt.Sprintf(askGo, "glm-5.3"))
+	require.Equal(t, http.StatusPaymentRequired, status, body)
+	assert.Equal(t, modelgateway.CoolingBilling, subs.codeOf("acc_1"))
+	assert.WithinDuration(t, time.Now().Add(time.Hour), subs.cooledUntil(), time.Minute)
+}
+
+// Scenario (review of PR #1307): the reading follows the approved order, the structured code first, then the status,
+// then the words. A generic throttle code is read after a 429's words, as Anthropic-shaped endpoints put it on
+// every 429; a server code decides only when no 4xx contradicts it (opencode provider-error.ts:249-283).
+func TestTheReadingTakesTheCodeThenTheStatusThenTheWords(t *testing.T) {
+	t.Parallel()
+
+	for name, c := range map[string]struct {
+		status int
+		codes  []string
+		text   string
+		code   modelgateway.CoolingCode
+	}{
+		"a server code beats a throttle's words":  {503, []string{"overloaded_error"}, "rate limit", "overloaded"},
+		"an auth code beats a 429's words":        {429, []string{"api_key_invalid"}, "Usage limit reached", "auth"},
+		"a 503's status beats a throttle's words": {503, nil, "rate limit, try later", "overloaded"},
+		"a 429's words beat a generic throttle code": {429, []string{"rate_limit_error"},
+			"5-hour usage limit reached. Resets in 2hr 15min.", "usage_limit"},
+		"a throttle code inside a stream":        {502, []string{"rate_limit_error"}, "slow down", "rate_limit"},
+		"Google's RESOURCE_EXHAUSTED on a 429":   {429, []string{"resource_exhausted"}, "too many", "rate_limit"},
+		"Google's quota used up":                 {429, []string{"resource_exhausted", "QUOTA_EXHAUSTED"}, "", "usage_limit"},
+		"a 402 whatever its code":                {402, []string{"api_key_invalid"}, "", "billing"},
+		"a throttle's words with no status":      {0, nil, "Rate limit exceeded", "rate_limit"},
+		"a server's words with no status":        {0, nil, "The server is overloaded", "overloaded"},
+		"words of a used-up plan on another 4xx": {400, nil, "usage limit reached", "unknown"},
+	} {
+		assert.Equal(t, c.code, modelgateway.ClassifyFailure(c.status, c.codes, c.text), name)
+	}
+}

@@ -34,6 +34,21 @@ describe("an image provider", () => {
       now,
     )
     expect(used.label).toBe(`Usage limit, resets ${until(rest, now)}`)
+    // Its title is the provider's words for the account free first (review of PR #1307).
+    const refused = imageState(
+      link({
+        state: "resting",
+        resting_until: rest,
+        cooling_code: "auth",
+        cooling_reason: "invalid key",
+      }),
+      now,
+    )
+    expect(refused).toMatchObject({
+      label: `Key refused until ${until(rest, now)}`,
+      tone: "destructive",
+      why: "invalid key",
+    })
 
     expect(imageState(link({ state: "not_set_up", accounts: 0 })).why).toContain("free plan")
     expect(imageState(link({ provider: "antigravity", state: "not_set_up" })).why).toBe(

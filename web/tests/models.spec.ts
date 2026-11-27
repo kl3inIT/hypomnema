@@ -579,6 +579,10 @@ for (const theme of ["light", "dark"] as const) {
     expect(await fits(page)).toBe(true)
     await go.scrollIntoViewIfNeeded()
     await shot(page, `models-resting-${theme}`)
+
+    // The last key, whose rest names no code, below the fold on a phone (review of PR #1307).
+    await go.getByLabel("OpenCode Go account older").scrollIntoViewIfNeeded()
+    await shot(page, `models-resting-unknown-${theme}`)
   })
 }
 

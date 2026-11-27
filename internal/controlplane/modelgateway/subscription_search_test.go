@@ -3,11 +3,13 @@ package modelgateway_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -139,6 +141,48 @@ func TestACodexUsageLimitRestsTheSearchNotTheAccount(t *testing.T) {
 
 	_, err = searchGateway(t, modelgateway.Config{}).Search(t.Context(), websearch.ProviderClaude, "go", 5)
 	require.ErrorIs(t, err, websearch.ErrNoAccount, "a gateway without subscriptions has no account")
+}
+
+// Scenario (review of PR #1307): chat has made the only Codex account rest for its usage limit. A search does not
+// reach the backend; the web search's Codex link rests with the account's code and Codex's own words, not as a
+// plain rate limit, so its card says "Usage limit" as the account's card does (issue #1305, row 6).
+func TestASearchUnderARestingAccountSaysWhyItRests(t *testing.T) {
+	t.Parallel()
+
+	resets := time.Now().Add(time.Hour).Truncate(time.Second)
+	backend, got := codexBackend(t, plain(http.StatusTooManyRequests, fmt.Sprintf(
+		`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":%d}}`,
+		resets.Unix())))
+	subs := &accounts{}
+	g := newCodexGateway(t, backend, subs)
+
+	status, _, body := g.call(t, g.key, askSol+`}`)
+	require.Equal(t, http.StatusTooManyRequests, status, body)
+	require.Equal(t, modelgateway.CoolingUsageLimit, subs.codeOf("acc_1"))
+
+	web := websearch.New(websearch.Config{}).WithSubscriptions(
+		searchGateway(t, modelgateway.Config{Subscriptions: subs, CodexBaseURL: backend.URL}))
+
+	_, err := web.Search(t.Context(), "go", 0, websearch.ProviderCodex)
+	require.ErrorIs(t, err, websearch.ErrFailed)
+	assert.Equal(t, 1, got.calls(), "the resting account's search is not sent")
+
+	chain, err := web.Chain(t.Context())
+	require.NoError(t, err)
+
+	var codexLink websearch.Link
+
+	for _, l := range chain {
+		if l.Provider == websearch.ProviderCodex && l.Source == websearch.SourceSubscription {
+			codexLink = l
+		}
+	}
+
+	assert.Equal(t, websearch.RestRateLimited, codexLink.Rest, "it rests as a 429 does")
+	assert.Equal(t, "usage_limit", codexLink.CoolingCode)
+	assert.Equal(t, "The usage limit has been reached", codexLink.CoolingReason)
+	assert.WithinDuration(t, time.Now().Add(30*time.Minute), codexLink.RestingUntil, 5*time.Second,
+		"until the account is free, at most the 30 minutes a search believes")
 }
 
 const claudeSearchAnswer = `{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5",

@@ -74,7 +74,7 @@ func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 		free.ID: subscription.StateActive, team.ID: subscription.StateActive,
 	}, removed: map[string]bool{}}).WithImages(&madeImages{},
 		imagesOver{Service: g, rests: map[string]map[string]modelgateway.Rest{
-			"codex": {team.ID: {Until: until, Code: modelgateway.CoolingUsageLimit}},
+			"codex": {team.ID: {Until: until, Code: modelgateway.CoolingUsageLimit, Reason: "The usage limit has been reached"}},
 		}})
 
 	owner, _ := w.token("web", bearertoken.Owner)
@@ -91,6 +91,7 @@ func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 	assert.WithinDuration(t, until, *codex.RestingUntil, time.Second)
 	require.NotNil(t, codex.CoolingCode, "why it rests (issue #1305)")
 	assert.Equal(t, openapi.CoolingUsageLimit, *codex.CoolingCode)
+	assert.Equal(t, "The usage limit has been reached", val(codex.CoolingReason), "the title's words (review of PR #1307)")
 	assert.Equal(t, "gpt-image-2", codex.Model)
 	assert.Equal(t, "GPT Image 2 (Codex)", codex.ModelName)
 

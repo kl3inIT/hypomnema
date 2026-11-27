@@ -287,6 +287,8 @@ func TestACodexLimitRestsTheImageModelUntilItsReset(t *testing.T) {
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now().Add(10*time.Minute), rests["codex"]["acc_1"].Until, 5*time.Second)
 	assert.Equal(t, modelgateway.CoolingUsageLimit, rests["codex"]["acc_1"].Code, "why it rests (issue #1305)")
+	assert.Equal(t, "The usage limit has been reached", rests["codex"]["acc_1"].Reason,
+		"the provider's words, for the Images page's title (review of PR #1307)")
 	assert.Empty(t, subs.cooled())
 
 	u := g.lastUsage(t)
@@ -410,6 +412,7 @@ func TestAntigravityTextOnlyIsARefusalAndItsQuotaResetIsKept(t *testing.T) {
 	require.NoError(t, err)
 	assert.WithinDuration(t, reset, rests["antigravity"]["g_1"].Until, 2*time.Second)
 	assert.Equal(t, modelgateway.CoolingUsageLimit, rests["antigravity"]["g_1"].Code, "a quota used up")
+	assert.Equal(t, "You have exhausted your capacity on this model.", rests["antigravity"]["g_1"].Reason)
 	assert.Empty(t, subs.cooled())
 }
 

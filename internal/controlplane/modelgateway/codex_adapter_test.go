@@ -49,6 +49,7 @@ type accounts struct {
 	reason    string
 	cooled    map[string]time.Time
 	codes     map[string]modelgateway.CoolingCode
+	reasons   map[string]string
 	waits     map[string][]time.Duration
 	quotaAsks map[string]int
 	// noted is what the gateway said is left of each account's whole quota.
@@ -79,7 +80,7 @@ func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelg
 
 		if until := a.cooled[id]; until.After(time.Now()) && !a.keepCooling {
 			if free.Until.IsZero() || until.Before(free.Until) {
-				free = modelgateway.Rest{Until: until, Code: a.codes[id]}
+				free = modelgateway.Rest{Until: until, Code: a.codes[id], Reason: a.reasons[id]}
 			}
 
 			continue
@@ -96,7 +97,9 @@ func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelg
 	}
 
 	if !free.Until.IsZero() {
-		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: free.Until, Code: free.Code}
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{
+			Until: free.Until, Code: free.Code, Reason: free.Reason,
+		}
 	}
 
 	return modelgateway.AccountToken{}, modelgateway.ErrNoAccount
@@ -134,7 +137,7 @@ func (a *accounts) FirstFree(
 	}
 	var first modelgateway.Rest
 	for _, id := range ids {
-		rest := modelgateway.Rest{Until: a.cooled[id], Code: a.codes[id]}
+		rest := modelgateway.Rest{Until: a.cooled[id], Code: a.codes[id], Reason: a.reasons[id]}
 		if modelReset != nil && modelReset(id).Until.After(rest.Until) {
 			rest = modelReset(id)
 		}
@@ -158,11 +161,11 @@ func (a *accounts) CoolDown(
 
 	if a.cooled == nil {
 		a.cooled, a.waits = map[string]time.Time{}, map[string][]time.Duration{}
-		a.codes = map[string]modelgateway.CoolingCode{}
+		a.codes, a.reasons = map[string]modelgateway.CoolingCode{}, map[string]string{}
 	}
 
 	a.cooling, a.code, a.reason = until, code, reason
-	a.cooled[id], a.codes[id] = until, code
+	a.cooled[id], a.codes[id], a.reasons[id] = until, code, reason
 	a.waits[id] = append(a.waits[id], time.Until(until).Round(time.Second))
 
 	return nil
