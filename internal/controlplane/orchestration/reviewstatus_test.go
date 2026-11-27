@@ -526,7 +526,8 @@ func TestAReopenedNarrowTasksHeadOnAQuickPullRequestNeedsItsReview(t *testing.T)
 	require.NoError(t, w.finish(c, done))
 
 	head := statusHead
-	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead}, find: pullRequestOne(&head)}
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead},
+		find: pullRequestOne(&head)}
 	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
 	require.Len(t, h.posted, 1, "the head the quick Task pushed needs no review")
 	assert.Equal(t, quick.ID, h.posted[0].TaskID)
@@ -555,7 +556,8 @@ func TestANarrowTaskCanceledBeforeItRanLeavesTheQuickPullRequestItsStatus(t *tes
 	require.NoError(t, w.s.CancelTask(ctx, fix[0].ID))
 
 	head := statusHead
-	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead}, find: pullRequestOne(&head)}
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead},
+		find: pullRequestOne(&head)}
 	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
 	require.Len(t, h.posted, 1)
 	assert.Equal(t, "no review needed: quick Task "+quick.ID, h.posted[0].Description)
