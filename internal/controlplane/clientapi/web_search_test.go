@@ -186,7 +186,7 @@ func TestTheOwnerSeesAndChangesTheWebSearchChain(t *testing.T) {
 	}
 	resting := link("parallel", "public", "resting")
 	resting.RestingUntil = &rest
-	resting.Rest = ptr(openapi.RateLimit)
+	resting.Rest = ptr(openapi.WebSearchRestRateLimit)
 
 	assert.Equal(t, []openapi.WebSearchLink{
 		link("exa", "key", "not_set_up"), link("firecrawl", "key", "not_set_up"),

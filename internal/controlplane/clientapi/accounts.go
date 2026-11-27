@@ -121,7 +121,8 @@ func (s *Server) RemoveAccount(ctx context.Context, req openapi.RemoveAccountReq
 // GetAccountLimits returns how much of an account's limits is used (issue
 // #199, decisions 7 and 8). The reading and its cache are the subscription
 // service's. An account with nothing to show is no error: the page shows the
-// account without its bars, as 9router's and Orca's do, and says why.
+// account without its bars, as 9router's and Orca's do, and says why. An
+// earlier reading given for a failed call says why too (issue #1198).
 func (s *Server) GetAccountLimits(ctx context.Context, req openapi.GetAccountLimitsRequestObject,
 ) (openapi.GetAccountLimitsResponseObject, error) {
 	out := openapi.AccountLimits{Windows: []openapi.AccountLimitWindow{}}
@@ -139,16 +140,7 @@ func (s *Server) GetAccountLimits(ctx context.Context, req openapi.GetAccountLim
 			return nil, err
 		}
 
-		why, detail := limitsUnavailable(err)
-		out.Unavailable = &why
-
-		if detail != "" {
-			out.Detail = &detail
-		}
-
-		if verify := (*subscription.VerificationError)(nil); errors.As(err, &verify) && verify.URL != "" {
-			out.VerificationUrl = &verify.URL
-		}
+		explainLimits(&out, err)
 
 		return openapi.GetAccountLimits200JSONResponse(out), nil
 	}
@@ -211,10 +203,34 @@ func toLimits(limits subscription.Limits) openapi.AccountLimits {
 		out.Resets = &resets
 	}
 
+	if limits.Stale != nil {
+		explainLimits(&out, limits.Stale)
+	}
+
 	return out
 }
 
-// limitsUnavailable says why an account has no limits to show.
+// explainLimits says why a reading has no windows, or why its windows are an
+// earlier reading: the kind, the server's words and, for a rest, when the
+// vendor is asked again (CLIProxyAPI's status_message and next_retry).
+func explainLimits(out *openapi.AccountLimits, err error) {
+	why, detail := limitsUnavailable(err)
+	out.Unavailable = &why
+
+	if detail != "" {
+		out.Detail = &detail
+	}
+
+	if resting := (*subscription.LimitsRestingError)(nil); errors.As(err, &resting) {
+		out.RetryAt = &resting.Until
+	}
+
+	if verify := (*subscription.VerificationError)(nil); errors.As(err, &verify) && verify.URL != "" {
+		out.VerificationUrl = &verify.URL
+	}
+}
+
+// limitsUnavailable says why an account has no limits to show, or no fresh ones.
 func limitsUnavailable(err error) (openapi.AccountLimitsUnavailable, string) {
 	switch {
 	case errors.Is(err, subscription.ErrNoLimits):
@@ -223,6 +239,8 @@ func limitsUnavailable(err error) (openapi.AccountLimitsUnavailable, string) {
 		return openapi.AccountLimitsUnavailableSignIn, ""
 	case errors.Is(err, subscription.ErrLimitsResting):
 		return openapi.AccountLimitsUnavailableResting, ""
+	case errors.Is(err, subscription.ErrLimitsRefused):
+		return openapi.AccountLimitsUnavailableRefused, err.Error()
 	case errors.As(err, new(*subscription.VerificationError)):
 		return openapi.AccountLimitsUnavailableVerification, err.Error()
 	default:

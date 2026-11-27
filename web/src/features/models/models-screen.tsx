@@ -85,6 +85,7 @@ import {
   accountState,
   apiProvidersOf,
   inUse,
+  limitsWhy,
   subscriptionState,
   subscriptionsOf,
   tryDue,
@@ -496,7 +497,8 @@ function VerifyButton({ label, url }: { label: string; url: string }) {
 // Machines page shows a machine's shares (components/meter.tsx, after Beszel) and as 9router's quota cards
 // (usage/components/ProviderLimits), T3 Code's limits (usage/UsageLimits.tsx) and Orca's status bar do for a
 // subscription. Only an account signed in here can be asked. An account with nothing to show has no bars, and a
-// line says so when the reading failed; the button asks the vendor now.
+// line says so when the reading failed; bars of an earlier reading say under when they were read why they were not
+// read again (issue #1198); the button asks the vendor now.
 // On a phone a bar goes under its name, and the time it starts again stays on one line (issue #242).
 function LimitBars({ account }: { account: Account }) {
   const limits = useAccountLimits(account.id, account.sign_in === "active")
@@ -521,6 +523,8 @@ function LimitBars({ account }: { account: Account }) {
     </Button>
   )
 
+  const why = limitsWhy(data)
+
   if (data.windows.length === 0) {
     return (
       <p
@@ -529,11 +533,7 @@ function LimitBars({ account }: { account: Account }) {
         data-testid="limits-unavailable"
       >
         <TriangleAlert className="size-3 shrink-0" aria-hidden />
-        {data.unavailable === "resting"
-          ? "Its limits are read again in a few minutes."
-          : data.unavailable === "verification"
-            ? "Google asks for the account to be verified."
-            : "Its limits could not be read."}
+        {limitsWhy(data)}
         {data.verification_url ? (
           <VerifyButton label={account.label} url={data.verification_url} />
         ) : (
@@ -574,6 +574,16 @@ function LimitBars({ account }: { account: Account }) {
         {data.read_at ? `Used, read ${since(data.read_at)}` : "Used"}
         {again}
       </p>
+      {why && (
+        <p
+          className="flex items-start gap-1 text-2xs text-muted-foreground"
+          title={data.detail}
+          data-testid="limits-stale"
+        >
+          <TriangleAlert className="mt-px size-3 shrink-0" aria-hidden />
+          {why}
+        </p>
+      )}
     </div>
   )
 }
