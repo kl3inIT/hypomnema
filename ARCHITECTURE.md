@@ -5067,7 +5067,8 @@ its client API, its CLI and the Bots' tools.
   and a Bot set them as the item's other fields (a Bot on the items it added or was given), each change an `edited`
   event; an item without a project that is added for, given or passed to a Bot in a department takes that
   department in the same write (`botsDepartment`); an item read in one of the owner's chats (Lark, Zalo, WhatsApp,
-  Gmail) without a project, added or updated by a Bot that names none, takes, first, the department the owner last
+  Gmail) without a project, added or updated by a Bot that names none (moved to Waiting on others too), takes,
+  first, the department the owner last
   moved an item of that chat to
   (`todo_chat_departments`, by source kind, account label and chat id, migration `inbox_chat_departments`; the
   owner's `Edit` of an item's project records it, taking it out of any forgets it, a Bot's teaches nothing; issue
