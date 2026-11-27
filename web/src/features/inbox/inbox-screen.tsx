@@ -242,7 +242,7 @@ export function InboxScreen({
         phone && current ? "hidden" : "flex-1 md:flex-none",
       )}
     >
-      <PageHeader />
+      <PageHeader className="inbox-topbar" />
       <div className="flex flex-col gap-3 px-3 pt-1 pb-3 sm:px-5">
         <PageHeading title="Inbox" className="pb-3 md:pt-4">
           <div className="flex items-center gap-2">

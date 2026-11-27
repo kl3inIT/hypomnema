@@ -936,6 +936,105 @@ const group = (page: Page, name: string) => list(page).getByRole("region", { nam
 const rowsOf = (page: Page, name: string) => group(page, name).getByTestId("inbox-row")
 const item = (page: Page) => page.getByRole("article", { name: "Item" })
 
+test.describe("iPhone Home Screen layout", () => {
+  test.use({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1 })
+
+  test("the top band clears both Inbox headers and the item actions fit on one row", async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, "iPhone layout")
+    await world({ triage: true }).serve(page)
+    const band = page.locator("body > .ios-top-edge-band")
+    const menu = list(page).getByRole("button", { name: "Menu", exact: true })
+    const detailHeader = item(page).locator("header").first()
+    const reply = "/inbox?item=todo%3Atdo_reply"
+
+    // Map standalone to a media feature Chromium can emulate. Keep the WebKit
+    // feature query in place until the simulated iOS visits.
+    let ios = false
+    await page.route("**/assets/*.css", async (route) => {
+      const response = await route.fetch()
+      let body = (await response.text()).replace(
+        /display-mode\s*:\s*standalone/g,
+        "prefers-reduced-motion: reduce",
+      )
+      if (ios) {
+        body = body.replace(
+          /-webkit-touch-callout\s*:\s*none(?=\)\s*{\s*\.ios-top-edge-band)/g,
+          "display: block",
+        )
+      }
+      await route.fulfill({ response, body })
+    })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.goto("/inbox")
+    await expect(menu).toBeVisible()
+    await expect(band).toBeHidden()
+    const tabMenuTop = (await menu.boundingBox())!.y
+
+    ios = true
+    for (const theme of ["light", "dark"] as const) {
+      await page.evaluate((choice) => globalThis.localStorage.setItem("theme", choice), theme)
+      await page.goto("/inbox")
+      await expect(menu).toBeVisible()
+      await expect(band).toHaveCSS("position", "fixed")
+      await expect(band).toHaveCSS("pointer-events", "none")
+      const pageColor = await page.evaluate<string>(
+        "getComputedStyle(document.body).backgroundColor",
+      )
+      await expect(band).toHaveCSS("background-color", pageColor)
+      await expect(page.locator("html")).toHaveCSS("background-color", pageColor)
+      expect(await band.boundingBox()).toEqual({ x: 0, y: 0, width: 393, height: 12 })
+      expect((await menu.boundingBox())!.y).toBeGreaterThanOrEqual(30)
+      await expect(rowsOf(page, "Needs you").first()).toBeVisible()
+      await shot(page, `inbox-standalone-list-${theme}`)
+
+      if (theme === "light") {
+        await openMenu(page)
+        // The band must leave the top of the sidebar's backdrop visually intact.
+        const clip = { x: 350, y: 0, width: 32, height: 12 }
+        const backdrop = await page.screenshot({ clip, animations: "disabled" })
+        const withoutBand = await page.screenshot({
+          clip,
+          animations: "disabled",
+          style: ".ios-top-edge-band { visibility: hidden }",
+        })
+        expect(backdrop.equals(withoutBand), "the band must not paint above the backdrop").toBe(
+          true,
+        )
+      }
+
+      await page.goto(reply)
+      const position = detailHeader.getByText(/\d+ of \d+ in Needs you/)
+      await expect(position).toBeVisible()
+      const positionBox = (await position.boundingBox())!
+      expect(positionBox.y).toBeGreaterThanOrEqual(30)
+      for (const name of ["Inbox", "Previous", "Next", "Snooze", "Drop", "Done"]) {
+        const button = detailHeader.getByRole("button", { name, exact: true })
+        await expect(button).toBeVisible()
+        const box = (await button.boundingBox())!
+        expect(box.y).toBeGreaterThanOrEqual(30)
+        expect(box.x + box.width).toBeLessThanOrEqual(393)
+        expect(box.y + box.height / 2).toBeCloseTo(positionBox.y + positionBox.height / 2, 0)
+      }
+      await expect(item(page).getByRole("heading", { name: "Reply to Kai Yong" })).toBeVisible()
+      await shot(page, `inbox-standalone-item-${theme}`)
+    }
+
+    await page.emulateMedia({ reducedMotion: "no-preference" })
+    await page.goto("/inbox")
+    await expect(menu).toBeVisible()
+    await expect(band).toBeHidden()
+    expect((await menu.boundingBox())!.y).toBe(tabMenuTop)
+    await page.goto(reply)
+    await expect(detailHeader.getByRole("button", { name: "Inbox" })).toBeVisible()
+    expect(
+      (await detailHeader.getByRole("button", { name: "Inbox" }).boundingBox())!.y,
+    ).toBeLessThan(30)
+  })
+})
+
 // Scenario: the owner opens the Inbox from the sidebar, whose count is what waits on him. Needs you lists the
 // Approval and the worker's question first, then the reply to Kai Yong, due today, with its draft, then the
 // account to log in again. He opens the reply, reads what Kai said, copies the draft, and marks it done: the next
