@@ -61,6 +61,24 @@ No reference reads Facebook groups, Threads, TikTok or Vietnamese forums. Agent-
 experimental and covers search and profile only (`channels/facebook.py:16-36`). MediaCrawler covers Chinese
 platforms only.
 
+**Owner, 2026-11-27: no paid route is used.** Apify, ScrapeCreators and X's paid API are out. What is left:
+
+| Platform | Free routes, in order |
+|---|---|
+| Facebook | Muse, then `site:facebook.com` web search |
+| Instagram | Muse |
+| Threads | The official keyword search, then Muse |
+| TikTok, X | `site:` web search (twscrape is free but its accounts were suspended from 2026-11-21) |
+| YouTube | Data API, then yt-dlp |
+| Reddit | Keyless JSON, then the official API |
+| LinkedIn | A signed-in account, then `site:linkedin.com/posts` web search |
+| Google Play | google-play-scraper |
+| Forums | Web search, then a fetch of the thread |
+
+As a result, Facebook, Instagram and TikTok have no item-level evidence with engagement, only Muse's summary and
+search snippets. Reading Facebook groups through a signed-in account is done by no reference, so it is left out
+unless the owner asks for it.
+
 ## 3. What the references agree on
 
 | Concern | Common default | From |
@@ -139,7 +157,7 @@ UI: Settings ▸ Listening — one card per platform, its backends in order, sta
 | Ranking and clusters | RRF plus normalized engagement. Clusters tagged `single-source` and `thin-evidence`. Embedding similarity for Vietnamese. | last30days; obsei (embeddings) |
 | Planning and writing | The Bot's model plans the subqueries and writes the report. The tool does no prose. | last30days LAW 7 |
 | Report | Answer first with at most 3 actions. Then what was read and what is missing. Then 1 to 3 findings, each with support and counter-evidence, a High/Medium/Low confidence and what it cannot show. Then verbatim quotes with link and date. Then risks and next focus. Each claim is labelled fact, extraction or judgment. One reviewer pass. | radar, marketingskills, BettaFish template, last30days synthesis |
-| Muse's role | Lead finding (groups, themes). Its claims stay "unverified" until an item backs them. | #781 risks; agent study §2 |
+| Muse's role | Lead finding (groups, themes), and the only free route into Facebook groups and Instagram. Its claims stay "unverified" until an item backs them. | #781 risks; agent study §2 |
 | Signed-in accounts | A cookie jar in the vault and its own Chrome context. One call at a time, a minimum gap per site, and a 24-hour stop after a challenge. Sign-in through the owner's tab. | Muse pool, linkedin `AGENTS.md:209-223`, Agent-Reach |
 | Screen | A card per platform, after the Muse and web-search screens, with postiz's states (needs sign-in, reconnect, off). Adds last success, last error and items this week. | postiz, harken, BettaFish `crawling_tasks`, the Machines page cards |
 | Saved topics (later) | A cursor per (topic, source), moved after the store writes. Items in Postgres, retention in days, a weekly Routine. | obsei, harken, openmagpie |
@@ -151,12 +169,12 @@ UI: Settings ▸ Listening — one card per platform, its backends in order, sta
    and `site:voz.vn`), Muse once it is signed in again, and Google Play reviews. It applies the report rules in §5.
 2. **The capability and its free sources.** Web, YouTube (Data API or yt-dlp), Reddit keyless, Google Play, and Muse as
    a backend. Includes the `listen_search` tool, the skill and the screen.
-3. **Paid and signed-in sources.** Apify for Facebook groups and comments, Instagram and TikTok. ScrapeCreators as
-   the second backend. The Threads API. A LinkedIn signed-in account. Each paid key is the owner's choice.
+3. **Sources that need approval or a sign-in.** The Threads API (Meta's review of `threads_keyword_search`) and a
+   LinkedIn signed-in account. No paid route (owner, 2026-11-27).
 4. **Saved topics.** A weekly Routine and the stored items.
 
 Open for the owner:
 
-- Whether to pay for Apify or ScrapeCreators.
+- Whether to read Facebook groups through a signed-in account, which no reference does.
 - Which LinkedIn account to sign in.
 - Whether Vietnamese forums are read beyond web search, given voz.vn's reservation.
