@@ -15,17 +15,28 @@ import (
 )
 
 // statusHost is a host the `review` status is read from and posted to: one pull request state for every read,
-// unless byNumber names one for the request's number.
+// unless byNumber names one for the request's number. find finds a branch's pull request; without it a branch has
+// none.
 type statusHost struct {
 	state    githost.RequestState
 	byNumber map[int]githost.RequestState
 	readErr  error
 	reads    int
+	find     ReadPullRequest
+	finds    []string
 	posted   []ReviewStatus
 }
 
 func (h *statusHost) host() ReviewStatusHost {
 	return ReviewStatusHost{
+		Find: func(ctx context.Context, f FollowedRequest) (githost.Request, githost.RequestState, error) {
+			h.finds = append(h.finds, f.Branch)
+			if h.find == nil {
+				return githost.Request{}, githost.RequestState{}, githost.ErrNoRequest
+			}
+
+			return h.find(ctx, f)
+		},
 		Read: func(_ context.Context, _ githost.Kind, r githost.Request) (githost.RequestState, error) {
 			h.reads++
 			if st, ok := h.byNumber[r.Number]; ok {
@@ -49,16 +60,15 @@ const (
 	statusNewHead = "d45b955b0a1b2c3d4e5f60718293a4b5c6d7e8f9"
 )
 
-// Scenario (issue #1279): a reviewer's verdict correct for a head, named abbreviated as reviewers do, posts the
-// commit status `review` = success on exactly that head, the full SHA the host reads, naming the reviewer Task,
-// once. A push makes a new head, which has none until it is reviewed; its own correct verdict posts it there.
+// Scenario (issue #1279): a reviewer's verdict correct for a head posts the commit status `review` = success on
+// exactly that head, naming the reviewer Task, once. A push makes a new head, which has none until it is reviewed; its own correct verdict posts it there.
 func TestACorrectVerdictPostsReviewSuccessOnExactlyItsHead(t *testing.T) {
 	t.Parallel()
 
 	world := newWorld(t)
 	ctx := t.Context()
 	review := world.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: reviewSpec + "\nHead: " + statusHead})[0]
-	finishReview(world, review.ID, "Verdict: correct\nHead: 0c6ca51b\nEvidence: test-verified", nil)
+	finishReview(world, review.ID, "Verdict: correct\nHead: "+statusHead+"\nEvidence: test-verified", nil)
 
 	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead}}
 	require.NoError(t, world.s.PostReviewStatuses(ctx, h.host()))
@@ -82,6 +92,33 @@ func TestACorrectVerdictPostsReviewSuccessOnExactlyItsHead(t *testing.T) {
 	assert.Equal(t, statusNewHead, h.posted[1].Head)
 	assert.Equal(t, githost.StatusSuccess, h.posted[1].State)
 	assert.Equal(t, later.ID, h.posted[1].TaskID)
+}
+
+// Scenario (issue #1279, review round 1): a status goes only on the very head a verdict names. A head that shares
+// the verdict's first digits is another commit and gets nothing; a verdict naming an abbreviated head names no
+// commit exactly, and gets nothing either.
+func TestAVerdictGoesOnlyOnTheExactHeadItNames(t *testing.T) {
+	t.Parallel()
+
+	const sharing = "0c6ca51bffffffffffffffffffffffffffffffff"
+
+	for _, scenario := range []struct{ name, verdictHead, prHead string }{
+		{"a head sharing its prefix", statusHead, sharing},
+		{"an abbreviated verdict", "0c6ca51b", statusHead},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			world := newWorld(t)
+			review := world.tasks(NewTask{Ref: "review", Profile: "reviewer",
+				Spec: reviewSpec + "\nHead: " + scenario.verdictHead})[0]
+			finishReview(world, review.ID, "Verdict: correct\nHead: "+scenario.verdictHead, nil)
+
+			h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: scenario.prHead}}
+			require.NoError(t, world.s.PostReviewStatuses(t.Context(), h.host()))
+			assert.Empty(t, h.posted)
+		})
+	}
 }
 
 // Scenario (issue #1279): the pull request moved past the reviewed head before the status was posted. Nothing is
@@ -115,13 +152,13 @@ func TestAnIncorrectOrBlockedVerdictPostsReviewFailureWithItsFirstFinding(t *tes
 	t.Parallel()
 
 	for _, scenario := range []struct{ name, summary, description string }{
-		{"incorrect", "Verdict: incorrect\nHead: 0c6ca51b\nEvidence: test-verified\nMerge state: CLEAN\n\n" +
+		{"incorrect", "Verdict: incorrect\nHead: " + statusHead + "\nEvidence: test-verified\nMerge state: CLEAN\n\n" +
 			"Hold the pull request.\n\n## Execution\n\n- `go test ./...` passed.\n\n## Findings\n\n" +
 			"- **P1 — The change loses data.** A retry drops the row.\n- P2 — a typo.",
 			"incorrect: P1 — The change loses data. A retry drops the row."},
-		{"inline", "Verdict: incorrect\nHead: 0c6ca51b\nFindings: [P1] the change loses data",
+		{"inline", "Verdict: incorrect\nHead: " + statusHead + "\nFindings: [P1] the change loses data",
 			"incorrect: [P1] the change loses data"},
-		{"blocked", "Verdict: blocked\nHead: 0c6ca51b\nEvidence: blocked\n\nThe test database would not start.",
+		{"blocked", "Verdict: blocked\nHead: " + statusHead + "\nEvidence: blocked\n\nThe test database would not start.",
 			"blocked: The test database would not start."},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -142,9 +179,10 @@ func TestAnIncorrectOrBlockedVerdictPostsReviewFailureWithItsFirstFinding(t *tes
 	}
 }
 
-// Scenario (issue #1279): a quick Task's pull request needs no worker review: once the control plane reads its
-// head it posts `review` = success, saying why, on that head. A narrow Task's pull request in the same Run gets
-// none until it is reviewed.
+// Scenario (issue #1279, review round 1): a quick Task's pull request needs no worker review. It is kept when the
+// Task succeeds, so the coordinator may finish the Run at once: the next pass finds the pull request by the Task's
+// branch and posts `review` = success, saying why, on its head, and on a new head once pushed. A narrow Task's
+// pull request in the same Run gets none until it is reviewed. Once merged it is not looked up again.
 func TestAQuickTasksPullRequestGetsReviewSuccessWithItsReason(t *testing.T) {
 	t.Parallel()
 
@@ -158,23 +196,32 @@ func TestAQuickTasksPullRequestGetsReviewSuccessWithItsReason(t *testing.T) {
 
 	tasks := w.tasks(NewTask{Ref: "quick", Profile: "implementer", Kind: "quick", Spec: "rename the setting"},
 		NewTask{Ref: "narrow", Profile: "implementer", Kind: "narrow", Spec: "fix the retry"})
-	quick, narrow := tasks[0], tasks[1]
+	quick := tasks[0]
 
 	for _, task := range tasks {
 		_, c := w.start(task.ID)
-		require.NoError(t, w.finish(c, success("Opened the pull request.")))
+		done := success("Opened the pull request.")
+		done.Result.Evidence = nil
+		require.NoError(t, w.finish(c, done))
 	}
+
+	require.NoError(t, w.s.FinishRun(ctx, w.run.ID), "the coordinator finishes the Run before any pass")
 
 	repo := githost.Repo{Host: "github.com", Path: "kl3inIT/hypomnema"}
-	numbers := map[string]int{"hyp/" + quick.ID: 1, "hyp/" + narrow.ID: 2}
-	read := func(_ context.Context, f FollowedRequest) (githost.Request, githost.RequestState, error) {
-		return githost.Request{Repo: repo, Number: numbers[f.Branch]},
-			githost.RequestState{Status: githost.RequestOpen, Head: statusHead, Branch: f.Branch}, nil
-	}
-	require.NoError(t, w.s.FollowPullRequests(ctx, read, true))
-
+	head := statusHead
+	merged := false
 	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead}}
+	h.find = func(_ context.Context, f FollowedRequest) (githost.Request, githost.RequestState, error) {
+		st := githost.RequestState{Status: githost.RequestOpen, Head: head, Branch: f.Branch}
+		if merged {
+			st.Status = githost.RequestMerged
+		}
+
+		return githost.Request{Repo: repo, Number: 1}, st, nil
+	}
+
 	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	assert.Equal(t, []string{"hyp/" + quick.ID}, h.finds, "only the quick Task's branch is looked up")
 	require.Len(t, h.posted, 1, "the narrow Task's pull request waits for its review")
 	assert.Equal(t, ReviewStatus{
 		PullRequest: "https://github.com/kl3inIT/hypomnema/pull/1", Kind: githost.GitHub,
@@ -182,9 +229,19 @@ func TestAQuickTasksPullRequestGetsReviewSuccessWithItsReason(t *testing.T) {
 		Description: "no review needed: quick Task " + quick.ID, TaskID: quick.ID,
 	}, h.posted[0])
 
-	require.NoError(t, w.s.FollowPullRequests(ctx, read, true))
 	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
 	assert.Len(t, h.posted, 1, "a head read again is not posted again")
+
+	head, h.state.Head = statusNewHead, statusNewHead
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	require.Len(t, h.posted, 2, "a new head of a quick Task's pull request gets its own")
+	assert.Equal(t, statusNewHead, h.posted[1].Head)
+
+	merged = true
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	finds := len(h.finds)
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	assert.Len(t, h.finds, finds, "a merged pull request is not looked up again")
 }
 
 // Scenario (issue #1279): a repository the control plane holds no token for is not followed: nothing is posted,
