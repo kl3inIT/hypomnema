@@ -38,7 +38,7 @@ func (q *Queries) DeletePullRequestCIBefore(ctx context.Context, before int64) e
 }
 
 const getPullRequestCI = `-- name: GetPullRequestCI :one
-SELECT repository, number, head, state, failed, read_at, updated_at FROM pull_request_ci WHERE repository = ?1 AND number = ?2
+SELECT repository, number, head, state, failed, read_at, version, updated_at FROM pull_request_ci WHERE repository = ?1 AND number = ?2
 `
 
 type GetPullRequestCIParams struct {
@@ -56,6 +56,7 @@ func (q *Queries) GetPullRequestCI(ctx context.Context, arg GetPullRequestCIPara
 		&i.State,
 		&i.Failed,
 		&i.ReadAt,
+		&i.Version,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -195,7 +196,8 @@ func (q *Queries) RecordGitHubDelivery(ctx context.Context, arg RecordGitHubDeli
 }
 
 const setPullRequestCI = `-- name: SetPullRequestCI :execrows
-UPDATE pull_request_ci SET head = ?1, state = ?2, failed = ?3, read_at = ?4, updated_at = ?5
+UPDATE pull_request_ci
+SET head = ?1, state = ?2, failed = ?3, read_at = ?4, version = version + 1, updated_at = ?5
 WHERE repository = ?6 AND number = ?7
 `
 
@@ -218,6 +220,40 @@ func (q *Queries) SetPullRequestCI(ctx context.Context, arg SetPullRequestCIPara
 		arg.Now,
 		arg.Repository,
 		arg.Number,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setPullRequestCIIfUnchanged = `-- name: SetPullRequestCIIfUnchanged :execrows
+UPDATE pull_request_ci
+SET head = ?1, state = ?2, failed = ?3, read_at = ?4, version = version + 1, updated_at = ?4
+WHERE repository = ?5 AND number = ?6 AND version = ?7
+`
+
+type SetPullRequestCIIfUnchangedParams struct {
+	Head       string
+	State      string
+	Failed     string
+	Now        int64
+	Repository string
+	Number     int64
+	Version    int64
+}
+
+// What a read of GitHub's found, kept only when the row is still at the version the read began from: an event that
+// changed it meanwhile (a new head) wins over the read.
+func (q *Queries) SetPullRequestCIIfUnchanged(ctx context.Context, arg SetPullRequestCIIfUnchangedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setPullRequestCIIfUnchanged,
+		arg.Head,
+		arg.State,
+		arg.Failed,
+		arg.Now,
+		arg.Repository,
+		arg.Number,
+		arg.Version,
 	)
 	if err != nil {
 		return 0, err

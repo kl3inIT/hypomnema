@@ -35,8 +35,16 @@ ON CONFLICT (repository, number) DO NOTHING;
 SELECT * FROM pull_request_ci WHERE repository = @repository AND number = @number;
 
 -- name: SetPullRequestCI :execrows
-UPDATE pull_request_ci SET head = @head, state = @state, failed = @failed, read_at = @read_at, updated_at = @now
+UPDATE pull_request_ci
+SET head = @head, state = @state, failed = @failed, read_at = @read_at, version = version + 1, updated_at = @now
 WHERE repository = @repository AND number = @number;
+
+-- name: SetPullRequestCIIfUnchanged :execrows
+-- What a read of GitHub's found, kept only when the row is still at the version the read began from: an event that
+-- changed it meanwhile (a new head) wins over the read.
+UPDATE pull_request_ci
+SET head = @head, state = @state, failed = @failed, read_at = @now, version = version + 1, updated_at = @now
+WHERE repository = @repository AND number = @number AND version = @version;
 
 -- name: DeletePullRequestCIBefore :exec
 DELETE FROM pull_request_ci WHERE updated_at < @before;

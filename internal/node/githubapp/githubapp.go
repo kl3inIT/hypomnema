@@ -214,8 +214,9 @@ func pathWithout(bin string) string {
 // MainGH runs the real gh with a fresh token as GH_TOKEN: `hypomnema-node gh <bin> <gh's arguments>`. A GH_TOKEN or
 // GITHUB_TOKEN the worker set itself is kept, as Omnara's RunGitHubCLI keeps it. When the control plane gives no
 // token of the App's (the App is no longer installed on the repository, or the control plane is of an earlier
-// release), gh runs with the node user's own login, as a worker without a token always has: no token is kept on the
-// node to fall back on (review round 1).
+// release), gh does not run: it fails closed, saying why, as Omnara's RunGitHubCLI returns its credential error. No
+// token is kept on the node to fall back on, and the machine's own login may reach more than the owner's Connection
+// (review rounds 1 and 2).
 func MainGH(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: hypomnema-node gh <dir> [gh arguments]")
@@ -232,16 +233,13 @@ func MainGH(ctx context.Context, args []string) error {
 
 	if os.Getenv("GH_TOKEN") == "" && os.Getenv("GITHUB_TOKEN") == "" {
 		token, err := FromEnv().Token(ctx)
+		if err != nil {
+			return fmt.Errorf("%w; gh does not run with this machine's own login: ask the coordinator, or wait for "+
+				"the control plane to give the GitHub App's token again", err)
+		}
 
-		switch {
-		case errors.Is(err, errNoRoute) || errors.Is(err, errNotCovered):
-			_, _ = fmt.Fprintf(os.Stderr, "hypomnema: %v; gh runs with this machine's own login\n", err)
-		case err != nil:
+		if err := os.Setenv("GH_TOKEN", token); err != nil {
 			return err
-		default:
-			if err := os.Setenv("GH_TOKEN", token); err != nil {
-				return err
-			}
 		}
 	}
 

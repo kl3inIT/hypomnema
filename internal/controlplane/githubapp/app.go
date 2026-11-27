@@ -518,11 +518,18 @@ func (a *App) moved(ctx context.Context, ev Event) error {
 	return nil
 }
 
-// readCI reads a pull request's checks with token and keeps what they say, then wakes its waits.
+// readCI reads a pull request's checks with token and keeps what they say, unless an event changed its CI meanwhile,
+// then wakes its waits. It returns the CI as kept.
 func (a *App) readCI(ctx context.Context, repo string, number int, token string,
 ) (githubstore.CI, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitHubRead)
 	defer cancel()
+
+	// What the read finds is kept only if nothing changed the CI while GitHub answered (KeepRead).
+	before, watched, err := a.store().CIOf(ctx, repo, number)
+	if err != nil || !watched {
+		return githubstore.CI{}, err
+	}
 
 	st, err := githost.ReadRequest(ctx, a.client.HTTP, githost.GitHub, githost.Request{
 		Repo: githost.Repo{Host: githost.GitHubHost, Path: repo}, Number: number,
@@ -537,12 +544,16 @@ func (a *App) readCI(ctx context.Context, repo string, number int, token string,
 		ci.Failed = st.Failing
 	}
 
-	if _, err := a.store().SetCI(ctx, ci, true); err != nil {
+	kept, err := a.store().KeepRead(ctx, ci, before.Version)
+	if err != nil {
 		return githubstore.CI{}, err
 	}
 
-	a.wake(repo, number)
+	if kept {
+		a.wake(repo, number)
+	}
 
+	// The CI as kept: what was read, or what an event wrote while GitHub was read, which the wait then reads again.
 	got, _, err := a.store().CIOf(ctx, repo, number)
 
 	return got, err

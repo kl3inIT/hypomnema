@@ -2578,7 +2578,8 @@ flowchart LR
       `x-access-token`, each with a fresh token asked of `POST /agent/v1/github/token` with the Dispatch's key, as
       Omnara's agents ask their daemon (`internal/machinedaemon/git_credential_helper.go`). When the control plane
       gives none (the App no longer covers the repository, or the node reconnected to a control plane of an earlier
-      release, without the route), gh runs with the machine's own login, as a worker without a token always has.
+      release, without the route), gh and git fail closed, saying why, as Omnara's `RunGitHubCLI` returns its
+      credential error: no token is kept on the node, and the machine's own login may reach more than the owner's.
       A Bot's gh through the service proxy goes with the App's token
       when its request names a repository the App covers (a REST path under `/repos/{owner}/{repo}`, or GraphQL
       variables `owner` with `repo` or `name`, as gh sends them); the control plane's own reads of a followed pull
@@ -2592,6 +2593,9 @@ flowchart LR
       done with them yet. `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
       for reads its checks once with the repository's token; `pull_request` `synchronize` (a new head) or
       `reopened` resets that wait to pending at the new head, unread, so the next ask reads the new head's checks;
+      each change of the row grows its `version`, and a read of GitHub's keeps what it found only when the row is
+      still at the version the read began from, so a read of the old head that ends after the reset never
+      overwrites it, and the wait answers from the row as kept;
       `pull_request` `closed` marks it merged or closed and settles a followed pull request (#1053) without reading
       GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
     - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks

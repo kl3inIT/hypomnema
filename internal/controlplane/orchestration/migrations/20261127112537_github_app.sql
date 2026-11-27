@@ -30,7 +30,9 @@ CREATE INDEX github_deliveries_by_time ON github_deliveries (received_at);
 
 -- The CI of a pull request someone waits for (`hypomnema ci wait`): its head, and whether the head's required checks
 -- passed, failed or are still pending, or the request merged or closed. A check_suite or workflow_run that completes
--- on its head, or a pull_request that closes it, changes it; read_at is when GitHub was last read for it.
+-- on its head, or a pull_request that moves its head or closes it, changes it; read_at is when GitHub was last read
+-- for it. version grows with each change, so a read of GitHub's keeps what it found only when nothing changed the row
+-- while it read (a new head's reset, issue #1262 review round 2).
 CREATE TABLE pull_request_ci (
     repository TEXT    NOT NULL CHECK (repository = lower(repository) AND instr(repository, '/') > 1),
     number     INTEGER NOT NULL CHECK (number > 0),
@@ -39,6 +41,7 @@ CREATE TABLE pull_request_ci (
         CHECK (state IN ('pending', 'passed', 'failed', 'merged', 'closed')),
     failed     TEXT    NOT NULL DEFAULT '',
     read_at    INTEGER NOT NULL DEFAULT 0,
+    version    INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (repository, number)
 ) STRICT;

@@ -840,6 +840,7 @@ type PullRequestCi struct {
 	State      string
 	Failed     string
 	ReadAt     int64
+	Version    int64
 	UpdatedAt  int64
 }
 

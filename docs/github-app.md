@@ -28,4 +28,5 @@ After this, a worker on one of those repositories gets the App's token and waits
 `hypomnema ci wait <url>`; the coordinator can use the same command. Offers made before the App was installed keep
 the owner's token. Each token reaches its Task's repository alone. To stop using the App, uninstall it from the
 repositories on GitHub when no Run is working on them: new work goes back to the owner's token, while a worker that
-started as the App's would get no token of it and run gh with its machine's own login.
+started as the App's would get no token of it, and its gh and git would refuse to run rather than use the
+machine's own login.

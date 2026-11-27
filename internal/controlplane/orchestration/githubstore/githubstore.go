@@ -190,6 +190,9 @@ type CI struct {
 	Failed     []string
 	ReadAt     time.Time
 	UpdatedAt  time.Time
+	// Version grows with each change of the row: a read of GitHub's that began at one keeps what it found only while
+	// the row is still at it (KeepRead).
+	Version int64
 }
 
 // WatchCI starts keeping the CI of a pull request, unless it is kept already, and returns it. Pull
@@ -230,7 +233,7 @@ func (s *Store) CIOf(ctx context.Context, repository string, number int) (CI, bo
 
 	ci := CI{
 		Repository: r.Repository, Number: int(r.Number), Head: r.Head, State: CIState(r.State),
-		UpdatedAt: time.UnixMilli(r.UpdatedAt),
+		UpdatedAt: time.UnixMilli(r.UpdatedAt), Version: r.Version,
 	}
 	if r.Failed != "" {
 		ci.Failed = strings.Split(r.Failed, "\n")
@@ -268,6 +271,28 @@ func (s *Store) SetCI(ctx context.Context, ci CI, read bool) (bool, error) {
 	})
 	if err != nil {
 		return false, fmt.Errorf("keeping the CI of %s#%d: %w", ci.Repository, ci.Number, err)
+	}
+
+	return kept, nil
+}
+
+// KeepRead keeps what a read of GitHub's found of a pull request's CI, read now, only when its row is still at the
+// version the read began from, and says whether it was kept. An event that changed the row while GitHub was read,
+// such as a new head's reset, wins: the read found the old head (issue #1262, review round 2).
+func (s *Store) KeepRead(ctx context.Context, ci CI, version int64) (bool, error) {
+	var kept bool
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetPullRequestCIIfUnchanged(ctx, store.SetPullRequestCIIfUnchangedParams{
+			Head: strings.ToLower(ci.Head), State: string(ci.State), Failed: strings.Join(ci.Failed, "\n"), Now: now,
+			Repository: strings.ToLower(ci.Repository), Number: int64(ci.Number), Version: version,
+		})
+		kept = n == 1
+
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("keeping the CI read of %s#%d: %w", ci.Repository, ci.Number, err)
 	}
 
 	return kept, nil
