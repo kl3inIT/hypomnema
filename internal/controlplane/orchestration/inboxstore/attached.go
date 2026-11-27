@@ -199,7 +199,12 @@ func liveChats(ctx context.Context, q *store.Queries, events []Event) error {
 			continue
 		}
 
-		after["chat"], _ = json.Marshal(other)
+		named, err := json.Marshal(other)
+		if err != nil {
+			return fmt.Errorf("reading comment %d: %w", e.ID, err)
+		}
+
+		after["chat"] = named
 
 		raw, err := json.Marshal(after)
 		if err != nil {
