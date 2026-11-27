@@ -1579,8 +1579,7 @@ sequenceDiagram
     /bots/{bot_id}/memory` replaces the whole memory with his lines (empty lines and repeats dropped, the same
     limit), from the Bot's page or `hypomnema memory set`. No journal, no undo.
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<id>/`, pi's
-    working directory; for the main Bot a link to the directory pi always worked in, so its chats go on; for a Bot
-    from before ids a link, made once, to the directory of its old name, the path its sessions record), reads
+    working directory; for the main Bot a link to the directory pi always worked in, so its chats go on), reads
     `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory, the list of its notes and which
     file of `/memories` each is) and gives it to pi with `--append-system-prompt`. The memory is thus read once per pi
     process, as Hermes gives its memory once per session; a change is in the prompt from pi's next start. pi
