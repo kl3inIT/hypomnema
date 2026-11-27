@@ -50,11 +50,7 @@ import (
 //
 // The owner gets the installed tools and all Connections without switches.
 // Tools that require a Run or chat (artifacts and Routines) still require one.
-// The phone's tools are listed on their own route
-// (device.go): a node of the release before step 4 lists that route beside
-// this one, and would list them twice were they here. The browser's,
-// gateway's and memory's older routes stay for tools servers of an earlier
-// release.
+// The phone's tools are listed on their own route (device.go).
 
 // toolList is the definitions of the tools an agent gets, in the shape of
 // tools/list: the memory's, show_artifact, routines, the gateway's,
@@ -258,8 +254,7 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 
 // The switches of a profile or a Bot (issue #536, step 7; #492, row 10):
 // what an agent kind gets, narrowed by the agent's `tools` and `tools_off`,
-// on every route that lists or calls a tool, the older per-family ones too,
-// as OpenMausBot filters both an MCP server's discovery and its calls, with
+// on every route that lists or calls a tool, as OpenMausBot filters both an MCP server's discovery and its calls, with
 // server-side checks behind them (docs/tool-selection.md), and OpenClaw
 // applies its allow and deny lists to what a run may call
 // (docs/gateway/config-tools/tool-policy.md). They are read at each request:

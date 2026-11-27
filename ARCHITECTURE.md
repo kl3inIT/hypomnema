@@ -632,8 +632,7 @@ sequenceDiagram
     no tab for 5 minutes (T3 Code's rules); the sign-ins stay in the profile. Chrome found gone is started again,
     and the tabs it held are not used again. A Chrome left by an earlier control plane is closed at the first call.
   - A worker and a Bot's pi find the browser's tools on the agent API's `GET /agent/v1/tools` and call one on
-    `POST /agent/v1/tools/call` (see "An agent's tools"; a Bot's since issue #536, step 4); `GET /agent/v1/browser/tools` and `POST /agent/v1/browser/call`
-    (`{tool, arguments}`) still serve any agent the API knows, for a node of an earlier release; the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
+    `POST /agent/v1/tools/call` (see "An agent's tools"; a Bot's since issue #536, step 4); the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
     of how the engine is set up. Which agent used which tool is logged, never the arguments.
   - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
     select, scroll, back, forward, reload, the waits, screenshot, get text, URL and title, eval. Tabs, `close`,
@@ -661,9 +660,7 @@ sequenceDiagram
     the list changes without a node release; any other
     tool's call is passed to `POST /agent/v1/tools/call` and its answer, a screenshot as image content, is passed
     back as it is.
-    A control plane that cannot be reached leaves the worker `ask` and `finish`. A node of a release before issue
-    #536 lists `GET /agent/v1/browser/tools` (the browser's and the gateway's) and defines `memory` itself; both
-    routes and `POST /agent/v1/memory` stay for it. The tab is not closed when the Dispatch settles: the idle
+    A control plane that cannot be reached leaves the worker `ask` and `finish`. The tab is not closed when the Dispatch settles: the idle
     rules close it.
   - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
     agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
@@ -1801,9 +1798,7 @@ sequenceDiagram
     is not given the tool. The owner has a directory with only `USER.md`; the coordinator and Routine scripts
     have no MCP. Its description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
     provider caches stay the same; Anthropic's system-prompt text, which asks to record progress, is not used.
-    Which agent changed a memory and with which command is logged, never the text. A node of a release before
-    issue #536 defines the old `{target, action, text, match}` tool itself and calls `POST /agent/v1/memory`,
-    which takes only a worker's key and stays for it.
+    Which agent changed a memory and with which command is logged, never the text.
   - The offer carries both memories as they are when it is made (`memory`, `owner_memory`) and the list of the
     agent's notes with their sizes (`memory_notes`, `memorystore.AgentNotesTx`). The worker's first message gives
     them after the profile's instruction; the notes are listed, not given, and only to a worker that has the tool
@@ -5201,9 +5196,7 @@ beside the one list (see "A phone, on a node that holds one"). The list follows 
 server declares `tools.listChanged`, and after each `tools/call`, before its answer, lists again and sends
 `notifications/tools/list_changed` when the list differs from the one it last answered (a list that failed to load
 is no change), as the MCP Go SDK notifies only on a real change and Omnigent's bridge on a changed agent; pi lists
-again on it. A turn that calls no tool keeps the list it had. The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
-`POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
-gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
+again on it. A turn that calls no tool keeps the list it had.
 
 | Tool | Worker | Bot's pi | Owner |
 |---|---|---|---|
@@ -5243,7 +5236,7 @@ allowlists to exceptions to `full` so existing access stays the same; unused boo
   plane's tools and appear once at most per list, or the profile or Bot is refused (`400`).
   `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).
 - Enforced where the tools are listed and again on every call: `/agent/v1/tools` and `/agent/v1/tools/call`, and
-  the older routes (browser, phone, gateway, `/agent/v1/memory`). A tool switched off is left out of the list and its
+  the phone's routes. A tool switched off is left out of the list and its
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
   gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
   its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
@@ -5426,9 +5419,7 @@ flowchart LR
   with `ShowArtifact`. The answer: "Shown as artifact <id> (revision N). To change it, call show_artifact again
   with id <id>.", what a folder left out, and for a worker "Name artifact <id> in your finish summary." A worker
   whose Run has no chat is told to name the file's path in its finish summary instead (inference: neither
-  reference has a sub-agent without a conversation). A tools server of an earlier release passes the arguments on
-  as they are: `html` works, `path` is refused with "this node's tools cannot send a folder yet; send html, or
-  wait for its update". No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
+  reference has a sub-agent without a conversation). No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
   commands stay for the owner and Routine scripts.
 - `routines` `{action: list | set | run, name?, every_minutes?, cron?, timezone?, prompt?, script?,
   timeout_seconds?, summary?, quiet?}` (issue #536, step 5) is a Bot's pi's own Routines as one tool with an
@@ -5443,8 +5434,8 @@ flowchart LR
   `trigger_id`. Pausing, removing, undoing and taking back a grant stay the owner's (OpenMausBot leaves deleting a
   trigger to the person). `script` is a file of the Bot's folder, where pi starts `hypomnema mcp`: the tools
   server reads it there (`os.Root`, at most 100 KB) and sends its text with the call (`agenttool.RoutineCall`),
-  never a text the agent sent itself; the Routine keeps the file's name and that text. A tools server of an
-  earlier release sends the path alone, which is refused ("this tools server cannot send a script yet"). What the
+  never a text the agent sent itself; the Routine keeps the file's name and that text; a path without its text is
+  refused. What the
   store refuses (a schedule out of bounds, a name of another Bot's, a change from a Routine's run's own chat, a
   run still going) is the tool's error. A Routine's script itself has no MCP and keeps the commands.
 

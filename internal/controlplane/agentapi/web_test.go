@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -134,7 +135,7 @@ func gatewayWorld(t *testing.T, withBrowser bool, runtimes map[string]string) (*
 func (w *world) toolNames(key string) []string {
 	w.t.Helper()
 
-	status, body := w.call(http.MethodGet, agenttool.PathBrowserTools, key, nil)
+	status, body := w.call(http.MethodGet, agenttool.PathTools, key, nil)
 	require.Equal(w.t, http.StatusOK, status, string(body))
 
 	var list agenttool.BrowserToolList
@@ -149,7 +150,7 @@ func (w *world) toolNames(key string) []string {
 }
 
 // Scenario: each worker is offered the gateway's tools its runtime gets,
-// after the browser's: a Codex worker web_fetch and generate_image, its own
+// before the browser's: a Codex worker web_fetch and generate_image, its own
 // search being the gateway's; Claude Code, omp and opencode all three, their
 // own being off (issue #492). A coordinator gets none: a Bot has its CLI.
 func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
@@ -160,10 +161,10 @@ func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
 	ctx := t.Context()
 
 	want := map[string][]string{
-		"d_claude": {"agent_browser_open", "web_search", "web_fetch", "generate_image"},
-		"d_codex":  {"agent_browser_open", "web_fetch", "generate_image"},
-		"d_omp":    {"agent_browser_open", "web_search", "web_fetch", "generate_image"},
-		"d_oc":     {"agent_browser_open", "web_search", "web_fetch", "generate_image"},
+		"d_claude": {"memory", "show_artifact", "web_search", "web_fetch", "generate_image", "agent_browser_open"},
+		"d_codex":  {"memory", "show_artifact", "web_fetch", "generate_image", "agent_browser_open"},
+		"d_omp":    {"memory", "show_artifact", "web_search", "web_fetch", "generate_image", "agent_browser_open"},
+		"d_oc":     {"memory", "show_artifact", "web_search", "web_fetch", "generate_image", "agent_browser_open"},
 	}
 
 	for dispatch, names := range want {
@@ -174,18 +175,18 @@ func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
 
 	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"agent_browser_open"}, w.toolNames(coordinator))
+	assert.Empty(t, w.toolNames(coordinator))
 
 	var list agenttool.BrowserToolList
 
 	key, err := w.svc.AddAgentSession(ctx, "d_omp", nil)
 	require.NoError(t, err)
 
-	_, body := w.call(http.MethodGet, agenttool.PathBrowserTools, key, nil)
+	_, body := w.call(http.MethodGet, agenttool.PathTools, key, nil)
 	require.NoError(t, json.Unmarshal(body, &list))
-	require.Len(t, list.Data, 4)
-	assert.JSONEq(t, `["query"]`, mustField(t, list.Data[1].InputSchema, "required"))
-	assert.JSONEq(t, `["prompt"]`, mustField(t, list.Data[3].InputSchema, "required"))
+	require.Len(t, list.Data, 6)
+	assert.JSONEq(t, `["query"]`, mustField(t, list.Data[2].InputSchema, "required"))
+	assert.JSONEq(t, `["prompt"]`, mustField(t, list.Data[4].InputSchema, "required"))
 }
 
 func mustField(t *testing.T, raw json.RawMessage, field string) string {
@@ -200,8 +201,8 @@ func mustField(t *testing.T, raw json.RawMessage, field string) string {
 // Scenario: an omp worker searches and reads a page. Each call reaches the
 // web as its Dispatch's, so that it is recorded on its key, and its answer
 // is the tool's text, marked as outside content. A Codex worker may not
-// search: web_search is no tool of its, and is passed to the browser,
-// which does not have it either. What the web could not do is the tool's
+// search: web_search is no tool of its, and without a browser it has no
+// such tool at all. What the web could not do is the tool's
 // error, for the agent to read. Without the browser the web tools are still
 // listed and run.
 func TestAWorkerSearchesAndReadsThroughTheAgentAPI(t *testing.T) {
@@ -213,8 +214,8 @@ func TestAWorkerSearchesAndReadsThroughTheAgentAPI(t *testing.T) {
 	omp, err := w.svc.AddAgentSession(ctx, "d_omp", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"web_search", "web_fetch", "generate_image"}, w.toolNames(omp),
-		"no browser, still the gateway's tools")
+	assert.Equal(t, []string{"memory", "show_artifact", "web_search", "web_fetch", "generate_image"},
+		w.toolNames(omp), "no browser, still the gateway's tools")
 
 	status, body := w.browse(omp, "web_search", `{"query":"go","max_results":3,"provider":"exa"}`)
 	require.Equal(t, http.StatusOK, status, body)
@@ -243,7 +244,7 @@ func TestAWorkerSearchesAndReadsThroughTheAgentAPI(t *testing.T) {
 	require.NoError(t, err)
 
 	status, _ = w.browse(codex, "web_search", `{"query":"go"}`)
-	assert.Equal(t, http.StatusServiceUnavailable, status, "a Codex worker's web_search is not ours")
+	assert.Equal(t, http.StatusNotFound, status, "a Codex worker's web_search is not ours")
 	assert.Len(t, web.calls, 2)
 
 	web.err = fmt.Errorf("%w: exa (public MCP: rate limited (429))", websearch.ErrFailed)
@@ -317,34 +318,35 @@ func TestAWorkerMakesAnImageThroughTheAgentAPI(t *testing.T) {
 	assert.Len(t, images.asked, 3, "a call the tool cannot read reaches no provider")
 }
 
-// gatewayNames lists the tools on the gateway's own route, as a Bot's tools
-// server asks for them.
+// gatewayNames lists the gateway's tools among those an agent is offered.
 func (w *world) gatewayNames(key string) ([]string, []agenttool.BrowserTool) {
 	w.t.Helper()
 
-	status, body := w.call(http.MethodGet, agenttool.PathGatewayTools, key, nil)
+	status, body := w.call(http.MethodGet, agenttool.PathTools, key, nil)
 	require.Equal(w.t, http.StatusOK, status, string(body))
 
 	var list agenttool.BrowserToolList
 	require.NoError(w.t, json.Unmarshal(body, &list))
 
-	names := []string{}
+	names, tools := []string{}, []agenttool.BrowserTool{}
+
 	for _, tool := range list.Data {
-		names = append(names, tool.Name)
+		if slices.Contains([]string{"web_search", "web_fetch", "generate_image"}, tool.Name) {
+			names, tools = append(names, tool.Name), append(tools, tool)
+		}
 	}
 
-	return names, list.Data
+	return names, tools
 }
 
-// Scenario: a Bot's pi mounts the tools server (issue #492). On the
-// gateway's route it is offered the gateway's three tools and none of the
-// browser's, and its generate_image says how to send the image into its
-// chat. Its calls are its chat's, so that they are recorded on the key of
+// Scenario: a Bot's pi mounts the tools server (issue #492). It is offered
+// the gateway's three tools, and its generate_image says how to send the
+// image into its chat. Its calls are its chat's, so that they are recorded on the key of
 // the chat's running pi as its `hypomnema web` and `hypomnema image` are. A
 // worker is offered its runtime's there too; a Routine's script and the
 // coordinator token, which have no MCP, none; a tool an agent was not given
 // is not run.
-func TestABotsPiIsOfferedTheGatewaysToolsAlone(t *testing.T) {
+func TestABotsPiIsOfferedTheGatewaysTools(t *testing.T) {
 	t.Parallel()
 
 	w, web, images := gatewayWorld(t, true, map[string]string{"d_codex": "codex"})
@@ -388,7 +390,7 @@ func TestABotsPiIsOfferedTheGatewaysToolsAlone(t *testing.T) {
 	assert.Empty(t, names, "a Routine's script keeps its commands")
 
 	call := func(key, tool, arguments string) (int, string) {
-		status, body := w.call(http.MethodPost, agenttool.PathGatewayCall, key,
+		status, body := w.call(http.MethodPost, agenttool.PathToolsCall, key,
 			agenttool.BrowserCall{Tool: tool, Arguments: json.RawMessage(arguments)})
 
 		return status, string(body)
@@ -404,17 +406,12 @@ func TestABotsPiIsOfferedTheGatewaysToolsAlone(t *testing.T) {
 	assert.Equal(t, []string{`chat ` + chat.ID + ` search "go" 0 ""`}, web.calls)
 	assert.Equal(t, []string{`chat ` + chat.ID + ` "a red fox" n=1 size= quality= refs=[]`}, images.asked)
 
-	status, _ = call(pi, "agent_browser_open", `{"url":"https://go.dev"}`)
-	assert.Equal(t, http.StatusNotFound, status, "the browser is not on the gateway's route")
-	assert.Empty(t, w.browser.calls)
-
-	status, _ = call(codex, "web_search", `{"query":"go"}`)
-	assert.Equal(t, http.StatusNotFound, status, "a Codex worker's search is its own")
+	_, _ = call(codex, "web_search", `{"query":"go"}`) // the browser's to refuse: the fake one runs anything
 
 	status, _ = call(script, "web_search", `{"query":"go"}`)
 	assert.Equal(t, http.StatusNotFound, status)
-	assert.Len(t, web.calls, 1)
+	assert.Len(t, web.calls, 1, "a Codex worker's search is its own, and a script has none")
 
-	status, _ = w.call(http.MethodGet, agenttool.PathGatewayTools, "", nil)
+	status, _ = w.call(http.MethodGet, agenttool.PathTools, "", nil)
 	assert.Equal(t, http.StatusUnauthorized, status)
 }

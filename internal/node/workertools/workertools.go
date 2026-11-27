@@ -9,9 +9,7 @@
 // phone's (issue #417), which it passes on to the control plane;
 // generate_image's files are read and written on the node
 // (toolsmcp/image.go), and show_artifact's read in the worker's worktree
-// (toolsmcp/artifact.go). Until issue #536 the memory's
-// tool was defined here; a node of that release still defines it and calls
-// agenttool.PathMemory, which the control plane keeps.
+// (toolsmcp/artifact.go).
 //
 //   - ask: a question the worker waits for (a `wait` question of the
 //     orchestration core). The call blocks until the answer arrives and sends

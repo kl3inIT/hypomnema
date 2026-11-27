@@ -7,15 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// maxMemoryChangeBytes bounds a change: an entry is far shorter than a memory.
-const maxMemoryChangeBytes = 64 << 10
 
 // The memory's tool (issues #21, #536, #589) is one definition for a worker
 // and a Bot's pi, as OpenMausBot's memory_update is one tool of its `agents`
@@ -25,8 +22,7 @@ const maxMemoryChangeBytes = 64 << 10
 // kind works in its own directory, and writes what it could write before:
 //
 //   - a worker, the directory of the agent its Dispatch runs as, and USER.md,
-//     the memory about the owner (until issue #536 through its node's own tool
-//     and PathMemory, which stays for nodes of older releases);
+//     the memory about the owner;
 //   - a Bot's pi, its own Bot's directory and USER.md, except in a Lark
 //     group's chat (memoryOffered).
 //
@@ -203,58 +199,4 @@ func (s *Server) memoryCall(w http.ResponseWriter, r *http.Request, a agent, cal
 func (s *Server) logMemory(ctx context.Context, a agent, how ...any) {
 	s.logger.InfoContext(ctx, "an agent changed a memory",
 		append([]any{slog.String("event", "agentapi.memory"), slog.String("agent", a.name)}, how...)...)
-}
-
-// memory changes a worker's memory on PathMemory, for the tools server of a
-// node of a release before the control plane listed the memory's tool (issue
-// #536), which defines the tool itself. Only a worker's own key may. The
-// answer says how full the memory is, for the model only.
-func (s *Server) memory(w http.ResponseWriter, r *http.Request) {
-	a, err := s.authenticate(r)
-	if err != nil {
-		refuse(w, http.StatusUnauthorized, err.Error())
-
-		return
-	}
-
-	if a.dispatchID == "" {
-		refuse(w, http.StatusForbidden, "only a worker changes its memory here")
-
-		return
-	}
-
-	var asked agenttool.MemoryChange
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMemoryChangeBytes)).Decode(&asked); err != nil ||
-		(asked.Target != agenttool.MemoryAgent && asked.Target != agenttool.MemoryOwner) {
-		refuse(w, http.StatusBadRequest, "say the target, agent or owner, and the change")
-
-		return
-	}
-
-	if s.switchedOff(w, r, a, agenttool.ToolMemory) {
-		return
-	}
-
-	op := memorystore.Op{Kind: asked.Action, Text: asked.Text, Match: asked.Match}
-
-	m, err := s.store.Memories().ChangeDispatchMemory(r.Context(), a.dispatchID, asked.Target == agenttool.MemoryOwner,
-		op)
-	if err != nil {
-		if errors.Is(err, orchestration.ErrInvalid) || errors.Is(err, orchestration.ErrNotFound) {
-			refuse(w, http.StatusUnprocessableEntity, err.Error())
-
-			return
-		}
-
-		s.logger.ErrorContext(r.Context(), "a worker's memory could not be changed",
-			slog.String("event", "agentapi.memory_failed"), slog.String("agent", a.name), slog.Any("err", err))
-		refuse(w, http.StatusInternalServerError, "the memory could not be changed")
-
-		return
-	}
-
-	s.logMemory(r.Context(), a, slog.String("target", asked.Target), slog.String("action", asked.Action))
-
-	w.Header().Set("Cache-Control", "no-store")
-	answer(w, agenttool.MemoryAnswer{Memory: m.Text, Used: utf8.RuneCountInString(m.Text), Limit: m.Limit})
 }
