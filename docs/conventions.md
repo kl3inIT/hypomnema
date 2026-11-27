@@ -120,8 +120,11 @@ packages are by feature, each the sole owner of one domain, its store apart from
 
 Feature logic, a decision of the feature such as which key a call is recorded on, a model list's update rule or
 how a service's API is called, goes into the package that owns the feature (`modelgateway`, `subscription`, `inbox`,
-`speech`…). When no package fits, it stays in the root and the pull request says why, rather than a package being
-made for it. A store package never imports orchestration's root (Omnara's stores under `internal/storage`); a write
+`speech`…). A domain whose owner is already a store package and that only lacks a place for its logic, such as
+calls to another service's HTTP API, gets a sibling package for that logic beside its store, as Grafana separates a
+service from its store ("Separate store and logic"): the Inbox's store is `orchestration/inboxstore`, and its reading
+and sending in the owner's chats is `inbox`. When no package owns the domain at all, the logic stays in the root and
+the pull request says why, rather than a package being made for it. A store package never imports orchestration's root (Omnara's stores under `internal/storage`); a write
 across domains stays in orchestration's root, which opens the transaction and calls each store's `…Tx` functions,
 as Omnara's `storage/orglifecycle` does. Size alone is no reason to split: no reference has a size rule.
 
