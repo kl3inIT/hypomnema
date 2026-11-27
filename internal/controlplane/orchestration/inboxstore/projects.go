@@ -140,3 +140,58 @@ func botsDepartment(ctx context.Context, q *store.Queries, a Assignee) (sql.Null
 
 	return b.Department, nil
 }
+
+// teachesChat says whether a source is a chat of the owner's accounts whose department the owner's changes teach
+// (issue #1206): one read in his Lark, Zalo, WhatsApp or Gmail, named by its id.
+func teachesChat(kind, id string) bool { return namesAccount(kind) && id != "" }
+
+// chatDepartment is the department the owner put an item's source chat in (issue #1206, the owner's rule of
+// 2026-11-27), as Linear's Asks put every request of a Slack channel in the team it is mapped to; none when he put
+// it in none, or the source is no chat of his.
+func chatDepartment(ctx context.Context, q *store.Queries, src Source) (sql.NullString, error) {
+	if !teachesChat(src.Kind, src.ID) {
+		return sql.NullString{}, nil
+	}
+
+	d, err := q.GetChatDepartment(ctx, store.GetChatDepartmentParams{
+		SourceKind: src.Kind, SourceAccount: src.Account, SourceID: src.ID,
+	})
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return sql.NullString{}, nil
+	case err != nil:
+		return sql.NullString{}, fmt.Errorf("reading the department of chat %s: %w", src.ID, err)
+	}
+
+	return nullString(d), nil
+}
+
+// teachChat records the department the owner just put an item in as its source chat's, or forgets the chat's when he
+// took the item out of any (issue #1206): later items read there take it. A Bot's change teaches nothing.
+func teachChat(ctx context.Context, q *store.Queries, actor Actor, cur store.Todo, project string, now int64) error {
+	if actor.Kind != Owner || !teachesChat(cur.SourceKind, cur.SourceID) {
+		return nil
+	}
+
+	key := store.GetChatDepartmentParams{
+		SourceKind: cur.SourceKind, SourceAccount: cur.SourceAccount, SourceID: cur.SourceID,
+	}
+
+	if project == "" {
+		if err := q.DeleteChatDepartment(ctx, store.DeleteChatDepartmentParams(key)); err != nil {
+			return fmt.Errorf("forgetting the department of chat %s: %w", cur.SourceID, err)
+		}
+
+		return nil
+	}
+
+	if err := q.PutChatDepartment(ctx, store.PutChatDepartmentParams{
+		SourceKind: key.SourceKind, SourceAccount: key.SourceAccount, SourceID: key.SourceID, DepartmentID: project,
+		TodoID: cur.ID, Now: now,
+	}); err != nil {
+		return fmt.Errorf("recording the department of chat %s: %w", cur.SourceID, err)
+	}
+
+	return nil
+}

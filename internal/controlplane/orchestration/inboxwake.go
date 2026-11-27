@@ -262,8 +262,12 @@ func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 
 	b.WriteString(inboxItemLines(t))
 
+	// His comment is his own word on the item, by the revision it made (issue #1206): when it says he did the work,
+	// the Bot records it for him with it, never as its own.
 	if w.Kind == inboxstore.WakeComment {
-		b.WriteString("\nAnswer him with inbox_comment on the item, and go on with the work it asks for.")
+		fmt.Fprintf(&b, "\nAnswer him with inbox_comment on the item, and go on with the work it asks for. When his "+
+			"comment says he did it himself, record it done for him: inbox_done with for_owner and this comment as "+
+			"evidence, {\"kind\":\"comment\",\"ref\":\"%d\"}, never as your own.", w.Comment)
 
 		return b.String()
 	}
@@ -275,8 +279,8 @@ func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 		"something is missing (inbox_comment, then inbox_update hand_back). Post your progress with inbox_comment: " +
 		"started, the Run's link, the pull request, done. Post the work's result on the item, not only in this " +
 		"chat: a file you made in inbox_comment's files, an Artifact you showed in its artifacts, a report in its " +
-		"text. End by closing it with inbox_done and evidence (a pull " +
-		"request, a message sent), or by giving it back to the owner with inbox_update hand_back, with a draft " +
+		"text. End by closing it with inbox_done and evidence of your work on it (the Run " +
+		"you started here, its pull request, your comment with the file, a message you sent for it), or by giving it back to the owner with inbox_update hand_back, with a draft " +
 		"for him to send when it needs a reply. Never send a message to a client or a boss yourself.\n")
 	b.WriteString(rule)
 

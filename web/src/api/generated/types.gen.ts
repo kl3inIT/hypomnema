@@ -5506,9 +5506,9 @@ export type TodoDue = {
 };
 
 /**
- * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
+ * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item. comment is the owner's comment on the item itself, by the revision it made: the evidence a Bot gives that he did it.
  */
-export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent';
+export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent' | 'comment';
 
 /**
  * A typed reference, to where an item came from or to what shows it is done.
@@ -5516,7 +5516,7 @@ export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_reque
 export type TodoLink = {
   kind: TodoLinkKind;
   /**
-   * The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+   * The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq; a comment's revision.
    */
   ref: string;
   label?: string;
