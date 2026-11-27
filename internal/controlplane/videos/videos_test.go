@@ -63,6 +63,9 @@ type fakeSpeech struct {
 	failAfter map[string]int
 	sttFails  bool
 	noWords   bool
+	// timed gives the words' times with the speech when they are asked, with an audio tag spoken before them, as
+	// Soniox's WebSocket gives them (issue #1285, row 2).
+	timed bool
 	// lines are the lines spoken, in order, for a speech that hears them back.
 	lines []string
 	// off are the providers the owner turned off: one named is refused unless the call is pinned, as the speech
@@ -103,7 +106,20 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 
 	f.spoken[req.Provider+"|"+req.Voice+"|"+req.Input]++
 
-	return speech.Speech{Audio: []byte(req.Input), Provider: req.Provider}, nil
+	out := speech.Speech{Audio: []byte(req.Input), Provider: req.Provider}
+
+	if f.timed && req.Timestamps {
+		var a speech.Alignment
+
+		for i, c := range []rune("[excited] " + req.Input) {
+			at := float64(i) / 10
+			a.Add(speech.Alignment{Characters: []string{string(c)}, Starts: []float64{at}, Ends: []float64{at + 0.1}})
+		}
+
+		out.Words = speech.AlignedWords("[excited] "+req.Input, a)
+	}
+
+	return out, nil
 }
 
 func (f *fakeSpeech) Transcribe(_ context.Context, _ AudioSource, req speech.TranscribeRequest,

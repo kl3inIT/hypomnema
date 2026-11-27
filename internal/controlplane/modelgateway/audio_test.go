@@ -194,7 +194,7 @@ func (g chatGateway) transcription(t *testing.T, key string, fields map[string]s
 // asked first: the recording is uploaded, the job made with speakers on,
 // polled until done, its transcript read, and the job and the file deleted.
 // The answer is verbose_json, cut into one segment a speaker with the words
-// and their speakers; the call is recorded on the key as audio/stt-async-v5
+// and their speakers; the call is recorded on the key as audio/stt-async-v6
 // with the seconds heard.
 func TestARecordingIsTranscribedWithItsSpeakers(t *testing.T) {
 	t.Parallel()
@@ -207,7 +207,7 @@ func TestARecordingIsTranscribedWithItsSpeakers(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, status, body)
 	assert.JSONEq(t, `{"task":"transcribe","text":"Hello there. Hi.","language":"en","duration":4.2,
-		"provider":"soniox","model":"stt-async-v5",
+		"provider":"soniox","model":"stt-async-v6",
 		"segments":[{"id":0,"start":0,"end":0.9,"text":"Hello there.","speaker":"1"},
 			{"id":1,"start":1,"end":1.4,"text":"Hi.","speaker":"2"}],
 		"words":[{"word":"Hel","start":0,"end":0.2,"speaker":"1"},{"word":"lo","start":0.2,"end":0.4,"speaker":"1"},
@@ -217,14 +217,14 @@ func TestARecordingIsTranscribedWithItsSpeakers(t *testing.T) {
 	soniox.mu.Lock()
 	assert.Equal(t, "Bearer sx-key", soniox.auth)
 	assert.Equal(t, map[string]any{
-		"model": "stt-async-v5", "file_id": "file-1", "enable_speaker_diarization": true,
+		"model": "stt-async-v6", "file_id": "file-1", "enable_speaker_diarization": true,
 		"enable_language_identification": true,
 	}, soniox.job)
 	assert.Equal(t, []string{"/transcriptions/job-1", "/files/file-1"}, soniox.deleted)
 	soniox.mu.Unlock()
 
 	u := g.lastUsage(t)
-	assert.Equal(t, "audio/stt-async-v5", u.Model)
+	assert.Equal(t, "audio/stt-async-v6", u.Model)
 	assert.Equal(t, "soniox", u.Provider)
 	assert.Equal(t, modelgateway.OutcomeOK, u.Outcome)
 	assert.Equal(t, 4200*time.Millisecond, u.Audio)

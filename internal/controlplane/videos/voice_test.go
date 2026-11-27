@@ -59,3 +59,27 @@ func TestNoWordTimesFailAtOnce(t *testing.T) {
 	assert.Equal(t, "scene 1: the transcript has no word times", got.FailedCause)
 	assert.Equal(t, 1, r.speech.heard)
 }
+
+// A clip whose speech came with its words' times is captioned from them (issue #1285, row 2): no clip is heard
+// again, and the audio tag spoken before the words is in no caption.
+func TestAClipTimedByItsSpeechIsNotHeardAgain(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	r.speech.timed = true
+
+	v, _ := r.make(t, "")
+	r.runAll(t)
+
+	require.Equal(t, Review, r.revision(t, v.ID, 1).State)
+	assert.Equal(t, 0, r.speech.heard, "no Transcribe")
+	require.Len(t, r.maker.captions, 1)
+	assert.Contains(t, r.maker.captions[0], "Chạm")
+	assert.NotContains(t, r.maker.captions[0], "excited")
+
+	clip := filepath.Join(r.dir, voiceDir,
+		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language)+"."+clipFormat)
+	words, err := os.ReadFile(clip + ".words.json") //nolint:gosec // The test's own file.
+	require.NoError(t, err)
+	assert.Contains(t, string(words), `"Word":"Chạm"`)
+}

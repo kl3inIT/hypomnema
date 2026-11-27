@@ -111,7 +111,7 @@ func TestEachKindIsCountedInItsOwnUnitAndPriced(t *testing.T) {
 	assert.Zero(t, fetched.WebSearches)
 	assert.Nil(t, cost(fetched))
 
-	heard := row("audio/stt-async-v5", "soniox", "")
+	heard := row("audio/stt-async-v6", "soniox", "")
 	assert.Equal(t, 90*time.Second, heard.Audio)
 	assert.Equal(t, int64(2500), cost(heard), "90 s at $0.0000277778 a second")
 
