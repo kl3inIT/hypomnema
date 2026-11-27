@@ -12,13 +12,14 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
-// ranFor is a Run the Bot doing item td started from its attempt's chat, as a Bot's `hypomnema run` from that chat
+// ranFor is a Run the Bot doing item td started from the item's own chat, as a Bot's `hypomnema run` from that chat
 // makes one (runs.chat_id, runs.bot_id), with one task and its dispatch, which gave pull request pr as its evidence
 // when it finished (dispatches.result), as a worker's finish does. It gives the Run as evidence.
 func (w *world) ranFor(t *testing.T, td inboxstore.Todo, id, pr string) []inboxstore.Link {
 	t.Helper()
 
 	require.NotNil(t, td.Work, "the item is doing")
+	require.NotEmpty(t, td.Chat, "the item has its own chat")
 
 	now := w.clock.now.UnixMilli()
 	result, err := json.Marshal(map[string]any{"summary": "Fixed.", "evidence": []map[string]string{
@@ -31,7 +32,7 @@ func (w *world) ranFor(t *testing.T, td inboxstore.Todo, id, pr string) []inboxs
 		args []any
 	}{
 		{`INSERT INTO runs (id, objective, status, created_by, created_at, updated_at, chat_id, bot_id)
-			VALUES (?, 'Fix it', 'open', 'bot', ?, ?, ?, ?)`, []any{id, now, now, td.Work.ID, td.Work.Bot}},
+			VALUES (?, 'Fix it', 'open', 'bot', ?, ?, ?, ?)`, []any{id, now, now, td.Chat, td.Work.Bot}},
 		{`INSERT INTO tasks (id, run_id, position, profile, spec, status, created_at, updated_at)
 			VALUES (?, ?, 0, 'implementer', 'Fix it', 'succeeded', ?, ?)`, []any{id + "_t", id, now, now}},
 		{`INSERT INTO conversations (id, task_id, node_id, worktree, runtime, account_ref, status, created_at,
@@ -122,6 +123,7 @@ func TestReviewOwnerReplyWithOwnerFileURL(t *testing.T) {
 	doing := w.handedTo(t, w.threadAsk(t))
 	his, err := w.inbox.Comment(ctx, owner, doing.ID, "Anh gửi rồi: https://drive.example.com/q3-dashboards.xlsx")
 	require.NoError(t, err)
+	doing.Revision = his.Revision
 
 	other := w.doing(t)
 	elsewhere := w.ranFor(t, other, "run_other", "https://github.com/o/r/pull/9")

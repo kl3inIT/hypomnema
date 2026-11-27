@@ -225,8 +225,9 @@ var ToolFamilies = []ToolFamily{
 			"Waiting on someone is an item given to that person, due the day to chase them (2 days when none is " +
 			"said). For a reply, draft it in his voice, attach it with inbox_update draft and hand_back, so it " +
 			"waits in Needs you: never send a message to a client or a boss yourself. Close an item with " +
-			"inbox_done and evidence of what was done: as your own only work you did (a Run, a pull request, a " +
-			"file, a message you sent); his answer to an ask only with his own message, recorded for him " +
+			"inbox_done and evidence of what was done: as your own only work you did on it (the Run you started " +
+			"from its chat, its pull request, your comment with the file you made, a message you sent for it); his " +
+			"answer to an ask only with his own message, recorded for him " +
 			"(for_owner): in this chat, his " +
 			"comment on the item, or the one he sent in the item's Zalo, WhatsApp or Lark chat after it was made " +
 			"(zalo_sent, whatsapp_sent, lark_sent). Edit and close only your own items. An item given to you wakes " +

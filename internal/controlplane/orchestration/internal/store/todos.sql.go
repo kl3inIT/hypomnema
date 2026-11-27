@@ -20,6 +20,67 @@ func (q *Queries) ClearTodoChats(ctx context.Context, chatID sql.NullString) err
 	return err
 }
 
+const countAttemptPullRequest = `-- name: CountAttemptPullRequest :one
+SELECT count(*) FROM runs r JOIN tasks t ON t.run_id = r.id JOIN dispatches d ON d.task_id = t.id
+WHERE r.bot_id = CAST(?1 AS TEXT)
+  AND (r.id = CAST(?2 AS TEXT) OR (r.chat_id = CAST(?3 AS TEXT) AND r.created_at >= ?4))
+  AND (EXISTS (SELECT 1 FROM pull_request_lookups l WHERE l.dispatch_id = d.id AND l.url = CAST(?5 AS TEXT))
+    OR (json_valid(d.result) AND EXISTS (SELECT 1 FROM json_each(d.result, '$.evidence') e
+        WHERE json_extract(e.value, '$.kind') = 'pull_request' AND json_extract(e.value, '$.ref') = CAST(?5 AS TEXT))))
+`
+
+type CountAttemptPullRequestParams struct {
+	Bot      string
+	WorkRun  string
+	WorkChat string
+	Since    int64
+	Url      string
+}
+
+// Whether a pull request is the work of a Bot's attempt at an Inbox item (issue #1206): one that a task of a Run of
+// the attempt (as CountAttemptRun) gave as evidence when it finished, or that was looked up for one of its dispatches.
+func (q *Queries) CountAttemptPullRequest(ctx context.Context, arg CountAttemptPullRequestParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAttemptPullRequest,
+		arg.Bot,
+		arg.WorkRun,
+		arg.WorkChat,
+		arg.Since,
+		arg.Url,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAttemptRun = `-- name: CountAttemptRun :one
+SELECT count(*) FROM runs
+WHERE id = ?1 AND bot_id = CAST(?2 AS TEXT)
+  AND (id = CAST(?3 AS TEXT) OR (chat_id = CAST(?4 AS TEXT) AND created_at >= ?5))
+`
+
+type CountAttemptRunParams struct {
+	ID       string
+	Bot      string
+	WorkRun  string
+	WorkChat string
+	Since    int64
+}
+
+// Whether a Run is the work of a Bot's attempt at an Inbox item (issue #1206): the attempt's own Run, or a Run of that
+// Bot reporting to the attempt's chat that was made since the attempt started.
+func (q *Queries) CountAttemptRun(ctx context.Context, arg CountAttemptRunParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAttemptRun,
+		arg.ID,
+		arg.Bot,
+		arg.WorkRun,
+		arg.WorkChat,
+		arg.Since,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDuplicatesOf = `-- name: CountDuplicatesOf :one
 SELECT count(*) FROM todos WHERE duplicate_of = ?1 AND state = 'duplicate'
 `

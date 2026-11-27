@@ -4996,13 +4996,16 @@ its client API, its CLI and the Bots' tools.
   its current attempt asked, whatever chat or Run it came from (`LinkApproval`) and back
   to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
-  Bot closes as its own (`done_by` itself) only work it did, whatever the item's `why_open` (issue #1206; owner,
-  2026-11-27, `botsWork`), with evidence of that work: a `run`, `pull_request`, `url`, a `chat_message` that is not
-  the owner's, or a `*_message` naming the account and chat that the store reads (`Sent`) as sent from the owner's
-  account after a send of the item was approved (an event from review to doing; `botSent`); his comment, a message
-  he sent, his message in a chat, a person's message, a mail, a message without its account and chat or a meeting's
-  line alone is refused, so his answer stays his and work he handed to the Bot closes as the Bot's with what it
-  made, as GitHub records the person who merged and the pull request; the
+  Bot closes as its own (`done_by` itself) only work it did on the item in this attempt, whatever its `why_open`
+  (issue #1206; owner, 2026-11-27, `botsWork`), with that work as the control plane recorded it: a `run` that is
+  the attempt's own Run or one of that Bot made from the item's own chat since the attempt began
+  (`CountAttemptRun`), a `pull_request` a task of such a Run gave as its finish's evidence or was looked up for
+  (`CountAttemptPullRequest`), its own `comment` in this attempt carrying a file or an Artifact, or a
+  `*_message` naming the account and chat that its send recorded on the item in this attempt (`RecordSent`,
+  an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the store cannot
+  tell the Bot's message from the owner's on his account); a link, a mail, his comment, a message he sent, his
+  message in a chat, a person's message or a meeting's line is refused, so his answer stays his and work he handed to
+  the Bot closes as the Bot's with what it made, as GitHub records the person who merged and the pull request; the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
   as evidence (his `comment` on the item, an event `commented` of his at that revision, which the wake-up of his
   comment names; a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source

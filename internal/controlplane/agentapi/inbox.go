@@ -235,9 +235,11 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		{agenttool.ToolInboxRelease, "Give up a to-do you are doing, with the reason: it is open again. Use it " +
 			"when you cannot finish it.",
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
-		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did, only for work you did " +
-			"(a Run, a pull request, a link to a file, a message you sent with its account and chat), never his " +
-			"answer to an ask; with for_owner, his own message that he did it (his comment on the item, comment by its " +
+		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did on it in this attempt, " +
+			"only for your own work (the Run you started from the item's chat, that Run's pull request, your " +
+			"comment on it with the file you made, comment by its revision, or the message you sent for it with " +
+			"its account and chat), never his answer or a link he gave; with for_owner, his own message that he " +
+			"did it (his comment on the item, comment by its " +
 			"revision; in this chat; or one he sent after it was made in the item's Zalo, " +
 			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
 			"zalo_sent, whatsapp_sent, lark_sent); or, with done_by, an open item you added that a person did, " +

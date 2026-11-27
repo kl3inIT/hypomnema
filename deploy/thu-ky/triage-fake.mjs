@@ -26,6 +26,11 @@ export const served = JSON.parse(readFileSync(join(here, "triage-tools.json"), "
 const bot = "bot bot_main";
 const sentKinds = ["zalo_sent", "whatsapp_sent", "lark_sent"];
 const messageKinds = ["zalo_message", "whatsapp_message", "lark_message"];
+// canonical is a value's JSON with its keys in order: a request as the server compares it once parsed, whatever the
+// order of its fields (inboxstore.requestHash).
+const canonical = (v) => (v && typeof v === "object" && !Array.isArray(v)
+  ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`
+  : Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : JSON.stringify(v));
 const closed = (state) => ["done", "dropped", "duplicate"].includes(state);
 const refuse = (error) => ({ error });
 
@@ -63,6 +68,8 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
     return m && { fromMe: Boolean(m.FromMe) };
   };
   const meetings = world.meetings ?? [];
+  // The Runs of the item's attempt, each { id, pulls }, as the control plane knows them.
+  const runs = world.runs ?? [];
   let added = 0;
 
   const find = (id) => items.find((i) => i.id === id);
@@ -117,7 +124,7 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
       if (args.key) {
         const { key, ...request } = args;
         const again = items.find((i) => i.key === key);
-        if (again && again.added_with !== JSON.stringify(request)) {
+        if (again && again.added_with !== canonical(request)) {
           return refuse(`conflict: the key ${key} was used for another request`);
         }
         if (again) return view(again, false);
@@ -132,7 +139,7 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
           ? `${args.assignee_kind} ${args.assignee ?? ""}`.trim() : "me",
         due: dueOf(args) ?? undefined, priority: args.priority, priority_reason: args.priority_reason,
         source: sourceOf(args), created_by: bot, created_at: at, updated_at: at, key: args.key,
-        added_with: JSON.stringify((({ key: _, ...request }) => request)(args)),
+        added_with: canonical((({ key: _, ...request }) => request)(args)),
         history: [{ at, revision: 1, by: bot, kind: "created", after: { title: args.title } }],
       };
       items.push(item);
@@ -208,12 +215,15 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         doneBy = `person ${args.done_by}`;
       } else {
         if (item.state !== "doing") return refuse("forbidden: a Bot closes as its own only the to-do it is doing");
-        // Its own work only, whatever the item's why_open (inboxstore botsWork); a read run sends nothing.
-        if (!evidence.some((l) => ["run", "pull_request", "url"].includes(l.kind))) {
-          return refuse("invalid request: a Bot closes as its own only what it did, with evidence of that work (a " +
-            "Run, a pull request, a link to a file, a message it sent, with the account and the chat, after the " +
-            "owner approved the send); the owner's message or comment shows that he did it (for_owner), a " +
-            "person's that they did (done_by)");
+        // Its own work on the item only, whatever its why_open (inboxstore botsWork): a Run of the world's runs (a
+        // read run starts none, and sends nothing) or its pull request; never a link, a mail or anyone's message.
+        const work = (l) => runs.some((r) => (l.kind === "run" && r.id === l.ref) ||
+          (l.kind === "pull_request" && (r.pulls ?? []).includes(l.ref)));
+        if (!evidence.some(work)) {
+          return refuse("invalid request: a Bot closes as its own only what it did on this to-do in this attempt, " +
+            "with that work as evidence: a Run of the attempt, its pull request, its own comment with the file it " +
+            "made, or a message it sent for the item (with the account and the chat); the owner's message or " +
+            "comment shows that he did it (for_owner), a person's that they did (done_by)");
         }
         doneBy = bot;
       }

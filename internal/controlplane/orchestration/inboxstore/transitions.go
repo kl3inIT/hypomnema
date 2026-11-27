@@ -577,20 +577,6 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 		}
 	}
 
-	// A message the Bot gives as its own work is read before the write too (issue #1206): one it sent itself.
-	botSent := false
-
-	if c.Actor.Kind == Bot && cl.DoneBy.Kind == ABot && slices.ContainsFunc(cl.Evidence, personsMessage) {
-		t, err := s.Get(ctx, c.ID)
-		if err != nil {
-			return Todo{}, err
-		}
-
-		if botSent, err = s.botSent(ctx, t, cl.Evidence); err != nil {
-			return Todo{}, err
-		}
-	}
-
 	if forPerson {
 		if err := checkReason(cl.Reason, true); err != nil {
 			return Todo{}, fmt.Errorf("%w: quote their message in the reason", err)
@@ -625,7 +611,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 			}
 
 			if c.Actor.Kind == Bot && cl.DoneBy.Kind == ABot {
-				if err := botsWork(ctx, q, cl.Evidence, botSent); err != nil {
+				if err := botsWork(ctx, q, cur, c.Actor.ID, cl.Evidence); err != nil {
 					return nil, err
 				}
 			}
@@ -676,107 +662,159 @@ func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 }
 
 // botsWork checks a Bot's own close of an item (issue #1206; owner, 2026-11-27): it follows the item's work, not
-// its why_open. The Bot closes as its own only what it did, with evidence of that work: a Run, a pull request, a link
-// (a file, a page, an Artifact), its own message in a chat, or a message it sent itself on the owner's account
-// (botSent). The owner's message (his comment on the item, a message he sent, his message in a chat) shows that he
-// did it, a person's that they did, and a meeting's line that it was said: each is recorded for whom it shows, not
-// as the Bot's; and a message or a mail the server cannot read as the Bot's send, such as the asker's, shows
+// its why_open. The Bot closes as its own only what it did on this item in this attempt, and its evidence shows that
+// work as the control plane recorded it: a Run of the attempt (its own Run, or one the Bot started from the
+// item's own chat since the attempt began), a pull request such a Run's task gave when it finished, its own comment
+// on the item in this attempt that carries a file or an Artifact it made (inbox_comment's files and artifacts), or a
+// message it sent for the item in this attempt, as its send recorded it (RecordSent). Nothing the owner or anyone
+// else made is the Bot's work: his comment, a message he sent, his message in a chat, a link or a file he gave, a
+// person's message, a mail, a meeting's line; each is recorded for whom it shows (for_owner, done_by), or shows
 // nothing. So the owner's reply stays his whatever the item's status, and work he handed to the Bot (a fix, a
 // report) closes as the Bot's with what it made. GitHub records the person who merged as the closer and the pull
 // request as the evidence; inbox-zero makes a thread actioned by the user's own sent message (outbound.ts:107-139);
 // the model proposes and the code decides, as Omi's open loops do (daily.py:205-232).
-func botsWork(ctx context.Context, q *store.Queries, evidence []Link, botSent bool) error {
-	if botSent {
-		return nil
+func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string, evidence []Link) error {
+	// A Run of the item is the attempt's own, or one started since the attempt began from the item's own chat, which
+	// holds that item only (inboxWaker), not from a chat where the Bot may work on several.
+	workRun, workChat := "", cur.ChatID.String
+	if cur.WorkKind.String == WorkRun {
+		workRun = cur.WorkID.String
 	}
 
+	since := cur.WorkStartedAt.Int64
+
+	var events []store.TodoEvent
+
 	for _, l := range evidence {
-		switch l.Kind {
-		case LinkRun, LinkPullRequest, LinkURL:
-			return nil
-		case LinkChatMessage:
-			owners, err := ownersChatMessage(ctx, q, l)
-			if err != nil {
-				return err
+		var (
+			n   int64
+			err error
+		)
+
+		switch {
+		case l.Kind == LinkRun:
+			n, err = q.CountAttemptRun(ctx, store.CountAttemptRunParams{ID: l.Ref, Bot: bot, WorkRun: workRun,
+				WorkChat: workChat, Since: since})
+		case l.Kind == LinkPullRequest:
+			n, err = q.CountAttemptPullRequest(ctx, store.CountAttemptPullRequestParams{Bot: bot, WorkRun: workRun,
+				WorkChat: workChat, Since: since, Url: l.Ref})
+		case l.Kind == LinkComment || personsMessage(l):
+			if events == nil {
+				if events, err = q.ListTodoEvents(ctx, store.ListTodoEventsParams{TodoID: cur.ID, Lim: MaxEvents}); err != nil {
+					return fmt.Errorf("reading the history of to-do %s: %w", cur.ID, err)
+				}
 			}
 
-			if !owners {
+			if slices.ContainsFunc(events, func(e store.TodoEvent) bool { return attemptsWork(e, cur, bot, l) }) {
 				return nil
 			}
 		}
+
+		if err != nil {
+			return fmt.Errorf("reading the work of to-do %s's attempt: %w", cur.ID, err)
+		}
+
+		if n > 0 {
+			return nil
+		}
 	}
 
-	return fmt.Errorf("%w: a Bot closes as its own only what it did, with evidence of that work (a Run, a pull "+
-		"request, a link to a file, a message it sent, with the account and the chat, after the owner approved the "+
-		"send); the owner's message or comment shows that he did it (for_owner), a person's that they did (done_by)",
-		storeerr.ErrInvalid)
+	return fmt.Errorf("%w: a Bot closes as its own only what it did on this to-do in this attempt, with that work "+
+		"as evidence: a Run of the attempt, its pull request, its own comment with the file it made, or a message "+
+		"it sent for the item (with the account and the chat); the owner's message or comment shows that he did it "+
+		"(for_owner), a person's that they did (done_by)", storeerr.ErrInvalid)
 }
 
-// botSent says whether the evidence of a Bot's own close holds a message the Bot sent itself: a zalo_message,
-// whatsapp_message or lark_message naming the owner's account and the chat (personsMessage), which the server keeps
-// of that account or its API returns as sent from it (the Bot sends as the owner there), after the owner approved
-// a send of the item's attempt (an event from review to doing). What cannot be read is not evidence.
-func (s *Store) botSent(ctx context.Context, t Todo, evidence []Link) (bool, error) {
-	if s.sent == nil {
-		return false, nil
+// attemptsWork says whether an event of the item is the Bot's work in its current attempt that a Link names: its
+// comment at that revision, made since the attempt began, carrying a file or an Artifact; or the send it recorded of
+// that message in this attempt (RecordSent).
+func attemptsWork(e store.TodoEvent, cur store.Todo, bot string, l Link) bool {
+	if e.ActorKind != Bot || e.Actor != bot || e.At < cur.WorkStartedAt.Int64 {
+		return false
 	}
 
-	var approvedAt time.Time
-
-	for _, e := range t.Events {
-		var before, after struct {
-			State string `json:"state"`
-		}
-
-		if e.Kind == EventState && json.Unmarshal(e.Before, &before) == nil && json.Unmarshal(e.After, &after) == nil &&
-			before.State == Review && after.State == Doing {
-			approvedAt = e.At
-		}
+	var after struct {
+		Files     []string `json:"files"`
+		Artifacts []string `json:"artifacts"`
+		Sent      *Link    `json:"sent"`
+		Attempt   string   `json:"work_attempt"`
 	}
 
-	if approvedAt.IsZero() {
-		return false, nil
+	if json.Unmarshal([]byte(e.After), &after) != nil {
+		return false
 	}
 
-	for _, l := range evidence {
-		service := messageService[l.Kind]
-		if !personsMessage(l) {
-			continue
-		}
+	if l.Kind == LinkComment {
+		revision, ok := number(l.Ref)
 
-		m, err := s.sent.SentMessage(ctx, service, l.Account, l.Chat, l.Ref)
-
-		switch {
-		case errors.Is(err, storeerr.ErrNotFound):
-			continue
-		case err != nil:
-			return false, err
-		case m.FromMe && m.Chat == l.Chat && !m.At.Before(approvedAt):
-			return true, nil
-		}
+		return ok && e.Kind == EventCommented && e.Revision == revision &&
+			(len(after.Files) > 0 || len(after.Artifacts) > 0)
 	}
 
-	return false, nil
+	return e.Kind == EventSent && after.Sent != nil && after.Attempt == cur.WorkAttempt.String &&
+		after.Sent.Kind == l.Kind && after.Sent.Ref == l.Ref && after.Sent.Account == l.Account &&
+		after.Sent.Chat == l.Chat
 }
 
-// ownersChatMessage says whether a chat_message Link is a message the owner wrote (role owner and no sender, as
-// ownersMessage reads it); one that does not exist is not his.
-func ownersChatMessage(ctx context.Context, q *store.Queries, l Link) (bool, error) {
-	seq, ok := number(l.Ref)
-	if !ok {
-		return false, nil
-	}
+// EventSent records a message a Bot sent for the item it is doing (RecordSent): after.sent is the message, after.
+// work_attempt the attempt it was sent in.
+const EventSent = "sent"
 
-	m, err := q.GetTodoChatMessage(ctx, seq)
-
+// RecordSent records on an item a message the Bot doing it sent for it, as the send path knows it (issue #1206): the
+// agent API's zalo_send and whatsapp_send, which name the item, record the message the service answered with, its
+// id, the owner's account and the chat. It is the one way a message counts as the Bot's own work (botsWork): the
+// store cannot tell from a message who of the Bot and the owner sent it from his account, so the send is recorded
+// when it is made, in the item's current attempt, as GitHub records the commit a pull request merged as.
+func (s *Store) RecordSent(ctx context.Context, c Change, l Link) (Todo, error) {
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return false, nil
-	case err != nil:
-		return false, fmt.Errorf("reading chat message %d: %w", seq, err)
+	case c.Actor.Kind != Bot:
+		return Todo{}, fmt.Errorf("%w: only a Bot records what it sent", storeerr.ErrForbidden)
+	case !personsMessage(l):
+		return Todo{}, fmt.Errorf("%w: a message sent is a zalo_message, whatsapp_message or lark_message with the "+
+			"account and the chat", storeerr.ErrInvalid)
 	}
 
-	return m.Role == "owner" && !m.SenderID.Valid, nil
+	if err := checkEvidence([]Link{l}); err != nil {
+		return Todo{}, err
+	}
+
+	var got Todo
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		cur, err := q.GetTodo(ctx, c.ID)
+		if err != nil {
+			return storeutil.NotFound(err, "to-do", c.ID)
+		}
+
+		if (cur.State != Doing && cur.State != Review) || c.Attempt == "" || cur.WorkAttempt.String != c.Attempt ||
+			cur.WorkBot.String != c.Actor.ID {
+			return fmt.Errorf("%w: to-do %s is not in the attempt %q of this Bot", storeerr.ErrConflict, c.ID,
+				c.Attempt)
+		}
+
+		n, err := q.TouchTodo(ctx, store.TouchTodoParams{Now: now, ID: cur.ID, Revision: cur.Revision})
+		if err != nil {
+			return fmt.Errorf("recording a send of to-do %s: %w", cur.ID, err)
+		}
+
+		if n != 1 {
+			return fmt.Errorf("%w: to-do %s changed meanwhile", storeerr.ErrConflict, cur.ID)
+		}
+
+		if err := addEvent(ctx, q, cur.ID, now, cur.Revision+1, c.Actor, EventSent, map[string]any{},
+			map[string]any{"sent": l, "work_attempt": c.Attempt}); err != nil {
+			return err
+		}
+
+		got, err = s.get(ctx, q, cur.ID)
+
+		return err
+	})
+	if err != nil {
+		return Todo{}, err
+	}
+
+	return got, nil
 }
 
 // number is a reference that is a number, such as a chat message's seq or an item's revision.
@@ -1582,9 +1620,4 @@ func val[T any](p *T) T {
 	}
 
 	return *p
-}
-
-// RecordSent records a message a Bot sent for the item it is doing (issue #1206). Not built yet.
-func (s *Store) RecordSent(_ context.Context, _ Change, _ Link) (Todo, error) {
-	return Todo{}, fmt.Errorf("%w: not built", storeerr.ErrInvalid)
 }

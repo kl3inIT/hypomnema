@@ -196,3 +196,20 @@ ORDER BY id;
 UPDATE todos
 SET revision = revision + 1, created_by = @created_by, assignee = @assignee, passed_by = @passed_by, updated_at = @now
 WHERE id = @id AND revision = @revision;
+
+-- name: CountAttemptRun :one
+-- Whether a Run is the work of a Bot's attempt at an Inbox item (issue #1206): the attempt's own Run, or a Run of that
+-- Bot reporting to the attempt's chat that was made since the attempt started.
+SELECT count(*) FROM runs
+WHERE id = @id AND bot_id = CAST(@bot AS TEXT)
+  AND (id = CAST(@work_run AS TEXT) OR (chat_id = CAST(@work_chat AS TEXT) AND created_at >= @since));
+
+-- name: CountAttemptPullRequest :one
+-- Whether a pull request is the work of a Bot's attempt at an Inbox item (issue #1206): one that a task of a Run of
+-- the attempt (as CountAttemptRun) gave as evidence when it finished, or that was looked up for one of its dispatches.
+SELECT count(*) FROM runs r JOIN tasks t ON t.run_id = r.id JOIN dispatches d ON d.task_id = t.id
+WHERE r.bot_id = CAST(@bot AS TEXT)
+  AND (r.id = CAST(@work_run AS TEXT) OR (r.chat_id = CAST(@work_chat AS TEXT) AND r.created_at >= @since))
+  AND (EXISTS (SELECT 1 FROM pull_request_lookups l WHERE l.dispatch_id = d.id AND l.url = CAST(@url AS TEXT))
+    OR (json_valid(d.result) AND EXISTS (SELECT 1 FROM json_each(d.result, '$.evidence') e
+        WHERE json_extract(e.value, '$.kind') = 'pull_request' AND json_extract(e.value, '$.ref') = CAST(@url AS TEXT))));

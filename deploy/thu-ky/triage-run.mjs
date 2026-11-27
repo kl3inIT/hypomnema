@@ -22,7 +22,7 @@ export function worldOf(c) {
     const chat = c.chat?.id ?? m.Chat;
     return { Chat: chat, ChatName: chats.find((x) => x.id === chat)?.name ?? "", FromMe: false, ...m };
   });
-  return { items: c.items ?? [], chats, messages, lark: c.lark, meetings: c.meetings };
+  return { items: c.items ?? [], chats, messages, lark: c.lark, meetings: c.meetings, runs: c.runs };
 }
 
 // checkLines is what new-messages.mjs prints for a case's world after since (text), whether it wakes the Bot, and its

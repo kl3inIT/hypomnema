@@ -65,16 +65,17 @@ the triage must leave in it:
 
 - the world: `chat` and its `messages` (Zalo or WhatsApp, as the server keeps them), or `chats` with each message's
   `Chat`; `lark` (`chats`, `messages` of each chat, `threads` each `{ chat, list }`, `users`, as Lark's API gives
-  them); `meetings` (as `meeting_get` gives one); `items`, the Inbox before the run, with their history (the owner's
-  comment is an event `commented` by `owner`); `since`, when the check last read.
+  them); `meetings` (as `meeting_get` gives one); `runs`, the Runs of an item's attempt, each `{ id, pulls }`;
+  `items`, the Inbox before the run, with their history (the owner's comment is an event `commented` by `owner`);
+  `since`, when the check last read.
 - `expect`: `adds`, how many items it adds (a number or `[min, max]`); `some` and `none`, items it adds or must not
   (by `why_open`, `state`, `due`, `text`, a regular expression); `done`, items it closes (`done_by` `me`, `person`
   or `bot`, and the `evidence`); `dropped`; `open`, items left open; `final`, an item as it ends (`why_open`, `state`,
   `due`, `due_text`); `count`, how many open items end so; `comments`, an item it comments on; `unmoved`, items not
   moved to someone.
 
-The world keeps the server's rules a case depends on, with its words: a Bot closes as its own only work it did, with
-a Run, a pull request or a file (the owner's answer or his comment on the item closes it, for him); only an ask it
+The world keeps the server's rules a case depends on, with its words: a Bot closes as its own only work it did on the item, a
+Run of the world's `runs` or its pull request (the owner's answer or his comment on the item closes it, for him); only an ask it
 added becomes his promise; an `inbox_add` without a `key` is a new item each time, and a case counts every item the
 run made. The repository is public, so its cases are made up. The real ones, from the owner's chats, are kept in the
 main Bot's folder on zm, `thu-ky/triage-cases.real.json`, in the same form (owner, 2026-11-27), and run there:
