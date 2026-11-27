@@ -198,3 +198,89 @@ func TestReviewOwnerMarkTakesNoChatWokenWithoutProofBefore(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, mine, "his old prompt is his turn")
 }
+
+// markedByMain is an item the main Bot adds for BeyondPilot on the owner's message in its chat, which marks the item's
+// chat with BeyondPilot, and the main Bot's chat.
+func (w passWorld) markedByMain() (string, inboxstore.Todo) {
+	w.t.Helper()
+
+	ctx := w.t.Context()
+
+	mainChat, err := w.s.CreateChat(ctx, DefaultBotID, "")
+	require.NoError(w.t, err)
+	_, err = w.s.AddChatMessage(ctx, mainChat.ID, ChatOwner, "ask BeyondPilot to read the group")
+	require.NoError(w.t, err)
+
+	td := w.botAdds(DefaultBotID, mainChat.ID, w.beyond.ID)
+	require.True(w.t, w.ownerTurn(td.Chat))
+
+	return mainChat.ID, td
+}
+
+// passedAgain is BeyondPilot giving the item back to the owner from its chat, and the main Bot passing it to
+// BeyondPilot again from its chat with the owner, which wakes BeyondPilot in the same chat.
+func (w passWorld) passedAgain(mainChat, id string) inboxstore.Todo {
+	w.t.Helper()
+
+	ctx := w.t.Context()
+
+	cur, err := w.s.Inbox().Get(ctx, id)
+	require.NoError(w.t, err)
+
+	back, err := w.s.Inbox().Edit(ctx, inboxstore.Change{Actor: asBot(w.beyond.ID), ID: cur.ID, Revision: cur.Revision,
+		Chat: cur.Chat}, inboxstore.Edit{Assignee: &inboxstore.Assignee{Kind: inboxstore.Me}})
+	require.NoError(w.t, err)
+
+	again := w.passFrom(DefaultBotID, mainChat, back, w.beyond.ID)
+	require.Equal(w.t, cur.Chat, again.Chat, "the item's chat with BeyondPilot is the same")
+
+	return again
+}
+
+// Scenario: review round 2 of PR #1237, issue #1229 rule 3. The owner takes the marked item back and gives it to the
+// same Bot without a word, which wakes it in the same chat: no turn of his, and it clears the mark for good, so the
+// main Bot passing it there again from his message brings it back no more.
+func TestReviewEmptyHandoffClearsTheMark(t *testing.T) {
+	t.Parallel()
+
+	w := newPassWorld(t)
+	ctx := t.Context()
+
+	mainChat, td := w.markedByMain()
+
+	taken, err := w.s.Inbox().Edit(ctx, inboxstore.Change{Actor: inboxOwner, ID: td.ID, Revision: td.Revision},
+		inboxstore.Edit{Assignee: &inboxstore.Assignee{Kind: inboxstore.Me}})
+	require.NoError(t, err)
+
+	given, err := w.s.Inbox().Hand(ctx, inboxstore.Change{Actor: inboxOwner, ID: taken.ID, Revision: taken.Revision},
+		w.beyond.ID, "")
+	require.NoError(t, err)
+	require.Equal(t, td.Chat, given.Chat)
+	assert.False(t, w.ownerTurn(given.Chat), "given without a word")
+
+	again := w.passedAgain(mainChat, td.ID)
+	assert.False(t, w.ownerTurn(again.Chat), "cleared for good")
+}
+
+// Scenario: review round 2 of PR #1237, issue #1229 rule 3. A background command ends in the marked chat and its line
+// wakes the Bot: no turn of his, and it clears the mark for good, as any input but his own words, the hand-off's and a
+// Run's events does.
+func TestReviewBackgroundWakeClearsTheMark(t *testing.T) {
+	t.Parallel()
+
+	w := newPassWorld(t)
+	ctx := t.Context()
+
+	mainChat, td := w.markedByMain()
+
+	require.NoError(t, w.s.StartBackground(ctx, td.Chat, "pi-1", "bg_0123456789ab"))
+
+	code := 0
+	woke, err := w.s.EndBackground(ctx, td.Chat, BackgroundEnd{ID: "bg_0123456789ab", ExitCode: &code})
+	require.NoError(t, err)
+	require.True(t, woke)
+	assert.False(t, w.ownerTurn(td.Chat), "the command's end is no turn of his")
+
+	again := w.passedAgain(mainChat, td.ID)
+	assert.False(t, w.ownerTurn(again.Chat), "cleared for good")
+}
