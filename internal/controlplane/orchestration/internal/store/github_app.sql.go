@@ -230,7 +230,8 @@ func (q *Queries) SetPullRequestCI(ctx context.Context, arg SetPullRequestCIPara
 const setPullRequestCIIfUnchanged = `-- name: SetPullRequestCIIfUnchanged :execrows
 UPDATE pull_request_ci
 SET head = ?1, state = ?2, failed = ?3, read_at = ?4, version = version + 1, updated_at = ?4
-WHERE repository = ?5 AND number = ?6 AND version = ?7
+WHERE repository = ?5 AND number = ?6
+  AND (version = ?7 OR (head = ?1 AND state = 'pending' AND ?2 <> 'pending'))
 `
 
 type SetPullRequestCIIfUnchangedParams struct {
@@ -243,8 +244,10 @@ type SetPullRequestCIIfUnchangedParams struct {
 	Version    int64
 }
 
-// What a read of GitHub's found, kept only when the row is still at the version the read began from: an event that
-// changed it meanwhile (a new head) wins over the read.
+// What a read of GitHub's found, kept when the row is still at the version the read began from. When another write
+// came first, the read is kept only if it found the same head the row now has, ended, while the row says pending:
+// a head's checks go from pending to ended, so the ended one is the newer (review round 3). A new head's reset
+// (another head) or an ended state kept first wins over the read.
 func (q *Queries) SetPullRequestCIIfUnchanged(ctx context.Context, arg SetPullRequestCIIfUnchangedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setPullRequestCIIfUnchanged,
 		arg.Head,

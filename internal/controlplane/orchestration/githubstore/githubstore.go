@@ -276,9 +276,11 @@ func (s *Store) SetCI(ctx context.Context, ci CI, read bool) (bool, error) {
 	return kept, nil
 }
 
-// KeepRead keeps what a read of GitHub's found of a pull request's CI, read now, only when its row is still at the
-// version the read began from, and says whether it was kept. An event that changed the row while GitHub was read,
-// such as a new head's reset, wins: the read found the old head (issue #1262, review round 2).
+// KeepRead keeps what a read of GitHub's found of a pull request's CI, read now, when its row is still at the version
+// the read began from, and says whether it was kept. An event that changed the row while GitHub was read, such as a
+// new head's reset, wins: the read found the old head (issue #1262, review round 2). One exception: a read that found
+// the row's own head ended (passed, failed, merged or closed) while the row says pending is newer, and is kept even
+// if another read of that head was kept first (review round 3).
 func (s *Store) KeepRead(ctx context.Context, ci CI, version int64) (bool, error) {
 	var kept bool
 
