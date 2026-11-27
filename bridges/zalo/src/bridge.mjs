@@ -13,8 +13,9 @@
 //   phoneSync {dir}       asks the phone for its store; phone_sync events follow: confirmed, refused, ready
 //                         {path, key, size} (the backup written in dir and its AES key), failed {message}
 //   phoneIds {fids, gids}  the phone's ids of people and groups as Zalo Web's: {fids, gids}, "" when unknown
-//   send {chat, group, text, path, quote}    a message as the owner, a file at path with text as its caption,
-//                         replying to quote (a kept message): {id}
+//   send {chat, group, text, path, quote, mentions}    a message as the owner, a file at path with text as its
+//                         caption, replying to quote (a kept message), tagging mentions [{pos, uid, len}] in a
+//                         group: {fileId, textId}
 //   groups {}             every group the account is in: [{id, name}]
 //   members {group}       a group's name and who is in it now, asked of Zalo: {name, ids}
 //   stop {}               ends the listener and the process
@@ -29,7 +30,18 @@ import { LoginQRCallbackEventType, Zalo } from "zca-js";
 
 import { imageMeta } from "./imagemeta.mjs";
 import { backupKey, cancel, decode, download, frame, keys, noised, pull, step, syncEvents } from "./phonesync.mjs";
-import { answer, closed, event, failure, members as membersOf, message, older, parseRequest, rejected } from "./protocol.mjs";
+import {
+  answer,
+  closed,
+  event,
+  failure,
+  members as membersOf,
+  mentions,
+  message,
+  older,
+  parseRequest,
+  rejected,
+} from "./protocol.mjs";
 import { ThreadType } from "zca-js";
 
 // The listener reconnects a socket Zalo closed (zlog's zalo-client.ts starts it so); a session another Zalo Web took
@@ -232,7 +244,8 @@ async function users(p) {
 
 // send sends as the owner with zca-js's sendMessage (src/apis/sendMessage.ts). zca-js sends a text and a file as
 // two messages, the text first; so the file goes first, alone, by its path as the Hermes Zalo plugin sends one
-// (sidecar/server.js), then the text, and each answers its own id. A text that fails after its file went is said:
+// (sidecar/server.js), then the text, and each answers its own id. The text tags the members of a group it is
+// given, as the Hermes Zalo plugin's sidecar passes its mentions to zca-js (issue #1200). A text that fails after its file went is said:
 // {fileId, error}, so that the file is not sent again.
 async function send(p) {
   const thread = String(p.chat);
@@ -248,6 +261,9 @@ async function send(p) {
   if (text === "") return out;
 
   const content = { msg: text };
+  const tagged = p.group ? mentions(p.mentions) : [];
+  if (tagged.length > 0) content.mentions = tagged;
+
   const q = p.quote;
   if (q) {
     content.quote = {

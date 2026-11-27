@@ -133,7 +133,9 @@ The check names the conversations with new messages since the last check. For ea
    An account you may not use is refused: then name it in your answer instead.
 8. A reply to a client, a lead or a boss gets a draft in his voice. Read 20 to 50 of his own past messages to that
    person first (the same chat, or his sent mail to that address). Write 1 or 2 plain sentences in the language and
-   tone he uses with them: no list of options, no offer he did not make, nothing he has not said he will do. Attach
+   tone he uses with them: no list of options, no offer he did not make, nothing he has not said he will do. In a
+   group, a person the draft tags is written `@` and their name as the chat shows it, the sender's name the reads
+   give ("@Lan Anh dạ vâng chị"): his Send tags them and quotes the message the item names. Attach
    it with `inbox_update` `draft` and `hand_back`, so that it waits for him in Needs you.
 9. Every item you add or enrich gets a `priority` with its `priority_reason`, one short line he reads beside it
    ("Khách chờ từ sáng", "Hạn hôm nay"): 1 urgent, it must be done today or something is lost; 2 high, a client, a

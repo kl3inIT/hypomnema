@@ -5,16 +5,20 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
 // inboxSender sends the owner's reply from the Inbox (issue #1111) to the item's own chat or thread, through his own
@@ -24,14 +28,33 @@ import (
 // thread by the Gmail API, threaded as inbox-zero's replyToEmail threads one (apps/web/utils/gmail/mail.ts: to the
 // Reply-To or From of the mail answered, "Re:" its subject, In-Reply-To and References its Message-ID, and the
 // thread's id). Only the owner's Send calls it; no Bot's tool reaches it.
+//
+// A draft for a group tags the people it names as "@" and their names (issue #1200), each found among the chat's
+// members by a name the chat gives him (messaging.FindTags): the names his kept messages there give him (Zalo,
+// WhatsApp) or Lark's list of the chat's members. A Zalo tag goes to zca-js at its place in the text; a WhatsApp
+// one is written "@" and his number with his id in the message's mentions (issue #852); a Lark one is written
+// <at user_id="ou_…">Name</at> in the text message (Lark's "Sent message content", text). A name nobody, or two
+// people, go by stays text, and so does every name when the members cannot be read. The reply quotes the item's own
+// message where it is known: Zalo's quote and WhatsApp's context of a kept message, Lark's reply to it (POST
+// /open-apis/im/v1/messages/:message_id/reply).
 type inboxSender struct {
 	send func(ctx context.Context, integration, label string, out messaging.Outgoing) (messaging.Message, error)
+	// messages and members read what the server keeps of a Zalo or WhatsApp chat and who is in it, as inboxSent's.
+	messages func(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
+	members  func(ctx context.Context, integration, label, chat string) (messaging.Members, error)
 	// larkToken and googleToken are the access tokens of the owner's Lark and Google Connections, by label.
 	larkToken   func(ctx context.Context, label string) (string, error)
 	googleToken func(ctx context.Context, label string) (string, error)
 	// larkURL is Lark's API, https://open.larksuite.com; gmailURL Gmail's, https://gmail.googleapis.com.
 	larkURL, gmailURL string
 	client            *http.Client
+	log               *slog.Logger
+}
+
+// reader reads chats as inboxSent reads them, with the sender's own accounts.
+func (s inboxSender) reader() inboxSent {
+	return inboxSent{messages: s.messages, members: s.members, larkToken: s.larkToken, larkURL: s.larkURL,
+		client: s.client}
 }
 
 // inboxLarkMe is the owner's own Lark sign-in, which a Lark item without an account is answered with.
@@ -43,7 +66,23 @@ func (s inboxSender) SendAsOwner(ctx context.Context, t inboxstore.Todo, text st
 
 	switch src.Kind {
 	case inboxstore.FromZalo, inboxstore.FromWhatsApp:
-		msg, err := s.send(ctx, src.Kind, src.Account, messaging.Outgoing{Chat: src.ID, Text: text})
+		replyTo, err := s.keptReply(ctx, t)
+		if err != nil {
+			return inboxstore.Link{}, err
+		}
+
+		out := messaging.Outgoing{Chat: src.ID, Text: text, ReplyTo: replyTo}
+
+		tags := s.tags(ctx, src.Kind, src.Account, src.ID, text)
+		if src.Kind == inboxstore.FromZalo {
+			out.Tags = tags
+		} else {
+			out.Text, out.Mentions = writeTags(text, tags, func(tag messaging.Tag) string {
+				return "@" + messaging.MentionUser(tag.ID)
+			})
+		}
+
+		msg, err := s.send(ctx, src.Kind, src.Account, out)
 		if err != nil {
 			return inboxstore.Link{}, err
 		}
@@ -67,8 +106,146 @@ func (s inboxSender) SendAsOwner(ctx context.Context, t inboxstore.Todo, text st
 // sentLabel names the evidence of a reply sent from the Inbox.
 const sentLabel = "Sent from the Inbox"
 
-// lark sends a text message to the item's Lark chat as the owner (POST /open-apis/im/v1/messages, receive_id_type
-// chat_id, with his user access token).
+// itemMessage is the kind of Link that names an item's own message at each messaging service.
+var itemMessage = map[string]string{
+	inboxstore.FromZalo: inboxstore.LinkZaloMessage, inboxstore.FromWhatsApp: inboxstore.LinkWhatsAppMessage,
+	inboxstore.FromLark: inboxstore.LinkLarkMessage,
+}
+
+// replyRef is the id of the item's own message, which the reply quotes; empty when it names none.
+func replyRef(t inboxstore.Todo) string {
+	if t.Source.Ref == nil || t.Source.Ref.Kind != itemMessage[t.Source.Kind] {
+		return ""
+	}
+
+	return t.Source.Ref.Ref
+}
+
+// keptReply is the item's own Zalo or WhatsApp message when the server keeps it, to be quoted: one it does not keep
+// cannot be quoted, and the reply goes without, as the Hermes Zalo plugin sends a reply whose quote it lacks
+// (adapter.py, send: body["quote"] only when its payload is known).
+func (s inboxSender) keptReply(ctx context.Context, t inboxstore.Todo) (string, error) {
+	id := replyRef(t)
+	if id == "" {
+		return "", nil
+	}
+
+	_, err := s.reader().kept(ctx, t.Source.Kind, t.Source.Account, t.Source.ID, id)
+	if errors.Is(err, storeerr.ErrNotFound) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	return id, nil
+}
+
+// tagNamesRead is how many of a chat's latest messages kept are read for the names its members go by: the most a
+// read of the store gives.
+const tagNamesRead = 500
+
+// tags are the members of a group a text names "@" and a name they go by in that chat (messaging.FindTags). None
+// in a direct chat, and none when the members cannot be read: the text then goes as written, as zaloclaw's
+// resolveOutboundMentions and the Hermes Zalo plugin send it when their lookup fails.
+func (s inboxSender) tags(ctx context.Context, service, account, chat, text string) []messaging.Tag {
+	if !strings.Contains(text, "@") {
+		return nil
+	}
+
+	people, err := s.named(ctx, service, account, chat)
+	if err != nil {
+		if s.log != nil {
+			s.log.WarnContext(ctx, "inbox: a draft's tags stay text: the chat's members could not be read",
+				slog.String("service", service), slog.String("chat", chat), slog.String("error", err.Error()))
+		}
+
+		return nil
+	}
+
+	return messaging.FindTags(text, people)
+}
+
+// named are the members of a group with the names the chat gives them: Lark's list of its members, and the names
+// the latest messages kept of a Zalo or WhatsApp chat give their senders, each tagged by the id he sent the latest
+// of them by, as mautrix-whatsapp tags the person by the id the chat knows him by (convertPill). A direct chat has
+// none.
+func (s inboxSender) named(ctx context.Context, service, account, chat string) ([]messaging.Named, error) {
+	in, err := s.reader().chatMembers(ctx, service, account, chat)
+	if err != nil || in.direct {
+		return nil, err
+	}
+
+	people := make([]messaging.Named, len(in.people))
+	who := map[string]int{}
+
+	for i, p := range in.people {
+		for _, id := range p.ids {
+			who[id] = i
+		}
+
+		if p.name != "" && len(p.ids) > 0 {
+			people[i] = messaging.Named{ID: p.ids[0], Names: []string{p.name}}
+		}
+	}
+
+	if service == inboxstore.FromZalo || service == inboxstore.FromWhatsApp {
+		msgs, err := s.messages(ctx, service, account, messaging.Query{Chat: chat, Limit: tagNamesRead})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, m := range msgs {
+			i, ok := who[m.Sender]
+			if !ok || strings.TrimSpace(m.SenderName) == "" {
+				continue
+			}
+
+			if people[i].ID == "" {
+				people[i].ID = m.Sender
+			}
+
+			if !slices.Contains(people[i].Names, m.SenderName) {
+				people[i].Names = append(people[i].Names, m.SenderName)
+			}
+		}
+	}
+
+	return people, nil
+}
+
+// writeTags writes each tag of a text as the service writes one, and gives the ids it tags, once each.
+func writeTags(text string, tags []messaging.Tag, write func(messaging.Tag) string) (string, []string) {
+	if len(tags) == 0 {
+		return text, nil
+	}
+
+	var (
+		b   strings.Builder
+		ids []string
+	)
+
+	at := 0
+	for _, tag := range tags {
+		b.WriteString(text[at:tag.At])
+		b.WriteString(write(tag))
+		at = tag.At + tag.Len
+
+		if !slices.Contains(ids, tag.ID) {
+			ids = append(ids, tag.ID)
+		}
+	}
+
+	b.WriteString(text[at:])
+
+	return b.String(), ids
+}
+
+// lark sends a text message to the item's Lark chat as the owner, with his user access token: a reply to the item's
+// own message when it names one (POST /open-apis/im/v1/messages/:message_id/reply), else a message to the chat
+// (POST /open-apis/im/v1/messages, receive_id_type chat_id). The members it tags are written <at user_id="ou_…">
+// and the name as the text writes it </at> (Lark's text content).
 func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (inboxstore.Link, error) {
 	account := t.Source.Account
 	if account == "" {
@@ -80,12 +257,25 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 		return inboxstore.Link{}, err
 	}
 
+	text, _ = writeTags(text, s.tags(ctx, inboxstore.FromLark, account, t.Source.ID, text),
+		func(tag messaging.Tag) string {
+			return `<at user_id="` + tag.ID + `">` + tag.Name + `</at>`
+		})
+
 	content, err := json.Marshal(map[string]string{"text": text})
 	if err != nil {
 		return inboxstore.Link{}, fmt.Errorf("lark: writing the message: %w", err)
 	}
 
-	body, err := json.Marshal(map[string]string{"receive_id": t.Source.ID, "msg_type": "text", "content": string(content)})
+	message := map[string]string{"receive_id": t.Source.ID, "msg_type": "text", "content": string(content)}
+	target := s.larkURL + "/open-apis/im/v1/messages?receive_id_type=chat_id"
+
+	if id := replyRef(t); id != "" {
+		message = map[string]string{"msg_type": "text", "content": string(content)}
+		target = s.larkURL + "/open-apis/im/v1/messages/" + url.PathEscape(id) + "/reply"
+	}
+
+	body, err := json.Marshal(message)
 	if err != nil {
 		return inboxstore.Link{}, fmt.Errorf("lark: writing the message: %w", err)
 	}
@@ -97,8 +287,7 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 		} `json:"data"`
 	}
 
-	answer, err := s.call(ctx, http.MethodPost, s.larkURL+"/open-apis/im/v1/messages?receive_id_type=chat_id", token,
-		body, &got)
+	answer, err := s.call(ctx, http.MethodPost, target, token, body, &got)
 	if err != nil {
 		return inboxstore.Link{}, fmt.Errorf("lark: sending to %s: %w", t.Source.ID, err)
 	}
