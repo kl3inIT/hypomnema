@@ -1381,6 +1381,21 @@ func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
 	assert.Empty(t, queue)
 }
 
+// Scenario (issue #1192): a pass read pi as working, and the owner's stop settled before it sends. The steer the stop
+// dropped is no longer given, but pi works no more: it is given nothing as a steer, and goes with the queue as the
+// owner's next turn (nextTurn), not alone ahead of it.
+func TestASettledPiIsGivenNoSteer(t *testing.T) {
+	t.Parallel()
+
+	dropped := []orchestration.ChatMessage{{Seq: 2, Role: orchestration.ChatOwner, Text: "look here"}}
+
+	p := &proc{working: true}
+	assert.Len(t, p.unsent(dropped), 1, "a pi that works is steered with a row it was not given")
+
+	p.working = false
+	assert.Empty(t, p.unsent(dropped), "a pi whose turn settled is given no steer")
+}
+
 // sendNow writes an owner message while pi works, which queues it, and sends it now, which steers pi with it.
 func sendNow(t *testing.T, svc *orchestration.Service, sup *Supervisor, chatID, text string) {
 	t.Helper()
