@@ -10,6 +10,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
@@ -69,8 +71,10 @@ const (
 // recallFiller those a recall leaves out besides (its RECALL_FILLER, :748), with the common Vietnamese syllables
 // (issue #1218): the pronouns, particles and function words of stopwords-iso's Vietnamese list (stopwords-vi, MIT)
 // that a question is made of, and the counterparts of RECALL_FILLER's ("biết" know, "giúp" help, "nhớ" remember).
-// A Vietnamese word is its syllables, split at spaces, so the list is of syllables; a word typed without its marks
-// is not in it.
+// A Vietnamese word is its syllables, split at spaces, so the list is of syllables. The index folds the marks
+// (unicode61 remove_diacritics 2), so a syllable typed without them finds every marked one: one that is a filler's
+// unmarked form ("biet", "khong") is filler too (unmarkedFiller), while a marked syllable is filler only as written
+// ("bán", sell, is a word though "ban" is filler).
 var (
 	searchStopWords = strings.Fields("a an and are as at be by did do for from had has have how i in is it its of on " +
 		"or that the this to was we were what when where which who why with you your")
@@ -83,7 +87,41 @@ var (
 			"trong trên về vào ra lên từ đến tới này đó đây ấy kia nào gì sao vậy thế bị bởi vì để các những một "+
 			"mỗi cái thể "+
 			"biết giúp hỏi nói xem muốn cần làm ơn cảm xin chào nhớ lại nữa thôi"))
+	unmarkedFiller = unmarkedAll(recallFiller)
 )
+
+// unmarked is a word without its marks, as FTS5's unicode61 tokenizer with remove_diacritics 2 folds it: each
+// letter decomposed and its combining marks dropped, so "ế" and "ư" fold to "e" and "u" and "đ", a letter of its
+// own, stays.
+func unmarked(w string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Mn, r) {
+			return -1
+		}
+
+		return r
+	}, norm.NFD.String(w))
+}
+
+// unmarkedAll are the words without their marks, each once.
+func unmarkedAll(words []string) []string {
+	var out []string
+
+	for _, w := range words {
+		if u := unmarked(w); !slices.Contains(out, u) {
+			out = append(out, u)
+		}
+	}
+
+	return out
+}
+
+// isFiller says whether a recall leaves a word out: a stop word, a filler as written, or a word typed without marks
+// that is a filler's unmarked form.
+func isFiller(w string) bool {
+	return slices.Contains(searchStopWords, w) || slices.Contains(recallFiller, w) ||
+		(unmarked(w) == w && slices.Contains(unmarkedFiller, w))
+}
 
 // ChatHit is a message chat_search found.
 type ChatHit struct {
@@ -346,6 +384,12 @@ func (s *Service) Recall(ctx context.Context, chatID, message string) (string, e
 	return renderRecall(passages), nil
 }
 
+// Recalls says whether chatID's Bot recalls now: whether its switches give it the chats family, chat_search's. A
+// turn given again with the recall kept for it asks this first (coordinator/recall.go).
+func (s *Service) Recalls(ctx context.Context, chatID string) (bool, error) {
+	return recalls(ctx, s.read(), chatID)
+}
+
 // recalls says whether chatID's Bot recalls: whether its switches give it the chats family, chat_search's.
 func recalls(ctx context.Context, q *store.Queries, chatID string) (bool, error) {
 	chat, err := q.GetChat(ctx, chatID)
@@ -515,13 +559,13 @@ func recallTerms(text string) []string {
 
 	for _, field := range strings.Fields(text) {
 		for _, raw := range splitBetweenLetters(field) {
-			w := strings.ToLower(strings.TrimFunc(strings.ReplaceAll(raw, `"`, ""), func(r rune) bool {
+			w := norm.NFC.String(strings.ToLower(strings.TrimFunc(strings.ReplaceAll(raw, `"`, ""), func(r rune) bool {
 				return unicode.IsSpace(r) || strings.ContainsRune(".,;:!?()[]{}'`“”‘’", r)
-			}))
+			})))
 
 			short := utf8.RuneCountInString(w) < 2 && !strings.ContainsFunc(w, unicode.IsDigit)
 			if short || !strings.ContainsFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) ||
-				slices.Contains(searchStopWords, w) || slices.Contains(recallFiller, w) || slices.Contains(out, w) {
+				isFiller(w) || slices.Contains(out, w) {
 				continue
 			}
 

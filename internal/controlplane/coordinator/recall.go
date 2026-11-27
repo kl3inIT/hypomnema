@@ -40,8 +40,9 @@ type turnRecall struct {
 	block string
 }
 
-// withRecall is the turn's text with what it recalls in front, made once for the turn of rows seqs. A recall that
-// fails is logged and the turn goes without it, as OpenMausBot's buildRecall gives nothing on an error.
+// withRecall is the turn's text with what it recalls in front, made once for the turn of rows seqs and given again
+// only while the Bot's switches still give it chat_search. A recall that fails is logged and the turn goes without
+// it, as OpenMausBot's buildRecall gives nothing on an error.
 func (s *Supervisor) withRecall(ctx context.Context, chatID string, msgs []orchestration.ChatMessage, seqs []int64,
 	text string,
 ) string {
@@ -55,20 +56,29 @@ func (s *Supervisor) withRecall(ctx context.Context, chatID string, msgs []orche
 	s.mu.Unlock()
 
 	block := kept.block
-	if !ok || !slices.Equal(kept.seqs, seqs) {
-		var err error
 
-		block, err = s.svc.Recall(ctx, chatID, words)
-		if err != nil {
-			s.cfg.Logger.WarnContext(ctx, "recalling the Bot's earlier chats failed", slog.String("chat_id", chatID),
-				slog.String("event", "coordinator.recall_failed"), slog.String("error", err.Error()))
+	var err error
 
-			return text
+	if ok && slices.Equal(kept.seqs, seqs) {
+		// The Bot's switches are read again: a recall kept from before the owner switched chats off is not given.
+		var on bool
+		if on, err = s.svc.Recalls(ctx, chatID); err == nil && !on {
+			block = ""
 		}
+	} else {
+		block, err = s.svc.Recall(ctx, chatID, words)
+		if err == nil {
+			s.mu.Lock()
+			s.recalls[chatID] = turnRecall{seqs: slices.Clone(seqs), block: block}
+			s.mu.Unlock()
+		}
+	}
 
-		s.mu.Lock()
-		s.recalls[chatID] = turnRecall{seqs: slices.Clone(seqs), block: block}
-		s.mu.Unlock()
+	if err != nil {
+		s.cfg.Logger.WarnContext(ctx, "recalling the Bot's earlier chats failed", slog.String("chat_id", chatID),
+			slog.String("event", "coordinator.recall_failed"), slog.String("error", err.Error()))
+
+		return text
 	}
 
 	if block == "" {
