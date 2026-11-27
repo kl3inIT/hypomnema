@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // Scenario: the starting profiles' instructions rewritten (issue #672). An
@@ -114,10 +116,10 @@ func TestMigrationTellsTheSeededReviewerWhatChanged(t *testing.T) {
 					assert.Contains(t, instruction, text)
 				}
 
-				assert.Equal(t, sourceDigest(source), digest, "what ApplyProfile writes for that YAML")
+				assert.Equal(t, profilestore.SourceDigest(source), digest, "what ApplyProfile writes for that YAML")
 
-				var seeded profileSource
-				require.NoError(t, decodeStrict(source, &seeded))
+				seeded, err := profilestore.DecodeSource(source)
+				require.NoError(t, err)
 				assert.Equal(t, seeded.Instruction, instruction, "the instruction is the source's")
 
 				_, err = p.DownTo(ctx, tc.before)

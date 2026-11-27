@@ -30,7 +30,7 @@ func gatewayOver(t *testing.T, svc *orchestration.Service) *modelgateway.Service
 
 	return modelgateway.New(db, platform.SystemClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := svc.GetProvider(ctx, name)
+			p, err := svc.Profiles().GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}

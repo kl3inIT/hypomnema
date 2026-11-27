@@ -14,6 +14,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
@@ -206,8 +207,8 @@ func gatewayServedLimits(
 ) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 		switch kind {
-		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo,
-			orchestration.ProviderOpenCodeZen:
+		case profilestore.ProviderAntigravitySubscription, profilestore.ProviderOpenCodeGo,
+			profilestore.ProviderOpenCodeZen:
 			runtime, _ := subscription.ProviderRuntime(kind)
 
 			return subs.ServedLimits(listDeadline(ctx), runtime, upstream)
@@ -221,7 +222,7 @@ func gatewayServedLimits(
 // model on, from its model list, waiting as gatewayServedLimits does.
 func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstream string) (string, bool) {
 	return func(ctx context.Context, kind, upstream string) (string, bool) {
-		if kind != orchestration.ProviderOpenCodeGo && kind != orchestration.ProviderOpenCodeZen {
+		if kind != profilestore.ProviderOpenCodeGo && kind != profilestore.ProviderOpenCodeZen {
 			return "", false
 		}
 
@@ -234,7 +235,7 @@ func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstrea
 // gatewayProviderList lists every provider for the gateway, which serves each subscription's models (issue #549).
 func gatewayProviderList(svc *orchestration.Service) func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
 	return func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
-		ps, err := svc.ListProviders(ctx)
+		ps, err := svc.Profiles().ListProviders(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +254,7 @@ func gatewayProviderList(svc *orchestration.Service) func(ctx context.Context) (
 // gatewayProviders gives the gateway the providers orchestration keeps.
 func gatewayProviders(svc *orchestration.Service) modelgateway.Providers {
 	return func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-		p, err := svc.GetProvider(ctx, name)
+		p, err := svc.Profiles().GetProvider(ctx, name)
 		if errors.Is(err, orchestration.ErrNotFound) {
 			return modelgateway.ProviderInfo{}, fmt.Errorf("%w: provider %q", modelgateway.ErrNotFound, name)
 		}

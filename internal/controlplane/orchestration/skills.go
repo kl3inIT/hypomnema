@@ -247,26 +247,6 @@ func (s *Service) DeleteSkill(ctx context.Context, name string) error {
 	})
 }
 
-// checkSkills checks the skills a profile adds and turns off: each one that
-// exists, named once, and not in both lists.
-func checkSkills(ctx context.Context, q *store.Queries, add, off []string) error {
-	seen := map[string]bool{}
-
-	for _, name := range slices.Concat(add, off) {
-		if seen[name] {
-			return fmt.Errorf("%w: skill %q is named twice", ErrInvalid, name)
-		}
-
-		seen[name] = true
-
-		if _, err := q.GetSkill(ctx, name); err != nil {
-			return fmt.Errorf("skills: %w", notFound(err, "skill", name))
-		}
-	}
-
-	return nil
-}
-
 // recordSkills gives a new Dispatch its skills at their newest revisions:
 // those for everyone that its profile version does not turn off, and those it
 // adds, each whose requirements its Run meets (workerHas).

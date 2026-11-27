@@ -12,6 +12,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The scheduler scenarios: admission at the limit, the order of ready Tasks,
@@ -41,7 +42,7 @@ func newAccountWorld(t *testing.T) (*world, Account) {
 
 	w.held = w.addAccount("codex", "acct_1")
 
-	_, _, err := w.s.ApplyProfile(t.Context(), "", "name: implementer\ndescription: d\nruntime: codex\n")
+	_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "", "name: implementer\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
 	return w, w.held
@@ -370,11 +371,11 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
+	implementer, _, err := w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: implementer\ndescription: d\nruntime: claude\n"+
 			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: reviewer\ndescription: d\nruntime: codex\n")
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "", "name: reviewer\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
 	w.gatewayAccount("claude")
@@ -408,12 +409,12 @@ func TestAProviderAddedLaterChangesNoDispatch(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
+	implementer, _, err := w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: implementer\ndescription: d\nruntime: claude\n"+
 			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
 	require.NoError(t, err)
 
-	_, err = w.s.ApplyProvider(t.Context(), "",
+	_, err = w.s.Profiles().ApplyProvider(t.Context(), "",
 		"name: opencode-zen\nkind: opencode_zen\nmodels: [claude-opus-5-5, claude-haiku-5-5]\n")
 	require.NoError(t, err)
 
@@ -442,11 +443,11 @@ func TestABareModelHoldsOnlyItsOwnTask(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	_, _, err := w.s.ApplyProfile(t.Context(), "",
+	_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: implementer\ndescription: d\nruntime: claude\n"+
 			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
 	require.NoError(t, err)
-	_, err = w.s.AddProviderModels(t.Context(), "opencode-go", []string{"claude-haiku-5-5"})
+	_, err = w.s.Profiles().AddProviderModels(t.Context(), "opencode-go", []string{"claude-haiku-5-5"})
 	require.NoError(t, err)
 
 	w.gatewayAccount("claude")
@@ -803,19 +804,19 @@ func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
 
 	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_1" })
 
-	router, err := s.GetProvider(ctx, "router")
+	router, err := s.Profiles().GetProvider(ctx, "router")
 	require.NoError(t, err)
 	assert.Equal(t, "http://router/v1", router.BaseURL)
 	assert.Equal(t, "vault:router", router.APIKeyRef)
 	assert.Equal(t, []string{"cx/gpt"}, router.Models)
 
-	claude, err := s.GetProvider(ctx, "claude-subscription")
+	claude, err := s.Profiles().GetProvider(ctx, "claude-subscription")
 	require.NoError(t, err)
 	assert.Contains(t, claude.Models, "claude-opus-5-5")
 
-	antigravity, err := s.GetProvider(ctx, "antigravity-subscription")
+	antigravity, err := s.Profiles().GetProvider(ctx, "antigravity-subscription")
 	require.NoError(t, err)
-	assert.Equal(t, ProviderAntigravitySubscription, antigravity.Kind)
+	assert.Equal(t, profilestore.ProviderAntigravitySubscription, antigravity.Kind)
 	assert.Contains(t, antigravity.Models, "gemini-3.8-flash-high")
 
 	var named int
@@ -824,10 +825,10 @@ func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
 		(SELECT count(*) FROM gateway_model_targets WHERE provider = 'router')`).Scan(&named))
 	assert.Equal(t, 1, named, "the versions of pi's profile left with it when it became a Bot (00045)")
 
-	_, err = s.ApplyProvider(ctx, "", "name: agy2\nkind: antigravity_subscription\nmodels: [m]\n")
+	_, err = s.Profiles().ApplyProvider(ctx, "", "name: agy2\nkind: antigravity_subscription\nmodels: [m]\n")
 	require.NoError(t, err)
 
-	_, err = s.ApplyProvider(ctx, "", "name: odd\nkind: telepathy\nmodels: [m]\n")
+	_, err = s.Profiles().ApplyProvider(ctx, "", "name: odd\nkind: telepathy\nmodels: [m]\n")
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
@@ -841,12 +842,12 @@ func TestAModelTheGatewayServesNeedsNoAccountOnANode(t *testing.T) {
 	w := newSchedWorld(t)
 	w.addNode("node_codex", 2, "codex")
 
-	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	_, err := w.s.Profiles().ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(t.Context(), "",
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "", "name: codex-own\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
 	w.tasks(
@@ -860,7 +861,7 @@ func TestAModelTheGatewayServesNeedsNoAccountOnANode(t *testing.T) {
 	d := w.dispatchOf(created[0])
 	assert.Equal(t, "g", w.task(d.TaskID).Spec)
 	assert.Equal(t, "gpt-sol", d.Model)
-	assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+	assert.Equal(t, profilestore.GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
 
 	before := w.lastSeq()
 	resets := t0.Add(2 * time.Hour)
@@ -875,7 +876,7 @@ func TestAModelTheGatewayServesNeedsNoAccountOnANode(t *testing.T) {
 	}
 
 	// pi runs on the control plane with a key of its own, not under a Dispatch.
-	_, _, err = w.s.ApplyProfile(t.Context(), "",
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: pi-worker\ndescription: d\nruntime: pi\nmodel: {provider: gateway, name: gpt-sol}\n")
 	require.ErrorIs(t, err, ErrInvalid)
 }
@@ -889,9 +890,10 @@ func TestAClaudeCodeWorkerMayRunThroughTheGateway(t *testing.T) {
 	w := newSchedWorld(t)
 	w.addNode("node_claude", 2, "claude")
 
-	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-sonnet]\n")
+	_, err := w.s.Profiles().ApplyProvider(t.Context(), "",
+		"name: gateway\nkind: model_gateway\nmodels: [claude-sonnet]\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(t.Context(), "",
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: claude-gateway\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-sonnet}\n")
 	require.NoError(t, err)
 
@@ -902,7 +904,7 @@ func TestAClaudeCodeWorkerMayRunThroughTheGateway(t *testing.T) {
 
 	d := w.dispatchOf(created[0])
 	assert.Equal(t, "claude-sonnet", d.Model)
-	assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+	assert.Equal(t, profilestore.GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
 }
 
 // Scenario: Codex speaks only OpenAI Responses, which the gateway passes on to a Codex subscription alone, so a
@@ -912,7 +914,7 @@ func TestACodexProfileNamesNoOtherSubscription(t *testing.T) {
 
 	w := newSchedWorld(t)
 
-	_, _, err := w.s.ApplyProfile(t.Context(), "",
+	_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: codex-claude\ndescription: d\nruntime: codex\nmodel: {provider: claude-subscription, name: claude-opus-5-5}\n")
 	require.ErrorIs(t, err, ErrInvalid)
 	assert.ErrorContains(t, err, "runtime codex cannot run against provider claude-subscription")
@@ -929,11 +931,11 @@ func TestACodexWorkerUnderTheSubscriptionRunsThroughTheGateway(t *testing.T) {
 	codexNode := w.addNode("node_codex", 2, "codex")
 	w.gatewayAccount("codex")
 
-	_, _, err := w.s.ApplyProfile(t.Context(), "",
+	_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: codex-sub\ndescription: d\nruntime: codex\nmodel: {provider: codex-subscription, name: gpt-6.1-sol}\n")
 	require.NoError(t, err)
 
-	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: claude-table\ndescription: d\nruntime: claude\n"+
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "", "name: claude-table\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
 
@@ -952,7 +954,7 @@ func TestACodexWorkerUnderTheSubscriptionRunsThroughTheGateway(t *testing.T) {
 
 		for _, o := range pending.Offers {
 			d := w.dispatchOf(o.DispatchID)
-			assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef, d.Model)
+			assert.Equal(t, profilestore.GatewayAccountRef, w.conversation(d.ConversationID).AccountRef, d.Model)
 			apis[d.Model] = o.ModelAPI
 		}
 	}
@@ -972,21 +974,21 @@ func TestProfilesSayWhetherAWorkerCanStartNow(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	_, err := w.s.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(ctx, "",
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
-	availability := func() map[string]*Availability {
+	availability := func() map[string]*profilestore.Availability {
 		t.Helper()
 
-		profiles, err := w.s.ListProfiles(ctx)
+		profiles, err := w.s.Profiles().ListProfiles(ctx)
 		require.NoError(t, err)
 
-		out := map[string]*Availability{}
+		out := map[string]*profilestore.Availability{}
 		for _, p := range profiles {
 			out[p.Name] = p.Availability
 		}
@@ -995,29 +997,32 @@ func TestProfilesSayWhetherAWorkerCanStartNow(t *testing.T) {
 	}
 
 	got := availability()
-	assert.Equal(t, &Availability{Available: true}, got["implementer"], "node_a has claude; the gateway serves it")
-	assert.Equal(t, &Availability{Reason: ReasonNoNode}, got["codex-worker"], "no node has codex")
+	assert.Equal(t, &profilestore.Availability{Available: true}, got["implementer"],
+		"node_a has claude; the gateway serves it")
+	assert.Equal(t, &profilestore.Availability{Reason: ReasonNoNode}, got["codex-worker"], "no node has codex")
 	assert.Nil(t, got["coordinator"], "pi is not a worker's runtime")
 
 	codexNode := w.addNode("node_codex", 2, "codex")
 
 	got = availability()
-	assert.Equal(t, &Availability{Available: true}, got["codex-worker"], "the gateway serves it: no account needed")
-	assert.Equal(t, &Availability{Reason: ReasonNoAccount}, got["codex-own"], "codex has no account on a node")
+	assert.Equal(t, &profilestore.Availability{Available: true}, got["codex-worker"],
+		"the gateway serves it: no account needed")
+	assert.Equal(t, &profilestore.Availability{Reason: ReasonNoAccount}, got["codex-own"],
+		"codex has no account on a node")
 
-	one, err := w.s.GetProfile(ctx, "codex-own")
+	one, err := w.s.Profiles().GetProfile(ctx, "codex-own")
 	require.NoError(t, err)
-	assert.Equal(t, &Availability{Reason: ReasonNoAccount}, one.Availability)
+	assert.Equal(t, &profilestore.Availability{Reason: ReasonNoAccount}, one.Availability)
 
 	w.addAccount("codex", "acct_1")
-	assert.Equal(t, &Availability{Available: true}, availability()["codex-own"], "acct_1 is free")
+	assert.Equal(t, &profilestore.Availability{Available: true}, availability()["codex-own"], "acct_1 is free")
 
 	// A node at its limit still counts: the Task waits its turn.
 	w.tasks(NewTask{Ref: "g", Profile: "codex-worker", Spec: "g"}, NewTask{Ref: "c", Profile: "codex-own", Spec: "c"})
 
 	created := w.schedule().Created
 	require.Len(t, created, 2)
-	assert.Equal(t, &Availability{Available: true}, availability()["codex-worker"], "node_codex runs 2 of 2")
+	assert.Equal(t, &profilestore.Availability{Available: true}, availability()["codex-worker"], "node_codex runs 2 of 2")
 
 	// The only account of the runtime cools down until its limit resets.
 	var own string
@@ -1030,16 +1035,17 @@ func TestProfilesSayWhetherAWorkerCanStartNow(t *testing.T) {
 
 	resets := t0.Add(2 * time.Hour)
 	require.NoError(t, w.finish(w.begin(own), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
-	assert.Equal(t, &Availability{Reason: ReasonAccountsCooling, At: &resets}, availability()["codex-own"])
-	assert.Equal(t, &Availability{Available: true}, availability()["codex-worker"], "the gateway cools its own")
+	assert.Equal(t, &profilestore.Availability{Reason: ReasonAccountsCooling, At: &resets}, availability()["codex-own"])
+	assert.Equal(t, &profilestore.Availability{Available: true}, availability()["codex-worker"],
+		"the gateway cools its own")
 
 	second := w.addAccount("codex", "acct_2")
-	assert.Equal(t, &Availability{Available: true}, availability()["codex-own"], "acct_2 is free")
+	assert.Equal(t, &profilestore.Availability{Available: true}, availability()["codex-own"], "acct_2 is free")
 	require.NoError(t, w.s.DisableAccount(ctx, second.ID))
 
 	// A drained node runs no new worker.
 	require.NoError(t, w.s.DrainNode(ctx, codexNode.ID))
-	assert.Equal(t, &Availability{Reason: ReasonNoNode}, availability()["codex-own"])
+	assert.Equal(t, &profilestore.Availability{Reason: ReasonNoNode}, availability()["codex-own"])
 }
 
 // Scenario: a Claude Code Task whose profile names no provider of kind
@@ -1061,9 +1067,9 @@ func TestAClaudeCodeTaskWithoutTheGatewayIsNotPlaced(t *testing.T) {
 	_, err = w.s.AddTokenAccount(ctx, "codex", "work", func(id string) string { return "vault:" + id })
 	require.ErrorIs(t, err, ErrInvalid, "only Claude Code's token is one to paste")
 
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: claude-own\ndescription: d\nruntime: claude\n")
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: claude-own\ndescription: d\nruntime: claude\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
 	w.addNode("node_codex", 2, "codex")
@@ -1081,9 +1087,9 @@ func TestAClaudeCodeTaskWithoutTheGatewayIsNotPlaced(t *testing.T) {
 	assert.Equal(t, "x", w.task(d.TaskID).Spec)
 	assert.Equal(t, "codex", w.conversation(d.ConversationID).Runtime)
 
-	profile, err := w.s.GetProfile(ctx, "claude-own")
+	profile, err := w.s.Profiles().GetProfile(ctx, "claude-own")
 	require.NoError(t, err)
-	assert.Equal(t, &Availability{Reason: ReasonNeedsGateway}, profile.Availability)
+	assert.Equal(t, &profilestore.Availability{Reason: ReasonNeedsGateway}, profile.Availability)
 
 	w.advance(UnplaceableAfter)
 
@@ -1105,12 +1111,12 @@ func TestTaskMovesToABackupProfileWhenItsOwnIsOutOfQuota(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	_, _, err := w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
-	backup, _, err := w.s.ApplyProfile(ctx, "",
+	backup, _, err := w.s.Profiles().ApplyProfile(ctx, "",
 		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
-	writer, _, err := w.s.ApplyProfile(ctx, "",
+	writer, _, err := w.s.Profiles().ApplyProfile(ctx, "",
 		"name: writer\ndescription: d\nruntime: codex\nfallbacks: [codex-own, claude-worker]\n")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex-own", "claude-worker"}, writer.Fallbacks)
@@ -1149,7 +1155,7 @@ func TestTaskMovesToABackupProfileWhenItsOwnIsOutOfQuota(t *testing.T) {
 		assert.Equal(t, "writer", d.FallbackFor)
 		require.NotNil(t, d.FallbackUntil)
 		assert.Equal(t, resets, *d.FallbackUntil)
-		assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+		assert.Equal(t, profilestore.GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
 	}
 
 	require.Len(t, out.Escalations, 1, "one notice for the stretch, not one per Task")
@@ -1186,10 +1192,10 @@ func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	backup, _, err := w.s.ApplyProfile(ctx, "",
+	backup, _, err := w.s.Profiles().ApplyProfile(ctx, "",
 		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(ctx, "",
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "",
 		"name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
 	require.NoError(t, err)
 
@@ -1306,10 +1312,11 @@ func TestTaskThatWroteThroughAnAccountIsNotHandedOff(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	_, _, err := w.s.ApplyProfile(ctx, "",
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "",
 		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "",
+		"name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
 	require.NoError(t, err)
 	w.addNode("node_both", 4, "claude", "codex")
 	w.addAccount("codex", "codex_1")
@@ -1348,7 +1355,7 @@ func TestFallbacksNameOtherWorkerProfiles(t *testing.T) {
 
 	w := newWorld(t)
 	apply := func(source string) error {
-		_, _, err := w.s.ApplyProfile(t.Context(), "", source)
+		_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "", source)
 
 		return err
 	}
@@ -1371,10 +1378,11 @@ func TestABotsTaskFallsBackOnlyToItsWorkers(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	_, _, err := w.s.ApplyProfile(ctx, "",
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "",
 		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "",
+		"name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
 	require.NoError(t, err)
 
 	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"writer"}}})

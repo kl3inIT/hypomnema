@@ -16,6 +16,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -39,20 +40,20 @@ func newZenGateway(t *testing.T, zen, goRoot *goBackend, subs modelgateway.Subsc
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
-	seeded, err := orch.GetProvider(t.Context(), "opencode-zen")
+	seeded, err := orch.Profiles().GetProvider(t.Context(), "opencode-zen")
 	require.NoError(t, err, "the migration seeds the provider")
-	assert.Equal(t, orchestration.ProviderOpenCodeZen, seeded.Kind)
+	assert.Equal(t, profilestore.ProviderOpenCodeZen, seeded.Kind)
 
-	_, err = orch.ApplyProvider(t.Context(), "",
+	_, err = orch.Profiles().ApplyProvider(t.Context(), "",
 		"name: opencode-zen\nkind: opencode_zen\nmodels: [glm-5.3, claude-sonnet-5-5, gpt-6.1-sol]\n")
 	require.NoError(t, err)
-	_, err = orch.ApplyProvider(t.Context(), "",
+	_, err = orch.Profiles().ApplyProvider(t.Context(), "",
 		"name: opencode-go\nkind: opencode_go\nmodels: [glm-5.3, minimax-m3, gpt-6-luna]\n")
 	require.NoError(t, err)
 
 	svc := modelgateway.New(db, platform.SystemClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := orch.GetProvider(ctx, name)
+			p, err := orch.Profiles().GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}
@@ -65,11 +66,11 @@ func newZenGateway(t *testing.T, zen, goRoot *goBackend, subs modelgateway.Subsc
 		WithKeyVault(testKeyVault(t, db)).
 		WithServedWire(func(_ context.Context, kind, upstream string) (string, bool) {
 			switch kind {
-			case orchestration.ProviderOpenCodeZen:
+			case profilestore.ProviderOpenCodeZen:
 				wire, ok := zenWires[upstream]
 
 				return wire, ok
-			case orchestration.ProviderOpenCodeGo:
+			case profilestore.ProviderOpenCodeGo:
 				wire, ok := goWires[upstream]
 
 				return wire, ok

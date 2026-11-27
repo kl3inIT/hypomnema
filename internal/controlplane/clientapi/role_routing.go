@@ -8,7 +8,7 @@ import (
 
 func (s *Server) GetRoleRouting(ctx context.Context, _ openapi.GetRoleRoutingRequestObject,
 ) (openapi.GetRoleRoutingResponseObject, error) {
-	source, err := s.svc.RoleRouting(ctx)
+	source, err := s.svc.Profiles().RoleRouting(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -17,7 +17,7 @@ func (s *Server) GetRoleRouting(ctx context.Context, _ openapi.GetRoleRoutingReq
 
 func (s *Server) PutRoleRouting(ctx context.Context, req openapi.PutRoleRoutingRequestObject,
 ) (openapi.PutRoleRoutingResponseObject, error) {
-	if err := s.svc.ApplyRoleRouting(ctx, req.Body.Source); err != nil {
+	if err := s.svc.Profiles().ApplyRoleRouting(ctx, req.Body.Source); err != nil {
 		return nil, err
 	}
 	return openapi.PutRoleRouting204Response{}, nil

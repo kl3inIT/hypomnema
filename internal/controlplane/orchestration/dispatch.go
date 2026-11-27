@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The Dispatch lifecycle (issue #19, PR 2): the coordinator creates a
@@ -73,8 +74,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
 	case until != 0:
 		return fmt.Errorf("%w: gateway model %s waits until %s", ErrCoolingDown, r.model, millis(until))
-	case gatewayOnly(r.runtime) && !r.gateway:
-		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
+	case profilestore.GatewayOnly(r.runtime) && !r.gateway:
+		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, profilestore.NeedsGatewayMessage) // issue #381
 	case len(r.chain) > 0 && !spec.Continue && r.runtime != spec.Runtime:
 		return fmt.Errorf("%w: role routing selected runtime %s", ErrInvalid, r.runtime)
 	}
@@ -724,7 +725,7 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		return notFound(err, "conversation", d.ConversationID)
 	}
 	var knownGatewayReset bool
-	if class == FailureRateLimited && conv.AccountRef == GatewayAccountRef {
+	if class == FailureRateLimited && conv.AccountRef == profilestore.GatewayAccountRef {
 		resetsAt, knownGatewayReset, err = gatewayReset(ctx, q, now, d, conv)
 		if err != nil {
 			return err
@@ -871,7 +872,7 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			return err
 		}
 
-		if !may || (conv.AccountRef == GatewayAccountRef && d.RoleChain == "") {
+		if !may || (conv.AccountRef == profilestore.GatewayAccountRef && d.RoleChain == "") {
 			if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
 				NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
 			}); err != nil {
@@ -926,7 +927,7 @@ func stalledAttempts(ctx context.Context, q *store.Queries, taskID string) (bool
 func coolAccount(ctx context.Context, q *store.Queries, now int64, dispatchID string, conv store.Conversation,
 	until int64,
 ) error {
-	if conv.AccountRef == GatewayAccountRef {
+	if conv.AccountRef == profilestore.GatewayAccountRef {
 		return nil // the gateway cools its own accounts down
 	}
 

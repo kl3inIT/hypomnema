@@ -147,7 +147,7 @@ func TestBotFallbacksFromTheCLI(t *testing.T) {
 
 	w := newWorld(t)
 	w.login(t, bearertoken.Owner)
-	_, err := w.svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\n"+
+	_, err := w.svc.Profiles().ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\n"+
 		"models: [primary, first, second]\n")
 	require.NoError(t, err)
 
@@ -175,7 +175,7 @@ func TestABotsEffortAloneKeepsItsModel(t *testing.T) {
 
 	w := newWorld(t)
 	w.login(t, bearertoken.Owner)
-	_, err := w.svc.ApplyProvider(t.Context(), "", "name: router\nkind: openai_compatible\n"+
+	_, err := w.svc.Profiles().ApplyProvider(t.Context(), "", "name: router\nkind: openai_compatible\n"+
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [qwen/qwen3]\n")
 	require.NoError(t, err)
 

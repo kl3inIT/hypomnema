@@ -268,7 +268,7 @@ func TestMigrationClearsCapsAndKeepsBotsNumbers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 8, bot.Guarantee())
 
-	explorer, err := s.GetProfile(ctx, "explorer")
+	explorer, err := s.Profiles().GetProfile(ctx, "explorer")
 	require.NoError(t, err)
 	assert.Equal(t, [2]int64{500, 512 << 20}, [2]int64{explorer.CPURequestMillis, explorer.MemoryRequestBytes})
 }

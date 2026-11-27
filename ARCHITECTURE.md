@@ -2312,7 +2312,9 @@ flowchart LR
   keep their entry; cooling accounts can trigger a handoff to a later entry on the same node and worktree.
   All entries share their role's profile version and memory. See [role routing](docs/role-routing.md) for the
   mapping, owner commands, metrics and migration path for existing profiles and Bots.
-- Legacy profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
+- Legacy profiles (the domain store `orchestration/profilestore` keeps profiles, their versions, the role routing and
+  the providers and models they name, reached through `Service.Profiles()`, issue #1241; issue #42, after Omnara's
+  agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
@@ -2341,7 +2343,7 @@ flowchart LR
   cools down is the gateway's to find. Every model is named with its provider (issue #1002, owner 2026-11-20): a
   profile's `model` gives its `provider`, a Bot's and a chat's model their provider, a role-routing entry its
   `provider`, and a Task's own model is `<provider>/<model>` (`-model opencode-go/deepseek-v4-pro`), read at its
-  first slash (`orchestration` `modelRef`, as 9router's `parseModel`). A bare name is refused when it is applied,
+  first slash (`profilestore` `ModelRef`, as 9router's `parseModel`). A bare name is refused when it is applied,
   when the Task is made and when it is dispatched, with the names it could be written as ("name it
   <provider>/<model>, such as …", as omniroute's "Use provider/model prefix" and LiteLLM's "Pass model as E.g.
   huggingface/starcoder"); it is never resolved by which provider offers it, so a provider added later (OpenCode
@@ -7153,6 +7155,7 @@ internal/controlplane/orchestration/internal/storeutil  what its stores share: t
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
+internal/controlplane/orchestration/profilestore  the profiles and their versions, the role routing, and the providers and models they name: applying, checking, deleting and restoring a version, a profile's requests, reached through orchestration's Profiles(); a profile changed from the main Bot's chat, a profile's availability and what a Dispatch runs with stay in orchestration
 internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
 internal/controlplane/orchestration/inboxstore  the Inbox's to-dos, their state machine and history, reached through orchestration's Inbox()
 internal/controlplane/inbox  the owner's own chats as the Inbox reads and answers them: a message given as evidence, who asked and who is in a chat, his reply sent from an item

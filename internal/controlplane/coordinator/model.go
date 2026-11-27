@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // A chat's model and effort (issue #369) are its own, as a t3code thread's, an
@@ -42,8 +43,8 @@ func (s *Supervisor) chatModel(ctx context.Context, chatID string) (string, orch
 	if err != nil {
 		return "", orchestration.ChatModel{}, err
 	}
-	if chat.Choice.Model == "" && len(b.Fallbacks) > 0 && m.Provider == orchestration.PiProvider {
-		m.Provider = orchestration.PiFallbackProvider
+	if chat.Choice.Model == "" && len(b.Fallbacks) > 0 && m.Provider == profilestore.PiProvider {
+		m.Provider = profilestore.PiFallbackProvider
 	}
 
 	return b.ID, m, nil

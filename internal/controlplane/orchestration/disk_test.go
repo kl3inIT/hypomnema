@@ -161,7 +161,7 @@ func TestDiskDoesNotHidePinnedAccountRevocation(t *testing.T) {
 	t.Parallel()
 	w := newSchedWorld(t)
 	ctx := t.Context()
-	_, _, err := w.s.ApplyProfile(ctx, "", "name: own-codex\ndescription: d\nruntime: codex\n")
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: own-codex\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 	node := w.addNode("node_codex", 4, "codex")
 	account := w.addAccount("codex", "acct_revoked")

@@ -16,6 +16,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/chatfile"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -171,7 +172,7 @@ func checkChatModel(ctx context.Context, q *store.Queries, m ChatModel) (ChatMod
 		return m, nil
 	}
 
-	provider, err := checkModel(ctx, q, botRuntime, m.Provider, m.Model, "")
+	provider, err := profilestore.CheckModelTx(ctx, q, botRuntime, m.Provider, m.Model, "")
 	if err != nil {
 		return ChatModel{}, err
 	}

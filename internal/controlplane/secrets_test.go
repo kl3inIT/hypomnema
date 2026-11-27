@@ -119,7 +119,7 @@ func TestOwnerKeepsAProviderKeyInTheVault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sk-live-second-value", p.Payload[vault.KeyValue])
 
-	_, err = svc.ApplyProvider(t.Context(), "",
+	_, err = svc.Profiles().ApplyProvider(t.Context(), "",
 		"name: router\nkind: openai_compatible\nbase_url: https://router.example/v1\n"+
 			"api_key_ref: vault:router\nmodels: [m1]\n")
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestOwnerKeepsAProviderKeyInTheVault(t *testing.T) {
 	require.ErrorIs(t, err, vault.ErrInUse)
 	require.ErrorContains(t, err, "provider router")
 
-	_, err = svc.ApplyProvider(t.Context(), "",
+	_, err = svc.Profiles().ApplyProvider(t.Context(), "",
 		"name: router\nkind: openai_compatible\nbase_url: https://router.example/v1\n"+
 			"api_key_ref: ROUTER_KEY\nmodels: [m1]\n")
 	require.NoError(t, err)

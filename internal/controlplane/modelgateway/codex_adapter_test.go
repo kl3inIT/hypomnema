@@ -288,7 +288,7 @@ func newCodexGatewayWithConfig(
 	model := "name: sol\ntargets:\n  - {provider: codex-subscription, model: gpt-6.1-sol}\n"
 
 	for i, p := range fallbacks {
-		_, err := orch.ApplyProvider(t.Context(), "", fmt.Sprintf(
+		_, err := orch.Profiles().ApplyProvider(t.Context(), "", fmt.Sprintf(
 			"name: p%d\nkind: openai_compatible\nbase_url: %s/v1\napi_key_ref: vault:p%d\nmodels: [up]\n", i, p.URL, i))
 		require.NoError(t, err)
 
@@ -297,7 +297,7 @@ func newCodexGatewayWithConfig(
 
 	svc := modelgateway.New(db, platform.SystemClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := orch.GetProvider(ctx, name)
+			p, err := orch.Profiles().GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}
