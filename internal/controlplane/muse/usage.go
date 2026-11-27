@@ -4,11 +4,13 @@ package muse
 // row 9): "Free plan / Weekly limit resets on Sep 30 / 1% used / Additional
 // tokens / Never expires / 0% used (2B tokens left)". Parsed as www222fff's
 // muse2api parses it (src/muse2api/drivers/browser/dom.py:246-277,
-// parse_usage_text, and tests/test_quota_parse.py), English only. The reset
+// parse_usage_text, and tests/test_quota_parse.py), with the Vietnamese
+// wording observed on zm. The reset
 // is kept as the text Muse shows: no timestamp is made of it, since the text
 // names no year and no time zone.
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -30,10 +32,10 @@ type Usage struct {
 }
 
 var (
-	usagePlan  = regexp.MustCompile(`(?i)^.{1,60}?\s+plan$`)
-	usageReset = regexp.MustCompile(`(?i)Weekly limit resets? on ([^\n]+)`)
-	usageExtra = regexp.MustCompile(`(?i)^(?:Additional|Extra)\s+tokens`)
-	usageUsed  = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*%\s*used\b`)
+	usagePlan  = regexp.MustCompile(`(?i)^(?:.{1,60}?\s+plan|Gói\s+.{1,60})$`)
+	usageReset = regexp.MustCompile(`(?i)(?:Weekly limit resets? on|Giới hạn hàng tuần sẽ đặt lại vào) ([^\n]+)`)
+	usageExtra = regexp.MustCompile(`(?i)^(?:(?:Additional|Extra)\s+tokens|Token bổ sung)`)
+	usageUsed  = regexp.MustCompile(`(?i)(?:(\d+(?:\.\d+)?)\s*%\s*used\b|Đã dùng\s+(\d+(?:[.,]\d+)?)\s*%)`)
 	usageLeft  = regexp.MustCompile(`\(([^)]+)\)`)
 )
 
@@ -50,7 +52,7 @@ func ParseUsage(text string) Usage {
 
 	// From the Usage heading to the Language one.
 	for i, line := range lines {
-		if strings.EqualFold(line, "usage") {
+		if strings.EqualFold(line, "usage") || strings.EqualFold(line, "Mức sử dụng") {
 			lines = lines[i+1:]
 
 			break
@@ -58,7 +60,7 @@ func ParseUsage(text string) Usage {
 	}
 
 	for i, line := range lines {
-		if strings.EqualFold(line, "language") {
+		if strings.EqualFold(line, "language") || strings.EqualFold(line, "Ngôn ngữ") {
 			lines = lines[:i]
 
 			break
@@ -116,7 +118,7 @@ func usedPercent(line string) (float64, bool) {
 		return 0, false
 	}
 
-	v, err := strconv.ParseFloat(m[1], 64)
+	v, err := strconv.ParseFloat(strings.ReplaceAll(cmp.Or(m[1], m[2]), ",", "."), 64)
 	if err != nil || v < 0 || v > 100 {
 		return 0, false
 	}

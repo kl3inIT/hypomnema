@@ -274,7 +274,9 @@ func (f *fakeBrowser) Page(_ context.Context, key string, cookies []browser.Cook
 		return m.eval(script)
 	}}
 
-	return &countedPage{accountPage: &accountPage{navigating: &navigating{fakePage: page, site: m}, b: f, cookies: cookies}}, nil
+	return &countedPage{accountPage: &accountPage{
+		navigating: &navigating{fakePage: page, site: m}, b: f, cookies: cookies,
+	}}, nil
 }
 
 // countedPage counts the pages in use: one ends with its last read of cookies.
@@ -470,7 +472,7 @@ func TestAThreadIsNotMovedOffItsAccount(t *testing.T) {
 
 	require.NoError(t, p.store.rest(t.Context(), "acc_1", true, "out of quota"))
 	require.NoError(t, p.store.setUsage(t.Context(), "acc_1", Usage{UsedPercent: 100, Reset: "Sep 30", Found: true},
-		p.clock.Now()))
+		"", p.clock.Now()))
 
 	_, err := p.Ask(t.Context(), Question{Prompt: "more", Thread: aThread})
 	require.ErrorIs(t, err, ErrNoAccount)
@@ -526,7 +528,7 @@ func TestUsageReadWarnsWhenTheReasonChangesAndClearsOnSuccess(t *testing.T) {
 
 	p := newPool(t, "research")
 	require.NoError(t, p.store.setUsage(t.Context(), "acc_1",
-		Usage{UsedPercent: 10, Reset: "Sep 30", Found: true}, p.clock.Now()))
+		Usage{UsedPercent: 10, Reset: "Sep 30", Found: true}, "", p.clock.Now()))
 	var logs bytes.Buffer
 	p.cfg.Logger = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	m := p.browser.site("acc_1")
@@ -546,9 +548,26 @@ func TestUsageReadWarnsWhenTheReasonChangesAndClearsOnSuccess(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(raw, &view))
 		assert.Equal(t, reason, view.UsageError)
-		assert.Equal(t, warnings, bytes.Count(logs.Bytes(), []byte(`"event":"muse.usage_unread"`)))
+
+		var usageWarnings []string
+		for line := range bytes.Lines(logs.Bytes()) {
+			var entry struct {
+				Event   string `json:"event"`
+				Level   string `json:"level"`
+				Account string `json:"account"`
+				Error   string `json:"err"`
+			}
+			require.NoError(t, json.Unmarshal(line, &entry))
+			if entry.Event == "muse.usage_unread" {
+				assert.Equal(t, "WARN", entry.Level)
+				assert.Equal(t, "acc_1", entry.Account)
+				usageWarnings = append(usageWarnings, entry.Error)
+			}
+		}
+
+		assert.Len(t, usageWarnings, warnings)
 		if reason != "" {
-			assert.Contains(t, logs.String(), `"account":"acc_1","err":"`+reason+`"`)
+			assert.Contains(t, usageWarnings, reason)
 		}
 	}
 
@@ -771,7 +790,7 @@ func TestARenewedJarNeverOverwritesANewerSignIn(t *testing.T) {
 	p.browser.renewed = "renewed"
 	name := secretName("acc_1")
 	// The Usage was just read: no read after the answer saves the jar a second time.
-	require.NoError(t, p.store.setUsage(t.Context(), "acc_1", Usage{}, p.clock.Now()))
+	require.NoError(t, p.store.setUsage(t.Context(), "acc_1", Usage{}, "", p.clock.Now()))
 
 	p.vault.beforeRotateAt = func(name string) {
 		p.vault.beforeRotateAt = nil

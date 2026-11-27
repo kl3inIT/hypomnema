@@ -182,7 +182,7 @@ func (m *museSite) eval(script string) (any, error) {
 	case script == settingsEntry:
 		m.usageReads++
 		if m.settingsMissing {
-			return nil, nil
+			return json.RawMessage("null"), nil
 		}
 
 		return map[string]float64{"x": 1, "y": 2}, nil
