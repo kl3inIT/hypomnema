@@ -24,17 +24,27 @@ const inboxChatTitle = 80
 // WakeTx opens the item's chat when w.Chat is empty and writes the wake-up there.
 func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w inboxstore.Wake) (string, error) {
 	chat := w.Chat
+	if w.ChatID != "" {
+		if !IsChatID(w.ChatID) {
+			return "", fmt.Errorf("%w: %s is not a chat id", ErrInvalid, w.ChatID)
+		}
+
+		if chat != "" && chat != w.ChatID {
+			return "", fmt.Errorf("%w: the item already has chat %s for this Bot", ErrConflict, chat)
+		}
+	}
+
 	if chat == "" {
-		chat = k.s.newID("cht")
+		chat = w.ChatID
 
 		title := []rune(w.Todo.Title)
 		if len(title) > inboxChatTitle {
 			title = append(title[:inboxChatTitle-1], '…')
 		}
 
-		if err := q.InsertChat(ctx, store.InsertChatParams{
-			ID: chat, Title: "Inbox: " + string(title), Bot: w.Bot, Now: now,
-		}); err != nil {
+		var err error
+		chat, _, err = k.s.createChatTx(ctx, q, now, chat, w.Bot, "Inbox: "+string(title), ChatModel{}, notMain)
+		if err != nil {
 			return "", fmt.Errorf("opening the chat of to-do %s: %w", w.Todo.ID, err)
 		}
 	}
@@ -49,8 +59,20 @@ func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w i
 		return "", err
 	}
 
+	for _, file := range w.Attachments {
+		if err := file.Check(chat); err != nil {
+			return "", err
+		}
+	}
+
+	files, err := keptAttachments(w.Attachments)
+	if err != nil {
+		return "", err
+	}
+
 	wake := store.InsertTodoWakeParams{
 		ChatID: chat, Text: text, Now: now, Recall: inboxRecall(w), WakeBy: by, WakeTodo: nullString(w.Todo.ID),
+		Attachments: files,
 	}
 	if err := q.InsertTodoWake(ctx, wake); err != nil {
 		return "", fmt.Errorf("waking the Bot of to-do %s: %w", w.Todo.ID, err)
@@ -61,10 +83,9 @@ func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w i
 
 // Who a wake-up of an Inbox item comes from (chat_messages.wake_by, issue #1229).
 const (
-	// wakeByOwner: the owner's own words typed in the Inbox, his prompt as he hands the item over or his comment,
-	// which are his turn in the item's chat (decision 7).
+	// wakeByOwner: the owner's own prompt, comment or uploaded files, which are his turn in the item's chat.
 	wakeByOwner = "owner"
-	// wakeByOwnerGave: the owner gave the item without a word (an empty prompt, an edit): no turn of his, and it clears
+	// wakeByOwnerGave: the owner gave the item without input (an empty prompt, an edit): no turn of his, and it clears
 	// the chat's mark for good, as every input but his words, a marked hand-off and a Run's events does.
 	wakeByOwnerGave = "owner_gave"
 	// wakeByBotForOwner: a Bot passed it from a turn on the owner's line, the mark that makes the chat it wakes his
@@ -84,7 +105,7 @@ func wakeBy(ctx context.Context, q *store.Queries, w inboxstore.Wake) (sql.NullS
 	by := wakeByBot
 
 	switch {
-	case w.By.Kind == inboxstore.Owner && strings.TrimSpace(w.Text) != "":
+	case w.By.Kind == inboxstore.Owner && (strings.TrimSpace(w.Text) != "" || len(w.Attachments) > 0):
 		by = wakeByOwner
 	case w.By.Kind == inboxstore.Owner:
 		by = wakeByOwnerGave

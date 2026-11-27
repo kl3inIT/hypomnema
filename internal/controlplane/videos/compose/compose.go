@@ -108,6 +108,9 @@ type Input struct {
 	// FreeBytes says how much disk the file system of a path has free, checked before the music's bed is made;
 	// nil for platform.FreeBytes.
 	FreeBytes func(path string) (uint64, error)
+	// Cards, when set, puts a title card before the scenes and an end card after them, on Background (issue #1230,
+	// row 1); the scenes, their voice and their rings start after the title card, and the music plays under both.
+	Cards *Cards
 }
 
 // SceneResult is how a scene was made, in the take's time (Keeps) and in the video's (OutStartMs, OutLengthMs,
@@ -144,6 +147,9 @@ type Result struct {
 	Warnings []string      `json:"warnings,omitempty"`
 	// Music is the levels the music was mixed at, when the video has music.
 	Music *MusicResult `json:"music,omitempty"`
+	// TitleMs and EndMs are how long the title card and the end card last in the video, 0 for none.
+	TitleMs int64 `json:"title_ms,omitempty"`
+	EndMs   int64 `json:"end_ms,omitempty"`
 }
 
 // encodeArgs are the video encoder's arguments of every pass that encodes.
@@ -168,6 +174,16 @@ func (s segment) endMs() int64 { return s.AtMs + s.LengthMs }
 func Compose(ctx context.Context, tools ffmpeg.Tools, in Input) (Result, error) {
 	if in.Music != nil {
 		if err := in.Music.Check(); err != nil {
+			return Result{}, err
+		}
+	}
+
+	if in.Cards != nil {
+		if err := in.Cards.Check(); err != nil {
+			return Result{}, err
+		}
+
+		if err := in.Background.Check(); err != nil {
 			return Result{}, err
 		}
 	}
@@ -332,6 +348,10 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 	}
 
 	if video, err = c.framePicture(ctx, video); err != nil {
+		return Result{}, err
+	}
+
+	if video, err = c.addCards(ctx, video); err != nil {
 		return Result{}, err
 	}
 
@@ -720,10 +740,7 @@ func (c *composer) frameGraph(plate int) string {
 // muxAudio). With music, the music is mixed under the voice (music.go); without, the command is the same as
 // before the music (issue #910, row 14).
 func (c *composer) mux(ctx context.Context, video string) (string, error) {
-	var total int64
-	for _, sc := range c.result.Scenes {
-		total += sc.OutLengthMs
-	}
+	total := c.totalMs()
 
 	if c.in.Music != nil {
 		out, done, err := c.mixMusic(ctx, video, total)
@@ -764,6 +781,16 @@ func (c *composer) stageCaptions() error {
 	return stageCaptions(c.in.Captions, c.in.Work, c.run.tools.FontsDir)
 }
 
+// totalMs is the video's length: its scenes', and its cards'.
+func (c *composer) totalMs() int64 {
+	total := c.result.TitleMs + c.result.EndMs
+	for _, sc := range c.result.Scenes {
+		total += sc.OutLengthMs
+	}
+
+	return total
+}
+
 // stageCaptions copies an ASS file and the fonts into a work folder, as captions.ass and fonts/: ffmpeg reads them
 // there by relative names, which need no escaping in a filter's option.
 func stageCaptions(captions, work, fontsDir string) error {
@@ -771,6 +798,11 @@ func stageCaptions(captions, work, fontsDir string) error {
 		return fmt.Errorf("reading the captions: %w", err)
 	}
 
+	return stageFonts(work, fontsDir)
+}
+
+// stageFonts copies the fonts into a work folder, as fonts/.
+func stageFonts(work, fontsDir string) error {
 	fonts := filepath.Join(work, "fonts")
 	if err := os.MkdirAll(fonts, 0o700); err != nil {
 		return err
@@ -824,9 +856,24 @@ func Burn(ctx context.Context, tools ffmpeg.Tools, video, captions, work string)
 	return out, run.ffmpeg(ctx, args...)
 }
 
-// Thumbnail writes a video's first frame as a JPEG.
-func Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error {
-	return runner{tools: tools}.ffmpeg(ctx, "-i", video, "-frames:v", "1", "-q:v", "3", "-f", "image2", out)
+// Thumbnail writes a video's frame at atMs as a JPEG: its first at 0, and past the title card's fade in when the
+// video opens on one (ThumbnailAtMs).
+func Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string, atMs int64) error {
+	args := []string{"-i", video}
+	if atMs > 0 {
+		args = []string{"-ss", ms(atMs), "-i", video}
+	}
+
+	return runner{tools: tools}.ffmpeg(ctx, append(args, "-frames:v", "1", "-q:v", "3", "-f", "image2", out)...)
+}
+
+// ThumbnailAtMs is where a made video's thumbnail is taken: its first frame, or the title card's first whole one.
+func (r Result) ThumbnailAtMs() int64 {
+	if r.TitleMs == 0 {
+		return 0
+	}
+
+	return int64(math.Min(CardFadeMs, float64(r.TitleMs)/3))
 }
 
 func copyFile(from, to string) error {

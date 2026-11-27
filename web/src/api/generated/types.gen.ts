@@ -2523,6 +2523,10 @@ export type VideoPreview = {
    * A revision of the take's video the look starts from, as a look change does; its first line is shown.
    */
   rev?: number;
+  /**
+   * A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+   */
+  card?: 'title' | 'end';
 };
 
 /**
@@ -2533,6 +2537,32 @@ export type VideoLookInput = {
   frame?: VideoFrameInput;
   background?: VideoBackground;
   music?: VideoMusicInput;
+  cards?: VideoCardsInput;
+};
+
+/**
+ * The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+ */
+export type VideoCardsInput = {
+  /**
+   * The rule over the title and the URL; absent: #6c8cff.
+   */
+  accent?: string;
+  title?: VideoCardInput;
+  end?: VideoCardInput;
+};
+
+export type VideoCardInput = {
+  title: string;
+  subtitle?: string;
+  /**
+   * Where the viewer is sent, drawn in the accent.
+   */
+  cta_url?: string;
+  /**
+   * Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms.
+   */
+  duration_ms?: number;
 };
 
 /**
@@ -2583,6 +2613,23 @@ export type VideoLook = {
   background?: VideoBackground;
   fell_back_from?: VideoChrome;
   music?: VideoMusic;
+  cards?: VideoCards;
+};
+
+/**
+ * A revision's title card and end card; absent, it has none.
+ */
+export type VideoCards = {
+  accent: string;
+  title?: VideoCard;
+  end?: VideoCard;
+};
+
+export type VideoCard = {
+  title: string;
+  subtitle?: string;
+  cta_url?: string;
+  duration_ms: number;
 };
 
 /**
@@ -5384,7 +5431,7 @@ export type TodoEvent = {
   revision: number;
   actor: TodoActor;
   /**
-   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
    */
   kind: string;
   /**
@@ -5593,13 +5640,28 @@ export type TodoHand = {
    */
   bot?: string;
   /**
-   * What the owner asks of the Bot, its first comment; optional.
+   * What the owner asks of the Bot, its first comment; may be empty when it carries files.
    */
   prompt?: string;
+  /**
+   * The chat id reserved before uploading files when the item has no chat with this Bot.
+   */
+  chat_id?: string;
+  /**
+   * Files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
+/**
+ * The text may be empty when the owner sends files.
+ */
 export type TodoComment = {
   text: string;
+  /**
+   * The owner's files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
 export type TodoSend = {

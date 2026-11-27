@@ -49,7 +49,16 @@ type PreviewRequest struct {
 	Look *LookInput
 	// Rev is a revision of the take's video the look starts from, as a look change does; 0: none.
 	Rev int
+	// Card is a card of the look to draw in place of the take's picture: title or end; empty: the picture (issue
+	// #1230, row 1).
+	Card string
 }
+
+// The cards a sample draws.
+const (
+	CardTitle = "title"
+	CardEnd   = "end"
+)
 
 // Preview makes a look sample, a JPEG. What needs no reading is checked first; then, without waiting for an
 // install, that ffmpeg is in place; then it waits at most PreviewWait from the request's start for the one being
@@ -122,13 +131,36 @@ func checkPreview(req PreviewRequest) (PreviewRequest, error) {
 		return req, fmt.Errorf("%w: the aspect is 9:16 or 16:9", ErrInvalid)
 	case req.Rev < 0:
 		return req, fmt.Errorf("%w: a revision is a number from 1", ErrInvalid)
+	case req.Card != "" && req.Card != CardTitle && req.Card != CardEnd:
+		return req, fmt.Errorf("%w: a sample's card is title or end", ErrInvalid)
 	}
+
+	req.Look = onlyCard(req.Look, req.Card)
 
 	if _, err := resolveLook(req.Look, DefaultLook()); err != nil {
 		return req, err
 	}
 
 	return req, nil
+}
+
+// onlyCard is the look a sample of one card resolves: the sent cards section holding that card alone, so the other
+// one, turned on and not titled yet, is not checked (the review of #1242). Any other sample's look is as sent.
+func onlyCard(in *LookInput, card string) *LookInput {
+	if card == "" || in == nil || in.Cards == nil {
+		return in
+	}
+
+	look, cards := *in, *in.Cards
+	if card == CardTitle {
+		cards.End = nil
+	} else {
+		cards.Title = nil
+	}
+
+	look.Cards = &cards
+
+	return &look
 }
 
 // previewPlan is what a look sample draws.
@@ -138,6 +170,8 @@ type previewPlan struct {
 	captions bool
 	look     Look
 	line     string
+	// card is the look's card to draw, nil for the take's picture.
+	card *compose.Card
 }
 
 // planPreview checks a sample's request and resolves its look as a make, or a look change from Rev, would: with the
@@ -176,8 +210,20 @@ func (s *Service) planPreview(ctx context.Context, req PreviewRequest) (previewP
 		return previewPlan{}, err
 	}
 
-	return previewPlan{take: take, aspect: req.Aspect, captions: req.Captions == nil || *req.Captions, look: look,
-		line: line}, nil
+	p := previewPlan{take: take, aspect: req.Aspect, captions: req.Captions == nil || *req.Captions, look: look,
+		line: line}
+
+	if req.Card != "" {
+		if look.Cards != nil {
+			p.card = map[string]*compose.Card{CardTitle: look.Cards.Title, CardEnd: look.Cards.End}[req.Card]
+		}
+
+		if p.card == nil {
+			return previewPlan{}, fmt.Errorf("%w: the look has no %s card", ErrConflict, req.Card)
+		}
+	}
+
+	return p, nil
 }
 
 // previewBase is the look a sample starts from and the line it shows: revision rev's, as a look change starts from
@@ -233,6 +279,23 @@ func (s *Service) sample(ctx context.Context, p previewPlan, tools ffmpeg.Tools)
 	}
 
 	defer func() { _ = os.RemoveAll(work) }()
+
+	if p.card != nil {
+		// A card as the video shows it between its fades, on the look's background (#1230, row 1).
+		out := filepath.Join(work, "sample.jpg")
+		if err := compose.CardStill(ctx, tools, compose.CardStillInput{
+			Card: *p.card, Accent: look.Cards.Accent, Background: background(look), Aspect: compose.Aspect(p.aspect),
+			Work: filepath.Join(work, "card"), Out: out,
+		}); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
+			return nil, err
+		}
+
+		return os.ReadFile(out) //nolint:gosec // The sample's own work folder.
+	}
 
 	in := compose.StillInput{
 		Dir: filepath.Dir(takeJSON), Aspect: compose.Aspect(p.aspect), Frame: look.Frame, Background: background(look),

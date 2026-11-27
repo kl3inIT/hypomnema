@@ -506,16 +506,16 @@ func (e ChatRole) Valid() bool {
 
 // Defines values for ChatToolActivityPhase.
 const (
-	End   ChatToolActivityPhase = "end"
-	Start ChatToolActivityPhase = "start"
+	ChatToolActivityPhaseEnd   ChatToolActivityPhase = "end"
+	ChatToolActivityPhaseStart ChatToolActivityPhase = "start"
 )
 
 // Valid indicates whether the value is a known member of the ChatToolActivityPhase enum.
 func (e ChatToolActivityPhase) Valid() bool {
 	switch e {
-	case End:
+	case ChatToolActivityPhaseEnd:
 		return true
-	case Start:
+	case ChatToolActivityPhaseStart:
 		return true
 	default:
 		return false
@@ -2541,6 +2541,24 @@ func (e VideoPreviewAspect) Valid() bool {
 	case VideoPreviewAspectN169:
 		return true
 	case VideoPreviewAspectN916:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VideoPreviewCard.
+const (
+	VideoPreviewCardEnd   VideoPreviewCard = "end"
+	VideoPreviewCardTitle VideoPreviewCard = "title"
+)
+
+// Valid indicates whether the value is a known member of the VideoPreviewCard enum.
+func (e VideoPreviewCard) Valid() bool {
+	switch e {
+	case VideoPreviewCardEnd:
+		return true
+	case VideoPreviewCardTitle:
 		return true
 	default:
 		return false
@@ -7320,9 +7338,11 @@ type TodoChange struct {
 	Revision int `json:"revision"`
 }
 
-// TodoComment defines model for TodoComment.
+// TodoComment The text may be empty when the owner sends files.
 type TodoComment struct {
-	Text string `json:"text"`
+	// Attachments The owner's files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+	Text        string            `json:"text"`
 }
 
 // TodoDone defines model for TodoDone.
@@ -7400,7 +7420,7 @@ type TodoEvent struct {
 	Before map[string]interface{} `json:"before"`
 	Id     int64                  `json:"id"`
 
-	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
 	Kind string `json:"kind"`
 
 	// Revision The revision the change made.
@@ -7409,10 +7429,16 @@ type TodoEvent struct {
 
 // TodoHand defines model for TodoHand.
 type TodoHand struct {
+	// Attachments Files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+
 	// Bot The Bot's id; absent, the main Bot.
 	Bot *string `json:"bot,omitempty"`
 
-	// Prompt What the owner asks of the Bot, its first comment; optional.
+	// ChatId The chat id reserved before uploading files when the item has no chat with this Bot.
+	ChatId *string `json:"chat_id,omitempty"`
+
+	// Prompt What the owner asks of the Bot, its first comment; may be empty when it carries files.
 	Prompt   *string `json:"prompt,omitempty"`
 	Revision int     `json:"revision"`
 }
@@ -7693,6 +7719,40 @@ type VideoCaptionsInput struct {
 	Preset *string `json:"preset,omitempty"`
 }
 
+// VideoCard defines model for VideoCard.
+type VideoCard struct {
+	CtaUrl     *string `json:"cta_url,omitempty"`
+	DurationMs int64   `json:"duration_ms"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoCardInput defines model for VideoCardInput.
+type VideoCardInput struct {
+	// CtaUrl Where the viewer is sent, drawn in the accent.
+	CtaUrl *string `json:"cta_url,omitempty"`
+
+	// DurationMs Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms.
+	DurationMs *int64  `json:"duration_ms,omitempty"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoCards A revision's title card and end card; absent, it has none.
+type VideoCards struct {
+	Accent string     `json:"accent"`
+	End    *VideoCard `json:"end,omitempty"`
+	Title  *VideoCard `json:"title,omitempty"`
+}
+
+// VideoCardsInput The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+type VideoCardsInput struct {
+	// Accent The rule over the title and the URL; absent: #6c8cff.
+	Accent *string         `json:"accent,omitempty"`
+	End    *VideoCardInput `json:"end,omitempty"`
+	Title  *VideoCardInput `json:"title,omitempty"`
+}
+
 // VideoChanges defines model for VideoChanges.
 type VideoChanges struct {
 	// Lines Each scene's line, edited; as many as the revision has.
@@ -7742,6 +7802,9 @@ type VideoLook struct {
 	Background *VideoBackground `json:"background,omitempty"`
 	Captions   VideoCaptions    `json:"captions"`
 
+	// Cards A revision's title card and end card; absent, it has none.
+	Cards *VideoCards `json:"cards,omitempty"`
+
 	// FellBackFrom What is drawn around the picture: full is none, the picture filling the video; absent: none.
 	FellBackFrom *VideoChrome `json:"fell_back_from,omitempty"`
 	Frame        VideoFrame   `json:"frame"`
@@ -7761,7 +7824,10 @@ type VideoLookInput struct {
 	// Background One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
 	Background *VideoBackground    `json:"background,omitempty"`
 	Captions   *VideoCaptionsInput `json:"captions,omitempty"`
-	Frame      *VideoFrameInput    `json:"frame,omitempty"`
+
+	// Cards The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+	Cards *VideoCardsInput `json:"cards,omitempty"`
+	Frame *VideoFrameInput `json:"frame,omitempty"`
 
 	// Music The music sent (issue #910): its track is required, none or a track's id of GET /videos/music; a track deleted is refused with conflict.
 	Music *VideoMusicInput `json:"music,omitempty"`
@@ -7871,6 +7937,9 @@ type VideoPreview struct {
 	// Captions Absent: true.
 	Captions *bool `json:"captions,omitempty"`
 
+	// Card A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+	Card *VideoPreviewCard `json:"card,omitempty"`
+
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
 
@@ -7881,6 +7950,9 @@ type VideoPreview struct {
 
 // VideoPreviewAspect Absent: 9:16.
 type VideoPreviewAspect string
+
+// VideoPreviewCard A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+type VideoPreviewCard string
 
 // VideoProgress While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
 type VideoProgress struct {

@@ -1,6 +1,8 @@
 import type {
   VideoBackground,
   VideoCaptionPosition,
+  VideoCard,
+  VideoCardInput,
   VideoChrome,
   VideoLook,
   VideoLookInput,
@@ -18,13 +20,53 @@ import type {
 // LookFields are the fields the web shows. Padding and radius are only in the API and the CLI (row 16): a frame
 // sent from here takes their reference defaults, as each field a sent section leaves out does. The music is a
 // track's id or none, with its gain (#910, row 15): sent, it carries both, since a section sent without its track is
-// refused.
+// refused. The cards are a title card and an end card, each absent for none, in an accent (#1230, row 1): a card's
+// subtitle and URL left empty are not sent.
 export type LookFields = {
   captions: { preset: string; position: VideoCaptionPosition }
   frame: { chrome: VideoChrome; shadow: boolean; safe_top: boolean }
   background: VideoBackground
   music: { track: string; gain_db: number }
+  cards: CardsFields
 }
+
+export type CardFields = { title: string; subtitle: string; cta_url: string; duration_ms: number }
+
+export type CardsFields = { accent: string; title?: CardFields; end?: CardFields }
+
+// The cards' defaults, the server's (videos/compose/cards.go): aidemo's accent and 2.6 s title card,
+// agent-demo-video's 3.0 s end card; a card lasts 0.5 to 10 s.
+export const cardDefaults = {
+  accent: "#6c8cff",
+  title: 2600,
+  end: 3000,
+  minMs: 500,
+  maxMs: 10_000,
+} as const
+
+const cardFields = (c: VideoCard | undefined): CardFields | undefined =>
+  c && {
+    title: c.title,
+    subtitle: c.subtitle ?? "",
+    cta_url: c.cta_url ?? "",
+    duration_ms: c.duration_ms,
+  }
+
+// newCard is a card turned on: no words yet, its default length.
+export const newCard = (side: "title" | "end"): CardFields => ({
+  title: "",
+  subtitle: "",
+  cta_url: "",
+  duration_ms: cardDefaults[side],
+})
+
+const cardInput = (c: CardFields | undefined): VideoCardInput | undefined =>
+  c && {
+    title: c.title.trim(),
+    duration_ms: c.duration_ms,
+    ...(c.subtitle.trim() ? { subtitle: c.subtitle.trim() } : {}),
+    ...(c.cta_url.trim() ? { cta_url: c.cta_url.trim() } : {}),
+  }
 
 // fieldsOf are a stored look's fields. A look made before the looks has no background, which the server reads as
 // midnight (videos/look.go, resolveLook).
@@ -42,12 +84,18 @@ export function fieldsOf(look: VideoLook): LookFields {
     // A look without music has none (absent); one whose track was deleted before it was made has none too, with
     // fell_back_from (videos/music.go, fitMusic).
     music: { track: look.music?.track ?? "none", gain_db: look.music?.gain_db ?? 0 },
+    // A look without cards has none, in the default accent.
+    cards: {
+      accent: look.cards?.accent ?? cardDefaults.accent,
+      ...(look.cards?.title ? { title: cardFields(look.cards.title) } : {}),
+      ...(look.cards?.end ? { end: cardFields(look.cards.end) } : {}),
+    },
   }
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-const sections = ["captions", "frame", "background", "music"] as const
+const sections = ["captions", "frame", "background", "music", "cards"] as const
 
 // LookEdits are the sections the owner edited, each whole, kept apart from the fields they started from (#1082, from
 // the review of #1078): where the start can be read again while the dialog is open, as Make video's saved default,
@@ -76,6 +124,11 @@ export function sentLook(start: LookFields, now: LookFields): VideoLookInput | u
   if (!same(start.frame, now.frame)) out.frame = { ...now.frame }
   if (!same(start.background, now.background)) out.background = { ...now.background }
   if (!same(start.music, now.music)) out.music = { ...now.music }
+  if (!same(start.cards, now.cards)) {
+    const title = cardInput(now.cards.title)
+    const end = cardInput(now.cards.end)
+    out.cards = { accent: now.cards.accent, ...(title ? { title } : {}), ...(end ? { end } : {}) }
+  }
 
   return Object.keys(out).length > 0 ? out : undefined
 }
@@ -112,13 +165,31 @@ export const backgroundName = (id: string) =>
       ? "macOS light"
       : id[0]!.toUpperCase() + id.slice(1)
 
-// sampleOf is a look sample's request without the music: the sample is a still picture, which the music does not
-// change and the server does not read (videos/preview.go), so choosing a track asks no new sample.
+// sampleOf is a look sample's request without the music, and without the cards unless it draws one: the sample of
+// the take's picture is a still, which neither changes and the server does not read (videos/preview.go), so
+// choosing a track or typing a card's words asks no new sample of the picture.
 export function sampleOf(body: VideoPreview): VideoPreview {
-  if (!body.look?.music) return body
+  const drop = body.look && (body.look.music || body.look.cards)
+  if (!drop || !body.look) return body
 
-  const { music: _music, ...look } = body.look
-  const { look: _look, ...rest } = body
+  const { music: _music, cards, ...rest } = body.look
+  // A card's sample carries that card alone: the other one may be on and not titled yet (the review of #1242).
+  const drawn = body.card && cards?.[body.card]
+  const look =
+    body.card && cards
+      ? {
+          ...rest,
+          cards: {
+            ...(cards.accent ? { accent: cards.accent } : {}),
+            ...(drawn ? { [body.card]: drawn } : {}),
+          },
+        }
+      : rest
+  const { look: _look, ...out } = body
 
-  return Object.keys(look).length > 0 ? { ...rest, look } : rest
+  return Object.keys(look).length > 0 ? { ...out, look } : out
 }
+
+// sampleCards are the cards a sample may draw: the look's that are on.
+export const sampleCards = (cards: CardsFields) =>
+  (["title", "end"] as const).filter((side) => cards[side] !== undefined)
