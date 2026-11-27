@@ -203,6 +203,9 @@ const (
 	LinkZaloSent     = "zalo_sent"
 	LinkWhatsAppSent = "whatsapp_sent"
 	LinkLarkSent     = "lark_sent"
+	// LinkComment is the owner's comment on the item itself, by the revision of the item it made (its history, the
+	// wake-up it gave the Bot; issue #1206): the evidence a Bot gives that he did it, as his message is.
+	LinkComment = "comment"
 )
 
 var linkKinds = []string{

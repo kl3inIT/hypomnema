@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -131,6 +132,9 @@ func TestTheThreadKeepsTheBotsAndTheOwnersCommentsInOrder(t *testing.T) {
 	require.Len(t, wakes, 2, "the hand-over and the owner's comment wake the Bot; its own comments do not")
 	assert.Contains(t, wakes[1], "Keep the old button too.")
 	assert.Contains(t, wakes[1], "<owner_comment>")
+	// His comment is evidence that he did it, by its revision (issue #1206).
+	assert.Contains(t, wakes[1], fmt.Sprintf(`{"kind":"comment","ref":"%d"}`, td.Revision+2))
+	assert.Contains(t, wakes[1], "for_owner")
 
 	other, err := w.s.PutBot(ctx, Bot{Name: "other"})
 	require.NoError(t, err)

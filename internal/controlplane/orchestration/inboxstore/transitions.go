@@ -1063,6 +1063,9 @@ type Edit struct {
 	PriorityReason *string
 	// Project puts the item in a project, a department by its id, or in none when empty.
 	Project *string
+	// WhyOpen makes an ask to the owner his promise (issue #1206): Promised, on an item a Bot added that is
+	// AskedDirectly and still his.
+	WhyOpen *string
 }
 
 // Edit changes the fields of a to-do that is not closed. The owner edits any; a Bot only the items it created or
