@@ -1,6 +1,7 @@
 package videos
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/captions"
 )
 
 // The speech caches (row 5): a clip whose MP3 alone was lost is spoken and heard again, its old word times removed
@@ -104,4 +106,78 @@ func TestElevenLabsCaptionsComeFromItsAlignment(t *testing.T) {
 	assert.Len(t, r.speech.models, 2, "no Speak")
 	assert.False(t, slices.Contains(r.speech.models, "eleven_v3"))
 	assert.Equal(t, 0, r.speech.heard, "no Transcribe")
+}
+
+// The words ElevenLabs's alignment gives are kept as they are (review of #1300): a dash said on its own stays a word
+// of its own, and the word before it keeps its own end, not the dash's.
+func TestTheAlignmentsWordsAreKeptAsTheyAre(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	r.order = []string{speech.ProviderElevenLabs, speech.ProviderSoniox}
+	r.speech.aligned = true
+	r.takes.take.Steps[0].Text = "Ủa — bánh"
+
+	v, _ := r.make(t, "")
+	r.runAll(t)
+	require.Equal(t, Review, r.revision(t, v.ID, 1).State)
+
+	clip := filepath.Join(r.dir, voiceDir,
+		voiceHash("Ủa — bánh", speech.ProviderElevenLabs, speech.ElevenLabsTTSModel, "", Language)+"."+clipFormat)
+	raw, err := os.ReadFile(clip + wordsSuffix) //nolint:gosec // The test's own file.
+	require.NoError(t, err)
+
+	var words []captions.Word
+	require.NoError(t, json.Unmarshal(raw, &words))
+	assert.Equal(t, []captions.Word{
+		{Word: "Ủa", Start: 0, End: 0.4}, {Word: "—", Start: 0.5, End: 0.9}, {Word: "bánh", Start: 1, End: 1.4},
+	}, words)
+	assert.Equal(t, 0, r.speech.heard)
+}
+
+// A revision pinned before pins kept their model (pin_provider set, pin_model empty) is made again with the model
+// it was spoken with, not the owner's choice now nor the default (review of #1300): its clips are reused.
+func TestARetriedOldPinKeepsItsRecordedModel(t *testing.T) {
+	t.Parallel()
+
+	r := framedRig(t)
+	r.setDefault(t, legacyLook)
+	r.order = []string{speech.ProviderElevenLabs, speech.ProviderSoniox}
+	r.models = map[string]string{speech.ProviderElevenLabs: "eleven_multilingual_v2"}
+
+	v, _ := r.make(t, "")
+	r.runAll(t)
+	require.Equal(t, Review, r.revision(t, v.ID, 1).State)
+
+	r.maker.fail = "compose"
+	_, rev, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-old-pin", Look: &LookInput{
+		Frame: &FrameInput{Chrome: ptr("none")},
+	}})
+	require.NoError(t, err)
+	r.runAll(t)
+
+	failed := r.revision(t, v.ID, rev.Rev)
+	require.Equal(t, Failed, failed.State)
+	require.Equal(t, "eleven_multilingual_v2", failed.Model)
+
+	// As a revision pinned before the migration that added pin_model.
+	_, err = r.svc.db.ExecContext(t.Context(),
+		"UPDATE video_revisions SET pin_model = '' WHERE video_id = ? AND rev = ?", v.ID, rev.Rev)
+	require.NoError(t, err)
+
+	r.maker.fail = ""
+	r.mu.Lock()
+	r.models = nil
+	r.mu.Unlock()
+
+	spoken := len(r.speech.models)
+
+	_, again, err := r.svc.Retry(t.Context(), v.ID, rev.Rev, Owner, "id-old-pin-again")
+	require.NoError(t, err)
+	r.runAll(t)
+
+	made := r.revision(t, v.ID, again.Rev)
+	require.Equal(t, Review, made.State, made.FailedCause)
+	assert.Equal(t, "eleven_multilingual_v2", made.Model)
+	assert.Len(t, r.speech.models, spoken, "no new speech")
 }

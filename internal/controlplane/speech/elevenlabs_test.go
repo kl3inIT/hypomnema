@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -119,7 +120,8 @@ func elevenLabsOnly(t *testing.T, f *elevenLabs, model string, waits *[]time.Dur
 
 // Scenario: the owner has chosen no ElevenLabs model, so speech is made with eleven_v4 (issue #1283, row 1); a
 // line in Vietnamese is sent with language_code vi, which v4 covers, and a line with no language with none.
-// When the owner chose a model that does not cover Vietnamese, the language is left out rather than refused.
+// When the owner chose a model that does not cover Vietnamese, the language is left out rather than refused, and
+// multilingual v2, which takes no language_code, gets none; a language with a region is sent as its ISO 639-1 code.
 func TestElevenLabsSpeaksWithTheChosenModelAndALanguageItCovers(t *testing.T) {
 	t.Parallel()
 
@@ -145,15 +147,20 @@ func TestElevenLabsSpeaksWithTheChosenModelAndALanguageItCovers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "eleven_multilingual_v2", out.Model)
 
-	_, err = old.Speak(t.Context(), speech.SpeakRequest{Input: "Olá", Language: "pt-BR"})
+	_, err = old.Speak(t.Context(), speech.SpeakRequest{Input: "Hello", Language: "en"})
 	require.NoError(t, err)
 
-	require.Len(t, f.bodies, 4)
+	_, err = svc.Speak(t.Context(), speech.SpeakRequest{Input: "Hello", Language: "en-US"})
+	require.NoError(t, err)
+
+	require.Len(t, f.bodies, 5)
 	assert.Equal(t, map[string]any{"text": "Ủa", "model_id": "eleven_v4", "language_code": "vi"}, f.bodies[0])
 	assert.Equal(t, map[string]any{"text": "Hello", "model_id": "eleven_v4"}, f.bodies[1])
 	assert.Equal(t, map[string]any{"text": "Ủa", "model_id": "eleven_multilingual_v2"}, f.bodies[2],
 		"a language the model does not cover is left out")
-	assert.Equal(t, "pt-br", f.bodies[3]["language_code"], "a region of a language the model covers is sent")
+	assert.Equal(t, map[string]any{"text": "Hello", "model_id": "eleven_multilingual_v2"}, f.bodies[3],
+		"multilingual v2 takes no language_code, though it lists the language (pipecat)")
+	assert.Equal(t, "en", f.bodies[4]["language_code"], "sent as its ISO 639-1 code, without the region")
 	assert.Equal(t, "/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM?output_format=mp3_44100_128", f.paths[0])
 	assert.Empty(t, waits)
 }
@@ -237,6 +244,53 @@ func TestElevenLabsIsAskedAgainTwiceAfterALimitOrAFailureOnItsSide(t *testing.T)
 	require.ErrorIs(t, err, speech.ErrFailed)
 	assert.Len(t, f.bodies, 7, "a refusal of the request is not asked again")
 	assert.Empty(t, waits)
+}
+
+// roundTrip answers a request in memory.
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// Scenario: with the default budget and wait, ElevenLabs is rate limited twice, each time asking for 60 seconds
+// (review of #1300): both retries happen, the third answer is spoken, after the two minutes the waits took and the
+// three seconds the answers did.
+func TestBothRetriesFitTheSpeechBudget(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		posts := 0
+		start := time.Now()
+		svc := speech.New(speech.Config{
+			Keys: func(context.Context) ([]speech.Key, error) {
+				return []speech.Key{{Provider: "elevenlabs", Name: "speech-elevenlabs", Value: "xi"}}, nil
+			},
+			Settings: func(context.Context) (speech.Settings, error) {
+				return speech.Settings{Off: []string{"soniox"}}, nil
+			},
+		})
+		speech.SetTransport(svc, roundTrip(func(r *http.Request) (*http.Response, error) {
+			time.Sleep(time.Second) // Each answer takes a second.
+
+			posts++
+			answer := &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("mp3")),
+				Request: r,
+			}
+			if posts <= 2 {
+				answer.StatusCode = http.StatusTooManyRequests
+				answer.Header.Set("Retry-After", "60")
+				answer.Body = io.NopCloser(strings.NewReader(`{"detail":"busy"}`))
+			}
+
+			return answer, nil
+		}))
+
+		out, err := svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi"})
+		require.NoError(t, err)
+		assert.Equal(t, "mp3", string(out.Audio))
+		assert.Equal(t, 3, posts)
+		assert.Equal(t, 2*time.Minute+3*time.Second, time.Since(start))
+	})
 }
 
 // Scenario: Settings → Audio lists ElevenLabs's speech models, each with the languages it covers; a model that does

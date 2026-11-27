@@ -270,26 +270,27 @@ test("the owner orders text to speech apart from speech to text", async ({ page,
   await shot(page, "audio-reordered")
 })
 
-// Scenario: the owner sets the voice Soniox speaks videos of takes with (issue #818), picked from its voices: it is
-// sent for Soniox only. ElevenLabs, which has no key, lists no voices, so its voice would be typed, and it keeps its
-// own default. The field fits a phone.
+// Scenario: the owner sets the voice Soniox speaks videos of takes with (issue #818), typed by name or id, though
+// Soniox lists a voice (only ElevenLabs's voice is picked from its list, #1283; Soniox's is #1285): it is sent for
+// Soniox only, and ElevenLabs keeps its own default. The field fits a phone.
 test("the owner sets a provider's voice for videos", async ({ page }) => {
   const { calls, world } = await fakeServer(page)
   await page.goto("/settings/audio")
 
   const soniox = row(page, "Soniox, text to speech")
-  await soniox.getByRole("combobox", { name: "Voice for videos" }).click()
-  await page.getByRole("option", { name: "Adrian" }).click()
+  await soniox.getByRole("textbox", { name: "Voice for videos" }).fill("Maya")
+  await soniox.getByRole("button", { name: "Save Soniox's voice for videos" }).click()
 
-  await expect(page.getByText("Soniox speaks videos with Adrian")).toBeVisible()
-  expect(calls).toContain(`PUT /gateway/audio/providers/soniox/voice {"voice":"Adrian"}`)
+  await expect(page.getByText("Soniox speaks videos with Maya")).toBeVisible()
+  expect(calls).toContain(`PUT /gateway/audio/providers/soniox/voice {"voice":"Maya"}`)
   expect(world.providers.find((l) => l.provider === "elevenlabs")?.voice).toBeUndefined()
   await expect(
     row(page, "ElevenLabs, text to speech").getByRole("textbox", { name: "Voice for videos" }),
   ).toHaveValue("")
   await expect(
-    row(page, "Soniox, speech to text").getByRole("combobox", { name: "Voice for videos" }),
+    row(page, "Soniox, speech to text").getByRole("textbox", { name: "Voice for videos" }),
   ).toHaveCount(0)
+  await expect(soniox.getByRole("combobox", { name: "Voice for videos" })).toHaveCount(0)
 
   expect(await fits(page)).toBe(true)
   await shot(page, "audio-voice")
@@ -308,6 +309,9 @@ test("the owner picks ElevenLabs's model and a voice by name", async ({ page }) 
   await expect(eleven.getByRole("combobox", { name: "Voice for videos" })).toContainText(
     "Its own default",
   )
+  await expect(
+    row(page, "Soniox, text to speech").getByRole("textbox", { name: "Voice for videos" }),
+  ).toBeVisible()
   await eleven.scrollIntoViewIfNeeded()
   await shot(page, "audio-elevenlabs")
 
