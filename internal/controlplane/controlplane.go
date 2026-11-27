@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/inbox"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
@@ -63,6 +64,9 @@ const (
 	binary    = "hypomnema"
 	envPrefix = "HYPOMNEMA"
 )
+
+// larkIntegration is the Integration of the owner's Lark sign-in.
+const larkIntegration = "lark"
 
 // Config is the control plane's configuration, read from the environment.
 type Config struct {
@@ -565,21 +569,21 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return token.AccessToken, err
 	}
 	// The Inbox checks the message the owner sent that a Bot gives as evidence that he answered (issue #1004).
-	svc.Inbox().WithSent(inboxSent{
-		messages: integrations.Messages, members: integrations.Members, larkToken: larkToken,
-		larkURL: "https://" + serviceproxy.LarkHost, client: &http.Client{Timeout: 30 * time.Second},
-	})
+	svc.Inbox().WithSent(inbox.NewSent(inbox.Config{
+		Messages: integrations.Messages, Members: integrations.Members, LarkToken: larkToken,
+		LarkURL: "https://" + serviceproxy.LarkHost, Client: &http.Client{Timeout: 30 * time.Second},
+	}))
 	// The owner sends a reply from the Inbox through his own accounts (issue #1111), tagging whom it names (#1200).
-	ownerReplies := inboxSender{
-		send: integrations.Send, messages: integrations.Messages, members: integrations.Members, larkToken: larkToken,
-		googleToken: func(ctx context.Context, label string) (string, error) {
+	ownerReplies := inbox.NewSender(inbox.Config{
+		Send: integrations.Send, Messages: integrations.Messages, Members: integrations.Members, LarkToken: larkToken,
+		GoogleToken: func(ctx context.Context, label string) (string, error) {
 			token, err := integrations.Token(ctx, integration.GoogleID, label)
 
 			return token.AccessToken, err
 		},
-		larkURL: "https://" + serviceproxy.LarkHost, gmailURL: "https://gmail.googleapis.com",
-		client: &http.Client{Timeout: 30 * time.Second}, log: logger,
-	}
+		LarkURL: "https://" + serviceproxy.LarkHost, GmailURL: "https://gmail.googleapis.com",
+		Client: &http.Client{Timeout: 30 * time.Second}, Log: logger,
+	})
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,

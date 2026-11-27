@@ -1,4 +1,4 @@
-package controlplane
+package inbox
 
 import (
 	"context"
@@ -50,7 +50,7 @@ func TestTheOwnersSentMessageIsReadWhereItIs(t *testing.T) {
 	}))
 	t.Cleanup(lark.Close)
 
-	sent := inboxSent{
+	sent := Sent{
 		messages: func(_ context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error) {
 			asked = q
 			switch {
@@ -144,7 +144,7 @@ func TestWhoAskedAndWhoIsInAChatAreReadWhereTheyAre(t *testing.T) {
 		"zalo/u9/p1":       {ID: "p1", Chat: "u9", Sender: "100", FromMe: true},
 		"zalo/g1/p2":       {ID: "p2", Chat: "g1", Sender: "100", FromMe: true},
 	}
-	sent := inboxSent{
+	sent := Sent{
 		messages: func(_ context.Context, integration, _ string, q messaging.Query) ([]messaging.Message, error) {
 			if m, ok := kept[integration+"/"+q.Chat+"/"+q.ID]; ok {
 				return []messaging.Message{m}, nil
