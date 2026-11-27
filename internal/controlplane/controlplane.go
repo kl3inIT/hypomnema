@@ -454,7 +454,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			return slices.Contains(ownPorts, port)
 		}},
 	})
-	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
+	metered := modelgateway.MeteredWeb{Web: webSearch, Gateway: gateway, Logger: logger}
 
 	// Speech-to-text and text-to-speech (issue #694), with the owner's keys in the vault and what the owner set on
 	// the Audio page, read at each call.
@@ -486,7 +486,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// New sweeps the music folder once, before anything is served; no request's context is there yet.
 	videoSvc, err := videos.New(videos.Config{ //nolint:contextcheck // As above.
 		DB: db, Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "videos"), Takes: phoneTakes,
-		Speech:   videoAudio{speech: voice, gateway: gateway, chats: svc, logger: logger},
+		Speech:   modelgateway.VideoAudio{Speech: voice, Gateway: gateway, BotOf: chatBot(svc), Logger: logger},
 		Settings: gateway.AudioSettings, Tools: ffmpegTools, Ready: ffmpegReady, Logger: logger,
 	})
 	if err != nil {
@@ -612,14 +612,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// Every worker's and every Bot's pi's web tools, generate_image and speech tools (issues #354, #492, #723), each
 	// call recorded on its Dispatch's key or on the key of the chat's running pi; before anything is served.
-	agents.WithWeb(agentWeb{worker: workerWeb{metered}, bot: botWeb{meteredWeb: metered, chats: sup}}).
+	agents.WithWeb(agentWeb{
+		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
+	}).
 		WithImages(agentImages{
-			worker: workerImages{server: gatewayServer, gateway: gateway, logger: logger},
-			bot:    botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+			worker: modelgateway.WorkerImages{Server: gatewayServer, Gateway: gateway, Logger: logger},
+			bot:    modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},
 		}).
 		WithAudio(agentAudio{
-			worker: workerAudio{speech: voice, gateway: gateway, logger: logger},
-			bot:    botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
+			worker: modelgateway.WorkerAudio{Speech: voice, Gateway: gateway, Logger: logger},
+			bot:    modelgateway.BotAudio{Speech: voice, Gateway: gateway, Chats: sup, Logger: logger},
 		})
 
 	// The Channels (issues #136, #169 and #404): one runtime for every kind, each kind's Channel found in the
@@ -635,7 +637,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	channelData := channelStore{Service: svc, Store: svc.Channels()}
 
 	runtime := channels.New(channelData, sup, registry, secrets, logger).WithWebURL(cfg.PublicURL).
-		WithHearer(channelVoice{speech: voice, gateway: gateway, chats: svc, logger: logger})
+		WithHearer(modelgateway.ChannelVoice{Speech: voice, Gateway: gateway, BotOf: chatBot(svc), Logger: logger})
 	if bots != nil {
 		runtime.WithFiles(bots)
 	}
@@ -681,11 +683,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithBuiltinSkills(builtinSkills).
 		WithRoutines(routineRunner).
 		WithMeetings(meetingWork).
-		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
+		WithWeb(modelgateway.BotWeb{MeteredWeb: metered, Chats: sup}).
 		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
-		WithImages(botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+		WithImages(modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},
 			imageSettings{Service: gateway, server: gatewayServer}).
-		WithAudio(botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
+		WithAudio(modelgateway.BotAudio{Speech: voice, Gateway: gateway, Chats: sup, Logger: logger},
 			audioSettings{Service: gateway, speech: voice}).
 		WithBotTools(agents.BotTools).WithToolUnavailability(agents.ToolUnavailability)
 	if cfg.VaultKeys != nil {

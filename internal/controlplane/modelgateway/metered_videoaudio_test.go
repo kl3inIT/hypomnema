@@ -1,4 +1,4 @@
-package controlplane
+package modelgateway_test
 
 import (
 	"context"
@@ -86,7 +86,7 @@ func TestVideoRevisionsRecordOnlyNewAudioCallsOnTheRequestersKey(t *testing.T) {
 	}})
 	svc, err := videos.New(videos.Config{
 		DB: db, Dir: filepath.Join(t.TempDir(), "videos"), Takes: usageTake(takeID), Maker: usageMovieMaker{},
-		Speech: videoAudio{speech: voice, gateway: gateway, logger: slog.Default()},
+		Speech: modelgateway.VideoAudio{Speech: voice, Gateway: gateway, Logger: slog.Default()},
 		Settings: func(context.Context) (speech.Settings, error) {
 			return speech.Settings{Off: []string{speech.ProviderSoniox}}, nil
 		},
