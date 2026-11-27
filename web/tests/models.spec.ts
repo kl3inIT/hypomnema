@@ -575,6 +575,58 @@ test("the owner sees where models come from", async ({ page }) => {
   await shot(page, "models-antigravity-limits")
 })
 
+// Scenario (issue #1198): accounts read once are not read again. Each keeps its last bars and says why beside when
+// they were read: the vendor asked to wait, until when; it refused the token, so the owner signs it in again; or
+// the call failed, the server's words on hover.
+test("an account whose limits could not be read again says why beside its last reading", async ({
+  page,
+}) => {
+  await fakeServer(page)
+  const stale = (id: string, more: object) =>
+    page.route(`**/api/v1/accounts/${id}/limits*`, (route) =>
+      route.fulfill({
+        json: { ...(limits[id] as object), read_at: iso(now - 15 * 3600_000), ...more },
+      }),
+    )
+  const retryAt = iso(now + 2 * 60_000)
+  await stale("acc_work", {
+    unavailable: "refused",
+    detail:
+      "the vendor refused the account's token for its limits (401): OAuth token has been revoked",
+  })
+  await stale("acc_spare", { unavailable: "resting", retry_at: retryAt })
+  await stale("acc_main", {
+    unavailable: "failed",
+    detail: "reading the limits: context deadline exceeded",
+  })
+  await page.goto("/settings/models")
+
+  const claude = card(page, "Claude")
+  const work = claude.getByLabel("Claude account work")
+  await expect(work.getByRole("meter", { name: "5 hours used by work" })).toBeVisible()
+  await expect(work.getByTestId("limits")).toContainText(/Used, read 15\s?h/)
+  const refused = work.getByTestId("limits-stale")
+  await expect(refused).toContainText("refused its token: sign it in again")
+  await expect(refused).toHaveAttribute("title", /OAuth token has been revoked/)
+
+  const spare = claude.getByLabel("Claude account spare")
+  await expect(spare.getByTestId("limits-stale")).toContainText(
+    "The vendor asked to wait: read again at",
+  )
+  await expect(spare.getByRole("meter", { name: "5 hours used by spare" })).toBeVisible()
+
+  const main = card(page, "Codex").getByLabel("Codex account main")
+  await expect(main.getByTestId("limits-stale")).toContainText("Reading them again failed.")
+  await expect(main.getByTestId("limits-stale")).toHaveAttribute("title", /deadline exceeded/)
+  await expect(main.getByRole("button", { name: "Read the limits of main again" })).toBeVisible()
+
+  expect(await fits(page)).toBe(true)
+  await work.scrollIntoViewIfNeeded()
+  await shot(page, "models-limits-stale")
+  await main.scrollIntoViewIfNeeded()
+  await shot(page, "models-limits-stale-failed")
+})
+
 // Scenario (issue #822): Google wants an Antigravity account verified. Its row says so, when Google asked and when
 // the gateway tries it again, with a Verify button that opens Google's link in a new tab; the owner can still sign
 // it in again, take it out of use or remove it. The limits line does not say it twice.

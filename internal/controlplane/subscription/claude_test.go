@@ -1,6 +1,7 @@
 package subscription_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -198,6 +199,38 @@ type claudeWorld struct {
 	clock *fakeClock
 	subs  *subscription.Service
 	orch  *orchestration.Service
+	// logs are what the service logged, a JSON object a line.
+	logs *lockedBuffer
+}
+
+// lockedBuffer is a log written from more than one goroutine.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+// events are the lines logged with that event, each as its attributes.
+func (b *lockedBuffer) events(event string) []map[string]any {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var out []map[string]any
+
+	for line := range bytes.Lines(b.buf.Bytes()) {
+		var attrs map[string]any
+		if json.Unmarshal(line, &attrs) == nil && attrs["event"] == event {
+			out = append(out, attrs)
+		}
+	}
+
+	return out
 }
 
 func newClaudeWorld(t *testing.T) *claudeWorld {
@@ -212,7 +245,7 @@ func newClaudeWorld(t *testing.T) *claudeWorld {
 	keys, err := vault.ParseKeyring(entry, "k1")
 	require.NoError(t, err)
 
-	w := &claudeWorld{t: t, oauth: newAnthropicOAuth(t), clock: &fakeClock{now: t0}}
+	w := &claudeWorld{t: t, oauth: newAnthropicOAuth(t), clock: &fakeClock{now: t0}, logs: &lockedBuffer{}}
 	orch := orchestration.New(db, w.clock, platform.NewID)
 	w.orch = orch
 	vlt := vault.New(db, w.clock, platform.NewID, keys, orch.AccountsUsingSecretRef)
@@ -220,7 +253,7 @@ func newClaudeWorld(t *testing.T) *claudeWorld {
 	vendor := subscription.NewClaude(subscription.ClaudeOptions{
 		AuthBase: w.oauth.srv.URL, TokenBase: w.oauth.srv.URL, ProfileBase: w.oauth.srv.URL,
 	}, w.clock)
-	w.subs = subscription.New(orch, vlt, w.clock, slog.New(slog.DiscardHandler), vendor)
+	w.subs = subscription.New(orch, vlt, w.clock, slog.New(slog.NewJSONHandler(w.logs, nil)), vendor)
 
 	return w
 }

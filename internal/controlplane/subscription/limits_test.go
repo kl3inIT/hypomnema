@@ -95,7 +95,8 @@ func TestAClaudeAccountsLimitsRestAfterA429(t *testing.T) {
 
 	again, err := w.subs.Limits(t.Context(), a.ID, false)
 	require.NoError(t, err)
-	assert.Equal(t, first, again, "the last reading stands in for the refused one")
+	assert.Equal(t, first.Windows, again.Windows, "the last reading stands in for the refused one")
+	assert.Equal(t, first.ReadAt, again.ReadAt)
 	assert.EqualValues(t, 2, calls.Load())
 
 	w.clock.advance(time.Minute)
@@ -111,6 +112,115 @@ func TestAClaudeAccountsLimitsRestAfterA429(t *testing.T) {
 	_, err = w.subs.Limits(t.Context(), a.ID, false)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, calls.Load())
+}
+
+// Scenario (issue #1198): an account read once stops being read: Anthropic
+// answers 429, then 401. Each time the last reading is still given, with why
+// it is not fresh: resting with when it is asked again, then refused. A new
+// token is asked again, and a reading that succeeds clears the reason. Each
+// failed call is logged when its reason changes, not when the reason is given
+// again without a call.
+func TestAnEarlierReadingSaysWhyItIsNotFresh(t *testing.T) {
+	w := newClaudeWorld(t)
+	a, err := w.login()
+	require.NoError(t, err)
+
+	var (
+		calls  atomic.Int32
+		answer atomic.Int32 // the status Anthropic answers; 0 is 200
+	)
+
+	w.oauth.answerUsage(func(rw http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+
+		switch status := int(answer.Load()); status {
+		case 0:
+			_, _ = rw.Write([]byte(`{"five_hour": {"utilization": ` + strconv.Itoa(int(calls.Load())*10) + `}}`))
+		case http.StatusTooManyRequests:
+			rw.Header().Set("Retry-After", "120")
+			rw.WriteHeader(status)
+		default:
+			rw.WriteHeader(status)
+			_, _ = rw.Write([]byte(`{"error": {"message": "OAuth token has been revoked"}}`))
+		}
+	})
+
+	first, err := w.subs.Limits(t.Context(), a.ID, false)
+	require.NoError(t, err)
+	require.NoError(t, first.Stale, "a reading just made is fresh")
+
+	failures := func() []map[string]any { return w.logs.events("subscription.limits_failed") }
+
+	// A 429: the last reading, resting until the wait Anthropic named.
+	answer.Store(http.StatusTooManyRequests)
+	w.clock.advance(2 * time.Minute)
+
+	resting, err := w.subs.Limits(t.Context(), a.ID, true)
+	require.NoError(t, err)
+	assert.Equal(t, first.Windows, resting.Windows)
+	assert.Equal(t, first.ReadAt, resting.ReadAt)
+
+	var rest *subscription.LimitsRestingError
+	require.ErrorAs(t, resting.Stale, &rest)
+	assert.Equal(t, w.clock.Now().Add(2*time.Minute), rest.Until)
+	require.Len(t, failures(), 1)
+	assert.Equal(t, "resting", failures()[0]["reason"])
+	assert.EqualValues(t, http.StatusTooManyRequests, failures()[0]["status"])
+	assert.Equal(t, a.ID, failures()[0]["account_id"])
+
+	w.clock.advance(time.Minute)
+
+	again, err := w.subs.Limits(t.Context(), a.ID, true)
+	require.NoError(t, err)
+	require.ErrorAs(t, again.Stale, &rest, "the rest is still said while the vendor is not asked")
+	assert.EqualValues(t, 2, calls.Load())
+	assert.Len(t, failures(), 1, "a reason given again without a call is not logged")
+
+	// A 401 after the rest: the last reading, refused, in the vendor's words.
+	answer.Store(http.StatusUnauthorized)
+	w.clock.advance(2 * time.Minute)
+
+	refused, err := w.subs.Limits(t.Context(), a.ID, true)
+	require.NoError(t, err)
+	assert.Equal(t, first.Windows, refused.Windows)
+	require.ErrorIs(t, refused.Stale, subscription.ErrLimitsRefused)
+	require.ErrorContains(t, refused.Stale, "revoked")
+	require.Len(t, failures(), 2)
+	assert.Equal(t, "refused", failures()[1]["reason"])
+	assert.EqualValues(t, http.StatusUnauthorized, failures()[1]["status"])
+
+	_, err = w.subs.Limits(t.Context(), a.ID, true)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, calls.Load(), "the refused token is not sent again")
+	assert.Len(t, failures(), 2)
+
+	// The token is refreshed: the new one is asked, and its reading clears the reason.
+	answer.Store(0)
+	w.clock.advance(3 * time.Hour)
+
+	fresh, err := w.subs.Limits(t.Context(), a.ID, false)
+	require.NoError(t, err)
+	assert.EqualValues(t, 4, calls.Load(), "a new token is asked again")
+	require.NoError(t, fresh.Stale)
+	assert.Equal(t, w.clock.Now(), fresh.ReadAt)
+	assert.NotEqual(t, first.Windows, fresh.Windows)
+
+	// A failure after a success is logged again, once while it stays the same.
+	answer.Store(http.StatusInternalServerError)
+
+	for range 2 {
+		w.clock.advance(2 * time.Minute)
+
+		failed, err := w.subs.Limits(t.Context(), a.ID, false)
+		require.NoError(t, err)
+		assert.Equal(t, fresh.Windows, failed.Windows)
+		require.ErrorContains(t, failed.Stale, "500")
+		require.NotErrorIs(t, failed.Stale, subscription.ErrLimitsRefused)
+	}
+
+	assert.EqualValues(t, 6, calls.Load(), "a call that failed otherwise is made again")
+	require.Len(t, failures(), 3)
+	assert.Equal(t, "failed", failures()[2]["reason"])
 }
 
 // Scenario: a Claude account added with a pasted token serves models but
@@ -169,6 +279,7 @@ func TestARefusedTokenGivesWhatItsAnswersSaid(t *testing.T) {
 	limits, err = w.subs.Limits(t.Context(), a.ID, false)
 	require.NoError(t, err)
 	require.Len(t, limits.Windows, 1, "the 5 hours started again: what it holds is not known")
+	require.ErrorIs(t, limits.Stale, subscription.ErrLimitsRefused, "what was heard says the call is refused")
 	assert.Equal(t, "week", limits.Windows[0].Name)
 	assert.EqualValues(t, 2, calls.Load(), "the token was refreshed meanwhile: a new token is tried once")
 }
