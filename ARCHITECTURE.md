@@ -1184,11 +1184,12 @@ sequenceDiagram
     model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the model is the
     owner's choice for that provider (ElevenLabs's speech model, issue #1283). Each line is asked with its words'
     times: ElevenLabs answers its alignment (`/with-timestamps`), and the words built from it are kept beside the
-    clip (`<clip>.words.json`), so its captions need no transcription; a provider without one (Soniox, or an
+    clip (`<clip>.words.json`) as they are, each with its own times, so its captions need no transcription; a provider without one (Soniox, or an
     ElevenLabs answer without alignment) has its clip transcribed at captioning, as before. The word times are
     removed before the clip is spoken again. A revision made from another (a look change, a retry) is **pinned**
     (`pin_provider`, `pin_voice`, `pin_model`, migration of #1283): only that provider is asked, with exactly that
-    voice, even an empty one, and that model (empty: the provider's default), and the owner's audio settings are not
+    voice, even an empty one, and that model (empty, as for a pin made before: the model the revision was spoken
+    with, else the provider's default), and the owner's audio settings are not
     read. Composing is `compose.Compose`; captioning takes each clip's kept word times, or transcribes the clip
     with its words' times through the speech service, joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
     cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
@@ -4825,13 +4826,16 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   length the last word's end; `POST /v1/text-to-speech/{voice_id}?output_format=` (LiteLLM's mp3_44100_128,
   pcm_24000, opus_48000_128, wav_24000) `{text, model_id, language_code?, voice_settings: {speed}?}`, OpenAI's voice
   names mapped to LiteLLM's voices, none Rachel; `language_code` is the caller's language (a video's `vi`,
-  `audio_speak`'s `language`) when the model's languages in `GET /v1/models` cover it, else left out with a
-  warning (pipecat's guard); when that list cannot be read, or does not name the model, it is sent. A video's line
+  `audio_speak`'s `language`), cut to its ISO 639-1 code (`en-US` is `en`), when the model's languages in `GET
+  /v1/models` cover it, else left out with a warning (pipecat's guard); a model older than v2.5
+  (`eleven_multilingual_v2` and the like, which pipecat sends none) never gets one; when the list cannot be read,
+  or does not name the model, it is sent. A video's line
   goes to `/with-timestamps` (`{audio_base64, alignment}`): `alignment` (not `normalized_alignment`) is split into
   words on whitespace, each from its first character's start to its last's end, a bracketed audio tag (`[laughs]`)
   no word (`speech.Speech.Words`). A 429 or 5xx (not one out of credits) is asked again twice, after its
   `Retry-After` (at most 60 s) or 1 s doubling, before the key rests (the SDK's retry; `speech/retry.go`, for
-  speech and the lists, not Scribe). `GET /v1/voices` (the account's own and saved library voices) and `GET
+  speech and the lists, not Scribe); each attempt has its own 2-minute budget and the waits are apart from it, as
+  the SDK's timeout is a request's. `GET /v1/voices` (the account's own and saved library voices) and `GET
   /v1/models` (those that speak text, with their languages) are each kept a day a key.
 - A transcript is cut into segments at a speaker change, a pause over 800 ms or past 400 characters, markers and
   sounds left out (MemoryOS `SonioxAsync.group`). Base URLs and the poll's pace are `speech.Config`'s.
@@ -4859,8 +4863,8 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   /gateway/audio/providers/{provider}/keys/{name}`; any token reads `GET /gateway/audio/models` and `GET
   /gateway/audio/voices`, the providers' own lists. Settings → Gateway → Audio (`web/src/features/models/
   audio-screen.tsx`) shows and changes them, built from the Web search and Images pages; ElevenLabs's speech row
-  picks its model from its list, and each provider's voice for videos is picked by name (typed when the list
-  cannot be read). The CLI: `hypomnema audio
+  picks its model from its list and its voice for videos by name (typed when the list cannot be read); Soniox's
+  voice is typed by name or id. The CLI: `hypomnema audio
   providers`, `audio providers set <provider> on|off`, `audio order stt|tts <provider> <provider>`, `audio keys add
   <provider> --key-file`, `audio keys rm <provider> <name>`.
 - Not built: live (streaming) transcription, prices for audio, an agent tool for audio. Not yet measured:

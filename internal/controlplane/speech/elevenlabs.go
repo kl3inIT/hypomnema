@@ -170,7 +170,7 @@ func (s *Service) elevenLabsSpeak(ctx context.Context, k Key, model string, req 
 	if !req.Timings {
 		var audio []byte
 
-		err := s.retrying(ctx, func() error {
+		err := s.retrying(ctx, func(ctx context.Context) error {
 			var err error
 			audio, err = s.speak(ctx, endpoint+format, xiKey(k), body)
 
@@ -188,7 +188,7 @@ func (s *Service) elevenLabsSpeak(ctx context.Context, k Key, model string, req 
 		Alignment *elevenLabsAlignment `json:"alignment"`
 	}
 
-	if err := s.retrying(ctx, func() error {
+	if err := s.retrying(ctx, func(ctx context.Context) error {
 		return s.call(ctx, http.MethodPost, endpoint+"/with-timestamps"+format, xiKey(k), body, &answer,
 			maxSpeechAnswer)
 	}); err != nil {
@@ -274,13 +274,23 @@ func alignmentWords(chars []string, starts, ends []float64) []Word {
 
 func seconds(v float64) time.Duration { return time.Duration(v * float64(time.Second)) }
 
-// elevenLabsLanguage is the language_code a request is sent with: its language when the model covers it, as the
-// models list says (GET /v1/models), and none otherwise, with a warning, as pipecat's elevenlabs_language_code
-// does (tts_base.py:194-225). When the list cannot be read, or does not name the model, the language is sent and
-// ElevenLabs judges it: a language that is asked is not dropped on a guess.
+// elevenLabsLanguage is the language_code a request is sent with: its language as an ISO 639-1 code (en-US is en),
+// when the model covers it, as the models list says (GET /v1/models), and none otherwise, with a warning, as
+// pipecat's elevenlabs_language_code does (tts_base.py:194-225). A model known to take no language_code gets none,
+// whatever it covers: those older than v2.5 that pipecat's table leaves out on purpose (tts_base.py:176-191:
+// "ElevenLabs documents language_code as unsupported" for multilingual v2). When the list cannot be read, or does
+// not name the model, the language is sent and ElevenLabs judges it: a language asked is not dropped on a guess.
 func (s *Service) elevenLabsLanguage(ctx context.Context, k Key, model, language string) string {
-	language = strings.ToLower(strings.TrimSpace(language))
-	if language == "" {
+	language = baseLanguage(language)
+
+	switch {
+	case language == "":
+		return ""
+	case slices.Contains(elevenLabsNoLanguageCode, model):
+		s.cfg.Logger.WarnContext(ctx, "the language is not sent: the ElevenLabs model takes no language_code",
+			slog.String("event", "speech.language_not_taken"), slog.String("model", model),
+			slog.String("language", language))
+
 		return ""
 	}
 
@@ -298,7 +308,7 @@ func (s *Service) elevenLabsLanguage(ctx context.Context, k Key, model, language
 		return language
 	}
 
-	if slices.ContainsFunc(models[i].Languages, func(l string) bool { return sameLanguage(l, language) }) {
+	if slices.ContainsFunc(models[i].Languages, func(l string) bool { return baseLanguage(l) == language }) {
 		return language
 	}
 
@@ -309,19 +319,20 @@ func (s *Service) elevenLabsLanguage(ctx context.Context, k Key, model, language
 	return ""
 }
 
-// sameLanguage says whether a model's language is the one asked: the same code, or the same language before a
-// region (pt-BR and pt).
-func sameLanguage(model, asked string) bool {
-	base := func(code string) string {
-		code = strings.ToLower(code)
-		if i := strings.IndexAny(code, "-_"); i >= 0 {
-			return code[:i]
-		}
+// elevenLabsNoLanguageCode are the models that take no language_code: ElevenLabs's before v2.5, which pipecat's
+// ELEVENLABS_MODEL_LANGUAGES leaves out so that none is sent (tts_base.py:176-191).
+var elevenLabsNoLanguageCode = []string{
+	"eleven_multilingual_v2", "eleven_multilingual_v1", "eleven_monolingual_v1", "eleven_turbo_v2", "eleven_flash_v2",
+}
 
-		return code
+// baseLanguage is a language code without its region, lowercase: en-US and en_us are en, as ISO 639-1 names it.
+func baseLanguage(code string) string {
+	code = strings.ToLower(strings.TrimSpace(code))
+	if i := strings.IndexAny(code, "-_"); i >= 0 {
+		return code[:i]
 	}
 
-	return strings.EqualFold(model, asked) || base(model) == base(asked)
+	return code
 }
 
 // ModelInfo is a provider's text-to-speech model, as its list names it.
@@ -359,7 +370,7 @@ func (s *Service) elevenLabsModelsOf(ctx context.Context, k Key) ([]ModelInfo, e
 		} `json:"languages"`
 	}
 
-	if err := s.retrying(ctx, func() error {
+	if err := s.retrying(ctx, func(ctx context.Context) error {
 		return s.call(ctx, http.MethodGet, s.cfg.ElevenLabsURL+"/v1/models", xiKey(k), nil, &answer, maxSmallAnswer)
 	}); err != nil {
 		return nil, err
@@ -459,7 +470,7 @@ func (s *Service) elevenLabsVoicesOf(ctx context.Context, k Key) ([]Voice, error
 		} `json:"voices"`
 	}
 
-	if err := s.retrying(ctx, func() error {
+	if err := s.retrying(ctx, func(ctx context.Context) error {
 		return s.call(ctx, http.MethodGet, s.cfg.ElevenLabsURL+"/v1/voices", xiKey(k), nil, &answer, maxSmallAnswer)
 	}); err != nil {
 		return nil, err

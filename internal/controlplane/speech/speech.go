@@ -103,7 +103,7 @@ const (
 	// to 30 minutes (LiteLLM's SONIOX_DEFAULT_MAX_POLL_ATTEMPTS of 1 s), and
 	// the upload and transcript take their own time.
 	transcriptionBudget = 35 * time.Minute
-	// speechTimeout bounds one provider's spoken answer.
+	// speechTimeout bounds one provider's spoken answer: Soniox's, or one attempt of ElevenLabs's.
 	speechTimeout = 2 * time.Minute
 	// maxSpeechAnswer bounds the audio a provider sends back.
 	maxSpeechAnswer = 64 << 20
@@ -515,16 +515,18 @@ func (s *Service) Speak(ctx context.Context, req SpeakRequest) (Speech, error) {
 	var out Speech
 
 	err := s.each(ctx, KindTTS, req.Provider, req.Model, req.Pinned, func(ctx context.Context, r route) error {
-		ctx, cancel := context.WithTimeout(ctx, speechTimeout)
-		defer cancel()
-
 		var (
 			audio []byte
 			words []Word
 			err   error
 		)
 
+		// Soniox's answer has speechTimeout; each of ElevenLabs's attempts has its own, the waits between them
+		// apart (retry.go), as the SDK's timeout is a request's and its retries wait outside it.
 		if r.key.Provider == ProviderSoniox {
+			ctx, cancel := context.WithTimeout(ctx, speechTimeout)
+			defer cancel()
+
 			audio, err = s.sonioxSpeak(ctx, r.key, req)
 		} else {
 			audio, words, err = s.elevenLabsSpeak(ctx, r.key, r.model, req)

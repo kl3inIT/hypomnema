@@ -10,8 +10,10 @@ import (
 // An ElevenLabs request that is rate limited (429) or fails on its side (5xx) is asked again twice before its
 // failure counts (issue #1283, row 6), as ElevenLabs's own SDK does (elevenlabs-python core/http_client.py:99-123,
 // 379-382): it waits the Retry-After the answer named, at most 60 seconds, else 1 second doubling with each retry.
-// Only then does the key rest and the next key or provider get asked, as before (rest.go, each). The SDK's jitter
-// is left out: one control plane asks, so there is no herd to spread.
+// Only then does the key rest and the next key or provider get asked, as before (rest.go, each). Each attempt has
+// its own speechTimeout and the waits are apart from it, as the SDK's timeout is one request's and it sleeps
+// between them (http_client.py:379-382), so both retries happen even after two Retry-After of 60 seconds (review
+// of #1300). The SDK's jitter is left out: one control plane asks, so there is no herd to spread.
 const (
 	retries        = 2
 	retryFirst     = time.Second
@@ -19,10 +21,11 @@ const (
 	retryNotBefore = time.Millisecond
 )
 
-// retrying asks once, then again after a refusal that may pass, at most retries times.
-func (s *Service) retrying(ctx context.Context, ask func() error) error {
+// retrying asks once, then again after a refusal that may pass, at most retries times; each attempt within its own
+// speechTimeout.
+func (s *Service) retrying(ctx context.Context, ask func(ctx context.Context) error) error {
 	for n := 0; ; n++ {
-		err := ask()
+		err := s.attempt(ctx, ask)
 
 		wait, again := retryWait(err, n)
 		if !again || n == retries {
@@ -33,6 +36,13 @@ func (s *Service) retrying(ctx context.Context, ask func() error) error {
 			return err
 		}
 	}
+}
+
+func (s *Service) attempt(ctx context.Context, ask func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, speechTimeout)
+	defer cancel()
+
+	return ask(ctx)
 }
 
 // retryWait is how long to wait before asking again after the nth retry's error, and whether to.

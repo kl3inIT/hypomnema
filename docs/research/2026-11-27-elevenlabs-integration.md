@@ -59,8 +59,16 @@ characters (https://elevenlabs.io/pricing/api, read 2026-11-27), already in the 
 
 Choices made while building, which no reference settles:
 - When `GET /v1/models` cannot be read, or does not list the model, the language is sent and ElevenLabs judges it,
-  rather than dropped on a guess (pipecat drops it only for a model it knows takes none).
+  rather than dropped on a guess. A model older than v2.5 (`eleven_multilingual_v2`, `_v1`, `turbo_v2`,
+  `flash_v2`), which pipecat's table leaves out so that none is sent (`tts_base.py:176-191`), never gets one; a
+  language is sent as its ISO 639-1 code (`en-US` is `en`) (review of #1300).
 - A pinned video revision (a look change, a retry) also pins the model its voice was spoken with (`pin_model`), so a
   later change of the owner's model does not re-speak it; the pin's provider and voice were already pinned (#908).
+  A pin made before `pin_model` takes the model the revision was spoken with, before the default.
 - The retry covers ElevenLabs's speech and its two lists, not a Scribe transcription (a 128 MiB upload); the SDK's
-  jitter is left out, as one control plane asks.
+  jitter is left out, as one control plane asks. Each attempt has its own 2-minute budget and the waits are apart
+  from it, as the SDK's timeout is one request's (`http_client.py:379-382`), so two `Retry-After: 60` still leave
+  the third attempt (review of #1300).
+- Studio keeps the alignment's words as they are, each with its own times: no mark said on its own is glued to the
+  word before (review of #1300). Soniox's voice for videos stays typed in Settings → Audio; only ElevenLabs's is
+  picked from its list (row 5; Soniox's is #1285).

@@ -1,6 +1,7 @@
 package videos
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -115,7 +116,9 @@ func (s *Service) Retry(ctx context.Context, id string, rev int, by, requestID s
 
 		switch {
 		case src.PinProvider != "":
-			out.pin = &voicePin{provider: src.PinProvider, voice: src.PinVoice, model: src.PinModel}
+			// A pin made before pins kept their model has none: the model the revision was spoken with stands for
+			// it, before the default (review of #1300).
+			out.pin = &voicePin{provider: src.PinProvider, voice: src.PinVoice, model: cmp.Or(src.PinModel, src.Model)}
 		case src.Provider != "":
 			out.pin = &voicePin{provider: src.Provider, voice: src.UsedVoice, model: src.Model}
 		}

@@ -549,9 +549,9 @@ function ModelField({ provider, model }: { provider: AudioProvider; model: strin
 }
 
 // VoiceField is the voice a provider speaks a video of a take with when none is asked (issue #818, row 5), as
-// `hypomnema audio voice` sets it; empty, the provider's own default. It is picked by name from the provider's
-// voices (issue #1283, row 5), as openclaw and open-webui list ElevenLabs's from its GET /v1/voices; when the list
-// cannot be read, a name or id is typed.
+// `hypomnema audio voice` sets it; empty, the provider's own default. ElevenLabs's is picked by name from its
+// voices (issue #1283, row 5), as openclaw and open-webui list them from its GET /v1/voices; when the list cannot
+// be read, and for Soniox, a name or id is typed.
 function VoiceField({ provider, voice }: { provider: AudioProvider; voice?: string }) {
   const name = audioProviderName(provider)
   const voices = useAudioVoices()
@@ -565,7 +565,8 @@ function VoiceField({ provider, voice }: { provider: AudioProvider; voice?: stri
   )
   const listed = (voices.data?.voices ?? []).some((v) => v.provider === provider)
 
-  if (!listed && !voices.isPending) {
+  // Only ElevenLabs's voice is picked from its list (#1283, row 5); Soniox's is typed, as before, until #1285.
+  if (provider !== "elevenlabs" || (!listed && !voices.isPending)) {
     return <VoiceInput provider={provider} voice={voice} save={save} />
   }
 
@@ -622,9 +623,7 @@ function VoiceSelect({
           }}
         />
         <FieldDescription>
-          {provider === "elevenlabs"
-            ? `${name}'s voices: your own and those you saved from its library.`
-            : `${name}'s voices.`}
+          {name}&apos;s voices: your own and those you saved from its library.
         </FieldDescription>
       </Field>
       <ErrorAlert error={error} />

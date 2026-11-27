@@ -226,15 +226,16 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 	return path, nil
 }
 
-// spokenWords are the caption words of the words a provider said it spoke, as clipWords reads a transcript's: whole
-// words, not tokens to glue.
+// spokenWords are the caption words of the words a provider said it spoke, each as it is, with its own times: the
+// provider's words are whole already (speech.alignmentWords splits ElevenLabs's alignment on whitespace), so none
+// is glued to another, not even a mark said on its own (review of #1300).
 func spokenWords(said []speech.Word) []captions.Word {
-	pieces := make([]captions.Piece, 0, len(said))
+	out := make([]captions.Word, 0, len(said))
 	for _, w := range said {
-		pieces = append(pieces, captions.Piece{Text: w.Word, Start: w.Start.Seconds(), End: w.End.Seconds()})
+		out = append(out, captions.Word{Word: w.Word, Start: w.Start.Seconds(), End: w.End.Seconds()})
 	}
 
-	return captions.Words(pieces, false)
+	return out
 }
 
 func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string) ([]captions.Word, error) {
