@@ -151,3 +151,21 @@ it("the owner sets a key's routing back to Settings", async () => {
   await waitFor(() => expect(sent).toHaveLength(1))
   expect(sent[0]!.body).toMatchObject({ accounts: ["*"], search_order: [] })
 })
+
+// Scenario (review of PR #1298): every account a key was limited to was removed, so it uses none. The owner renames
+// it: the name is saved, and the key keeps its limit, untouched.
+it("the owner renames a key whose accounts are all gone", async () => {
+  const user = userEvent.setup()
+  const sent = renderSheet({ ...laptop, accounts: [] })
+
+  await user.click(screen.getByRole("button", { name: "Edit beyondpilot" }))
+  const sheet = screen.getByRole("dialog", { name: "Edit beyondpilot" })
+  expect(within(sheet).getByTestId("routing-summary")).toHaveTextContent("0 accounts")
+
+  await user.clear(within(sheet).getByLabelText("Name"))
+  await user.type(within(sheet).getByLabelText("Name"), "beyondpilot-old")
+  await user.click(within(sheet).getByRole("button", { name: "Save changes" }))
+
+  await waitFor(() => expect(sent).toHaveLength(1))
+  expect(sent[0]!.body).toEqual({ name: "beyondpilot-old", models: [] })
+})
