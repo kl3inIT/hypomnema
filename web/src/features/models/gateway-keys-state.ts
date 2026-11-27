@@ -111,25 +111,49 @@ export function routingBadges(key: GatewayKey): string[] {
   return badges
 }
 
+// sameAccounts reports whether a form keeps the accounts a key was limited to, or keeps it on every account.
+export function sameAccounts(routing: Routing, was: Routing) {
+  if (routing.accounts !== was.accounts) return false
+  if (routing.accounts === "every") return true
+
+  return (
+    routing.chosen.length === was.chosen.length &&
+    routing.chosen.every((id) => was.chosen.includes(id))
+  )
+}
+
+function sameOrder(routing: Routing, was: Routing) {
+  if (routing.order !== was.order) return false
+
+  return (
+    routing.order === "settings" ||
+    (routing.providers.length === was.providers.length &&
+      routing.providers.every((p, i) => was.providers[i] === p))
+  )
+}
+
 // routingBody is what a key's form sends of its routing. A new key leaves out what it does not set, so that it
-// follows Settings; an edit sends both, "*" being every account again and an empty order the order of Settings.
+// follows Settings; an edit sends only what changed, "*" being every account again and an empty order the order of
+// Settings, so that a key whose accounts were all removed keeps its limit while it is renamed.
 export function routingBody(
   routing: Routing,
-  editing: boolean,
+  key?: GatewayKey,
 ): { accounts?: string[]; search_order?: WebSearchProvider[] } {
   const own = routing.accounts === "some"
   const ordered = routing.order === "own"
 
-  if (!editing) {
+  if (!key) {
     return {
       ...(own && { accounts: routing.chosen }),
       ...(ordered && { search_order: routing.providers }),
     }
   }
 
+  const was = routingOf(key)
+
   return {
-    accounts: own ? routing.chosen : ["*"],
-    search_order: ordered ? routing.providers : [],
+    ...(!sameAccounts(routing, was) && { accounts: own ? routing.chosen : ["*"] }),
+    ...(!sameOrder(routing, was) && { search_order: ordered ? routing.providers : [] }),
   }
 }
 

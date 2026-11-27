@@ -60,8 +60,17 @@ describe("a key's own routing", () => {
 
   it("sends what a new key sets, and both on an edit", () => {
     const routing = routingOf(key())
-    expect(routingBody(routing, false)).toEqual({})
-    expect(routingBody(routing, true)).toEqual({ accounts: ["*"], search_order: [] })
+    expect(routingBody(routing)).toEqual({})
+    expect(routingBody(routing, key())).toEqual({})
+    expect(routingBody({ ...routing, accounts: "some", chosen: ["acc_1"] }, key())).toEqual({
+      accounts: ["acc_1"],
+    })
+    expect(
+      routingBody(
+        routing,
+        key({ accounts: [{ id: "acc_1", runtime: "claude" }], search_order: ["exa"] }),
+      ),
+    ).toEqual({ accounts: ["*"], search_order: [] })
 
     const own = {
       accounts: "some",
@@ -69,12 +78,12 @@ describe("a key's own routing", () => {
       order: "own",
       providers: ["claude"],
     } as const
-    expect(
-      routingBody({ ...own, chosen: [...own.chosen], providers: [...own.providers] }, false),
-    ).toEqual({
-      accounts: ["acc_1"],
-      search_order: ["claude"],
-    })
+    expect(routingBody({ ...own, chosen: [...own.chosen], providers: [...own.providers] })).toEqual(
+      {
+        accounts: ["acc_1"],
+        search_order: ["claude"],
+      },
+    )
   })
 })
 

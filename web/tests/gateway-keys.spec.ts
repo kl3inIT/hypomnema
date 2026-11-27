@@ -406,9 +406,21 @@ test("the owner creates a key in the sheet and sees its value", async ({ page, i
   await shot(page, "gateway-keys-badges")
 })
 
+// press is a press as the device makes it: a tap on a phone, whose finger leaves the screen, a click on a desktop. A
+// click on a phone leaves the pointer where it pressed, hovering whatever opens there; a toast that comes up under it
+// then waits for the pointer to leave before it goes, and covers the page meanwhile.
+async function press(locator: Locator, isMobile: boolean) {
+  if (isMobile) {
+    await locator.tap()
+  } else {
+    await locator.click()
+  }
+}
+
 test("the owner copies from the masked list, shows and hides, then edits the same key", async ({
   page,
   context,
+  isMobile,
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   const calls = await fakeServer(page)
@@ -444,7 +456,7 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
   await sheet.getByLabel("Name").click()
   await images.click()
   await shot(page, "gateway-keys-sheet-edit")
-  await sheet.getByRole("button", { name: "Save changes" }).click()
+  await press(sheet.getByRole("button", { name: "Save changes" }), isMobile)
   await expect(sheet).toHaveCount(0)
 
   const edited = page.getByRole("row", { name: "opencode-tool" })
@@ -452,7 +464,7 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
   await expect(edited.getByText("Images", { exact: true })).toHaveCount(0)
   await expect(edited).toContainText(mask(laptopSecret))
   expect(calls).toContain(
-    "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; search,fetch,audio; *; ",
+    "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; search,fetch,audio; undefined; undefined",
   )
   await edited.getByRole("button", { name: "Show key for opencode-tool" }).click()
   await expect(edited.getByText(laptopSecret, { exact: true })).toBeVisible()
@@ -461,10 +473,12 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
   await edited.getByRole("button", { name: "Edit opencode-tool" }).click()
   const edit = page.getByRole("dialog", { name: "Edit opencode-tool" })
   await edit.getByRole("button", { name: "Making and editing images" }).click()
-  await edit.getByRole("button", { name: "Save changes" }).click()
+  await press(edit.getByRole("button", { name: "Save changes" }), isMobile)
   await expect(edit).toHaveCount(0)
   await expect(edited.getByText("Images", { exact: true })).toBeVisible()
-  expect(calls).toContain("PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; *; *; ")
+  expect(calls).toContain(
+    "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; *; undefined; undefined",
+  )
 })
 
 // Scenario (issue #1277): the owner opens a key with its own routing. The Routing header says so while closed; open,

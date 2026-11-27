@@ -69,6 +69,7 @@ import {
   routingBody,
   routingOf,
   routingSummary,
+  sameAccounts,
   type Routing,
 } from "./gateway-keys-state"
 import { GatewayModelPicker } from "./gateway-model-picker"
@@ -95,33 +96,41 @@ const searchProviders = [
   "antigravity",
 ] as const satisfies readonly WebSearchProvider[]
 
-const keySchema = z
-  .object({
-    name: z
-      .string()
-      .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "Lower-case letters, digits and dashes, 63 at most."),
-    scope: z.enum(["every", "some"]),
-    models: z.array(z.string()),
-    endpoints: z.array(z.enum(["search", "fetch", "images", "audio"])),
-    routing: z.object({
-      accounts: z.enum(["every", "some"]),
-      chosen: z.array(z.string()),
-      order: z.enum(["settings", "own"]),
-      providers: z.array(z.enum(searchProviders)),
-    }),
-  })
-  .refine((value) => value.scope === "every" || value.models.length > 0, {
-    message: "Choose a model, or every model.",
-    path: ["models"],
-  })
-  .refine((value) => value.routing.accounts === "every" || value.routing.chosen.length > 0, {
-    message: "Choose an account, or every account.",
-    path: ["routing"],
-  })
-  .refine((value) => value.routing.order === "settings" || value.routing.providers.length > 0, {
-    message: "Choose a provider to ask first, or the order of Settings.",
-    path: ["routing"],
-  })
+// keySchema checks the form of a key; a key being edited may keep a limit to accounts that were all removed.
+const keySchema = (key?: GatewayKey) =>
+  z
+    .object({
+      name: z
+        .string()
+        .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "Lower-case letters, digits and dashes, 63 at most."),
+      scope: z.enum(["every", "some"]),
+      models: z.array(z.string()),
+      endpoints: z.array(z.enum(["search", "fetch", "images", "audio"])),
+      routing: z.object({
+        accounts: z.enum(["every", "some"]),
+        chosen: z.array(z.string()),
+        order: z.enum(["settings", "own"]),
+        providers: z.array(z.enum(searchProviders)),
+      }),
+    })
+    .refine((value) => value.scope === "every" || value.models.length > 0, {
+      message: "Choose a model, or every model.",
+      path: ["models"],
+    })
+    .refine(
+      (value) =>
+        value.routing.accounts === "every" ||
+        value.routing.chosen.length > 0 ||
+        (key !== undefined && sameAccounts(value.routing, routingOf(key))),
+      {
+        message: "Choose an account, or every account.",
+        path: ["routing"],
+      },
+    )
+    .refine((value) => value.routing.order === "settings" || value.routing.providers.length > 0, {
+      message: "Choose a provider to ask first, or the order of Settings.",
+      path: ["routing"],
+    })
 
 // Segmented is a choice of two or three, the Machines page's segmented control (machines-screen.tsx, its layout).
 function Segmented<T extends string>({
@@ -197,11 +206,11 @@ export function KeySheet({ gatewayKey }: { gatewayKey?: GatewayKey }) {
       endpoints: gatewayKey?.endpoints ?? endpointKinds.map((kind) => kind.id),
       routing: routingOf(gatewayKey),
     },
-    validators: { onSubmit: keySchema },
+    validators: { onSubmit: keySchema(gatewayKey) },
     onSubmit: ({ value, formApi }) => {
       const access = { name: value.name, models: value.scope === "every" ? [] : value.models }
       const everyEndpoint = value.endpoints.length === endpointKinds.length
-      const routing = routingBody(value.routing, Boolean(gatewayKey))
+      const routing = routingBody(value.routing, gatewayKey)
       if (gatewayKey) {
         const sameEndpoints =
           gatewayKey.endpoints.length === value.endpoints.length &&
