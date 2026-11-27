@@ -23,8 +23,8 @@ import (
 //
 // A Bot reads only its own chats with the owner: its main chat, its Inbox items' chats and its other chats, never a
 // Routine's, a Lark chat or another Bot's (ListOwnerChatsOfBot). A Lark chat, where people other than the owner may
-// read the answer, searches only itself and recalls nothing, as OpenMausBot never pulls a private chat into a room
-// (recall.ts recallRooms) and as such a chat gets no memory (issue #246).
+// read the answer, a group's or a person's direct one, searches only itself and recalls nothing, as OpenMausBot never
+// pulls a private chat into a room (recall.ts recallRooms).
 
 // Limits of the search and the recall.
 const (
@@ -66,13 +66,23 @@ const (
 )
 
 // searchStopWords are the words a search leaves out (OpenMausBot's STOP_WORDS, server/message-db.ts:718), and
-// recallFiller those a recall leaves out besides (its RECALL_FILLER, :748).
+// recallFiller those a recall leaves out besides (its RECALL_FILLER, :748), with the common Vietnamese syllables
+// (issue #1218): the pronouns, particles and function words of stopwords-iso's Vietnamese list (stopwords-vi, MIT)
+// that a question is made of, and the counterparts of RECALL_FILLER's ("biết" know, "giúp" help, "nhớ" remember).
+// A Vietnamese word is its syllables, split at spaces, so the list is of syllables; a word typed without its marks
+// is not in it.
 var (
 	searchStopWords = strings.Fields("a an and are as at be by did do for from had has have how i in is it its of on " +
 		"or that the this to was we were what when where which who why with you your")
-	recallFiller = strings.Fields("about again also any anything can could does don't know me my please remember " +
-		"remind should tell there they us would hi hello hey thanks thank ok okay yes yeah no i'm im i've i'll i'd " +
-		"you're quick just")
+	recallFiller = slices.Concat(strings.Fields("about again also any anything can could does don't know me my please "+
+		"remember remind should tell there they us would hi hello hey thanks thank ok okay yes yeah no i'm im i've "+
+		"i'll i'd you're quick just"),
+		strings.Fields("anh chị em bạn mình tôi tớ ta chúng họ nó ông bà cô chú cậu "+
+			"à ạ ơi nhé nhỉ nha ừ vâng dạ "+
+			"là và với của cho có không được thì mà nhưng hay hoặc nếu khi đã đang sẽ vẫn cũng đều rồi chưa ở tại "+
+			"trong trên về vào ra lên từ đến tới này đó đây ấy kia nào gì sao vậy thế bị bởi vì để các những một "+
+			"mỗi cái thể "+
+			"biết giúp hỏi nói xem muốn cần làm ơn cảm xin chào nhớ lại nữa thôi"))
 )
 
 // ChatHit is a message chat_search found.
@@ -286,7 +296,9 @@ func (s *Service) ChatAround(ctx context.Context, chatID, chat string, around in
 
 // Recall is the block put before a turn the owner starts in chatID with message (issue #805, row 4): the passages
 // of the Bot's other chats with the owner that share words with the message's first 500 characters, fenced as its
-// own notes; empty when there are none, the message is under 8 characters, or chatID is a Routine's or a Lark chat.
+// own notes; empty when there are none, the message is under 8 characters, chatID is a Routine's or a Lark chat, or
+// the Bot's switches take chat_search away (issue #1218, as OpenMausBot recalls nothing for a bot whose memory is
+// off, server/index.ts:1152).
 func (s *Service) Recall(ctx context.Context, chatID, message string) (string, error) {
 	match, terms := recallMatch(message)
 	if match == "" {
@@ -297,6 +309,10 @@ func (s *Service) Recall(ctx context.Context, chatID, message string) (string, e
 
 	sc, routine, lark, err := scopeOf(ctx, q, chatID)
 	if err != nil || routine || lark {
+		return "", err
+	}
+
+	if on, err := recalls(ctx, q, chatID); err != nil || !on {
 		return "", err
 	}
 
@@ -322,12 +338,27 @@ func (s *Service) Recall(ctx context.Context, chatID, message string) (string, e
 			continue
 		}
 
-		passages = append(passages, fmt.Sprintf("%s (%s): %s: %s", sc[r.ChatID],
+		passages = append(passages, fmt.Sprintf("%s (%s): %s: %s", cleanPassage(sc[r.ChatID]),
 			millis(r.CreatedAt).Format(time.DateOnly), speakerOf(r.Role, r.SenderID.Valid, r.SenderName.String, true),
 			cleanPassage(plainHit(r.Excerpt))))
 	}
 
 	return renderRecall(passages), nil
+}
+
+// recalls says whether chatID's Bot recalls: whether its switches give it the chats family, chat_search's.
+func recalls(ctx context.Context, q *store.Queries, chatID string) (bool, error) {
+	chat, err := q.GetChat(ctx, chatID)
+	if err != nil {
+		return false, notFound(err, "chat", chatID)
+	}
+
+	bot, err := q.GetBot(ctx, chat.BotID)
+	if err != nil {
+		return false, notFound(err, "bot", chat.BotID)
+	}
+
+	return botFromRow(bot).ToolSwitches().AllowsFamily("chats"), nil
 }
 
 // renderRecall fences the passages, each numbered, as many as fit in recallMaxChars (OpenMausBot's renderRecall).
@@ -403,9 +434,7 @@ func speakerOf(role string, hasSender bool, senderName string, recall bool) stri
 func wordsOf(text string) []string {
 	var out []string
 
-	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.Is(unicode.Mn, r)
-	}) {
+	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !wordRune(r) }) {
 		if !slices.Contains(out, w) {
 			out = append(out, w)
 		}
@@ -440,35 +469,23 @@ func allWords(query string) string {
 
 // recallMatch is a recall's FTS5 query and its words: any of the content words of the message's first 500
 // characters, a word of four letters or more as a prefix without a plural's s (OpenMausBot's recallQuery,
-// recallTerms and recallMatchTerm). Empty when the message is under 8 characters or has no content word.
+// recallTerms and recallMatchTerm). Empty when the message is under 8 characters or has no content word. A word
+// that holds other than letters and digits, such as "we're", counts among the words but is not searched, as
+// OpenMausBot's recallMatchTerm skips it: FTS5 would split it into words of its own.
 func recallMatch(message string) (string, []string) {
 	text := strings.TrimSpace(message)
 	if utf8.RuneCountInString(text) < recallMinChars {
 		return "", nil
 	}
 
-	var terms []string
-
-	for _, w := range wordsOf(cutRunes(text, recallQueryChars)) {
-		short := utf8.RuneCountInString(w) < 2 && !strings.ContainsFunc(w, unicode.IsDigit)
-		if short || slices.Contains(searchStopWords, w) || slices.Contains(recallFiller, w) {
-			continue
-		}
-
-		terms = append(terms, w)
-		if len(terms) == searchTerms {
-			break
-		}
-	}
-
-	if len(terms) == 0 {
-		return "", nil
-	}
-
+	terms := recallTerms(cutRunes(text, recallQueryChars))
 	match := make([]string, 0, len(terms))
 
 	for _, t := range terms {
-		if utf8.RuneCountInString(t) < 4 || strings.ContainsFunc(t, unicode.IsDigit) {
+		switch {
+		case strings.ContainsFunc(t, func(r rune) bool { return !wordRune(r) }):
+			continue
+		case utf8.RuneCountInString(t) < 4 || strings.ContainsFunc(t, unicode.IsDigit):
 			match = append(match, quoted(t))
 
 			continue
@@ -482,7 +499,79 @@ func recallMatch(message string) (string, []string) {
 		match = append(match, quoted(stem)+"*")
 	}
 
+	if len(match) == 0 {
+		return "", nil
+	}
+
 	return strings.Join(match, " OR "), terms
+}
+
+// recallTerms are the content words of a message as a recall reads them, each once, at most 16 (OpenMausBot's
+// recallTerms, server/message-db.ts:758): split at spaces, and at a run of / , ; : . or a dash between two letters,
+// each trimmed of the quotes and punctuation around it and lowercased, so that a contraction is one word. A word of
+// one letter, of no letter or digit, a stop word and a filler are left out.
+func recallTerms(text string) []string {
+	var out []string
+
+	for _, field := range strings.Fields(text) {
+		for _, raw := range splitBetweenLetters(field) {
+			w := strings.ToLower(strings.TrimFunc(strings.ReplaceAll(raw, `"`, ""), func(r rune) bool {
+				return unicode.IsSpace(r) || strings.ContainsRune(".,;:!?()[]{}'`“”‘’", r)
+			}))
+
+			short := utf8.RuneCountInString(w) < 2 && !strings.ContainsFunc(w, unicode.IsDigit)
+			if short || !strings.ContainsFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) ||
+				slices.Contains(searchStopWords, w) || slices.Contains(recallFiller, w) || slices.Contains(out, w) {
+				continue
+			}
+
+			out = append(out, w)
+			if len(out) == searchTerms {
+				return out
+			}
+		}
+	}
+
+	return out
+}
+
+// splitBetweenLetters splits a word at each run of / , ; : . or a dash that has a letter on both sides, as
+// OpenMausBot's recallTerms does ("dashboard/report" is two words, "-10" and "3.5" stay one).
+func splitBetweenLetters(field string) []string {
+	runes := []rune(field)
+
+	var (
+		out   []string
+		start int
+	)
+
+	for i := 0; i < len(runes); {
+		if !strings.ContainsRune("/,;:.—–-", runes[i]) {
+			i++
+
+			continue
+		}
+
+		end := i
+		for end < len(runes) && strings.ContainsRune("/,;:.—–-", runes[end]) {
+			end++
+		}
+
+		if i > 0 && end < len(runes) && unicode.IsLetter(runes[i-1]) && unicode.IsLetter(runes[end]) {
+			out = append(out, string(runes[start:i]))
+			start = end
+		}
+
+		i = end
+	}
+
+	return append(out, string(runes[start:]))
+}
+
+// wordRune says whether a character is of a word as FTS5's unicode61 tokenizer reads it: a letter, a digit or a
+// mark that combines with a letter.
+func wordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Mn, r)
 }
 
 // enoughMatches says whether an excerpt shares enough of a recall's words: two when the message has five or more

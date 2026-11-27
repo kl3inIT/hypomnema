@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -32,9 +33,16 @@ func recallText(msgs []orchestration.ChatMessage) string {
 	return strings.Join(words, "\n\n")
 }
 
-// withRecall is the turn's text with what it recalls in front. A recall that fails is logged and the turn goes
-// without it, as OpenMausBot's buildRecall gives nothing on an error.
-func (s *Supervisor) withRecall(ctx context.Context, chatID string, msgs []orchestration.ChatMessage,
+// turnRecall is what a chat's turn recalled, kept until pi reads the turn: a turn pi refused or queued is given again
+// with the same recall, not one made again from chats that changed meanwhile (issue #1218, row 5).
+type turnRecall struct {
+	seqs  []int64
+	block string
+}
+
+// withRecall is the turn's text with what it recalls in front, made once for the turn of rows seqs. A recall that
+// fails is logged and the turn goes without it, as OpenMausBot's buildRecall gives nothing on an error.
+func (s *Supervisor) withRecall(ctx context.Context, chatID string, msgs []orchestration.ChatMessage, seqs []int64,
 	text string,
 ) string {
 	words := recallText(msgs)
@@ -42,17 +50,37 @@ func (s *Supervisor) withRecall(ctx context.Context, chatID string, msgs []orche
 		return text
 	}
 
-	recalled, err := s.svc.Recall(ctx, chatID, words)
-	if err != nil {
-		s.cfg.Logger.WarnContext(ctx, "recalling the Bot's earlier chats failed", slog.String("chat_id", chatID),
-			slog.String("event", "coordinator.recall_failed"), slog.String("error", err.Error()))
+	s.mu.Lock()
+	kept, ok := s.recalls[chatID]
+	s.mu.Unlock()
 
+	block := kept.block
+	if !ok || !slices.Equal(kept.seqs, seqs) {
+		var err error
+
+		block, err = s.svc.Recall(ctx, chatID, words)
+		if err != nil {
+			s.cfg.Logger.WarnContext(ctx, "recalling the Bot's earlier chats failed", slog.String("chat_id", chatID),
+				slog.String("event", "coordinator.recall_failed"), slog.String("error", err.Error()))
+
+			return text
+		}
+
+		s.mu.Lock()
+		s.recalls[chatID] = turnRecall{seqs: slices.Clone(seqs), block: block}
+		s.mu.Unlock()
+	}
+
+	if block == "" {
 		return text
 	}
 
-	if recalled == "" {
-		return text
-	}
+	return block + "\n\n" + text
+}
 
-	return recalled + "\n\n" + text
+// recallRead forgets a chat's kept recall once pi has read its turn.
+func (s *Supervisor) recallRead(chatID string) {
+	s.mu.Lock()
+	delete(s.recalls, chatID)
+	s.mu.Unlock()
 }

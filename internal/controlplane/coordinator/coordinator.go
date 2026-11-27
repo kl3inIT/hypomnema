@@ -95,7 +95,9 @@ type Supervisor struct {
 	mu       sync.Mutex
 	procs    map[string]*proc
 	watchers map[string]map[watcher]struct{}
-	kick     chan struct{}
+	// recalls are the recalls of the turns pi has not read yet, by chat (recall.go).
+	recalls map[string]turnRecall
+	kick    chan struct{}
 	// stopping says the control plane stops every pi: a turn cut now keeps its mark (cutturns.go).
 	stopping atomic.Bool
 	// running is Run's context, which ends when the control plane stops (SIGTERM): a pi started for a request, such
@@ -117,7 +119,7 @@ func New(svc *orchestration.Service, cfg Config) *Supervisor {
 
 	s := &Supervisor{
 		svc: svc, cfg: cfg, procs: map[string]*proc{}, watchers: map[string]map[watcher]struct{}{},
-		kick: make(chan struct{}, 1),
+		recalls: map[string]turnRecall{}, kick: make(chan struct{}, 1),
 	}
 	if len(cfg.Background) > 0 {
 		s.bg.run = backgroundLauncher(cfg.Background)
@@ -351,12 +353,16 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 	// A steer joins a turn that runs; only a turn that starts recalls (recall.go).
 	text := promptText(msgs)
 	if !working {
-		text = s.withRecall(ctx, chatID, msgs, text)
+		text = s.withRecall(ctx, chatID, msgs, seqs, text)
 	}
 
 	read, err := p.send(ctx, text, seqs)
 	if err != nil || !read {
 		return err
+	}
+
+	if !working {
+		s.recallRead(chatID)
 	}
 
 	return s.svc.MarkDeliveredSeqs(ctx, chatID, seqs)
