@@ -176,17 +176,18 @@ test("the owner sees the gateway's address and keys", async ({ page, isMobile })
   await expect(laptop).toContainText("40m ago")
   const desktop = page.getByRole("row", { name: "omp-desktop" })
   await expect(desktop).toContainText("hyp_gateway_v1_Lm40Pr…")
-  const hidden = desktop.getByText("Can't be shown", { exact: true })
-  await expect(hidden).toBeVisible()
-  if (!isMobile) {
-    await hidden.hover()
-    await expect(
-      page.getByText("Made before keys could be shown again; make a new one to copy it.", {
-        exact: true,
-      }),
-    ).toBeVisible()
-    await page.keyboard.press("Escape")
+  const hidden = desktop.getByRole("button", { name: "Can't be shown", exact: true })
+  if (isMobile) {
+    await hidden.tap()
+  } else {
+    await hidden.click()
   }
+  await expect(
+    page.getByText("Made before keys could be shown again; make a new one to copy it.", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await hidden.click()
   await expect(desktop.getByRole("button", { name: /Show key|Copy key/ })).toHaveCount(0)
   // A model reads as its name, with its maker's mark.
   await expect(desktop).toContainText("Claude Sonnet 5.5")
