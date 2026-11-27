@@ -77,3 +77,20 @@ func TestTheServiceProxysCommandsPointToTheirSkills(t *testing.T) {
 		assert.Contains(t, def.WhenToUse, "already signed in", name)
 	}
 }
+
+// The Inbox's line keeps one item for each ask, from the ask to the work to done (issue #1206), and the meetings'
+// line adds only what involves the owner (issue #1142): never two items for one ask, nor another person's action.
+func TestTheInboxLineKeepsOneItemForEachAsk(t *testing.T) {
+	t.Parallel()
+
+	inbox := ToolGuide([]string{ToolInboxAdd})
+	assert.NotContains(t, inbox, "two items")
+	assert.Contains(t, inbox, "One ask is one item")
+	assert.Contains(t, inbox, "why_open promised")
+	assert.Contains(t, inbox, "the due he gave, else the asker's, else due_date none",
+		"the order of the due is the triage's (review of PR #1243)")
+
+	meetings := ToolGuide([]string{ToolMeetingGet})
+	assert.NotContains(t, meetings, "any other as proposed")
+	assert.Contains(t, meetings, "another person's own action adds nothing")
+}

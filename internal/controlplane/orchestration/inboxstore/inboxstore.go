@@ -203,11 +203,14 @@ const (
 	LinkZaloSent     = "zalo_sent"
 	LinkWhatsAppSent = "whatsapp_sent"
 	LinkLarkSent     = "lark_sent"
+	// LinkComment is the owner's comment on the item itself, by the revision of the item it made (its history, the
+	// wake-up it gave the Bot; issue #1206): the evidence a Bot gives that he did it, as his message is.
+	LinkComment = "comment"
 )
 
 var linkKinds = []string{
 	LinkURL, LinkChatMessage, LinkMail, LinkRun, LinkPullRequest, LinkMeetingLine, LinkLarkMessage, LinkZaloMessage,
-	LinkWhatsAppMessage, LinkZaloSent, LinkWhatsAppSent, LinkLarkSent,
+	LinkWhatsAppMessage, LinkZaloSent, LinkWhatsAppSent, LinkLarkSent, LinkComment,
 }
 
 // sentService is the source kind, the messaging service, of a Link to a message the owner sent.
@@ -591,8 +594,15 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
-		// An item given to a Bot in a department, without a project, takes it (issue #1188).
+		// An item read in a chat the owner put in a department, without a project, takes it (issue #1206); else an
+		// item given to a Bot in a department takes that one (issue #1188).
 		project := nullString(n.Project)
+		if !project.Valid {
+			if project, err = chatDepartment(ctx, q, n.Source); err != nil {
+				return err
+			}
+		}
+
 		if !project.Valid {
 			if project, err = botsDepartment(ctx, q, n.Assignee); err != nil {
 				return err
@@ -825,12 +835,21 @@ func checkLink(l Link) error {
 	case sentService[l.Kind] == "" && (l.Account != "" || l.Chat != ""):
 		return fmt.Errorf("%w: only a message the owner sent names an account and a chat, or a person's message "+
 			"given as evidence", storeerr.ErrInvalid)
+	case l.Kind == LinkComment && !revisionRef(l.Ref):
+		return fmt.Errorf("%w: a comment is named by the revision of the item it made, a number", storeerr.ErrInvalid)
 	case l.Kind == LinkMeetingLine && !meetingLine(l.Ref):
 		return fmt.Errorf("%w: a meeting's line is named \"<meeting>/<line>\", the line by its number",
 			storeerr.ErrInvalid)
 	}
 
 	return nil
+}
+
+// revisionRef says whether ref names a revision of an item: a number from 1.
+func revisionRef(ref string) bool {
+	n, err := strconv.ParseInt(ref, 10, 64)
+
+	return err == nil && n > 0
 }
 
 // meetingLine says whether ref names a meeting's line as "<meeting>/<line>": a meeting's id and the line's number.

@@ -1168,6 +1168,15 @@ type Todo struct {
 	ProjectID       sql.NullString
 }
 
+type TodoChatDepartment struct {
+	SourceKind    string
+	SourceAccount string
+	SourceID      string
+	DepartmentID  string
+	TodoID        string
+	UpdatedAt     int64
+}
+
 type TodoEvent struct {
 	ID        int64
 	TodoID    string
