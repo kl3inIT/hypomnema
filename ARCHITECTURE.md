@@ -1135,7 +1135,10 @@ sequenceDiagram
     default; words at most 80, 120 and 200 characters, one line), in an accent (#rrggbb, default #6c8cff). A card is
     the look's background painted on the video's whole size, its words an ASS file libass draws in the middle within
     78% of the width (aidemo's card: the accent's rule over the title at W/17 in Be Vietnam Pro Bold, the subtitle at
-    W/40 in Medium; agent-demo-video's URL in the accent), looped for its whole frames and faded in from and out to
+    W/40 in Medium; agent-demo-video's URL in the accent). Each of the three is fitted to that width by its font's
+    own advances (`cardfit.go`, agent-demo-video's hookLayout): wrapped at its spaces, shrunk about 5% at a time to
+    the subtitle's size, and a word still too wide (a store URL, up to 200 characters) broken where it reaches the
+    width; the lines are broken in the ASS and libass does not wrap them again. The card is looped for its whole frames and faded in from and out to
     black over min(350 ms, a third of it). The cards and the framed picture are joined by one concat filter and
     encoded once; then the scenes' `OutStartMs` and rings move after the title card, so the voice (delayed by
     `adelay` and padded to the end), the duck and the captions start there, and the bed and its fade run under both
@@ -1323,7 +1326,8 @@ sequenceDiagram
     its title, a line under it, a URL and its seconds (0.5-10), and one accent colour; the section is sent as
     `{accent, title?, end?}` when changed, empty words left out. Over the look sample, Step, Title and End (the
     cards that are on) choose what it draws: a card is asked with `card` and the cards section, the picture without
-    the cards, and a card with no title yet is not asked for.
+    the cards, and a card with no title yet is not asked for. A card's sample carries that card alone, and the
+    server checks only the card it draws, so the other one may be on and not titled yet.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
