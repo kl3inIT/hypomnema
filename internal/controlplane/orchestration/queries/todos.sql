@@ -61,9 +61,10 @@ VALUES (@todo_id, @at, @revision, @actor_kind, @actor, @kind, @before, @after);
 -- The latest events of an item, newest first, at most lim.
 SELECT * FROM todo_events WHERE todo_id = @todo_id ORDER BY id DESC LIMIT @lim;
 
--- name: ListOwnerTodoEvents :many
--- The latest changes the owner made to an item at or after since, newest first, at most lim (issue #1119).
-SELECT * FROM todo_events WHERE todo_id = @todo_id AND actor_kind = 'owner' AND at >= @since
+-- name: ListTodoEventsBy :many
+-- The latest changes an actor of a kind (the owner, issue #1119; a Bot, issue #1204) made to an item at or after
+-- since, newest first, at most lim.
+SELECT * FROM todo_events WHERE todo_id = @todo_id AND actor_kind = @actor_kind AND at >= @since
 ORDER BY id DESC LIMIT @lim;
 
 -- name: ListTodos :many
@@ -72,7 +73,8 @@ ORDER BY id DESC LIMIT @lim;
 -- without a project; one, only those of project (issue #1157). A proposal nobody touched since
 -- stale_before is stale (issue #966): left out unless with_stale, and never one that needs the owner. Touched is
 -- any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
--- has_owner_since, only the items the owner changed at or after owner_since (issue #1119).
+-- changed_by, only the items an actor of that kind changed at or after changed_since: the owner (issue #1119) or a
+-- Bot (issue #1204).
 SELECT t.* FROM todos t
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
@@ -94,8 +96,8 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
-  AND (CAST(@has_owner_since AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
-        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(@owner_since AS INTEGER)))
+  AND (CAST(@changed_by AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = CAST(@changed_by AS TEXT) AND e.at >= CAST(@changed_since AS INTEGER)))
   AND (CAST(@has_cursor AS INTEGER) = 0
     OR coalesce(t.due_at, 9223372036854775807) > CAST(@cursor_due AS INTEGER)
     OR (coalesce(t.due_at, 9223372036854775807) = CAST(@cursor_due AS INTEGER) AND t.created_at > @cursor_at)
@@ -126,8 +128,8 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
-  AND (CAST(@has_owner_since AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
-        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(@owner_since AS INTEGER)));
+  AND (CAST(@changed_by AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = CAST(@changed_by AS TEXT) AND e.at >= CAST(@changed_since AS INTEGER)));
 
 -- name: CountOwnerAsks :one
 -- What else waits on the owner in the Inbox's Needs you (issue #1093): the pending Approvals and the open questions

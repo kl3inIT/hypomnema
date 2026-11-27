@@ -4857,7 +4857,7 @@ gateway chat model writes its summary, decisions and actions.
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166, 00167 and
-00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124, #1157 and #1163, parts 1 to 3 of the
+00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124, #1157, #1163 and #1204, parts 1 to 3 of the
 Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, a removed Bot's items, and
 priority and projects): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
@@ -4884,7 +4884,8 @@ its client API, its CLI and the Bots' tools.
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
-  `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
+  `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`, as a
+  `lark_message`, `zalo_message` or `whatsapp_message` given as a person's message does (issue #1204);
   `closed_at`); `duplicate_of`; `chat_id`, the item's own chat with the Bot it was given to (migration 00165, issue
   #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
   is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
@@ -4936,8 +4937,15 @@ its client API, its CLI and the Bots' tools.
   direct chat's other party, through `messaging.MemberLister` of the held session, `integration.Service.Members`;
   a Lark chat's by `GET /open-apis/im/v1/chats/:id` and `.../members`); what cannot be read is not evidence; the
   closing event's `answered_in` says that chat's name, which the item's activity shows; another service is never
-  matched); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
-  given to it); `closed_how`
+  matched); a Bot records an open item done by a person (`done_by_kind` `person`), or drops a proposal it added
+  that a person took, with that person's message as evidence and their words in the reason (issue #1204,
+  `personSent`): a `zalo_message`, `whatsapp_message` or `lark_message` naming the item's own account and a chat,
+  read before the write at the change's revision through the same `Sent` (`SentMessage.Sender`, the sender's id,
+  empty for the owner's own), which exists, was not sent by the owner, was sent by a person, is later than the item,
+  and is in the item's chat, in another chat of that account where the asker is a member (as above, the closing's
+  `answered_in` naming it), or, for an item `waiting`, anywhere on that account from the sender of the message its
+  latest `waiting_on` names; never on an item the owner added himself; a Bot closes or drops no item that is another
+  Bot's (given to another, or added by another and not given to it); `closed_how`
   `ai` and `time` are refused; nothing in review is closed while it waits; a doing or review item is given to
   another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is
   not the item nor a duplicate, and the item is the target of none;
@@ -5104,7 +5112,9 @@ its client API, its CLI and the Bots' tools.
   to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included, and `owner_changed_since`
   (issue #1119): only the items the owner himself changed at or after a moment (an event of his), in any state,
   snoozed or stale, each with his changes since then as its history, which the triage Routine learns from
-  (`inboxstore.Filter.OwnerChangedSince`). `inbox_list` also answers the owner's `projects`, the departments' names
+  (`inboxstore.Filter.OwnerChangedSince`); and its mirror `bot_changed_since` (issue #1204,
+  `Filter.BotChangedSince`, not with the other): the items a Bot changed, each with the Bots' changes, from which
+  the brief lists what was closed without him since the previous brief. `inbox_list` also answers the owner's `projects`, the departments' names
   in the sidebar's order (issue #1188), and filters by `project` (a name, or `none`); `inbox_add` and `inbox_update` take `priority` (0–4, as Linear's MCP takes it),
   `priority_reason` and `project` by name (`none` takes it out), and an item reads its priority's name, reason and
   project (issue #1157). A Routine's run that reads

@@ -14,7 +14,7 @@ triage). Nothing here is built into the server; the server code it relies on is 
 | `triage.test.mjs`, `triage-world.mjs`, `triage-run.mjs` | A run of `triage.md` with a real Claude Code against the Bot's tools as an MCP server: a new message on a known item is a comment, not a line of its notes (issue #1186). Only with `HYPOMNEMA_TEST_CLAUDE=claude node --test deploy/thu-ky/triage.test.mjs`; CI skips it. |
 | `triage-cases.json`, `triage.eval.mjs` | The cases of the owner's short replies to asks ("dạ oki chị" to a request for work, "ok" to information, a sticker, a question back; issue #1182), each a thread and what the triage must add, close or leave, run with `triage.md` and a real model. Only with `THU_KY_EVAL=1 node --test deploy/thu-ky/triage.eval.mjs` on a node with the gateway; CI never runs it. Run it after a change to `triage.md`. |
 | `new-messages.mjs` | The check of `triage`: counts the new messages, others' and the owner's own apart, and wakes the Bot only when some are left. |
-| `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark. |
+| `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark: what waits on him, and what a Bot closed without him since the previous brief (issue #1204). |
 
 ## Set it up (the owner, on the machine where `hypomnema` is logged in as him)
 
@@ -51,6 +51,11 @@ then groups, then chats with only his own new messages, then mail, then meetings
 when nothing is new, so a backlog such as a first look of a week goes through in turns of 15 minutes. For a group
 message that names him to count as a direct ask, write his names into `ownerNames` of `filters.json` (regular
 expressions, such as `["Đạt", "anh Dat"]`); by default none is looked for.
+
+Lark lists only a thread's first message among its group's messages; the replies are the thread's (issue #1199). The
+check reads the threads with replies since the last check, found by the threads of the new messages and by Lark's
+message search (the messages of the window, and those that tag the owner), and names each one apart: `chat "X"
+thread omt_… (id oc_…)`. A search Lark refuses is named as a line the check could not read; the rest is still read.
 
 ## The owner's context (issue #1119)
 

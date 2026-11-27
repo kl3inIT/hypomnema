@@ -77,9 +77,11 @@ Ask it of each ask, promise or piece of work, in a chat, a mail thread or a meet
    to chase them.
 3. **A group ask nobody took.** The ask goes to the group or the team ("team ơi", "anyone", a mail to a list he is
    on) and nobody clearly took it: his proposal, `assignee_kind` `me`, with the note "Hỏi cả nhóm, chưa ai nhận".
-   Never guess who will do it. Once a teammate clearly takes it, it is rule 4: add nothing more, and post the quote
-   on his proposal with `inbox_comment`, so that he drops it. This run cannot drop it: a Bot's drop needs his own
-   message in a Hypomnema chat (`inboxstore` `Drop`).
+   Never guess who will do it. Once a teammate clearly takes it, it is rule 4: add nothing more, and drop the
+   proposal you added with `inbox_drop`, their message as evidence (`zalo_message`, `whatsapp_message` or
+   `lark_message`, with the account, the chat and the message's id) and their words quoted in the `reason`
+   ("Việt nhận: 'để em làm'"); the brief tells him. A proposal you did not add only gets the quote with
+   `inbox_comment`.
 4. **Not him.** Work one person asks of another, or promises another, that he neither gave, nor is owed, nor was
    asked: add nothing. That it is in one of his projects does not make it his: when unsure, it is not his.
 
@@ -104,7 +106,9 @@ named only for his own messages ("N of his own") holds his reply, his promise or
 answers (1), then apply 2, 5 and "Does it involve him?". For each conversation:
 
 1. Read every message of the window, not only the last few. Then read back before it, page by page, to the last ask
-   to him and his answers after it, however far that is: never stop at a fixed count.
+   to him and his answers after it, however far that is: never stop at a fixed count. In a Lark thread (the check
+   names it, `thread omt_…`), read the thread with `container_id_type=thread` and the thread's id, not only the
+   group: the group's list holds only the thread's first message. Link the reply itself, not the first message.
 2. Already answered: when his own last message there comes after the last ask to him and does what was asked (the
    answer itself, the file, the report), add nothing for it, and close the open "Reply to …" item of that chat with
    `inbox_done`, `for_owner`, and his message as evidence (`zalo_sent`, `whatsapp_sent` or `lark_sent`, with the
@@ -112,6 +116,13 @@ answers (1), then apply 2, 5 and "Does it involve him?". For each conversation:
    who asked is a member (a group they are both in): it counts too, given the same way with that chat, and you
    quote his answer in the `reason`; one in another service does not. A yes to an ask for work is not the work, and
    neither is a promise: see 5.
+   Done by someone else: when a teammate's later message there delivers the work of an item you added (the fix is
+   live, the file is sent, the answer is given: "It's fixed and live on production"), close it with `inbox_done`,
+   `done_by` their name as his context's People names them, their message as evidence (`zalo_message`,
+   `whatsapp_message` or `lark_message`, with the account, the chat and the message's id), and their words quoted in
+   the `reason`. Their message may be in another chat of the same account where the person who asked is a member,
+   and, for an item waiting on them, anywhere on that account. A promise, "ok", 👍, a reaction or a thank-you is not
+   done; an item he added by hand only gets the quote with `inbox_comment`.
 3. Look with `inbox_list` (by source, and by assignee) before you add anything, so that nothing is added twice.
    One topic seen in several chats is one item: each other place is an update of it (rule 11), never a second item.
 4. A direct ask to him (he is tagged, named, or written to in a direct chat) that he has not answered:

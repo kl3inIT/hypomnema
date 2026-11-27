@@ -42,6 +42,9 @@ export const defaults = {
   // Lark lists chats by their last activity: after this many in a row with nothing since the last time, the rest are
   // older still, and are not read.
   larkIdleStop: 10,
+  // Lark: at most this many pages of each message search of a span are read (lark-cli +messages-search's default
+  // page limit, shortcuts/im/im_messages_search.go); past it the source says so.
+  larkSearchPages: 20,
   // Zalo, WhatsApp: at most this many new messages of one account are read in one run; past it the account keeps
   // where it stopped and reads on from there next run.
   scanMessages: 5000,
@@ -235,58 +238,78 @@ async function pages(get, path) {
 }
 
 // readLark counts the owner's new Lark messages in his chats, direct ones too (types=p2p,group; larksuite/cli
-// shortcuts/im/im_chat_list.go:283-302), his own apart (issue #1182): not a deleted one, nor an app's. For each span it lists every page of his chats,
-// the most active first, and reads each one's messages in the span (start_time, end_time), the latest first, a page
-// at a time. In the new span, larkIdleStop chats in a row with nothing new end it: the rest were active before. Past
+// shortcuts/im/im_chat_list.go:283-302), his own apart (issue #1182): not a deleted one, nor an app's. For each span
+// it lists every page of his chats, the most active first, and reads each one's messages in the span (start_time,
+// end_time), the latest first, a page at a time. In the new span, larkIdleStop chats in a row with nothing new end it: the rest were active before. Past
 // larkChats chats or larkMessages messages, checked at each page (issue #1071), it keeps the rest of the span: the
-// chats it read through (done), and the chat it stopped in (part) by the time of the last message it read there and
-// the messages of that millisecond it read (seen).
+// chats and threads it read through (done), the threads it found and did not read yet (threads), and the chat or
+// thread it stopped in (part) by the time of the last message it read there and the messages of that millisecond it
+// read (seen).
+//
+// A reply in a thread is not among its chat's messages: Lark lists only the thread's root there, and the replies
+// with container_id_type=thread (im-v1/message/list; issue #1199). A thread with new replies is found three ways:
+// a root of the span names its thread_id (Lark's thread introduction, "get all messages in the thread mode group";
+// larksuite/cli shortcuts/im/convert_lib/thread.go ExpandThreadReplies); a search of the span's messages
+// (POST im/v1/messages/search) names each one's thread_id, which finds a thread whose root is older, since a root's
+// update_time does not move with its replies; and a search of the span's messages that tag the owner (is_at_me, as
+// lark-cli im +messages-search --is-at-me) names their chats and threads, so that a tag is read first and even in a
+// chat the idle stop passed. Each thread's replies are counted apart from its chat, and its line names it. A search
+// Lark refuses is named and the rest is still counted.
 async function readLark(call, source, st, now, config) {
-  const get = async (path) => {
+  const read = async (method, path, body) => {
     const answer = await call("account_read", {
-      account: source.account, host: "open.larksuite.com", method: "GET", path,
+      account: source.account, host: "open.larksuite.com", method, path, ...(body ? { body } : {}),
     });
     if (answer.status >= 400 || (answer.records?.code ?? 0) !== 0) {
       throw new Error(`${source.account} could not be read: HTTP ${answer.status}`);
     }
     return answer.records?.data ?? {};
   };
+  const get = (path) => read("GET", path);
   const me = (await get("/open-apis/authen/v1/user_info")).open_id;
   const spans = [{ after: st.mark, before: now.toISOString(), done: [], fresh: true }, ...(st.gaps ?? [])];
   const out = new Map();
   const gaps = [];
+  const problems = new Set();
   let chatsRead = 0;
   let messagesRead = 0;
   const capped = () => chatsRead >= config.larkChats || messagesRead >= config.larkMessages;
   for (const span of spans) {
     const done = new Set(span.done ?? []);
+    // The threads of the span to read, each with its chat's id, in the order they were found.
+    const threads = new Map(span.threads ?? []);
     // What is kept of a span is read through as a whole next time: the idle stop is the new span's only.
-    const keep = (part) =>
-      gaps.push({ after: span.after, before: span.before, done: [...done], ...(part ? { part } : {}) });
+    const keep = (part) => {
+      const left = [...threads].filter(([id]) => !done.has(id));
+      gaps.push({
+        after: span.after, before: span.before, done: [...done], ...(part ? { part } : {}),
+        ...(left.length ? { threads: left } : {}),
+      });
+    };
     if (capped()) {
       keep(span.part);
       continue;
     }
     const chats = await pages(get, "/open-apis/im/v1/chats?types=p2p,group&sort_type=ByActiveTimeDesc&page_size=100");
+    const chatOf = (id) => chats.find((c) => c.chat_id === id) ?? { chat_id: id };
     const since = Date.parse(span.after);
-    let idle = 0;
     let part;
-    let stopped = false;
-    for (const chat of chats) {
-      if (done.has(chat.chat_id) || dropped(config, chat.name, chat.chat_id)) continue;
-      if (span.fresh && idle >= config.larkIdleStop) break;
-      if (capped()) {
-        stopped = true;
-        break;
-      }
-      // A chat an earlier run stopped in is read on below the last message it read there.
-      const resumed = span.part?.chat === chat.chat_id ? span.part : undefined;
+
+    // readIn reads a chat's messages in the span, or a thread's replies, the latest first, a page at a time, and
+    // gives how many were in the span; past larkMessages it stops and keeps where in part. Lark lists a thread
+    // without a time range: its pages are read down to the span's start.
+    const readIn = async (chat, thread) => {
+      const id = thread ?? chat.chat_id;
+      // A chat or thread an earlier run stopped in is read on below the last message it read there.
+      const resumed = span.part?.chat === id ? span.part : undefined;
       const until = resumed ? resumed.before : Date.parse(span.before);
       const seen = new Set(resumed?.seen ?? []);
-      const path = `/open-apis/im/v1/messages?container_id_type=chat&container_id=${chat.chat_id}` +
-        `&start_time=${Math.floor(since / 1000)}&end_time=${Math.ceil(until / 1000)}&page_size=50` +
-        "&sort_type=ByCreateTimeDesc";
-      chatsRead += 1;
+      const path = thread
+        ? `/open-apis/im/v1/messages?container_id_type=thread&container_id=${thread}&page_size=50` +
+          "&sort_type=ByCreateTimeDesc"
+        : `/open-apis/im/v1/messages?container_id_type=chat&container_id=${chat.chat_id}` +
+          `&start_time=${Math.floor(since / 1000)}&end_time=${Math.ceil(until / 1000)}&page_size=50` +
+          "&sort_type=ByCreateTimeDesc";
       let inSpan = 0;
       let oldest = until;
       let atOldest = [...seen];
@@ -295,16 +318,25 @@ async function readLark(call, source, st, now, config) {
         const data = await get(path + (token ? `&page_token=${encodeURIComponent(token)}` : ""));
         const list = data.items ?? [];
         messagesRead += list.length;
+        let older = false;
         for (const m of list) {
           const at = Number(m.create_time);
-          if (at <= since || at > until || (at === until && seen.has(m.message_id))) continue;
+          if (at <= since) {
+            older = true;
+            continue;
+          }
+          if (at > until || (at === until && seen.has(m.message_id))) continue;
           if (at < oldest) [oldest, atOldest] = [at, []];
           atOldest.push(m.message_id);
           inSpan += 1;
+          // A thread's root is its chat's message, counted there; a root of the span names its thread.
+          if (thread && !m.root_id) continue;
+          if (!thread && m.thread_id && !threads.has(m.thread_id)) threads.set(m.thread_id, chat.chat_id);
           if (m.deleted || (config.dropLarkApps && m.sender?.sender_type === "app")) continue;
-          const entry = out.get(chat.chat_id) ?? {
-            where: `${source.account} chat "${chat.name || chat.chat_id}" (id ${chat.chat_id})`, count: 0, mine: 0,
-            from: new Set(), latest: 0, rank: chat.chat_mode === "p2p" ? ranks.direct : ranks.group,
+          const entry = out.get(id) ?? {
+            where: `${source.account} chat "${chat.name || chat.chat_id}"${thread ? ` thread ${thread}` : ""} ` +
+              `(id ${chat.chat_id})`,
+            count: 0, mine: 0, from: new Set(), latest: 0, rank: chat.chat_mode === "p2p" ? ranks.direct : ranks.group,
           };
           if (m.sender?.id === me) {
             entry.mine += 1;
@@ -314,15 +346,64 @@ async function readLark(call, source, st, now, config) {
             if (m.sender?.id) entry.from.add(m.sender.id);
           }
           entry.latest = Math.max(entry.latest, at);
-          out.set(chat.chat_id, entry);
+          out.set(id, entry);
         }
-        if (!data.has_more) break;
+        if (!data.has_more || (thread && older)) break;
         if (messagesRead >= config.larkMessages) {
-          part = { chat: chat.chat_id, before: oldest, seen: atOldest };
+          part = { chat: id, before: oldest, seen: atOldest };
           break;
         }
         token = data.page_token;
       }
+      return inSpan;
+    };
+
+    // search lists the span's messages that match filter (Lark's search takes whole seconds), up to larkSearchPages
+    // pages; a refusal or the limit is named, and what was found is kept.
+    const search = async (what, filter) => {
+      const second = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+      const body = {
+        query: "",
+        filter: {
+          ...filter,
+          time_range: {
+            start_time: second(Math.floor(since / 1000) * 1000),
+            end_time: second(Math.ceil(Date.parse(span.before) / 1000) * 1000),
+          },
+        },
+      };
+      const hits = [];
+      let token = "";
+      try {
+        for (let page = 0; ; page++) {
+          if (page >= config.larkSearchPages) {
+            problems.add(`more than ${config.larkSearchPages} pages of ${what}; the rest are not searched`);
+            break;
+          }
+          const path = "/open-apis/im/v1/messages/search?page_size=30" +
+            (token ? `&page_token=${encodeURIComponent(token)}` : "");
+          const data = await read("POST", path, body);
+          hits.push(...(data.items ?? []).map((item) => item.meta_data ?? {}));
+          if (!data.has_more || !data.page_token) break;
+          token = data.page_token;
+        }
+      } catch (error) {
+        problems.add(`the search of ${what} failed (${error.message}); its threads may be missed`);
+      }
+      return hits;
+    };
+
+    let stopped = false;
+    let idle = 0;
+    for (const chat of chats) {
+      if (done.has(chat.chat_id) || dropped(config, chat.name, chat.chat_id)) continue;
+      if (span.fresh && idle >= config.larkIdleStop) break;
+      if (capped()) {
+        stopped = true;
+        break;
+      }
+      chatsRead += 1;
+      const inSpan = await readIn(chat);
       if (part) {
         stopped = true;
         break;
@@ -330,12 +411,61 @@ async function readLark(call, source, st, now, config) {
       done.add(chat.chat_id);
       idle = inSpan ? 0 : idle + 1;
     }
+    if (!stopped) {
+      // The tags first: a chat that tags the owner is read even past the idle stop, and its threads come first.
+      const tagged = await search("the messages that tag the owner", { is_at_me: true });
+      const found = await search("the span's messages", config.dropLarkApps ? { exclude_from_types: ["bot"] } : {});
+      // Map.set keeps a key where it was first set: the tagged threads first, then the roots', then the rest.
+      const order = new Map();
+      for (const hit of tagged) if (hit.thread_id) order.set(hit.thread_id, hit.chat_id);
+      for (const [id, chat] of threads) order.set(id, chat);
+      for (const hit of found) if (hit.thread_id) order.set(hit.thread_id, hit.chat_id);
+      threads.clear();
+      for (const [id, chat] of order) threads.set(id, chat);
+      for (const hit of tagged) {
+        if (hit.thread_id || !hit.chat_id || done.has(hit.chat_id)) continue;
+        const chat = chatOf(hit.chat_id);
+        if (dropped(config, chat.name, chat.chat_id)) continue;
+        if (capped()) {
+          stopped = true;
+          break;
+        }
+        chatsRead += 1;
+        await readIn(chat);
+        if (part) {
+          stopped = true;
+          break;
+        }
+        done.add(chat.chat_id);
+      }
+    }
+    if (!stopped) {
+      for (const [thread, id] of threads) {
+        const chat = chatOf(id);
+        if (done.has(thread) || dropped(config, chat.name, chat.chat_id)) continue;
+        if (capped()) {
+          stopped = true;
+          break;
+        }
+        await readIn(chat, thread);
+        if (part) {
+          stopped = true;
+          break;
+        }
+        done.add(thread);
+      }
+    }
     if (stopped) keep(part ?? (span.part && !done.has(span.part.chat) ? span.part : undefined));
   }
+  if (gaps.length) {
+    problems.add(`more than ${config.larkChats} chats or ${config.larkMessages} messages; the rest are read next time`);
+  }
   return {
-    found: [...out.values()].map((e) => ({ ...e, from: [...e.from], latest: iso(e.latest), rank: rankOf(e.count, e.rank) })),
+    found: [...out.values()].map((e) => ({
+      ...e, from: [...e.from], latest: iso(e.latest), rank: rankOf(e.count, e.rank),
+    })),
     state: { mark: now.toISOString(), gaps },
-    problems: gaps.length ? [`more than ${config.larkChats} chats or ${config.larkMessages} messages; the rest are read next time`] : [],
+    problems: [...problems],
   };
 }
 
