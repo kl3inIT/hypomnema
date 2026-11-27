@@ -63,6 +63,8 @@ type secretaryWorld struct {
 
 	bot     orchestration.Bot
 	routine routinestore.Routine
+	// api is the agent API the world's Bot calls.
+	api *agentapi.Server
 	lark    atomic.Int32
 	// larkBody is what each Lark read answers, with lark's status.
 	larkBody atomic.Pointer[string]
@@ -70,6 +72,13 @@ type secretaryWorld struct {
 }
 
 func newSecretaryWorld(t *testing.T) *secretaryWorld {
+	t.Helper()
+
+	return newSecretaryWorldOf(t, "lark:me", "google:me", "zalo:me")
+}
+
+// newSecretaryWorldOf is the secretary's world with the owner's accounts named, each <integration>:<label>.
+func newSecretaryWorldOf(t *testing.T, accounts ...string) *secretaryWorld {
 	t.Helper()
 
 	ctx := t.Context()
@@ -98,22 +107,22 @@ func newSecretaryWorld(t *testing.T) *secretaryWorld {
 	})
 	require.NoError(t, err)
 	agents.WithRelay(proxy)
+	sw.api = agents
 
-	for _, integration := range []string{"lark", "google", "zalo"} {
-		conn := orchestration.Connection{Integration: integration, Label: "me", Secret: "test-" + integration}
+	for _, account := range accounts {
+		integration, label, _ := strings.Cut(account, ":")
+		conn := orchestration.Connection{Integration: integration, Label: label, Secret: "test-" + integration}
 		if integration == "lark" {
 			conn.AppLabel = "test-app"
 		}
 		_, err := sw.svc.SaveServiceConnection(ctx, conn)
 		require.NoError(t, err)
-		_, err = sw.svc.SetConnectionChats(ctx, integration, "me", true)
+		_, err = sw.svc.SetConnectionChats(ctx, integration, label, true)
 		require.NoError(t, err)
 	}
 
 	sw.bot, err = sw.svc.PutBot(ctx, orchestration.Bot{
-		Name: "Thư ký", Connections: orchestration.AllowList{
-			Limited: true, Names: []string{"lark:me", "google:me", "zalo:me"},
-		},
+		Name: "Thư ký", Connections: orchestration.AllowList{Limited: true, Names: accounts},
 	})
 	require.NoError(t, err)
 	_, _, err = sw.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
