@@ -335,6 +335,7 @@ func quickWorld(t *testing.T) (*world, Task) {
 	t.Helper()
 
 	w := newWorld(t)
+	w.branchHello(w.node.ID, true)
 	ctx := t.Context()
 
 	var err error
@@ -366,9 +367,23 @@ func pullRequestOne(head *string) ReadPullRequest {
 	}
 }
 
+// pushes starts a Dispatch of the Task and has it publish sha to its branch, as the node reports a push; the clock
+// moves first, so this Dispatch starts after any before it.
+func pushes(t *testing.T, w *world, task Task, sha string) NodeCall {
+	t.Helper()
+
+	w.advance(time.Minute)
+	_, c := w.start(task.ID)
+	current := w.task(task.ID)
+	require.NoError(t, w.s.RecordPublishedHead(t.Context(), w.again(c),
+		PublishedHead{Branch: TaskPushBranch(current.ID, current.PushBranch), SHA: sha}))
+
+	return c
+}
+
 // Scenario (issue #1279, review round 2): a narrow Task continues the quick Task's pull request from a new Run.
 // From then on the heads it pushes need their review: no "no review needed" is posted on them, neither from the
-// next lookup nor from one queued before the narrow Task was made.
+// next lookup nor from one queued before the narrow Task pushed.
 func TestAQuickPullRequestContinuedByANarrowTaskNeedsItsReview(t *testing.T) {
 	t.Parallel()
 
@@ -388,9 +403,10 @@ func TestAQuickPullRequestContinuedByANarrowTaskNeedsItsReview(t *testing.T) {
 
 	next, err := w.s.CreateRun(ctx, NewRun{Objective: "Fix the rename", CreatedBy: "pi", Repo: "kl3inIT/hypomnema"})
 	require.NoError(t, err)
-	_, err = w.s.CreateTasks(ctx, next.ID, []NewTask{{Ref: "fix", Profile: "implementer", Kind: "narrow",
+	fix, err := w.s.CreateTasks(ctx, next.ID, []NewTask{{Ref: "fix", Profile: "implementer", Kind: "narrow",
 		Spec: "fix the rename's callers", Continues: quick.ID}})
 	require.NoError(t, err)
+	pushes(t, w, fix[0], statusNewHead)
 
 	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
 	assert.Len(t, h.posted, 1, "a head the narrow Task pushed gets no \"no review needed\"")
@@ -477,4 +493,70 @@ func TestALatePullRequestOfAQuickTaskStillGetsItsStatus(t *testing.T) {
 	require.NoError(t, other.s.PostReviewStatuses(ctx, g.host()))
 	require.NoError(t, other.s.PostReviewStatuses(ctx, g.host()))
 	assert.Empty(t, g.finds, "a branch without one for a day is let go")
+}
+
+// Scenario (issue #1279, review round 3): a narrow Task fails, a quick Task continues its pull request and
+// succeeds, and the narrow Task is reopened and pushes a new head. The quick Task's head needed no review; the head
+// the reopened narrow Task pushed does, though the quick Task was made later.
+func TestAReopenedNarrowTasksHeadOnAQuickPullRequestNeedsItsReview(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.branchHello(w.node.ID, true)
+	ctx := t.Context()
+
+	var err error
+
+	w.run, err = w.s.CreateRun(ctx, NewRun{Objective: "Fix it", CreatedBy: "pi", Repo: "kl3inIT/hypomnema"})
+	require.NoError(t, err)
+
+	narrow := w.tasks(NewTask{Ref: "narrow", Profile: "implementer", Kind: "narrow", Spec: "fix the retry"})[0]
+	c := pushes(t, w, narrow, "1111111111111111111111111111111111111111")
+	require.NoError(t, w.finish(c, Outcome{Class: FailureWorkerError, Result: Result{Summary: "tests failed"}}))
+	for w.task(narrow.ID).Status != TaskFailed {
+		w.advance(BackoffMax)
+		w.failOnce(narrow.ID, FailureWorkerError)
+	}
+
+	quick := w.tasks(NewTask{Ref: "quick", Profile: "implementer", Kind: "quick", Spec: "finish the rename",
+		Continues: narrow.ID})[0]
+	c = pushes(t, w, quick, statusHead)
+	done := success("Pushed the rename.")
+	done.Result.Evidence = nil
+	require.NoError(t, w.finish(c, done))
+
+	head := statusHead
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead}, find: pullRequestOne(&head)}
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	require.Len(t, h.posted, 1, "the head the quick Task pushed needs no review")
+	assert.Equal(t, quick.ID, h.posted[0].TaskID)
+
+	require.NoError(t, w.s.ReopenTask(ctx, narrow.ID))
+	pushes(t, w, narrow, statusNewHead)
+
+	head, h.state.Head = statusNewHead, statusNewHead
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	assert.Len(t, h.posted, 1, "the head the reopened narrow Task pushed gets no \"no review needed\"")
+}
+
+// Scenario (issue #1279, review round 3): a narrow Task continues the quick Task's pull request and is canceled
+// before it runs. It never pushed: the head is still the quick Task's, and gets its "no review needed".
+func TestANarrowTaskCanceledBeforeItRanLeavesTheQuickPullRequestItsStatus(t *testing.T) {
+	t.Parallel()
+
+	w, quick := quickWorld(t)
+	ctx := t.Context()
+
+	next, err := w.s.CreateRun(ctx, NewRun{Objective: "Fix the rename", CreatedBy: "pi", Repo: "kl3inIT/hypomnema"})
+	require.NoError(t, err)
+	fix, err := w.s.CreateTasks(ctx, next.ID, []NewTask{{Ref: "fix", Profile: "implementer", Kind: "narrow",
+		Spec: "fix the rename's callers", Continues: quick.ID}})
+	require.NoError(t, err)
+	require.NoError(t, w.s.CancelTask(ctx, fix[0].ID))
+
+	head := statusHead
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusHead}, find: pullRequestOne(&head)}
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	require.Len(t, h.posted, 1)
+	assert.Equal(t, "no review needed: quick Task "+quick.ID, h.posted[0].Description)
 }
