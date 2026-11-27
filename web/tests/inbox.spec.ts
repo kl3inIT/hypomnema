@@ -990,6 +990,21 @@ test.describe("iPhone Home Screen layout", () => {
       await expect(rowsOf(page, "Needs you").first()).toBeVisible()
       await shot(page, `inbox-standalone-list-${theme}`)
 
+      if (theme === "light") {
+        await openMenu(page)
+        // The band must leave the top of the sidebar's backdrop visually intact.
+        const clip = { x: 350, y: 0, width: 32, height: 12 }
+        const backdrop = await page.screenshot({ clip, animations: "disabled" })
+        const withoutBand = await page.screenshot({
+          clip,
+          animations: "disabled",
+          style: ".ios-top-edge-band { visibility: hidden }",
+        })
+        expect(backdrop.equals(withoutBand), "the band must not paint above the backdrop").toBe(
+          true,
+        )
+      }
+
       await page.goto(reply)
       const position = detailHeader.getByText(/\d+ of \d+ in Needs you/)
       await expect(position).toBeVisible()
