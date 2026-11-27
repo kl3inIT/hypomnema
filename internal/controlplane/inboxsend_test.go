@@ -272,6 +272,8 @@ func TestLarkSendsWithoutAQuoteWhenTheMessageCannotBeRepliedTo(t *testing.T) {
 		{name: "recalled after lookup", quoteChat: "oc_source", wantReply: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			const messages = "/open-apis/im/v1/messages"
 
 			var posts []string

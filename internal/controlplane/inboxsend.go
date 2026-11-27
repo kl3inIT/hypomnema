@@ -242,10 +242,11 @@ func writeTags(text string, tags []messaging.Tag, write func(messaging.Tag) stri
 	return b.String(), ids
 }
 
-// lark sends a text message to the item's Lark chat as the owner, with his user access token: a reply to the item's
-// own message when it names one (POST /open-apis/im/v1/messages/:message_id/reply), else a message to the chat
-// (POST /open-apis/im/v1/messages, receive_id_type chat_id). The members it tags are written <at user_id="ou_…">
-// and the name as the text writes it </at> (Lark's text content).
+// errLarkQuoteGone marks Lark's refusal to reply to a recalled or deleted message.
+var errLarkQuoteGone = errors.New("lark quote is gone")
+
+// lark sends a text message to the item's Lark chat as the owner, with his user access token. It replies to a
+// ref confirmed to belong to the chat and sends unquoted if the ref cannot be used. Tags use Lark's text content.
 func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (inboxstore.Link, error) {
 	account := t.Source.Account
 	if account == "" {
@@ -267,17 +268,43 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 		return inboxstore.Link{}, fmt.Errorf("lark: writing the message: %w", err)
 	}
 
-	message := map[string]string{"receive_id": t.Source.ID, "msg_type": "text", "content": string(content)}
-	target := s.larkURL + "/open-apis/im/v1/messages?receive_id_type=chat_id"
+	const messages = "/open-apis/im/v1/messages"
 
-	if id := replyRef(t); id != "" {
-		message = map[string]string{"msg_type": "text", "content": string(content)}
-		target = s.larkURL + "/open-apis/im/v1/messages/" + url.PathEscape(id) + "/reply"
+	message := map[string]string{"msg_type": "text", "content": string(content)}
+	sent := inboxstore.Link{
+		Kind: inboxstore.LinkLarkSent, Account: account, Chat: t.Source.ID, Label: sentLabel,
 	}
 
+	if id := replyRef(t); id != "" {
+		quoted, err := s.reader().larkMessage(ctx, token, id)
+		if err == nil && quoted.chat == t.Source.ID {
+			sent.Ref, err = s.postLarkMessage(ctx, token, messages+"/"+url.PathEscape(id)+"/reply", message)
+			if !errors.Is(err, errLarkQuoteGone) {
+				if err != nil {
+					return inboxstore.Link{}, fmt.Errorf("lark: sending to %s: %w", t.Source.ID, err)
+				}
+
+				return sent, nil
+			}
+		}
+	}
+
+	message["receive_id"] = t.Source.ID
+
+	sent.Ref, err = s.postLarkMessage(ctx, token, messages+"?receive_id_type=chat_id", message)
+	if err != nil {
+		return inboxstore.Link{}, fmt.Errorf("lark: sending to %s: %w", t.Source.ID, err)
+	}
+
+	return sent, nil
+}
+
+func (s inboxSender) postLarkMessage(ctx context.Context, token, path string,
+	message map[string]string,
+) (string, error) {
 	body, err := json.Marshal(message)
 	if err != nil {
-		return inboxstore.Link{}, fmt.Errorf("lark: writing the message: %w", err)
+		return "", fmt.Errorf("writing the message: %w", err)
 	}
 
 	var got struct {
@@ -287,19 +314,25 @@ func (s inboxSender) lark(ctx context.Context, t inboxstore.Todo, text string) (
 		} `json:"data"`
 	}
 
-	answer, err := s.call(ctx, http.MethodPost, target, token, body, &got)
+	answer, err := s.call(ctx, http.MethodPost, s.larkURL+path, token, body, &got)
 	if err != nil {
-		return inboxstore.Link{}, fmt.Errorf("lark: sending to %s: %w", t.Source.ID, err)
+		return "", err
+	}
+
+	const (
+		messageRecalled = 230011 // Lark IM: the message is recalled.
+		messageDeleted  = 230110 // Lark IM: the message has been deleted.
+	)
+
+	if got.Code == messageRecalled || got.Code == messageDeleted {
+		return "", fmt.Errorf("%w: answered %d, code %d: %s", errLarkQuoteGone, answer, got.Code, got.Msg)
 	}
 
 	if answer != http.StatusOK || got.Code != 0 || got.Data.MessageID == "" {
-		return inboxstore.Link{}, fmt.Errorf("lark: sending to %s answered %d, code %d: %s", t.Source.ID, answer,
-			got.Code, got.Msg)
+		return "", fmt.Errorf("answered %d, code %d: %s", answer, got.Code, got.Msg)
 	}
 
-	return inboxstore.Link{
-		Kind: inboxstore.LinkLarkSent, Ref: got.Data.MessageID, Account: account, Chat: t.Source.ID, Label: sentLabel,
-	}, nil
+	return got.Data.MessageID, nil
 }
 
 // gmailHeaders are the headers of the mail answered that a reply is threaded by.
