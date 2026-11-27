@@ -2487,7 +2487,7 @@ export type VideoPreview = {
    */
   rev?: number;
   /**
-   * A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict.
+   * A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
    */
   card?: 'title' | 'end';
 };

@@ -159,15 +159,17 @@ func (c Cards) TitleMs() int64 { return cardMs(c.Title) }
 func (c Cards) EndMs() int64 { return cardMs(c.End) }
 
 // cardASS is a card's words as an ASS file for a video of size: one block in the middle, its lines the accent's
-// rule, the title, the subtitle and the URL, each fitted within 78% of the width (aidemo's box) by fitText: smaller
-// to the subtitle's size, then broken over lines (cardfit.go). The lines are broken here, and libass told not to
-// wrap them again (WrapStyle 2).
+// rule, the title, the subtitle and the URL, laid out by cardLayout. The lines are broken here, and libass told not
+// to wrap them again (WrapStyle 2).
 func cardASS(card Card, accent string, size Size) (string, error) {
 	w := float64(size.Width)
-	title, sub := w/17, w/40
-	url := 0.84 * title
 	ruleW, ruleH := math.Round(w/22), math.Max(4, math.Round(w/256))
 	margin := int(math.Round(w * 0.11))
+
+	gap, blocks, err := cardLayout(card, size)
+	if err != nil {
+		return "", err
+	}
 
 	var b strings.Builder
 
@@ -177,51 +179,92 @@ func cardASS(card Card, accent string, size Size) (string, error) {
 		"BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, " +
 		"Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
 	fmt.Fprintf(&b, "Style: Card,%s,%.0f,&H00FBF6F4,&H00FBF6F4,&H00000000,&H73000000,0,0,0,0,100,100,0,0,1,0,0,5,"+
-		"%d,%d,0,1\n\n", cardTitleFont, title*cardEm, margin, margin)
+		"%d,%d,0,1\n\n", cardTitleFont, w/17*cardEm, margin, margin)
 	b.WriteString("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
 	ac := assColor(accent, 0)
-	box := 0.78 * w
 	lines := []string{
 		// The rule is a box drawn in the accent, a line of its own at the size of the gap under it.
-		fmt.Sprintf(`{\fs%.0f\c%s\p1}m 0 0 l %.0f 0 %.0f %.0f 0 %.0f{\p0}`, sub*1.2*cardEm, ac, ruleW, ruleW, ruleH, ruleH),
+		fmt.Sprintf(`{\fs%.0f\c%s\p1}m 0 0 l %.0f 0 %.0f %.0f 0 %.0f{\p0}`, gap, ac, ruleW, ruleW, ruleH, ruleH),
+	}
+
+	overrides := map[string]string{
+		"title": "", "subtitle": fmt.Sprintf(`\fn%s\c%s`, cardTextFont, assColor("#e2e7f4", 0.72)), "url": `\c` + ac,
 	}
 
 	// Each block after the rule starts from the style again ({\r}): an override lasts to the event's end, over the
 	// block's own line breaks too.
-	for _, part := range []struct {
-		text, font, override string
-		em                   float64
-	}{
-		{card.Title, cardTitleFont, "", title},
-		{card.Subtitle, cardTextFont, fmt.Sprintf(`\fn%s\c%s`, cardTextFont, assColor("#e2e7f4", 0.72)), sub},
-		{card.CTAURL, cardTitleFont, `\c` + ac, url},
-	} {
-		if part.text == "" {
-			continue
+	for _, bl := range blocks {
+		text := make([]string, len(bl.lines))
+		for k, l := range bl.lines {
+			text[k] = cardText(l)
 		}
 
-		f, err := cardFont(part.font)
-		if err != nil {
-			return "", err
-		}
-
-		em, broken, err := fitText(f, part.text, part.em, math.Min(part.em, sub), box)
-		if err != nil {
-			return "", err
-		}
-
-		for k := range broken {
-			broken[k] = cardText(broken[k])
-		}
-
-		lines = append(lines, fmt.Sprintf(`{\r\fs%.0f%s}%s`, em*cardEm, part.override, strings.Join(broken, `\N`)))
+		lines = append(lines, fmt.Sprintf(`{\r\fs%.0f%s}%s`, bl.size, overrides[bl.name], strings.Join(text, `\N`)))
 	}
 
 	fmt.Fprintf(&b, "Dialogue: 0,0:00:00.00,9:59:59.99,Card,,0,0,0,,%s\n", //nolint:misspell // ASS's own word.
 		strings.Join(lines, `\N`))
 
 	return b.String(), nil
+}
+
+// cardBlock is one of a card's blocks as laid out: its ASS Fontsize and its lines.
+type cardBlock struct {
+	name  string
+	size  float64
+	lines []string
+}
+
+// cardLayout lays a card's blocks out at a scale, from 1: the title at W/17, the subtitle at W/40 and the URL at
+// 0.84 of the title, each fitted to 78% of the width by fitText (aidemo's box), and the whole block, the rule's gap
+// and every line at its Fontsize (libass's line height: the font's usWinAscent + usWinDescent at the size), at most
+// half the height. While it is taller, every block shrinks together about 5% a time, as agent-demo-video's
+// hookLayout bounds its block (src/cards.ts:108-116); its floor is left out, as a card's words must stay inside it
+// (the review of #1242: the longest card the API allows ran off a 16:9 card's top and bottom). It answers the
+// rule's gap, as a Fontsize, and the blocks.
+func cardLayout(card Card, size Size) (float64, []cardBlock, error) {
+	w, h := float64(size.Width), float64(size.Height)
+	title, sub := w/17, w/40
+	parts := []struct {
+		name, text, font string
+		em               float64
+	}{
+		{"title", card.Title, cardTitleFont, title},
+		{"subtitle", card.Subtitle, cardTextFont, sub},
+		{"url", card.CTAURL, cardTitleFont, 0.84 * title},
+	}
+
+	for scale := 1.0; ; scale *= 0.95 {
+		gap := sub * 1.2 * cardEm * scale
+		height := gap
+
+		var blocks []cardBlock
+
+		for _, part := range parts {
+			if part.text == "" {
+				continue
+			}
+
+			f, err := cardFont(part.font)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			em, lines, err := fitText(f, part.text, part.em*scale, math.Min(part.em, sub)*scale, 0.78*w)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			blocks = append(blocks, cardBlock{name: part.name, size: em * cardEm, lines: lines})
+			height += float64(len(lines)) * em * cardEm
+		}
+
+		// The smallest scale is a bound on the loop, which a card within the API's bounds never reaches.
+		if height <= h/2 || scale < 0.05 {
+			return gap, blocks, nil
+		}
+	}
 }
 
 // assColor is a #rrggbb color as an ASS override, &HBBGGRR& with its alpha in the subtitle line's \alpha, so the
