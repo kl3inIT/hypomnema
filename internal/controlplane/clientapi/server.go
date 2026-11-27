@@ -125,6 +125,8 @@ type Server struct {
 	messaging Messaging
 	// inboxSender sends the owner's replies from the Inbox (issue #1111); nil when the control plane wired none.
 	inboxSender InboxSender
+	// inboxChats lists the owner's chats with whether the secretary reads each (issue #1270).
+	inboxChats InboxChats
 	// inboxSends holds one Send at a time for each Inbox item, by its id.
 	inboxSends sync.Map
 	approvals  Approvals

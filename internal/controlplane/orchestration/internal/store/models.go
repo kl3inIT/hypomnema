@@ -602,6 +602,14 @@ type GitHost struct {
 	CreatedAt int64
 }
 
+type InboxChatRead struct {
+	Integration string
+	Label       string
+	ChatID      string
+	Reads       int64
+	SetAt       int64
+}
+
 type IntegrationClient struct {
 	Integration string
 	ClientID    string
