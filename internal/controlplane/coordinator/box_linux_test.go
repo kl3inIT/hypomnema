@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -199,11 +200,20 @@ func (w *boxWorld) documents(t *testing.T) string {
 	return filepath.Join(docs, selected, "venv", "bin")
 }
 
+// write writes a file of the test's own, an executable as often as not. A parallel test that forks while the file is
+// open for writing hands its child that descriptor until the child execs, and running the file meanwhile fails
+// with "text file busy" (golang/go#22315). The file is written holding syscall.ForkLock for reading, which a fork
+// takes for writing (syscall/exec_unix.go), so no child of this process ever holds it.
 func write(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
 
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-	require.NoError(t, os.WriteFile(path, []byte(content), mode)) //nolint:gosec // A path of the test's own.
+
+	syscall.ForkLock.RLock()
+	err := os.WriteFile(path, []byte(content), mode) //nolint:gosec // A path of the test's own.
+	syscall.ForkLock.RUnlock()
+
+	require.NoError(t, err)
 }
 
 // start runs the launcher for chat cht_mine with stdin and flags after the

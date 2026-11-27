@@ -3,6 +3,7 @@ package agentapi_test
 import (
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,6 +76,20 @@ func (w *world) inboxList(pi string, args map[string]any) []string {
 	return ids
 }
 
+// heldClock is a clock that stands still until the test moves it; the server's goroutines read it.
+type heldClock struct{ at atomic.Int64 }
+
+func newHeldClock(at time.Time) *heldClock {
+	c := &heldClock{}
+	c.at.Store(at.UnixNano())
+
+	return c
+}
+
+func (c *heldClock) Now() time.Time { return time.Unix(0, c.at.Load()).UTC() }
+
+func (c *heldClock) Add(d time.Duration) { c.at.Add(int64(d)) }
+
 // inboxPi is a Bot's pi in a chat of its own.
 func (w *world) inboxPi(bot orchestration.Bot) (string, string) {
 	w.t.Helper()
@@ -101,7 +116,10 @@ func (w *world) inboxPi(bot orchestration.Bot) (string, string) {
 func TestABotKeepsTheOwnersInbox(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	// The control plane's clock, held: 17:59 UTC is 00:59 of the next day where the owner is (Asia/Ho_Chi_Minh), the
+	// moment a check of today in UTC failed (issue #1194), and the work's due date below stays ahead of it.
+	clock := newHeldClock(time.Date(2026, 11, 20, 17, 59, 0, 0, time.UTC))
+	w := newWorldAt(t, clock)
 	ctx := t.Context()
 
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "thu-ky"})
@@ -123,7 +141,8 @@ func TestABotKeepsTheOwnersInbox(t *testing.T) {
 	hanoi, err := time.LoadLocation("Asia/Ho_Chi_Minh")
 	require.NoError(t, err)
 
-	today := time.Now().In(hanoi).Format(time.DateOnly)
+	today := clock.Now().In(hanoi).Format(time.DateOnly)
+	require.Equal(t, "2026-11-21", today)
 	reply := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
 		"title": "Reply to Lan", "due_date": today, "timezone": "Asia/Ho_Chi_Minh",
 		"quote": "Anh gửi em hợp đồng nhé?",
@@ -165,7 +184,7 @@ func TestABotKeepsTheOwnersInbox(t *testing.T) {
 	})
 	due, err := time.Parse(time.RFC3339, chase.Due)
 	require.NoError(t, err, chase.Due)
-	assert.WithinDuration(t, time.Now().Add(48*time.Hour), due, time.Minute)
+	assert.Equal(t, clock.Now().Add(48*time.Hour).Unix(), due.Unix())
 
 	// The same add retried with its key returns the item it made: the 2 days count from the first.
 	asked := map[string]any{
@@ -173,15 +192,15 @@ func TestABotKeepsTheOwnersInbox(t *testing.T) {
 		"timezone": "Asia/Ho_Chi_Minh", "key": "minh-invoice",
 	}
 	first := w.inbox(pi, agenttool.ToolInboxAdd, asked)
-	time.Sleep(5 * time.Millisecond)
+	clock.Add(time.Hour)
 	retried := w.inbox(pi, agenttool.ToolInboxAdd, asked)
 	assert.Equal(t, first.ID, retried.ID)
 	assert.Equal(t, first.Due, retried.Due)
 
 	// inbox_list takes the client API's due range: what is due from tomorrow to 3 days on, not today's reply.
 	listed := w.inboxList(pi, map[string]any{
-		"due_from": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
-		"due_to":   time.Now().Add(72 * time.Hour).Format(time.RFC3339),
+		"due_from": clock.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		"due_to":   clock.Now().Add(72 * time.Hour).Format(time.RFC3339),
 	})
 	assert.Contains(t, listed, chase.ID)
 	assert.Contains(t, listed, first.ID)

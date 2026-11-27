@@ -33,14 +33,16 @@ func (s slowTakes) Get(id string) (devicetool.Take, error) {
 	return s.Takes.Get(id)
 }
 
-// slowFFmpeg is an ffmpeg that writes its pid to pidFile and sleeps.
+// slowFFmpeg is an ffmpeg that writes its pid to pidFile and sleeps. The pid is written beside pidFile and renamed
+// to it, so pidFile is never seen empty: `>` makes the file before echo writes, and a test that cancels as soon as
+// the file is there could kill the shell in between (issue #1194).
 func slowFFmpeg(t *testing.T, r *rig) (pidFile string) {
 	t.Helper()
 
 	dir := t.TempDir()
 	pidFile = filepath.Join(dir, "pid")
 	script := filepath.Join(dir, "ffmpeg")
-	sh := "#!/bin/sh\necho $$ > " + pidFile + "\nexec sleep 30\n"
+	sh := "#!/bin/sh\necho $$ > " + pidFile + ".new && mv " + pidFile + ".new " + pidFile + "\nexec sleep 30\n"
 	require.NoError(t, os.WriteFile(script, []byte(sh), 0o700)) //nolint:gosec // The test's own script.
 
 	r.svc.cfg.Tools = func(context.Context) (ffmpeg.Tools, error) { return ffmpeg.Tools{FFmpeg: script}, nil }

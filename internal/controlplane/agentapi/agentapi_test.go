@@ -61,11 +61,25 @@ func newWorldWriting(t *testing.T, writeTimeout time.Duration) *world {
 func newWorldWith(t *testing.T, writeTimeout time.Duration, more func(*agentapi.Server)) *world {
 	t.Helper()
 
+	return newWorldOn(t, platform.SystemClock{}, writeTimeout, more)
+}
+
+// newWorldAt is newWorld whose control plane reads the time from clock, for a test where the day decides.
+func newWorldAt(t *testing.T, clock platform.Clock) *world {
+	t.Helper()
+
+	return newWorldOn(t, clock, 0, nil)
+}
+
+// newWorldOn is newWorldWith whose control plane reads the time from clock.
+func newWorldOn(t *testing.T, clock platform.Clock, writeTimeout time.Duration, more func(*agentapi.Server)) *world {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	w := &world{t: t, svc: orchestration.New(db, platform.SystemClock{}, platform.NewID), logs: &bytes.Buffer{},
+	w := &world{t: t, svc: orchestration.New(db, clock, platform.NewID), logs: &bytes.Buffer{},
 		browser: &sharedBrowser{}, whatsapp: &ownWhatsApp{}, judge: &ownerJudge{}}
 
 	for _, label := range []string{"work", "personal"} {
