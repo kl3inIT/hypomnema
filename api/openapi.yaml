@@ -2928,6 +2928,58 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Audio" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/providers/{provider}/model:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/AudioProvider" }
+    put:
+      operationId: SetAudioModel
+      summary: Set the model a provider speaks with; only the owner
+      description: >-
+        One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for
+        ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AudioModelChoice" }
+      responses:
+        "200":
+          description: The providers after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Audio" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/models:
+    get:
+      operationId: ListAudioModels
+      summary: The text-to-speech models the owner may choose from, with the languages each covers
+      description: >-
+        ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first
+        key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+      responses:
+        "200":
+          description: The models.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioModels" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/voices:
+    get:
+      operationId: ListAudioVoices
+      summary: The voices of the text-to-speech providers that are on and have a key, by name and id
+      description: >-
+        ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day;
+        Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+      responses:
+        "200":
+          description: The voices.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioVoices" }
+        default: { $ref: "#/components/responses/Error" }
   /gateway/audio/order/{kind}:
     parameters:
       - name: kind
@@ -6951,7 +7003,9 @@ components:
           description: The owner's switch for the provider.
         model:
           type: string
-          description: The one model it is asked with for this kind, as usage rows name it (audio/<model>).
+          description: >-
+            The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of
+            ElevenLabs's speech model, else the default.
         usage: { $ref: "#/components/schemas/AudioUsage" }
     AudioUsage:
       type: object
@@ -6979,6 +7033,53 @@ components:
       required: [voice]
       properties:
         voice: { type: string, maxLength: 100 }
+    AudioModelChoice:
+      type: object
+      additionalProperties: false
+      required: [model]
+      properties:
+        model: { type: string, maxLength: 100 }
+    AudioModels:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/AudioModelInfo" }
+        errors:
+          type: array
+          description: The lists that could not be read, and why.
+          items: { $ref: "#/components/schemas/WebSearchError" }
+    AudioModelInfo:
+      type: object
+      required: [provider, id, name, languages]
+      properties:
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+        id: { type: string }
+        name: { type: string }
+        languages:
+          type: array
+          description: The language codes it covers, as the provider lists them, such as vi.
+          items: { type: string }
+    AudioVoices:
+      type: object
+      required: [voices]
+      properties:
+        voices:
+          type: array
+          items: { $ref: "#/components/schemas/AudioVoiceInfo" }
+        errors:
+          type: array
+          description: The lists that could not be read, and why.
+          items: { $ref: "#/components/schemas/WebSearchError" }
+    AudioVoiceInfo:
+      type: object
+      required: [provider, id, name]
+      properties:
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+        id: { type: string, description: The voice's id, which a request names. }
+        name: { type: string }
+        language: { type: string, description: The voice's language as its provider labels it. }
     AudioProviderChange:
       type: object
       additionalProperties: false
@@ -7074,7 +7175,12 @@ components:
           enum: [mp3, wav, pcm, opus]
           description: mp3 when left out.
         speed: { type: number, minimum: 0.25, maximum: 4, description: "ElevenLabs's voice speed." }
-        language: { type: string, maxLength: 20, description: "The text's language for Soniox; en when left out." }
+        language:
+          type: string
+          maxLength: 20
+          description: >-
+            The text's language as an ISO-639-1 code, such as vi. Soniox speaks it, en when left out; ElevenLabs is
+            sent it when its model covers it, and left to find it otherwise.
         provider: { $ref: "#/components/schemas/AudioProvider" }
     AudioSpeech:
       type: object

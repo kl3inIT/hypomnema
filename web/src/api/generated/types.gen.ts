@@ -806,7 +806,7 @@ export type AudioKindLink = {
    */
   on: boolean;
   /**
-   * The one model it is asked with for this kind, as usage rows name it (audio/<model>).
+   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of ElevenLabs's speech model, else the default.
    */
   model: string;
   usage: AudioUsage;
@@ -835,6 +835,49 @@ export type AudioTally = {
 
 export type AudioVoice = {
   voice: string;
+};
+
+export type AudioModelChoice = {
+  model: string;
+};
+
+export type AudioModels = {
+  models: Array<AudioModelInfo>;
+  /**
+   * The lists that could not be read, and why.
+   */
+  errors?: Array<WebSearchError>;
+};
+
+export type AudioModelInfo = {
+  provider: AudioProvider;
+  id: string;
+  name: string;
+  /**
+   * The language codes it covers, as the provider lists them, such as vi.
+   */
+  languages: Array<string>;
+};
+
+export type AudioVoices = {
+  voices: Array<AudioVoiceInfo>;
+  /**
+   * The lists that could not be read, and why.
+   */
+  errors?: Array<WebSearchError>;
+};
+
+export type AudioVoiceInfo = {
+  provider: AudioProvider;
+  /**
+   * The voice's id
+   */
+  id: string;
+  name: string;
+  /**
+   * The voice's language as its provider labels it.
+   */
+  language?: string;
 };
 
 export type AudioProviderChange = {
@@ -939,7 +982,7 @@ export type SpeakRequest = {
    */
   speed?: number;
   /**
-   * The text's language for Soniox; en when left out.
+   * The text's language as an ISO-639-1 code, such as vi. Soniox speaks it, en when left out; ElevenLabs is sent it when its model covers it, and left to find it otherwise.
    */
   language?: string;
   provider?: AudioProvider;
@@ -10399,6 +10442,83 @@ export type SetAudioVoiceResponses = {
 };
 
 export type SetAudioVoiceResponse = SetAudioVoiceResponses[keyof SetAudioVoiceResponses];
+
+export type SetAudioModelData = {
+  body: AudioModelChoice;
+  path: {
+    provider: AudioProvider;
+  };
+  query?: never;
+  url: '/gateway/audio/providers/{provider}/model';
+};
+
+export type SetAudioModelErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetAudioModelError = SetAudioModelErrors[keyof SetAudioModelErrors];
+
+export type SetAudioModelResponses = {
+  /**
+   * The providers after the change.
+   */
+  200: Audio;
+};
+
+export type SetAudioModelResponse = SetAudioModelResponses[keyof SetAudioModelResponses];
+
+export type ListAudioModelsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/audio/models';
+};
+
+export type ListAudioModelsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListAudioModelsError = ListAudioModelsErrors[keyof ListAudioModelsErrors];
+
+export type ListAudioModelsResponses = {
+  /**
+   * The models.
+   */
+  200: AudioModels;
+};
+
+export type ListAudioModelsResponse = ListAudioModelsResponses[keyof ListAudioModelsResponses];
+
+export type ListAudioVoicesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/audio/voices';
+};
+
+export type ListAudioVoicesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListAudioVoicesError = ListAudioVoicesErrors[keyof ListAudioVoicesErrors];
+
+export type ListAudioVoicesResponses = {
+  /**
+   * The voices.
+   */
+  200: AudioVoices;
+};
+
+export type ListAudioVoicesResponse = ListAudioVoicesResponses[keyof ListAudioVoicesResponses];
 
 export type SetAudioOrderData = {
   body: AudioOrder;

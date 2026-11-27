@@ -364,6 +364,10 @@ ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.u
 INSERT INTO gateway_audio_providers (provider, voice, updated_at) VALUES (@provider, @voice, @now)
 ON CONFLICT (provider) DO UPDATE SET voice = excluded.voice, updated_at = excluded.updated_at;
 
+-- name: SetGatewayAudioModel :exec
+INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (@provider, @model, @now)
+ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at;
+
 -- name: SetGatewayAudioSTTPosition :exec
 INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (@provider, @position, @now)
 ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updated_at = excluded.updated_at;
@@ -372,7 +376,7 @@ ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updat
 INSERT INTO gateway_audio_providers (provider, tts_position, updated_at) VALUES (@provider, @position, @now)
 ON CONFLICT (provider) DO UPDATE SET tts_position = excluded.tts_position, updated_at = excluded.updated_at;
 
--- Each audio provider's requests since a moment, by the model it was asked with (one model a provider and kind):
+-- Each audio provider's requests since a moment, by the model it was asked with (speech.KindOf tells its kind):
 -- what answered, what failed, the milliseconds transcribed and the characters spoken, for the Audio page.
 -- name: CountGatewayAudioCalls :many
 SELECT provider, model,

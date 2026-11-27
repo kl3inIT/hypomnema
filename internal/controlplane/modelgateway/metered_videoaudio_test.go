@@ -69,6 +69,9 @@ func TestVideoRevisionsRecordOnlyNewAudioCallsOnTheRequestersKey(t *testing.T) {
 
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case strings.HasPrefix(r.URL.Path, "/v1/text-to-speech/") && strings.HasSuffix(r.URL.Path, "/with-timestamps"):
+			// No alignment: the clip is transcribed for its captions, as a provider without one is.
+			_, _ = io.WriteString(w, `{"audio_base64":"Y2xpcA=="}`)
 		case strings.HasPrefix(r.URL.Path, "/v1/text-to-speech/"):
 			_, _ = io.WriteString(w, "clip")
 		case r.URL.Path == "/v1/speech-to-text":
