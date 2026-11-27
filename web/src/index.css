@@ -271,6 +271,8 @@
       z-index: 2147483647;
       height: 12px;
       background-color: var(--background);
+      background-clip: text;
+      -webkit-background-clip: text;
       pointer-events: none;
     }
 
