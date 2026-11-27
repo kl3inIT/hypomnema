@@ -20,10 +20,10 @@ import (
 type imagesOver struct {
 	*modelgateway.Service
 
-	rests map[string]map[string]time.Time
+	rests map[string]map[string]modelgateway.Rest
 }
 
-func (i imagesOver) ImageRests(context.Context) (map[string]map[string]time.Time, error) {
+func (i imagesOver) ImageRests(context.Context) (map[string]map[string]modelgateway.Rest, error) {
 	return i.rests, nil
 }
 
@@ -73,7 +73,9 @@ func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 	w.srv.WithAccounts(&signedIn{svc: w.svc, states: map[string]subscription.State{
 		free.ID: subscription.StateActive, team.ID: subscription.StateActive,
 	}, removed: map[string]bool{}}).WithImages(&madeImages{},
-		imagesOver{Service: g, rests: map[string]map[string]time.Time{"codex": {team.ID: until}}})
+		imagesOver{Service: g, rests: map[string]map[string]modelgateway.Rest{
+			"codex": {team.ID: {Until: until, Code: modelgateway.CoolingUsageLimit}},
+		}})
 
 	owner, _ := w.token("web", bearertoken.Owner)
 	pi, _ := w.token("pi", bearertoken.Coordinator)
@@ -87,6 +89,8 @@ func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 	assert.Equal(t, 1, codex.Accounts, "the free plan's account makes no images")
 	require.NotNil(t, codex.RestingUntil)
 	assert.WithinDuration(t, until, *codex.RestingUntil, time.Second)
+	require.NotNil(t, codex.CoolingCode, "why it rests (issue #1305)")
+	assert.Equal(t, openapi.CoolingUsageLimit, *codex.CoolingCode)
 	assert.Equal(t, "gpt-image-2", codex.Model)
 	assert.Equal(t, "GPT Image 2 (Codex)", codex.ModelName)
 

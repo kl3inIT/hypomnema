@@ -87,7 +87,8 @@ func TestNoAccountUsageIsSeparateInExactAndLedgerPerformance(t *testing.T) {
 	gateway := newCodexGateway(t, backend, subs)
 	status, _, body := gateway.respond(t, gateway.key, codexAsks)
 	require.Equal(t, http.StatusOK, status, body)
-	require.NoError(t, subs.CoolDown(t.Context(), "codex", "acc_1", time.Now().Add(time.Hour), "usage limit"))
+	require.NoError(t, subs.CoolDown(t.Context(), "codex", "acc_1", time.Now().Add(time.Hour), "usage_limit",
+		"usage limit"))
 	status, _, body = gateway.respond(t, gateway.key, codexAsks)
 	require.Equal(t, http.StatusTooManyRequests, status, body)
 	assert.Equal(t, 1, seen.calls())

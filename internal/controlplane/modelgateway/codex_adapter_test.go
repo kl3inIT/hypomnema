@@ -41,11 +41,14 @@ type accounts struct {
 
 	refreshes  int
 	refreshErr error
-	// cooling and reason are the last cooldown; cooled holds each account's,
-	// and waits how long each one was, in order.
+	// cooling, code and reason are the last cooldown; cooled holds each
+	// account's, codes why each rests, and waits how long each one was, in
+	// order.
 	cooling   time.Time
+	code      modelgateway.CoolingCode
 	reason    string
 	cooled    map[string]time.Time
+	codes     map[string]modelgateway.CoolingCode
 	waits     map[string][]time.Duration
 	quotaAsks map[string]int
 	// noted is what the gateway said is left of each account's whole quota.
@@ -67,7 +70,7 @@ func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelg
 		ids = []string{"acc_1"}
 	}
 
-	var free time.Time
+	var free modelgateway.Rest
 
 	for _, id := range ids {
 		if slices.Contains(skip, id) {
@@ -75,8 +78,8 @@ func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelg
 		}
 
 		if until := a.cooled[id]; until.After(time.Now()) && !a.keepCooling {
-			if free.IsZero() || until.Before(free) {
-				free = until
+			if free.Until.IsZero() || until.Before(free.Until) {
+				free = modelgateway.Rest{Until: until, Code: a.codes[id]}
 			}
 
 			continue
@@ -92,8 +95,8 @@ func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelg
 		}, nil
 	}
 
-	if !free.IsZero() {
-		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: free}
+	if !free.Until.IsZero() {
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: free.Until, Code: free.Code}
 	}
 
 	return modelgateway.AccountToken{}, modelgateway.ErrNoAccount
@@ -120,24 +123,26 @@ func (a *accounts) TokenAfterRefusal(
 	return a.Token(ctx, "", "", others...)
 }
 
-func (a *accounts) FirstFree(_ context.Context, _ string, modelReset func(string) time.Time) (time.Time, error) {
+func (a *accounts) FirstFree(
+	_ context.Context, _ string, modelReset func(string) modelgateway.Rest,
+) (modelgateway.Rest, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	ids := a.ids
 	if len(ids) == 0 {
 		ids = []string{"acc_1"}
 	}
-	var first time.Time
+	var first modelgateway.Rest
 	for _, id := range ids {
-		until := a.cooled[id]
-		if modelReset != nil && modelReset(id).After(until) {
-			until = modelReset(id)
+		rest := modelgateway.Rest{Until: a.cooled[id], Code: a.codes[id]}
+		if modelReset != nil && modelReset(id).Until.After(rest.Until) {
+			rest = modelReset(id)
 		}
-		if !until.After(time.Now()) || a.keepCooling || a.none {
-			return time.Time{}, nil
+		if !rest.Until.After(time.Now()) || a.keepCooling || a.none {
+			return modelgateway.Rest{}, nil
 		}
-		if first.IsZero() || until.Before(first) {
-			first = until
+		if first.Until.IsZero() || rest.Until.Before(first.Until) {
+			first = rest
 		}
 	}
 	return first, nil
@@ -145,16 +150,19 @@ func (a *accounts) FirstFree(_ context.Context, _ string, modelReset func(string
 
 func (a *accounts) MarkTokenRefused(context.Context, modelgateway.AccountToken) error { return nil }
 
-func (a *accounts) CoolDown(_ context.Context, _, id string, until time.Time, reason string) error {
+func (a *accounts) CoolDown(
+	_ context.Context, _, id string, until time.Time, code modelgateway.CoolingCode, reason string,
+) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	if a.cooled == nil {
 		a.cooled, a.waits = map[string]time.Time{}, map[string][]time.Duration{}
+		a.codes = map[string]modelgateway.CoolingCode{}
 	}
 
-	a.cooling, a.reason = until, reason
-	a.cooled[id] = until
+	a.cooling, a.code, a.reason = until, code, reason
+	a.cooled[id], a.codes[id] = until, code
 	a.waits[id] = append(a.waits[id], time.Until(until).Round(time.Second))
 
 	return nil
@@ -220,12 +228,28 @@ func (a *accounts) cooledUntil() time.Time {
 	return a.cooling
 }
 
-// lastReason is what the last cooldown said.
+// lastReason is what the last cooldown said, in the provider's words.
 func (a *accounts) lastReason() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	return a.reason
+}
+
+// lastCode is why the last cooldown rests its account (issue #1305).
+func (a *accounts) lastCode() modelgateway.CoolingCode {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.code
+}
+
+// codeOf is why an account rests.
+func (a *accounts) codeOf(id string) modelgateway.CoolingCode {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.codes[id]
 }
 
 // waited returns how long each cooldown of an account was, in order.
@@ -501,7 +525,8 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 	assert.Contains(t, body, "account_unavailable")
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, resets, subs.cooledUntil())
-	assert.Equal(t, "usage_limit_reached", subs.lastReason())
+	assert.Equal(t, modelgateway.CoolingUsageLimit, subs.lastCode())
+	assert.Equal(t, "The usage limit has been reached", subs.lastReason(), "the backend's own words (issue #1305)")
 
 	status, headers, body = g.call(t, g.key, askSol+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
@@ -629,7 +654,8 @@ func TestTheNextAccountServesWhenOneIsLimited(t *testing.T) {
 	assert.Equal(t, "Bearer acc_2-access-0", sentHeaders.Get("Authorization"))
 	assert.Equal(t, []time.Duration{2 * time.Second}, subs.waited("acc_1"))
 	assert.Empty(t, subs.waited("acc_2"))
-	assert.Equal(t, "rate_limit_exceeded", subs.lastReason(), "the cooldown names the refusal (issue #1147)")
+	assert.Equal(t, modelgateway.CoolingRateLimit, subs.lastCode(), "the cooldown names the refusal (issue #1305)")
+	assert.Equal(t, "slow down", subs.lastReason())
 
 	status, _, _ = g.call(t, g.key, askSol+`}`)
 	require.Equal(t, http.StatusOK, status)
@@ -658,8 +684,8 @@ func TestTheNextAccountServesWhenOneIsLimited(t *testing.T) {
 // permission refusal cools it two minutes and the next account is tried; a
 // server error that is no overload cools it thirty seconds and reaches the
 // client, since another account would not help; a request the backend finds
-// wrong costs nothing. A cooldown names the refusal: its status when the
-// backend gave no code (issue #1147).
+// wrong costs nothing. A cooldown says why by its status when the backend
+// gave no code, beside the backend's words (issue #1305).
 func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
 	t.Parallel()
 
@@ -667,11 +693,12 @@ func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
 		status int
 		wait   []time.Duration
 		calls  int
+		code   modelgateway.CoolingCode
 	}{
-		"forbidden":      {http.StatusForbidden, []time.Duration{2 * time.Minute}, 2},
-		"server error":   {http.StatusInternalServerError, []time.Duration{30 * time.Second}, 1},
-		"bad request":    {http.StatusBadRequest, nil, 1},
-		"overloaded 503": {http.StatusServiceUnavailable, []time.Duration{2 * time.Second}, 2},
+		"forbidden":      {http.StatusForbidden, []time.Duration{2 * time.Minute}, 2, modelgateway.CoolingAuth},
+		"server error":   {http.StatusInternalServerError, []time.Duration{30 * time.Second}, 1, "overloaded"},
+		"bad request":    {http.StatusBadRequest, nil, 1, ""},
+		"overloaded 503": {http.StatusServiceUnavailable, []time.Duration{2 * time.Second}, 2, "overloaded"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -685,8 +712,10 @@ func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
 			assert.Equal(t, c.wait, subs.waited("acc_1"))
 			assert.Equal(t, c.calls, got.calls())
 
+			assert.Equal(t, c.code, subs.lastCode())
+
 			if c.wait != nil {
-				assert.Equal(t, "HTTP "+strconv.Itoa(c.status), subs.lastReason())
+				assert.Equal(t, "no", subs.lastReason())
 			}
 		})
 	}

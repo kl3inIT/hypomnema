@@ -28,6 +28,12 @@ describe("an image provider", () => {
     const resting = imageState(link({ state: "resting", resting_until: rest }), now)
     expect(resting.label).toBe(`Rate limited until ${until(rest, now)}`)
     expect(resting.tone).toBe("warning")
+    // Why its account free first rests, when the server says (issue #1305).
+    const used = imageState(
+      link({ state: "resting", resting_until: rest, cooling_code: "usage_limit" }),
+      now,
+    )
+    expect(used.label).toBe(`Usage limit, resets ${until(rest, now)}`)
 
     expect(imageState(link({ state: "not_set_up", accounts: 0 })).why).toContain("free plan")
     expect(imageState(link({ provider: "antigravity", state: "not_set_up" })).why).toBe(

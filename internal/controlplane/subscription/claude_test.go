@@ -395,7 +395,7 @@ func TestAClaudeSessionDetoursWhileItsHomeCools(t *testing.T) {
 
 	home := w.account("conversation-1")
 
-	require.NoError(t, w.subs.CoolDown(t.Context(), "claude", home, w.clock.Now().Add(time.Hour), "test"))
+	require.NoError(t, w.subs.CoolDown(t.Context(), "claude", home, w.clock.Now().Add(time.Hour), "rate_limit", "test"))
 
 	detour := w.account("conversation-1")
 	assert.NotEqual(t, home, detour, "a cooling home is stepped over")
@@ -427,7 +427,8 @@ func TestAClaudeAccountNearItsQuotaIsUsedLast(t *testing.T) {
 	assert.Equal(t, other, w.account(""), "every time")
 	assert.Equal(t, home, w.account("conversation-1", other), "the reserve serves when the other cannot")
 
-	require.NoError(t, w.subs.CoolDown(t.Context(), "claude", other, w.clock.Now().Add(10*time.Minute), "test"))
+	require.NoError(t, w.subs.CoolDown(t.Context(), "claude", other, w.clock.Now().Add(10*time.Minute), "rate_limit",
+		"test"))
 	assert.Equal(t, home, w.account("conversation-1"), "and while the other cools down")
 
 	w.clock.advance(31 * time.Minute)

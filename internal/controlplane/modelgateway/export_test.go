@@ -7,8 +7,11 @@ import (
 	"testing"
 )
 
-// GoUsageLimit reads an OpenCode Go refusal as the adapter does, for tests.
-var GoUsageLimit = goUsageLimit
+// ClassifyFailure reads why a refusal rests an account as every adapter does, for tests.
+var ClassifyFailure = classifyFailure
+
+// ProviderReset reads when a refused account may serve again as every adapter does, for tests.
+var ProviderReset = providerReset
 
 // ZenQuotaUsedUp reads an OpenCode Zen refusal as the adapter does, for tests.
 var ZenQuotaUsedUp = zenQuotaUsedUp

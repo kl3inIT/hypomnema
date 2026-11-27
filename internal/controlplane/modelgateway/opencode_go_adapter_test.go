@@ -280,7 +280,9 @@ func TestAUsedUpGoKeyRestsAndTheNextKeyServes(t *testing.T) {
 
 	assert.WithinDuration(t, time.Now().Add(13*24*time.Hour), rest, time.Minute,
 		"the key rests until the reset Go named, past the two hours other resets are held to")
-	assert.Equal(t, "OpenCode Go usage limit", reason)
+	assert.Equal(t, "[429] Monthly usage limit reached. Resets in 13 days. To continue using this model now, "+
+		"enable usage from your available balance", reason, "Go's own words (issue #1305)")
+	assert.Equal(t, modelgateway.CoolingUsageLimit, subs.codeOf("acc_1"))
 
 	status, _, body = g.call(t, g.key, fmt.Sprintf(askGo, "glm-5.3"))
 	require.Equal(t, http.StatusOK, status, body)
@@ -335,36 +337,39 @@ func TestGoPassesARouteItsOwnWire(t *testing.T) {
 	assert.Contains(t, body, "model_not_served_here")
 }
 
-// Scenario: Go's refusals, as omniroute and opencode read them. A 429 naming
-// a monthly limit and its countdown is a used-up allowance until then; a
-// GoUsageLimitError is one with no reset named; a plain 429 or another error
-// is not.
-func TestGoUsageLimitsAreReadFromTheRefusal(t *testing.T) {
+// Scenario: Go's refusals, as opencode reads them (provider-error.ts classifyProviderFailure, issue #1305). A 429
+// whose words say a usage limit, 5-hour, weekly or monthly, or a GoUsageLimitError, is a used-up allowance; a 402 is
+// billing whatever its body; a plain 429 is a rate limit; a limit's words on another status say nothing.
+func TestGoRefusalsAreReadAsOpencodeReadsThem(t *testing.T) {
 	t.Parallel()
-
-	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 
 	for name, c := range map[string]struct {
 		status int
 		body   string
-		usedUp bool
-		reset  time.Duration
+		code   modelgateway.CoolingCode
 	}{
 		"monthly, days": {429, `{"error":{"message":"Monthly usage limit reached. Resets in 13 days. To continue ` +
-			`using this model now, enable usage from your available balance"}}`, true, 13 * 24 * time.Hour},
-		"monthly, one hour":   {429, `"[429] Monthly usage limit reached. Resets in 1 hour."`, true, time.Hour},
-		"typed, no countdown": {429, `{"error":{"type":"GoUsageLimitError","limitName":"5 hour"}}`, true, 0},
-		"typed, other status": {402, `{"type":"GoUsageLimitError"}`, true, 0},
-		"a rate limit":        {429, `{"error":{"message":"Too many requests"}}`, false, 0},
-		"monthly but not 429": {400, `Monthly usage limit reached. Resets in 2 days`, false, 0},
+			`using this model now, enable usage from your available balance"}}`, modelgateway.CoolingUsageLimit},
+		"5-hour":  {429, `"429 5-hour usage limit reached. Resets in 2hr 15min."`, modelgateway.CoolingUsageLimit},
+		"weekly":  {429, `Weekly usage limit reached. Resets in 3 days.`, modelgateway.CoolingUsageLimit},
+		"typed":   {429, `{"error":{"type":"GoUsageLimitError","limitName":"5 hour"}}`, modelgateway.CoolingUsageLimit},
+		"402":     {402, `{"type":"GoUsageLimitError"}`, modelgateway.CoolingBilling},
+		"a limit": {429, `{"error":{"message":"Too many requests"}}`, modelgateway.CoolingRateLimit},
+		"not 429": {400, `Monthly usage limit reached. Resets in 2 days`, modelgateway.CoolingUnknown},
+		"token quota, a throttle": {429, `{"error":{"code":"token_quota_exceeded","message":"token_quota_exceeded"}}`,
+			modelgateway.CoolingRateLimit},
 	} {
-		usedUp, reset := modelgateway.GoUsageLimit(c.status, []byte(c.body), now)
-		assert.Equal(t, c.usedUp, usedUp, name)
-
-		if c.reset == 0 {
-			assert.True(t, reset.IsZero(), name)
-		} else {
-			assert.Equal(t, now.Add(c.reset), reset, name)
+		var answer struct {
+			Error struct {
+				Type string `json:"type"`
+				Code string `json:"code"`
+			} `json:"error"`
+			Type string `json:"type"`
 		}
+
+		_ = json.Unmarshal([]byte(c.body), &answer)
+
+		codes := []string{answer.Error.Type, answer.Error.Code, answer.Type}
+		assert.Equal(t, c.code, modelgateway.ClassifyFailure(c.status, codes, c.body), name)
 	}
 }
