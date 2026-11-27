@@ -4011,6 +4011,9 @@ capabilities do not exist yet.
   `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+  The name stays visible when the table scrolls sideways. Models and extra capabilities each show up to three
+  chips and open the full list from the remaining count. A key without a stored value shows its prefix and a short
+  status with the explanation in a tooltip (issue #1235).
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
   `GET /gateway/usage?period=24h|7d|30d|90d|12m&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day
   else, starting at the viewer's midnight; 90 days a bar a UTC day and 12 months a bar a calendar month, read from
@@ -4072,7 +4075,8 @@ capabilities do not exist yet.
   release script's dry run (`RELEASE_DRY_RUN=1`) is how a test checks that Codex's license and notice go out with
   the control plane. Codex then lists the models in `/model` instead of its bundled ones, and a level it sends is one the
   gateway passes on.
-- Settings → Connect a tool (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
+- Connect a tool opens from the Gateway keys header with no key chosen, or from a row with that key chosen
+  (issue #1235). The page (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
   Claude Code, Codex, omp and OpenCode with a key (the owner's keys whose value is stored; a key opened with its
   row's Connect on Gateway keys even without, its files then holding `<your gateway key>`), a model the key may use
   from the tool, and the files with their paths and copy buttons; a card shows and copies only the answer for the
@@ -5934,7 +5938,7 @@ Node (`internal/node`):
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
   own, away from the user's and the project's); the part that names the gateway is `internal/shared/agentconfig`'s,
-  which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
+  which writes the Connect a tool page's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
   out of its tools. Neither is given an image model. The model's context window and largest output are the

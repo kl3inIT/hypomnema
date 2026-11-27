@@ -198,7 +198,8 @@ test("the owner copies each tool's file", async ({ page }) => {
     ["OpenCode", ["~/.config/opencode/opencode.json"]],
   ] as const) {
     const card = page.getByRole("region", { name, exact: true })
-    await expect(card.getByLabel("Key")).toContainText("memoryos-he")
+    await card.getByLabel("Key").click()
+    await page.getByRole("option", { name: "memoryos-he", exact: true }).click()
     for (const path of paths) {
       await expect(card).toContainText(path)
       await expect(card.getByRole("button", { name: `Copy ${path} for ${name}` })).toBeVisible()
@@ -234,7 +235,7 @@ test("the owner copies each tool's file", async ({ page }) => {
 // (review of PR #922). Until it comes, the card shows neither the other key's file nor a button that would copy it.
 test("a file is never shown or copied for a key other than the one chosen", async ({ page }) => {
   await fakeServer(page, new Set(["gwk_3"]))
-  await page.goto("/settings/connect")
+  await page.goto("/settings/connect?key=gwk_1")
 
   const codex = page.getByRole("region", { name: "Codex", exact: true })
   await expect(codex).toContainText(fullSecret)
@@ -269,7 +270,7 @@ test("Connect a tool opens from Gateway keys with no key chosen", async ({ page 
   await expect(page.getByRole("heading", { name: "Connect a tool" })).toBeVisible()
   for (const name of ["Claude Code", "Codex", "omp", "OpenCode"]) {
     const card = page.getByRole("region", { name, exact: true })
-    await expect(card.getByLabel("Key")).toHaveText("Choose a key")
+    await expect(card.getByLabel("Key")).toContainText("Choose a key")
     await expect(card.getByRole("button", { name: /^Copy / })).toHaveCount(0)
   }
   expect(calls).toEqual([])

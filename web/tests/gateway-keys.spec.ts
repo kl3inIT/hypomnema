@@ -154,7 +154,7 @@ const fits = (page: Page) =>
 
 // Scenario: the owner opens the page. It gives the address a tool is pointed at, and the keys by name, start,
 // models, what else each may use and when each was last used, masked by default; workers' keys are only counted.
-test("the owner sees the gateway's address and keys", async ({ page }) => {
+test("the owner sees the gateway's address and keys", async ({ page, isMobile }) => {
   await fakeServer(page)
   await page.goto("/settings/gateway-keys")
 
@@ -163,13 +163,30 @@ test("the owner sees the gateway's address and keys", async ({ page }) => {
   await expect(laptop).toContainText(mask(laptopSecret))
   await expect(laptop).not.toContainText(laptopSecret)
   await expect(laptop).toContainText("Every model")
-  await expect(laptop).toContainText("Making and editing images")
+  await expect(laptop).toContainText("Images")
+  await laptop.getByRole("button", { name: "+1", exact: true }).click()
+  const also = page.getByRole("dialog", { name: "Also" })
+  await expect(also.getByRole("listitem")).toHaveText([
+    "Web search",
+    "Reading a web page",
+    "Making and editing images",
+    "Speech to text and text to speech",
+  ])
+  await page.keyboard.press("Escape")
   await expect(laptop).toContainText("40m ago")
   const desktop = page.getByRole("row", { name: "omp-desktop" })
   await expect(desktop).toContainText("hyp_gateway_v1_Lm40Pr…")
-  await expect(desktop).toContainText(
-    "Made before keys could be shown again; make a new one to copy it.",
-  )
+  const hidden = desktop.getByText("Can't be shown", { exact: true })
+  await expect(hidden).toBeVisible()
+  if (!isMobile) {
+    await hidden.hover()
+    await expect(
+      page.getByText("Made before keys could be shown again; make a new one to copy it.", {
+        exact: true,
+      }),
+    ).toBeVisible()
+    await page.keyboard.press("Escape")
+  }
   await expect(desktop.getByRole("button", { name: /Show key|Copy key/ })).toHaveCount(0)
   // A model reads as its name, with its maker's mark.
   await expect(desktop).toContainText("Claude Sonnet 5.5")
@@ -212,10 +229,13 @@ test("a long model list shows three chips and opens the full list", async ({ pag
   )
   const cell = row.getByRole("cell").nth(index)
   if (process.env.UI_CHECK && isMobile) {
-    await cell.getByText(models[0]!, { exact: true }).evaluate((chip) => {
-      const table = chip.closest("[data-slot=table-container]")!
+    await cell.evaluate((modelsCell) => {
+      const table = modelsCell.closest("[data-slot=table-container]")!
+      const nameCell = modelsCell.parentElement!.firstElementChild!
       table.scrollLeft +=
-        chip.getBoundingClientRect().left - table.getBoundingClientRect().left - 118
+        modelsCell.getBoundingClientRect().left -
+        table.getBoundingClientRect().left -
+        nameCell.getBoundingClientRect().width
     })
     await shot(page, "gateway-keys-long-models")
   }
@@ -228,6 +248,8 @@ test("a long model list shows three chips and opens the full list", async ({ pag
   await cell.getByRole("button", { name: "+12", exact: true }).click()
   const list = page.getByRole("dialog", { name: "Models" }).getByRole("listitem")
   await expect(list).toHaveText(models)
+  await expect(row.getByText("omp-desktop", { exact: true })).toBeInViewport()
+  await shot(page, "gateway-keys-long-expanded")
 })
 
 // Scenario: the owner makes a key for one tool, limited to some models, and copies it; the list masks its value.
@@ -282,9 +304,9 @@ test("the owner creates a key and sees its value", async ({ page }) => {
   const phone = page.getByRole("row", { name: "opencode-phone" })
   await expect(phone).toContainText(mask(secret))
   await expect(phone).toContainText("Claude Opus 5.5")
-  await expect(phone).toContainText("Reading a web page")
-  await expect(phone).not.toContainText("Making and editing images")
-  await expect(phone).toContainText("Speech to text and text to speech")
+  await expect(phone).toContainText("Read pages")
+  await expect(phone.getByText("Images", { exact: true })).toHaveCount(0)
+  await expect(phone).toContainText("Audio")
   await expect(page.getByText(secret)).toHaveCount(0)
   expect(calls).toContain(
     "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex; search,fetch,audio",
@@ -330,7 +352,7 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
 
   const edited = page.getByRole("row", { name: "opencode-tool" })
   await expect(edited).toContainText("GPT-5.5-Codex")
-  await expect(edited).not.toContainText("Making and editing images")
+  await expect(edited.getByText("Images", { exact: true })).toHaveCount(0)
   await expect(edited).toContainText(mask(laptopSecret))
   expect(calls).toContain(
     "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; search,fetch,audio",
@@ -344,7 +366,7 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
   await edit.getByRole("checkbox", { name: /Making and editing images/ }).click()
   await edit.getByRole("button", { name: "Save changes" }).click()
   await expect(edit).toHaveCount(0)
-  await expect(edited).toContainText("Making and editing images")
+  await expect(edited.getByText("Images", { exact: true })).toBeVisible()
   expect(calls).toContain("PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; *")
 })
 
