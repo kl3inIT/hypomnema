@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"time"
@@ -91,6 +92,10 @@ func (s *server) config() toolsmcp.Config {
 		Name: Name,
 		List: func(ctx context.Context) ([]map[string]any, error) {
 			listed := tools()
+			if !bridge.QuestionPartsEnabled(s.dir) {
+				listed = oneQuestionTools()
+			}
+
 			if bridge.PublishEnabled(s.dir) {
 				listed = append(listed, map[string]any{
 					"name":        "publish_branch",
@@ -120,11 +125,10 @@ func tools() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"question": map[string]any{"type": "string", "description": "The question, with what is needed to answer it."},
-					"options":  optionsSchema("Choices to pick from; leave empty for a free answer. " + optionsHelp),
-					"to":       map[string]any{"type": "string", "enum": []string{"owner", "coordinator"}, "default": "owner"},
+					"questions": questionsSchema("The questions, " + questionsHelp),
+					"to":        map[string]any{"type": "string", "enum": []string{"owner", "coordinator"}, "default": "owner"},
 				},
-				"required": []string{"question"},
+				"required": []string{"questions"},
 			},
 		},
 		{
@@ -160,6 +164,61 @@ func tools() []map[string]any {
 			},
 		},
 	}
+}
+
+// oneQuestionTools are ask and finish as a control plane before issue #1219
+// takes them: one question, its options a label or {label, allows_text}. A
+// node offers them when the control plane that sent the Dispatch does not say
+// it keeps several decisions (Offer.QuestionParts), so no decision or
+// description is lost there; as MCP's initialize, a party offers only what
+// the other said it supports.
+func oneQuestionTools() []map[string]any {
+	options := map[string]any{
+		"type": "array",
+		"items": map[string]any{"anyOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"label":       map[string]any{"type": "string"},
+					"allows_text": map[string]any{"type": "boolean"},
+				},
+				"required": []string{"label"},
+			},
+		}},
+	}
+	optionsWith := func(description string) map[string]any {
+		out := maps.Clone(options)
+		out["description"] = description
+
+		return out
+	}
+	help := "An option is its label, or {label, allows_text} when the answer may add text to it " +
+		"(such as \"Change first\", with what to change). At most 9: a last option \"Other\", with text, is added."
+
+	out := tools()
+	out[0]["inputSchema"] = map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"question": map[string]any{"type": "string", "description": "The question, with what is needed to answer it."},
+			"options":  optionsWith("Choices to pick from; leave empty for a free answer. " + help),
+			"to":       map[string]any{"type": "string", "enum": []string{"owner", "coordinator"}, "default": "owner"},
+		},
+		"required": []string{"question"},
+	}
+	finish, _ := out[1]["inputSchema"].(map[string]any)
+	properties, _ := finish["properties"].(map[string]any)
+	properties["gate"] = map[string]any{
+		"type":        "object",
+		"description": "A decision the owner must make before the task can go on, such as a choice between designs.",
+		"properties": map[string]any{
+			"question": map[string]any{"type": "string"},
+			"options":  optionsWith("Choices to pick from. " + help),
+		},
+		"required": []string{"question"},
+	}
+
+	return out
 }
 
 func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
@@ -420,15 +479,27 @@ func (a asked) given() bool {
 
 // ask is the question for the control plane: its first decision, then the
 // more. Each decision needs a header in the new shape, and options end with
-// "Other".
-func (a asked) ask(to string) (nodeproto.Ask, error) {
+// "Other". For a control plane that keeps one question only (parts false),
+// several decisions are refused and a header or descriptions are written
+// into the question's text, so none is lost there.
+func (a asked) ask(to string, parts bool) (nodeproto.Ask, error) {
 	if len(a.Questions) == 0 {
 		opts, err := options(a.Options)
 		if err != nil {
 			return nodeproto.Ask{}, err
 		}
 
-		return nodeproto.Ask{Text: strings.TrimSpace(a.Question), Options: opts, To: to}, nil
+		out := nodeproto.Ask{Text: strings.TrimSpace(a.Question), Options: opts, To: to}
+		if !parts {
+			out = oneQuestion(out)
+		}
+
+		return out, nil
+	}
+
+	if !parts && len(a.Questions) > 1 {
+		return nodeproto.Ask{}, errors.New("this control plane takes one question at a time: " +
+			"ask the first decision, then the next after its answer")
 	}
 
 	if len(a.Questions) > maxQuestions {
@@ -461,7 +532,35 @@ func (a asked) ask(to string) (nodeproto.Ask, error) {
 		out.More = append(out.More, nodeproto.Part{Header: header, Text: text, Options: opts})
 	}
 
+	if !parts {
+		out = oneQuestion(out)
+	}
+
 	return out, nil
+}
+
+// oneQuestion is a question as a control plane before issue #1219 keeps it:
+// the header before the text, and each option's description listed after it,
+// since that control plane keeps neither.
+func oneQuestion(a nodeproto.Ask) nodeproto.Ask {
+	var b strings.Builder
+
+	if a.Header != "" {
+		b.WriteString(a.Header + ": ")
+	}
+
+	b.WriteString(a.Text)
+
+	for i, o := range a.Options {
+		if o.Description != "" {
+			fmt.Fprintf(&b, "\n%d. %s: %s", i+1, o.Label, o.Description)
+			a.Options[i].Description = ""
+		}
+	}
+
+	a.Header, a.Text = "", b.String()
+
+	return a
 }
 
 func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int, message string),
@@ -480,7 +579,7 @@ func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int
 		a.To = "owner"
 	}
 
-	question, err := a.ask(a.To)
+	question, err := a.ask(a.To, bridge.QuestionPartsEnabled(s.dir))
 	if err != nil {
 		return nil, err
 	}
@@ -519,7 +618,7 @@ func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int
 }
 
 func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
-	final, err := ParseFinish(raw)
+	final, err := ParseFinish(raw, bridge.QuestionPartsEnabled(s.dir))
 	if err != nil {
 		return nil, err
 	}
@@ -531,8 +630,9 @@ func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
 	return toolsmcp.Text("Recorded. End your turn now, without calling more tools.", false), nil
 }
 
-// ParseFinish validates the finish tool arguments for delivery or recovery.
-func ParseFinish(raw json.RawMessage) (bridge.Final, error) {
+// ParseFinish validates the finish tool arguments for delivery or recovery;
+// parts says the control plane keeps several decisions (Offer.QuestionParts).
+func ParseFinish(raw json.RawMessage, parts bool) (bridge.Final, error) {
 	var f struct {
 		Summary  string               `json:"summary"`
 		Evidence []nodeproto.Evidence `json:"evidence"`
@@ -545,7 +645,7 @@ func ParseFinish(raw json.RawMessage) (bridge.Final, error) {
 
 	final := bridge.Final{Summary: f.Summary, Evidence: f.Evidence}
 	if f.Gate != nil && f.Gate.given() {
-		gate, err := f.Gate.ask("owner")
+		gate, err := f.Gate.ask("owner", parts)
 		if err != nil {
 			return bridge.Final{}, err
 		}

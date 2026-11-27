@@ -459,7 +459,7 @@ export type Question = {
    */
   more?: Array<QuestionPart>;
   /**
-   * For a Gate, the summary of the final report the worker stopped with, shown above the options (issue #1219).
+   * For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with, shown above the options; none for a Gate asked before, which reads as it did.
    */
   summary?: string;
   status: QuestionStatus;

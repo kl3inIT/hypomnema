@@ -36,7 +36,7 @@ func questionPartsVersions(t *testing.T) (before, own int64) {
 
 // Scenario: issue #1219 on a database that holds a Gate asked before it. The way back drops the header and the more
 // decisions and keeps the Gate; the way up gives it an empty header and no more, so it reads, and is answered, as
-// the one decision it was. A header is at most 30 characters.
+// the one decision it was, with no summary above it. A header is at most 30 characters.
 func TestMigrationKeepsAGateAskedBeforeAsOneDecision(t *testing.T) {
 	t.Parallel()
 
@@ -73,7 +73,7 @@ func TestMigrationKeepsAGateAskedBeforeAsOneDecision(t *testing.T) {
 	assert.Nil(t, got.More)
 	assert.Equal(t, gate.Text, got.Text)
 	assert.Equal(t, gate.Options, got.Options)
-	assert.Equal(t, "PR #7 is green", got.Summary)
+	assert.Empty(t, got.Summary, "a Gate asked before shows no summary, as it did not (review of PR #1228)")
 
 	_, err = w.db.ExecContext(ctx, `UPDATE questions SET header = ? WHERE id = ?`, strings.Repeat("h", 31), got.ID)
 	require.Error(t, err, "a header is at most 30 characters")

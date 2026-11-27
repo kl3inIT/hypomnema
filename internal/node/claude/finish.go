@@ -47,7 +47,7 @@ func (t *turn) trackTools(ctx context.Context, w *runner.Worker, e event) {
 }
 
 func recordRecoveredFinish(ctx context.Context, w *runner.Worker, input json.RawMessage) {
-	final, err := workertools.ParseFinish(input)
+	final, err := workertools.ParseFinish(input, bridge.QuestionPartsEnabled(bridge.Dir(w.Dir())))
 	if err == nil {
 		err = bridge.RecoverFinish(bridge.Dir(w.Dir()), final)
 	}

@@ -160,3 +160,35 @@ test("a gate asked before reads as it did", async ({ page }) => {
     .poll(() => answers)
     .toEqual([{ path: "/questions/qst_old/answer", body: { option: 0 } }])
 })
+
+// Scenario: review of PR #1228. A summary of one long line, 227 characters, wraps past three lines on a phone. It
+// shows three lines and "Show all", which opens the whole; on a screen where it fits, no button is shown.
+test("a long summary shows three lines and opens to the whole", async ({ page }) => {
+  const summary =
+    "Planned #1206 from the owner's notes and the three references; the plan is in the issue, the server is " +
+    "untouched, and two decisions are left for the owner before the implementer starts on the Inbox item shape this afternoon ok."
+  expect(summary).toHaveLength(227)
+  await serve(page, [{ ...twoDecisions, summary }])
+  await page.goto("/inbox?item=question%3Aqst_two")
+
+  const text = card(page).getByRole("region", { name: "The worker's summary" }).locator("p")
+  await expect(text).toContainText("Planned #1206")
+  const lines = await text.evaluate((p) => {
+    const style = p.ownerDocument.defaultView?.getComputedStyle(p)
+
+    return Math.round(p.clientHeight / Number.parseFloat(style?.lineHeight ?? "1"))
+  })
+  expect(lines).toBeLessThanOrEqual(3)
+
+  const overflows = await text.evaluate((p) => p.scrollHeight > p.clientHeight + 1)
+  if ((page.viewportSize()?.width ?? 1280) < 600) expect(overflows).toBe(true)
+
+  const all = card(page).getByRole("button", { name: "Show all" })
+  await expect(all).toHaveCount(overflows ? 1 : 0)
+  if (!overflows) return
+
+  await all.click()
+  await expect(card(page).getByRole("button", { name: "Show less" })).toBeVisible()
+  expect(await text.evaluate((p) => p.scrollHeight <= p.clientHeight + 1)).toBe(true)
+  await shot(page, "inbox-1219-long-summary-open")
+})

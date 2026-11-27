@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { MessageCircleQuestion } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import "@/api/client"
 import {
@@ -157,22 +157,39 @@ export function QuestionForm({
   )
 }
 
-// Summary is the worker's last report, a few lines that open to the whole (issue #1219, decision 5).
+// Summary is the worker's last report, three lines that open to the whole (issue #1219, decision 5). Whether it runs
+// past three lines is measured on the page, at its width, not guessed from its length (review of PR #1228).
 function Summary({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
-  const long = text.split("\n").length > 3 || text.length > 240
+  const [overflows, setOverflows] = useState(false)
+  const ref = useRef<HTMLParagraphElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === "undefined") return
+
+    // Measured only while clamped: open, the text is whole and nothing overflows.
+    const measure = () => {
+      if (el.classList.contains("line-clamp-3")) setOverflows(el.scrollHeight > el.clientHeight + 1)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <section aria-label="The worker's summary" className="mt-2 rounded-lg bg-muted/40 px-3 py-2">
       <p
+        ref={ref}
         className={cn(
           "text-sm leading-relaxed whitespace-pre-wrap text-foreground/80",
-          long && !open && "line-clamp-3",
+          !open && "line-clamp-3",
         )}
       >
         {text}
       </p>
-      {long && (
+      {(open || overflows) && (
         <button
           type="button"
           aria-expanded={open}

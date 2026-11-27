@@ -459,13 +459,18 @@ sequenceDiagram
   `{label, description}`, the description saying what choosing it changes and where it is learned from, the
   recommended one first. The first decision stays in the question's `text` and `options`, the next ones in `more`
   (migration `question_header_and_more`, with `header`), and the answer gives one choice for each, the next ones in
-  its `more`; the node passes the same shape, so a node or a control plane from before reads the first decision
-  and its answer, and a question asked before is one decision with no header. A worker still may send one
-  `question` with bare labels. The resumed worker is told each decision with its answer. The client API gives a
-  Gate the `summary` of the final report its worker stopped with, and the question card (`QuestionForm`) shows it
-  above the decisions, a few lines that open to the whole, then each decision under its header with each option's
-  description under its label, sent as one answer (Paperclip's card); the Task's panel, which shows the summary
-  under it, leaves it out. `hypomnema answer` takes one quoted answer for each decision.
+  its `more`; a question asked before is one decision with no header. A worker still may send one `question` with
+  bare labels. The resumed worker is told each decision with its answer. Node and control plane update on their own
+  schedules, so each says what it takes, as `StoreGuides` and MCP's initialize do: the control plane's offer says
+  `question_parts`, and only then do the worker's tools offer several decisions and descriptions (else they offer
+  one question, refuse several, and write a header or a description into its text); the node's hello says
+  `question_parts`, and a node that does not is sent an answered question of several decisions folded into one,
+  every decision in its text and every answer in its answer's text (`nodeapi/questions.go`). The client API gives a
+  Gate asked with headers the `summary` of the final report its worker stopped with (a Gate asked before gets none
+  and reads as it did), and the question card (`QuestionForm`) shows it above the decisions, three lines measured
+  on the page that open to the whole, then each decision under its header with each option's description under
+  its label, sent as one answer (Paperclip's card); the Task's panel, which shows the summary under it, leaves it
+  out. `hypomnema answer` takes one quoted answer for each decision.
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or

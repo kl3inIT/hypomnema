@@ -6127,7 +6127,7 @@ type Question struct {
 	RunId   string          `json:"run_id"`
 	Status  QuestionStatus  `json:"status"`
 
-	// Summary For a Gate, the summary of the final report the worker stopped with, shown above the options (issue #1219).
+	// Summary For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with, shown above the options; none for a Gate asked before, which reads as it did.
 	Summary *string `json:"summary,omitempty"`
 	TaskId  string  `json:"task_id"`
 	Text    string  `json:"text"`

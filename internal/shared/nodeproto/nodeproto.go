@@ -329,6 +329,11 @@ type HelloRequest struct {
 	// directory as /tmp and /var/tmp (issue #895); nil: a node of an earlier
 	// release, which does not say.
 	TempIsolation *TempIsolation `json:"temp_isolation,omitempty"`
+	// QuestionParts says the node tells its worker every decision of a
+	// question and each one's answer (issue #1219). A node of an earlier
+	// release does not say it, and is sent a question of several decisions
+	// folded into one, its text and its answer's text holding them all.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // TempIsolation is whether a node runs its workers with their Dispatch's
@@ -695,6 +700,11 @@ type Offer struct {
 	// node writes the "Tools" block of its rules from them
 	// (agenttool.ToolGuide). A node of an earlier release ignores them.
 	Tools []string `json:"tools,omitempty"`
+	// QuestionParts says the control plane keeps a question's several
+	// decisions, their headers and their options' descriptions (issue #1219):
+	// the node then lets the worker ask them. A control plane of an earlier
+	// release does not say it, and its workers ask one question as before.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // Skill is one skill a worker is given, at one revision; its digest names

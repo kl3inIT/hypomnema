@@ -341,6 +341,12 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 			return err
 		}
 	}
+	// The worker asks several decisions only of a control plane that keeps them (issue #1219).
+	if o.QuestionParts {
+		if err := bridge.EnableQuestionParts(bridge.Dir(dir)); err != nil {
+			return err
+		}
+	}
 
 	if err := ctx.Err(); err != nil {
 		return err

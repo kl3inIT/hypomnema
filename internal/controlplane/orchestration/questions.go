@@ -114,9 +114,9 @@ type Question struct {
 	DeliveredAt  *time.Time     `json:"delivered_at,omitempty"`
 	RemindAt     *time.Time     `json:"remind_at,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
-	// Summary is, for a Gate, the summary of the final report the worker
-	// stopped with, which the owner reads above the options (issue #1219,
-	// decision 5). It is the client API's, not the node's: the JSON of a
+	// Summary is, for a Gate asked with headers, the summary of the final
+	// report the worker stopped with, which the owner reads above the options
+	// (issue #1219, decision 5). It is the client API's, not the node's: the JSON of a
 	// Question is what a node is sent.
 	Summary string `json:"-"`
 }
@@ -412,12 +412,15 @@ func (s *Service) ListQuestions(ctx context.Context, f QuestionFilter) ([]Questi
 }
 
 // withSummaries gives each Gate the summary of the final report its worker
-// stopped with, read in one query (issue #1219, decision 5).
+// stopped with, read in one query (issue #1219, decision 5). Only a Gate
+// asked in that issue's shape, whose decisions have a header, is given one:
+// a Gate asked before, or with one bare question, reads as it did (review of
+// PR #1228).
 func (s *Service) withSummaries(ctx context.Context, questions []Question) error {
 	var ids []string
 
 	for _, q := range questions {
-		if q.Mode == QuestionGate {
+		if summarized(q) {
 			ids = append(ids, q.DispatchID)
 		}
 	}
@@ -442,13 +445,15 @@ func (s *Service) withSummaries(ctx context.Context, questions []Question) error
 	}
 
 	for i, q := range questions {
-		if q.Mode == QuestionGate {
+		if summarized(q) {
 			questions[i].Summary = summaries[q.DispatchID]
 		}
 	}
 
 	return nil
 }
+
+func summarized(q Question) bool { return q.Mode == QuestionGate && q.Header != "" }
 
 func validAsk(a Ask) error {
 	if a.To != AddressCoordinator && a.To != AddressOwner {

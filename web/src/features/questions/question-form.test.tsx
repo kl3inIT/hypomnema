@@ -111,7 +111,7 @@ const twoDecisions = question("q2", task("t", "run_1"), {
 })
 
 // Scenario: the owner reads both decisions in one card, each with its header and each option with its description,
-// under the worker's summary, which opens to the whole; he answers both, and one answer is sent for the two.
+// under the worker's summary; he answers both, and one answer is sent for the two.
 test("a gate of two decisions is read and answered as one card", async () => {
   const user = userEvent.setup()
   const fetch = answerServer()
@@ -127,12 +127,9 @@ test("a gate of two decisions is read and answered as one card", async () => {
     /A small change on zm today/,
   )
 
-  const summary = screen.getByRole("region", { name: "The worker's summary" })
-  expect(summary).toHaveTextContent("Planned #1206.")
-  await user.click(within(summary).getByRole("button", { name: "Show all" }))
-  expect(within(summary).getByRole("button", { name: "Show less" })).toHaveAttribute(
-    "aria-expanded",
-    "true",
+  // Whether the summary runs past three lines is measured in a browser (web/tests/inbox-1219.spec.ts).
+  expect(screen.getByRole("region", { name: "The worker's summary" })).toHaveTextContent(
+    "Planned #1206.",
   )
 
   await user.click(within(server).getByRole("radio", { name: /Other/ }))
