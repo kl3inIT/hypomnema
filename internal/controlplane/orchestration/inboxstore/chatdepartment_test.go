@@ -2,6 +2,7 @@ package inboxstore_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -108,4 +109,44 @@ func TestAnUpdateTakesTheChatsDepartment(t *testing.T) {
 	got, err = w.inbox.Edit(ctx, by(owner, his), inboxstore.Edit{Title: &title})
 	require.NoError(t, err)
 	assert.Empty(t, got.Project, "the owner's own update")
+}
+
+// Scenario: review round 5 of PR #1243. The triage moves an item it listed before its chat was known to Waiting on
+// others: the move takes the chat's department, as the triage's other updates do, in the same write; an item with a
+// department keeps it, and one from a chat nobody taught stays without one. The move is the same as ever: given to
+// the person who took it, due 48 hours later.
+func TestAMoveToWaitingTakesTheChatsDepartment(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	atlas := w.project(t, "Atlas")
+	harbor := w.project(t, "Harbor")
+
+	older := w.zaloAsk(t, w.kai)
+	kept := w.askIn(t, inboxstore.FromZalo, "main", "team", harbor.ID)
+	unknown := w.askIn(t, inboxstore.FromZalo, "main", "g_unknown", "")
+
+	taught := w.askIn(t, inboxstore.FromZalo, "main", "team", "")
+	_, err := w.inbox.Edit(ctx, by(owner, taught), inboxstore.Edit{Project: &atlas.ID})
+	require.NoError(t, err)
+
+	moved, err := w.inbox.WaitOn(ctx, by(bot(w.kai), older), took("Việt"))
+	require.NoError(t, err)
+	assert.Equal(t, atlas.ID, moved.Project, "the chat's department")
+	assert.Equal(t, inboxstore.Assignee{Kind: inboxstore.Person, Name: "Việt"}, moved.Assignee)
+	assert.Equal(t, inboxstore.Waiting, moved.WhyOpen)
+	assert.Equal(t, t0.Add(48*time.Hour), moved.Due.At.UTC())
+
+	e := last(moved)
+	_, after := eventFields(t, e)
+	assert.Equal(t, atlas.ID, after["project_id"], "recorded in the move's own event")
+
+	moved, err = w.inbox.WaitOn(ctx, by(bot(w.kai), kept), took("Việt"))
+	require.NoError(t, err)
+	assert.Equal(t, harbor.ID, moved.Project, "an item with a department keeps it")
+
+	moved, err = w.inbox.WaitOn(ctx, by(bot(w.kai), unknown), took("Việt"))
+	require.NoError(t, err)
+	assert.Empty(t, moved.Project, "a chat nobody taught")
 }
