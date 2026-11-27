@@ -8991,7 +8991,7 @@ components:
           description: When the account is tried again, after 10 minutes, 1 hour, 6 hours, then every day.
     GatewayKey:
       type: object
-      required: [id, name, prefix, models, endpoints, created_at]
+      required: [id, name, prefix, models, endpoints, search_order, created_at]
       properties:
         id: { type: string }
         name: { type: string }
@@ -9009,11 +9009,29 @@ components:
           type: array
           items: { $ref: "#/components/schemas/GatewayEndpoint" }
           description: What it may use besides chat (issue #664); every kind for a key made without a limit.
+        accounts:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayKeyAccount" }
+          description: >-
+            The only accounts it may use (issue #1277), each with its runtime; absent when it may use every account.
+            Its requests go only to these, in their order among them; a provider none of them is of is not used.
+        search_order:
+          type: array
+          items: { $ref: "#/components/schemas/WebSearchProvider" }
+          description: >-
+            Its own web search order (issue #1277): these are asked first, the others after in the order of Settings.
+            Empty for the order of Settings.
         created_at: { type: string, format: date-time }
         last_used_at:
           type: string
           format: date-time
           description: When the gateway last served a request with it; absent when never.
+    GatewayKeyAccount:
+      type: object
+      required: [id, runtime]
+      properties:
+        id: { type: string }
+        runtime: { type: string, description: "The account's runtime: claude, codex, antigravity, opencode_go…" }
     GatewayKeyList:
       type: object
       required: [data, live_worker_keys]
@@ -9045,6 +9063,21 @@ components:
           description: >-
             What it may use besides chat; every kind when left out, none when empty. A key that may use every
             kind should leave it out, so a kind added later is given too.
+        accounts:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { type: string, minLength: 1, maxLength: 64 }
+          description: >-
+            The ids of the only accounts it may use (issue #1277); every account when left out, as an account added
+            later is then. An account added later is not added to a key that names its accounts.
+        search_order:
+          type: array
+          maxItems: 9
+          items: { $ref: "#/components/schemas/WebSearchProvider" }
+          description: >-
+            Its own web search order (issue #1277): these are asked first, the others after in the order of
+            Settings; the order of Settings when left out or empty. A provider switched off stays off.
     GatewayKeyUpdate:
       type: object
       minProperties: 1
@@ -9066,6 +9099,21 @@ components:
           description: >-
             The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means
             every kind, including kinds added later. The wildcard cannot be combined with named kinds.
+        accounts:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { type: string, minLength: 1, maxLength: 64 }
+          description: >-
+            The ids of the only accounts it may use from now on (issue #1277); ["*"] means every account again,
+            omitted means unchanged. The wildcard cannot be combined with named accounts.
+        search_order:
+          type: array
+          maxItems: 9
+          items: { $ref: "#/components/schemas/WebSearchProvider" }
+          description: >-
+            Its own web search order (issue #1277); empty means the order of Settings again, omitted means
+            unchanged.
     GatewayEndpointSelection:
       type: string
       enum: [search, fetch, images, audio, "*"]

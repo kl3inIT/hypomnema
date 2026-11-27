@@ -522,7 +522,7 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 		return Token{}, err
 	}
 
-	return s.tokenAmong(ctx, runtime, "", session, usable(accounts, runtime), skip)
+	return s.tokenAmong(ctx, runtime, "", session, chosen(ctx, usable(accounts, runtime)), skip)
 }
 
 // TokenFor is Token for a request for a model, which goes only to the accounts whose own list of models has it
@@ -558,7 +558,7 @@ func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, 
 		s.afterAccounts()
 	}
 
-	ofRuntime := usable(accounts, runtime)
+	ofRuntime := chosen(ctx, usable(accounts, runtime))
 	servers, unknown := s.servers(ofRuntime, model)
 
 	switch {
@@ -584,6 +584,27 @@ func usable(accounts []Account, runtime string) []Account {
 	}
 
 	return out
+}
+
+type amongKey struct{}
+
+// Among limits the accounts Token, TokenFor and FirstFree take for the request of ctx to ids (issue #1277): a gateway
+// key that may use only the accounts the owner chose, as OmniRoute narrows a provider's connections to an API key's
+// allowed_connections before it picks one (src/sse/services/auth.ts:1136-1138). The accounts are then taken by every
+// rule of Token, in their order among them; when none of them can serve, none other is taken. An empty ids leaves no
+// account to take.
+func Among(ctx context.Context, ids []string) context.Context {
+	return context.WithValue(ctx, amongKey{}, slices.Clone(ids))
+}
+
+// chosen are the accounts of the request of ctx may take (Among): all of them when it names none.
+func chosen(ctx context.Context, accounts []Account) []Account {
+	ids, ok := ctx.Value(amongKey{}).([]string)
+	if !ok {
+		return accounts
+	}
+
+	return slices.DeleteFunc(slices.Clone(accounts), func(a Account) bool { return !slices.Contains(ids, a.ID) })
 }
 
 // tokenAmong is Token among the given accounts of a runtime. For a model, the account picked is read again right
@@ -714,7 +735,7 @@ func (s *Service) notServedNow(ctx context.Context, runtime, model string) error
 		return nil //nolint:nilerr // Nothing more is known: the answer stays the pick's own.
 	}
 
-	ofRuntime := usable(accounts, runtime)
+	ofRuntime := chosen(ctx, usable(accounts, runtime))
 	servers, unknown := s.servers(ofRuntime, model)
 
 	switch {
@@ -795,7 +816,7 @@ func (s *Service) FirstFree(ctx context.Context, runtime string, modelReset func
 	}
 	now := s.clock.Now()
 	var first time.Time
-	for _, account := range accounts {
+	for _, account := range chosen(ctx, accounts) {
 		if !account.usableBy(runtime) {
 			continue
 		}

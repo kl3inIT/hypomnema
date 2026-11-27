@@ -41,6 +41,7 @@ type GatewayKey struct {
 	RevokeReason       sql.NullString
 	LastUsedAt         sql.NullInt64
 	CoordinatorTokenID sql.NullString
+	OwnAccounts        int64
 }
 
 type GatewayModel struct {

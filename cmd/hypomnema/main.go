@@ -38,9 +38,14 @@
 //	hypomnema gateway models apply FILE        declare a model the gateway serves (a YAML document)
 //	hypomnema gateway models list | rm <name>
 //	hypomnema gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]
+//	                                           [--accounts a,b] [--search-order codex,claude,exa]
 //	                                           make a gateway key; prints it once
 //	hypomnema gateway keys list | revoke <key id>
 //	hypomnema gateway keys set <key id> [--name NAME] [--models a,b|*] [--endpoints search,fetch,images,audio|none|*]
+//	                                           [--accounts a,b|*] [--search-order codex,claude,exa|settings]
+//	                                           --accounts: the only accounts it may use (* every account);
+//	                                           --search-order: web search providers it asks first (settings: the
+//	                                           order of Settings)
 //	hypomnema gateway keys show-value <key id>
 //	hypomnema gateway usage [--limit N]         the latest requests the gateway served
 //	hypomnema gateway usage --by provider|account [--period 7d]

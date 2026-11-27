@@ -4246,7 +4246,9 @@ type GatewayError struct {
 
 // GatewayKey defines model for GatewayKey.
 type GatewayKey struct {
-	CreatedAt time.Time `json:"created_at"`
+	// Accounts The only accounts it may use (issue #1277), each with its runtime; absent when it may use every account. Its requests go only to these, in their order among them; a provider none of them is of is not used.
+	Accounts  *[]GatewayKeyAccount `json:"accounts,omitempty"`
+	CreatedAt time.Time            `json:"created_at"`
 
 	// Endpoints What it may use besides chat (issue
 	Endpoints []GatewayEndpoint `json:"endpoints"`
@@ -4264,6 +4266,17 @@ type GatewayKey struct {
 
 	// Prefix The key's start, to tell keys apart; empty for a key made before it was kept.
 	Prefix string `json:"prefix"`
+
+	// SearchOrder Its own web search order (issue #1277): these are asked first, the others after in the order of Settings. Empty for the order of Settings.
+	SearchOrder []WebSearchProvider `json:"search_order"`
+}
+
+// GatewayKeyAccount defines model for GatewayKeyAccount.
+type GatewayKeyAccount struct {
+	Id string `json:"id"`
+
+	// Runtime The account's runtime: claude, codex, antigravity, opencode_go…
+	Runtime string `json:"runtime"`
 }
 
 // GatewayKeyList defines model for GatewayKeyList.
@@ -4276,6 +4289,9 @@ type GatewayKeyList struct {
 
 // GatewayKeyUpdate defines model for GatewayKeyUpdate.
 type GatewayKeyUpdate struct {
+	// Accounts The ids of the only accounts it may use from now on (issue #1277); ["*"] means every account again, omitted means unchanged. The wildcard cannot be combined with named accounts.
+	Accounts *[]string `json:"accounts,omitempty"`
+
 	// Endpoints The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
 	Endpoints *[]GatewayEndpointSelection `json:"endpoints,omitempty"`
 
@@ -4284,6 +4300,9 @@ type GatewayKeyUpdate struct {
 
 	// Name The new name; when omitted the name is unchanged.
 	Name *string `json:"name,omitempty"`
+
+	// SearchOrder Its own web search order (issue #1277); empty means the order of Settings again, omitted means unchanged.
+	SearchOrder *[]WebSearchProvider `json:"search_order,omitempty"`
 }
 
 // GatewayKeyValue defines model for GatewayKeyValue.
@@ -5546,6 +5565,9 @@ type NewFollowUp struct {
 
 // NewGatewayKey defines model for NewGatewayKey.
 type NewGatewayKey struct {
+	// Accounts The ids of the only accounts it may use (issue #1277); every account when left out, as an account added later is then. An account added later is not added to a key that names its accounts.
+	Accounts *[]string `json:"accounts,omitempty"`
+
 	// Endpoints What it may use besides chat; every kind when left out, none when empty. A key that may use every kind should leave it out, so a kind added later is given too.
 	Endpoints *[]GatewayEndpoint `json:"endpoints,omitempty"`
 
@@ -5554,6 +5576,9 @@ type NewGatewayKey struct {
 
 	// Name What the owner calls the client that uses it, such as opencode-laptop.
 	Name string `json:"name"`
+
+	// SearchOrder Its own web search order (issue #1277): these are asked first, the others after in the order of Settings; the order of Settings when left out or empty. A provider switched off stays off.
+	SearchOrder *[]WebSearchProvider `json:"search_order,omitempty"`
 }
 
 // NewGitHost defines model for NewGitHost.
