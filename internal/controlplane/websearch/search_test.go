@@ -1134,3 +1134,77 @@ func TestAPacedSearchWaitsForTheRoutesTurnAndChecksItsRestAgain(t *testing.T) {
 	assert.Equal(t, int32(1), w.exaMCP.calls.Load())
 	assert.Equal(t, []string{"public:exa", "public:exa"}, routes)
 }
+
+// slowUsage holds up the first search's count, as a slow write of the usage row does.
+type slowUsage struct {
+	once sync.Once
+}
+
+func (u *slowUsage) RecordSearch(context.Context, websearch.Use) error {
+	u.once.Do(func() { time.Sleep(200 * time.Millisecond) })
+
+	return nil
+}
+
+func (u *slowUsage) SearchCounts(context.Context, time.Time) ([]websearch.Count, error) { return nil, nil }
+
+// Scenario (review round 2 of PR #1303): two paced searches on the default keyless chain; Exa answers the first with
+// 429 and Retry-After 120 while its usage row is still being written. The rest is stored before the turn ends, so the
+// second search, which had the next turn, finds Exa resting and does not ask it (Agent-Reach records a failure inside
+// its slot, runtime/dispatch.py:247-274).
+func TestRoundTwoWebTurnMustStoreCooldownBeforeRelease(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+
+	exa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(exa.Close)
+
+	svc := websearch.New(websearch.Config{
+		ExaMCPURL: exa.URL, Usage: &slowUsage{},
+		Settings: func(context.Context) (websearch.Settings, error) {
+			return websearch.Settings{Off: []string{"parallel", "firecrawl", "tavily", "you"}}, nil
+		},
+	})
+
+	turn := make(chan struct{}, 1)
+	ctx := websearch.WithPace(t.Context(), func(ctx context.Context, _ string) (func(), error) {
+		select {
+		case turn <- struct{}{}:
+			return func() { <-turn }, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+
+	var wg sync.WaitGroup
+
+	for _, q := range []string{"first", "second"} {
+		wg.Go(func() { _, _ = svc.Search(ctx, q, 0, "") })
+	}
+
+	wg.Wait()
+	assert.Equal(t, int32(1), calls.Load(), "the second search found Exa resting once it had the turn")
+}
+
+// Scenario (review round 2 of PR #1303, the owner's no-paid-services rule): a search asked with KeylessOnly uses the
+// keyless providers only, even when the owner has a key for one: Exa's keyed API is never asked.
+func TestAKeylessOnlySearchNeverAsksAKey(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{keys: map[string][]string{"exa": {"exa-1"}}, off: keylessOnly("exa")})
+
+	a, err := w.svc.Search(websearch.KeylessOnly(t.Context()), "keyless only", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderExa, a.Provider)
+	assert.Zero(t, w.exa.calls.Load(), "the keyed Exa API is not asked")
+	assert.Equal(t, int32(1), w.exaMCP.calls.Load(), "the keyless Exa is")
+
+	_, err = w.svc.Search(t.Context(), "keyless only", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), w.exa.calls.Load(), "without KeylessOnly the key is asked first, and the answer is not shared")
+}

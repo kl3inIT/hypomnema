@@ -334,3 +334,140 @@ func TestReviewNormalizeKeepsQueryValueBoundary(t *testing.T) {
 	assert.Equal(t, listening.NormalizeURL("https://voz.vn/t/th%E1%BB%9Bt"),
 		listening.NormalizeURL("https://voz.vn/t/thớt"))
 }
+
+// Review round 2, finding 2: Arctic Shift's Retry-After counts from when its 429 arrived, not from when the plan
+// began (last30days retry_delay_from_headers, lib/http.py:77-119): an answer 8 s late asking for 5 s rests until 13 s
+// after the start, and the archive is asked again after that.
+func TestRoundTwoArcticRetryAfterFromResponse(t *testing.T) {
+	t.Parallel()
+
+	c := newClock()
+	_, redditURL := startSite(t, blockedPage)
+
+	var limited atomic.Bool
+
+	limited.Store(true)
+
+	archived, arcticURL := startSite(t, func(w http.ResponseWriter, _ *http.Request) {
+		if limited.Load() {
+			c.Advance(8 * time.Second)
+			w.Header().Set("Retry-After", "5")
+			w.WriteHeader(http.StatusTooManyRequests)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+	s := redditOnly(t, c, redditURL, arcticURL)
+	web := threadsWeb([2]string{"abc123", "VETC trừ tiền"})
+
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	require.NoError(t, err)
+
+	until := start.Add(13 * time.Second).UTC().Format(time.RFC3339)
+	assert.Contains(t, coverageOf(t, a, listening.SourceReddit).Streams[0].Tried[1].Detail, "until "+until)
+
+	limited.Store(false)
+	c.Advance(6 * time.Second)
+
+	_, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	require.NoError(t, err)
+	assert.Len(t, archived.Requests(), 2, "after its Retry-After the archive is asked again")
+}
+
+// Review round 2, finding 3: when the archive could not be read and the topic bar leaves nothing of what the web
+// search showed (a title such as "Reddit"), Reddit was not read: its code stays, never a clean no_results. With the
+// archive read, the same thread is found by its real title.
+func TestRoundTwoNoCleanZeroWhenTopicCannotBeHydrated(t *testing.T) {
+	t.Parallel()
+
+	c := newClock()
+	_, redditURL := startSite(t, blockedPage)
+
+	var limited atomic.Bool
+
+	limited.Store(true)
+
+	_, arcticURL := startSite(t, func(w http.ResponseWriter, _ *http.Request) {
+		if limited.Load() {
+			w.Header().Set("Retry-After", "30")
+			w.WriteHeader(http.StatusTooManyRequests)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{
+			"id": "abc123", "title": "VETC trừ tiền hai lần", "subreddit": "VietNam",
+			"permalink": "/r/VietNam/comments/abc123/x/", "created_utc": start.AddDate(0, 0, -2).Unix(), "score": 5,
+		}}})
+	})
+	s := redditOnly(t, c, redditURL, arcticURL)
+	web := threadsWeb([2]string{"abc123", "Reddit"})
+
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	require.NoError(t, err)
+
+	cov := coverageOf(t, a, listening.SourceReddit)
+	assert.Equal(t, listening.StateNotRead, cov.State)
+	assert.Equal(t, listening.CodeRefused, cov.Code, "Reddit's own refusal is the most actionable")
+	assert.Equal(t, "rate_limited", cov.Streams[0].Tried[1].Result, "the archive's 429 is web_arctic's result")
+	assert.Empty(t, a.Items)
+
+	limited.Store(false)
+	c.Advance(time.Minute)
+
+	a, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	require.NoError(t, err)
+	require.Len(t, a.Items, 1)
+	assert.Equal(t, "VETC trừ tiền hai lần", a.Items[0].Title)
+}
+
+// Review round 2, P2 (owner, 2026-11-27: no paid services): listening asks only the web search's keyless providers,
+// even when the owner has a key for one; its Reddit searches too.
+func TestRoundTwoListeningUsesKeylessRoutesOnly(t *testing.T) {
+	t.Parallel()
+
+	var keyed, keyless atomic.Int32
+
+	_, exaKeyed := startSite(t, func(w http.ResponseWriter, _ *http.Request) {
+		keyed.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"title":"VETC","url":"https://example.com/a"}],"costDollars":{"total":0.007}}`))
+	})
+	_, exaKeyless := startSite(t, func(w http.ResponseWriter, _ *http.Request) {
+		keyless.Add(1)
+
+		text, _ := json.Marshal("Title: VETC trừ tiền\nURL: https://example.com/b\nText: VETC trừ tiền hai lần")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n",
+			`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":`+string(text)+`}]}}`)
+	})
+
+	web := websearch.New(websearch.Config{
+		ExaURL: exaKeyed, ExaMCPURL: exaKeyless,
+		Keys: func(context.Context) ([]websearch.Key, error) {
+			return []websearch.Key{{Provider: "exa", Name: "web-search-exa", Value: "test-key"}}, nil
+		},
+		Settings: func(context.Context) (websearch.Settings, error) {
+			return websearch.Settings{Off: []string{"firecrawl", "parallel", "tavily", "tinyfish", "you"}}, nil
+		},
+	})
+	_, redditURL := startSite(t, blockedPage)
+	_, arcticURL := archiveOf(t, nil)
+	s := listening.New(listening.Config{
+		Platforms: listening.Sources(listening.Endpoints{RedditURL: redditURL, ArcticURL: arcticURL},
+			http.DefaultClient),
+		Sleep: noSleep,
+	})
+
+	_, err := s.Search(t.Context(), plan([]string{listening.SourceWeb, listening.SourceReddit}, "VETC"),
+		func(ctx context.Context, q string, limit int) (websearch.Answer, error) {
+			return web.Search(ctx, q, limit, "")
+		})
+	require.NoError(t, err)
+	assert.Zero(t, keyed.Load(), "the owner's Exa key is not used by listening")
+	assert.Equal(t, int32(2), keyless.Load(), "the web and the site:reddit.com search, keyless")
+}

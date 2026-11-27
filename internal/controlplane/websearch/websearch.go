@@ -694,3 +694,7 @@ func (s *Service) ask(ctx context.Context, r route, query string, limit int) (re
 
 	return r.ask(s, ctx, r, query, limit)
 }
+
+// KeylessOnly will make the searches asked with ctx use the keyless providers only (review round 2 of PR #1303);
+// declared here for the tests written first.
+func KeylessOnly(ctx context.Context) context.Context { return ctx }
