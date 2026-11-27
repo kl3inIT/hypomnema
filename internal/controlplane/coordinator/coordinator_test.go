@@ -17,6 +17,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -849,7 +850,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--bot", orchestration.DefaultBotID}, args, "the starting set leaves pi's own default model")
 
-	_, err = svc.ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
+	_, err = svc.Profiles().ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
 		"base_url: http://172.22.0.1:20128/v1\napi_key_ref: file:ninerouter.key\nmodels: [cx/gpt-6.1-sol]\n")
 	require.NoError(t, err)
 
@@ -1239,7 +1240,7 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 	svc, sup := newSupervisor(t)
 	ctx := t.Context()
 
-	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+	_, err := svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
@@ -1280,8 +1281,8 @@ func TestBotFallbacksUseChatCompletionsOnlyForTheInheritedModel(t *testing.T) {
 		choice   orchestration.ChatModel
 		provider string
 	}{
-		{orchestration.ChatModel{Effort: "high"}, orchestration.PiFallbackProvider},
-		{orchestration.ChatModel{Provider: bot.Provider, Model: bot.Model}, orchestration.PiProvider},
+		{orchestration.ChatModel{Effort: "high"}, profilestore.PiFallbackProvider},
+		{orchestration.ChatModel{Provider: bot.Provider, Model: bot.Model}, profilestore.PiProvider},
 	} {
 		chat, err := svc.CreateChatWithID(ctx, "", bot.ID, "", candidate.choice)
 		require.NoError(t, err)
@@ -1302,7 +1303,7 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 	svc, sup := newSupervisorWith(t, keys)
 	ctx := t.Context()
 
-	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+	_, err := svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 

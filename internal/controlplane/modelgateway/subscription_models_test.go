@@ -11,6 +11,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -32,13 +33,13 @@ func newSubscriptionGateway(t *testing.T) *modelgateway.Service {
 func subscriptionGatewayOn(db *sql.DB) *modelgateway.Service {
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
-	info := func(p orchestration.Provider) modelgateway.ProviderInfo {
+	info := func(p profilestore.Provider) modelgateway.ProviderInfo {
 		return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Models: p.Models}
 	}
 
 	return modelgateway.New(db, fixedClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := orch.GetProvider(ctx, name)
+			p, err := orch.Profiles().GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}
@@ -46,7 +47,7 @@ func subscriptionGatewayOn(db *sql.DB) *modelgateway.Service {
 			return info(p), nil
 		}, func(context.Context, string) (string, error) { return "", nil }).
 		WithProviderList(func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
-			providers, err := orch.ListProviders(ctx)
+			providers, err := orch.Profiles().ListProviders(ctx)
 			if err != nil {
 				return nil, err
 			}

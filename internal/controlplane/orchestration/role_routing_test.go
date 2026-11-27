@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 func roleWorld(t *testing.T) *world {
@@ -20,12 +21,12 @@ func roleWorld(t *testing.T) *world {
 	w.gatewayAccount("claude")
 	w.gatewayAccount("codex")
 	w.gatewayAccount(OpenCodeGoRuntime)
-	_, err := w.s.AddProviderModels(ctx, "codex-subscription", []string{"gpt-6.2-sol"})
+	_, err := w.s.Profiles().AddProviderModels(ctx, "codex-subscription", []string{"gpt-6.2-sol"})
 	require.NoError(t, err)
-	_, err = w.s.AddProviderModels(ctx, "opencode-go", []string{"deepseek-v4.1-flash", "glm-5.3-flash"})
+	_, err = w.s.Profiles().AddProviderModels(ctx, "opencode-go", []string{"deepseek-v4.1-flash", "glm-5.3-flash"})
 	require.NoError(t, err)
-	for _, role := range roles {
-		_, _, err := w.s.ApplyProfile(ctx, role, "name: "+role+"\ndescription: role\n")
+	for _, role := range profilestore.Roles {
+		_, _, err := w.s.Profiles().ApplyProfile(ctx, role, "name: "+role+"\ndescription: role\n")
 		require.NoError(t, err)
 	}
 	return w
@@ -35,11 +36,12 @@ func TestRoleMatrixRoutesKindsAndValidatesAtomically(t *testing.T) {
 	t.Parallel()
 	w := roleWorld(t)
 	ctx := t.Context()
-	source, err := w.s.RoleRouting(ctx)
+	source, err := w.s.Profiles().RoleRouting(ctx)
 	require.NoError(t, err)
-	require.NoError(t, w.s.ApplyRoleRouting(ctx, source))
-	require.ErrorIs(t, w.s.ApplyRoleRouting(ctx, strings.ReplaceAll(source, "gpt-6.2-sol", "unknown-model")), ErrInvalid)
-	kept, err := w.s.RoleRouting(ctx)
+	require.NoError(t, w.s.Profiles().ApplyRoleRouting(ctx, source))
+	require.ErrorIs(t, w.s.Profiles().ApplyRoleRouting(ctx, strings.ReplaceAll(source, "gpt-6.2-sol", "unknown-model")),
+		ErrInvalid)
+	kept, err := w.s.Profiles().RoleRouting(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, source, kept)
 	_, err = w.s.CreateTasks(ctx, w.run.ID, []NewTask{{Ref: "invalid", Kind: "large", Spec: "test"}})
@@ -160,7 +162,7 @@ func TestRoleRoutingWaitsForPinsAndReportsMissingModels(t *testing.T) {
 	assert.False(t, dispatch.Handoff)
 
 	require.NoError(t, w.s.write(ctx, func(q *store.Queries, _ int64) error {
-		return q.SetRoleRouting(ctx, strings.ReplaceAll(defaultRoleRouting, "gpt-6.2-sol", "missing-model"))
+		return q.SetRoleRouting(ctx, strings.ReplaceAll(profilestore.DefaultRoleRouting, "gpt-6.2-sol", "missing-model"))
 	}))
 	missing := w.tasks(NewTask{Ref: "missing", Kind: "narrow", Spec: "do not substitute"})[0]
 	assert.Empty(t, w.schedule().Created)

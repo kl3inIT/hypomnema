@@ -16,6 +16,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -64,7 +65,7 @@ func (w *world) roleGateway(reset time.Time, backend *httptest.Server) (*modelga
 	w.t.Helper()
 	service := modelgateway.New(w.db, w.clock, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			provider, err := w.s.GetProvider(ctx, name)
+			provider, err := w.s.Profiles().GetProvider(ctx, name)
 			return modelgateway.ProviderInfo{Name: provider.Name, Kind: provider.Kind, Models: provider.Models,
 				BaseURL: provider.BaseURL, APIKeyRef: provider.APIKeyRef}, err
 		}, func(context.Context, string) (string, error) { return "test-api-key", nil })
@@ -101,9 +102,9 @@ func TestRoleGatewayAliasHandsOffInTheSameWorktree(t *testing.T) {
 		"  - {provider: codex-subscription, model: gpt-6.2-sol}\n"+
 		"  - {provider: claude-subscription, model: claude-opus-5-5}\n")
 	require.NoError(t, err)
-	_, err = w.s.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: [gpt-mixed]\n")
+	_, err = w.s.Profiles().ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: [gpt-mixed]\n")
 	require.NoError(t, err)
-	require.NoError(t, w.s.ApplyRoleRouting(ctx, strings.ReplaceAll(defaultRoleRouting,
+	require.NoError(t, w.s.Profiles().ApplyRoleRouting(ctx, strings.ReplaceAll(profilestore.DefaultRoleRouting,
 		"provider: codex-subscription, model: gpt-6.2-sol", "provider: model-gateway, model: gpt-mixed")))
 	w.tasks(NewTask{Ref: "role", Kind: "narrow", Spec: "work"})
 	created := w.schedule().Created
@@ -222,14 +223,15 @@ func TestRoleRateLimitWithoutGatewayFactDoesNotLoop(t *testing.T) {
 	}))
 	defer backend.Close()
 	service, mux := w.roleGateway(time.Time{}, backend)
-	_, err := w.s.ApplyProvider(t.Context(), "", "name: remote\nkind: openai_compatible\nbase_url: "+
+	_, err := w.s.Profiles().ApplyProvider(t.Context(), "", "name: remote\nkind: openai_compatible\nbase_url: "+
 		backend.URL+"/v1\napi_key_ref: vault:remote\nmodels: [remote-model]\n")
 	require.NoError(t, err)
 	_, err = service.ApplyModel(t.Context(), "name: claude-remote\ntargets: [{provider: remote, model: remote-model}]\n")
 	require.NoError(t, err)
-	_, err = w.s.ApplyProvider(t.Context(), "", "name: model-gateway\nkind: model_gateway\nmodels: [claude-remote]\n")
+	_, err = w.s.Profiles().ApplyProvider(t.Context(), "",
+		"name: model-gateway\nkind: model_gateway\nmodels: [claude-remote]\n")
 	require.NoError(t, err)
-	require.NoError(t, w.s.ApplyRoleRouting(t.Context(), strings.ReplaceAll(defaultRoleRouting,
+	require.NoError(t, w.s.Profiles().ApplyRoleRouting(t.Context(), strings.ReplaceAll(profilestore.DefaultRoleRouting,
 		"provider: claude-subscription, model: claude-opus-5-5", "provider: model-gateway, model: claude-remote")))
 	w.gatewayCooling("/v1/responses", "codex-subscription/gpt-6.2-sol", t0.Add(time.Hour))
 	w.tasks(NewTask{Ref: "role", Kind: "broad", Spec: "work"})

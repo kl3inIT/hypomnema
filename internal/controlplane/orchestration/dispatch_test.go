@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The Dispatch tests are a table of scenarios in the style of Omnigent's
@@ -41,10 +42,10 @@ func newWorld(t *testing.T) *world {
 
 	w := newSeedWorld(t)
 
-	_, err := w.s.ApplyProvider(t.Context(), "", worldGateway)
+	_, err := w.s.Profiles().ApplyProvider(t.Context(), "", worldGateway)
 	require.NoError(t, err)
 
-	_, _, err = w.s.ApplyProfile(t.Context(), "",
+	_, _, err = w.s.Profiles().ApplyProfile(t.Context(), "",
 		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway}\n")
 	require.NoError(t, err)
 
@@ -156,7 +157,8 @@ func (w *world) spec() DispatchSpec {
 		return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "codex", AccountRef: w.held.ID}
 	}
 
-	return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "claude", AccountRef: GatewayAccountRef}
+	return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "claude",
+		AccountRef: profilestore.GatewayAccountRef}
 }
 
 func (w *world) advance(d time.Duration) { w.clock.now = w.clock.now.Add(d) }

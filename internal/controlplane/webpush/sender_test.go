@@ -439,6 +439,11 @@ func TestAForwardedQuestionAConnectionRequestAndAToDoEachReachTheDeviceOnce(t *t
 	require.NoError(t, err)
 	w.sent()
 
+	_, err = w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "main", Secret: "fixture",
+	})
+	require.NoError(t, err)
+
 	todo, err := w.svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: hr.ID}, inboxstore.NewTodo{
 		Title: "Reply to Lan about the contract", State: inboxstore.Proposed,
 		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},

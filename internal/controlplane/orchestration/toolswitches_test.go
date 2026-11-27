@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
@@ -31,11 +32,11 @@ func TestAProfilesToolSwitchesReachItsDispatch(t *testing.T) {
 		"tools: [web_*, web_*]\n",
 		"tools: [agent_*_open]\n",
 	} {
-		_, _, err := w.s.ApplyProfile(ctx, "", head+bad)
+		_, _, err := w.s.Profiles().ApplyProfile(ctx, "", head+bad)
 		require.ErrorIs(t, err, ErrInvalid, bad)
 	}
 
-	p, _, err := w.s.ApplyProfile(ctx, "", head+"preset: report\ntools: [phone]\ntools_off: [web_fetch]\n")
+	p, _, err := w.s.Profiles().ApplyProfile(ctx, "", head+"preset: report\ntools: [phone]\ntools_off: [web_fetch]\n")
 	require.NoError(t, err)
 	assert.Equal(t, agenttool.PresetReport, p.Preset)
 	assert.Equal(t, []string{"phone"}, p.Tools)
@@ -43,7 +44,7 @@ func TestAProfilesToolSwitchesReachItsDispatch(t *testing.T) {
 
 	d := w.dispatch(w.tasks(NewTask{Ref: "a", Spec: "do a"})[0].ID)
 
-	_, _, err = w.s.ApplyProfile(ctx, "", head)
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", head)
 	require.NoError(t, err)
 
 	switches, err := w.s.ToolSwitchesOfDispatch(ctx, d.ID)
@@ -62,7 +63,7 @@ func TestDispatchToolAccessIsCappedOnlyForBotRuns(t *testing.T) {
 
 	w := newWorld(t)
 	ctx := t.Context()
-	_, _, err := w.s.ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\ntools: [phone]\ntools_off: [web_fetch]\n")
 	require.NoError(t, err)
 	bot, err := w.s.PutBot(ctx, Bot{Name: "reporter", Preset: agenttool.PresetReport, ToolsOff: []string{"web_search"}})
@@ -215,11 +216,11 @@ func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 
 	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_1" })
 
-	edited, err := s.GetProfile(ctx, "implementer")
+	edited, err := s.Profiles().GetProfile(ctx, "implementer")
 	require.NoError(t, err)
 
-	var source profileSource
-	require.NoError(t, decodeStrict(edited.Source, &source))
+	source, err := profilestore.DecodeSource(edited.Source)
+	require.NoError(t, err)
 	assert.Equal(t, edited.Preset, source.Preset)
 	assert.Equal(t, edited.Tools, source.Tools)
 	assert.Equal(t, edited.ToolsOff, source.ToolsOff)

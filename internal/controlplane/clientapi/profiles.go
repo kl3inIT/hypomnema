@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -16,7 +16,7 @@ import (
 // ListProfiles returns every profile at its current version.
 func (s *Server) ListProfiles(ctx context.Context, _ openapi.ListProfilesRequestObject,
 ) (openapi.ListProfilesResponseObject, error) {
-	profiles, err := s.svc.ListProfiles(ctx)
+	profiles, err := s.svc.Profiles().ListProfiles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func (s *Server) ListProfiles(ctx context.Context, _ openapi.ListProfilesRequest
 // GetProfile returns a profile at its current version.
 func (s *Server) GetProfile(ctx context.Context, req openapi.GetProfileRequestObject,
 ) (openapi.GetProfileResponseObject, error) {
-	p, err := s.svc.GetProfile(ctx, req.Name)
+	p, err := s.svc.Profiles().GetProfile(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -51,12 +51,12 @@ func (s *Server) ApplyProfile(ctx context.Context, req openapi.ApplyProfileReque
 	}
 
 	var (
-		p       orchestration.Profile
+		p       profilestore.Profile
 		created bool
 	)
 
 	if chat == "" {
-		p, created, err = s.svc.ApplyProfile(ctx, req.Name, req.Body.Source)
+		p, created, err = s.svc.Profiles().ApplyProfile(ctx, req.Name, req.Body.Source)
 	} else {
 		p, created, err = s.svc.ApplyProfileFromChat(ctx, chat, req.Name, req.Body.Source)
 	}
@@ -97,7 +97,7 @@ func (s *Server) RestoreProfileVersion(ctx context.Context, req openapi.RestoreP
 // goes, one used before is marked deleted (issue #485).
 func (s *Server) DeleteProfile(ctx context.Context, req openapi.DeleteProfileRequestObject,
 ) (openapi.DeleteProfileResponseObject, error) {
-	if err := s.svc.DeleteProfile(ctx, req.Name); err != nil {
+	if err := s.svc.Profiles().DeleteProfile(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
@@ -107,7 +107,7 @@ func (s *Server) DeleteProfile(ctx context.Context, req openapi.DeleteProfileReq
 // ListProfileVersions returns a profile's versions, newest first.
 func (s *Server) ListProfileVersions(ctx context.Context, req openapi.ListProfileVersionsRequestObject,
 ) (openapi.ListProfileVersionsResponseObject, error) {
-	versions, err := s.svc.ListProfileVersions(ctx, req.Name)
+	versions, err := s.svc.Profiles().ListProfileVersions(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,7 @@ func (s *Server) ListProfileVersions(ctx context.Context, req openapi.ListProfil
 // ListProviders returns the providers with their models.
 func (s *Server) ListProviders(ctx context.Context, _ openapi.ListProvidersRequestObject,
 ) (openapi.ListProvidersResponseObject, error) {
-	providers, err := s.svc.ListProviders(ctx)
+	providers, err := s.svc.Profiles().ListProviders(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func (s *Server) ListProviders(ctx context.Context, _ openapi.ListProvidersReque
 // ApplyProvider stores a provider's YAML and its models.
 func (s *Server) ApplyProvider(ctx context.Context, req openapi.ApplyProviderRequestObject,
 ) (openapi.ApplyProviderResponseObject, error) {
-	p, err := s.svc.ApplyProvider(ctx, req.Name, req.Body.Source)
+	p, err := s.svc.Profiles().ApplyProvider(ctx, req.Name, req.Body.Source)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (s *Server) ApplyProvider(ctx context.Context, req openapi.ApplyProviderReq
 // DeleteProvider removes a provider and its models; only the owner (policy.go, issue #610).
 func (s *Server) DeleteProvider(ctx context.Context, req openapi.DeleteProviderRequestObject,
 ) (openapi.DeleteProviderResponseObject, error) {
-	if err := s.svc.DeleteProvider(ctx, req.Name); err != nil {
+	if err := s.svc.Profiles().DeleteProvider(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
@@ -155,7 +155,7 @@ func (s *Server) DeleteProvider(ctx context.Context, req openapi.DeleteProviderR
 // ListModels returns every model with its provider.
 func (s *Server) ListModels(ctx context.Context, _ openapi.ListModelsRequestObject,
 ) (openapi.ListModelsResponseObject, error) {
-	models, err := s.svc.ListModels(ctx)
+	models, err := s.svc.Profiles().ListModels(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (s *Server) ListModels(ctx context.Context, _ openapi.ListModelsRequestObje
 	return out, nil
 }
 
-func toProfile(p orchestration.Profile) openapi.Profile {
+func toProfile(p profilestore.Profile) openapi.Profile {
 	out := openapi.Profile{
 		Name: p.Name, Description: p.Description, VersionId: p.VersionID, Version: p.Version, Runtime: p.Runtime,
 		Provider: ptr(p.Provider),
@@ -192,7 +192,7 @@ func toProfile(p orchestration.Profile) openapi.Profile {
 	return out
 }
 
-func toProfileList(profiles []orchestration.Profile) openapi.ProfileList {
+func toProfileList(profiles []profilestore.Profile) openapi.ProfileList {
 	out := openapi.ProfileList{Data: make([]openapi.Profile, 0, len(profiles))}
 	for _, p := range profiles {
 		out.Data = append(out.Data, toProfile(p))
@@ -201,7 +201,7 @@ func toProfileList(profiles []orchestration.Profile) openapi.ProfileList {
 	return out
 }
 
-func toProvider(p orchestration.Provider) openapi.Provider {
+func toProvider(p profilestore.Provider) openapi.Provider {
 	return openapi.Provider{
 		Name: p.Name, Kind: openapi.ProviderKind(p.Kind), BaseUrl: ptr(p.BaseURL), ApiKeyRef: ptr(p.APIKeyRef),
 		Models: p.Models, Source: p.Source, UpdatedAt: p.UpdatedAt,

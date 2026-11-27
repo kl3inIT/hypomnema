@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // gatewayModelsOf lists the gateway's models as name, first target and
@@ -104,7 +106,7 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 	w := newSeedWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.GetProvider(ctx, "model-gateway")
+	_, err := w.s.Profiles().GetProvider(ctx, "model-gateway")
 	require.ErrorIs(t, err, ErrNotFound, "named by nothing once the profiles moved")
 	assert.Empty(t, gatewayModelsOf(ctx, t, w.db), "the subscription's models need no row")
 
@@ -112,13 +114,13 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 		"implementer": "pfv_seed4_implementer", "reviewer": "pfv_seed8_reviewer", "explorer": "pfv_seed5_explorer",
 	}, currentVersions(ctx, t, w.db))
 
-	reviewer, err := w.s.GetProfile(ctx, "reviewer")
+	reviewer, err := w.s.Profiles().GetProfile(ctx, "reviewer")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-subscription", "claude-opus-5-5"}, []string{reviewer.Provider, reviewer.Model})
 	assert.Contains(t, reviewer.Source, "  provider: claude-subscription\n", "its YAML says so too")
 	assert.Equal(t, "high", reviewer.Effort, "the reviewer keeps its effort")
 	assert.Contains(t, reviewer.Instruction, "Verdict: `correct` or `incorrect`", "and its instruction")
-	assert.Equal(t, &Availability{Reason: ReasonNoAccount}, reviewer.Availability,
+	assert.Equal(t, &profilestore.Availability{Reason: ReasonNoAccount}, reviewer.Availability,
 		"no Claude account is logged in on the control plane yet")
 
 	w.tasks(NewTask{Ref: "a", Spec: "a"})
@@ -126,9 +128,9 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 
 	w.gatewayAccount("claude")
 
-	reviewer, err = w.s.GetProfile(ctx, "reviewer")
+	reviewer, err = w.s.Profiles().GetProfile(ctx, "reviewer")
 	require.NoError(t, err)
-	assert.Equal(t, &Availability{Available: true}, reviewer.Availability, "node_a has Claude Code")
+	assert.Equal(t, &profilestore.Availability{Available: true}, reviewer.Availability, "node_a has Claude Code")
 
 	created := w.schedule().Created
 	require.Len(t, created, 1, "placed with no profile applied")
@@ -140,7 +142,7 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 
 	conv := w.conversation(d.ConversationID)
 	assert.Equal(t, "claude", conv.Runtime)
-	assert.Equal(t, GatewayAccountRef, conv.AccountRef, "through the gateway, under no account of the node")
+	assert.Equal(t, profilestore.GatewayAccountRef, conv.AccountRef, "through the gateway, under no account of the node")
 
 	pending, err := w.s.NodePending(ctx, w.node.ID)
 	require.NoError(t, err)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -396,7 +397,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		}
 	}
 
-	api, err := modelAPI(ctx, q, conv.AccountRef, d.Model.String)
+	api, err := profilestore.ModelAPITx(ctx, q, conv.AccountRef, d.Model.String)
 	if err != nil {
 		return Offer{}, err
 	}

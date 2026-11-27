@@ -67,7 +67,7 @@ func TestTheControlPlaneServesAChatRequestWithAKeyFromTheVault(t *testing.T) {
 	db, err := sqlite.Open(t.Context(), cfg.Database)
 	require.NoError(t, err)
 
-	_, err = orchestration.New(db, platform.SystemClock{}, platform.NewID).ApplyProvider(t.Context(), "",
+	_, err = orchestration.New(db, platform.SystemClock{}, platform.NewID).Profiles().ApplyProvider(t.Context(), "",
 		"name: router\nkind: openai_compatible\nbase_url: "+upstream.URL+"/v1\n"+
 			"api_key_ref: vault:router\nmodels: [cx/gpt-6.1-sol]\n")
 	require.NoError(t, err)

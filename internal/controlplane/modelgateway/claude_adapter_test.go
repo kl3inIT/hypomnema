@@ -54,7 +54,7 @@ func newClaudeGateway(t *testing.T, backend *httptest.Server, subs modelgateway.
 
 	svc := modelgateway.New(db, platform.SystemClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := orch.GetProvider(ctx, name)
+			p, err := orch.Profiles().GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}

@@ -27,7 +27,7 @@ func TestOwnerSetsUpTheGateway(t *testing.T) {
 	db, err := sqlite.Open(t.Context(), cfg.Database)
 	require.NoError(t, err)
 
-	_, err = orchestration.New(db, platform.SystemClock{}, platform.NewID).ApplyProvider(t.Context(), "",
+	_, err = orchestration.New(db, platform.SystemClock{}, platform.NewID).Profiles().ApplyProvider(t.Context(), "",
 		"name: router\nkind: openai_compatible\nbase_url: https://router.example/v1\n"+
 			"api_key_ref: vault:router\nmodels: [cx/gpt-6.1-sol]\n")
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestTheGatewayIsGivenAProvidersVersionFloor(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	_, err = orch.ApplyProvider(t.Context(), "antigravity-subscription", "name: antigravity-subscription\n"+
+	_, err = orch.Profiles().ApplyProvider(t.Context(), "antigravity-subscription", "name: antigravity-subscription\n"+
 		"kind: antigravity_subscription\nmin_versions: {gemini: \"3.8\"}\nmodels: [gemini-3.8-flash-high]\n")
 	require.NoError(t, err)
 

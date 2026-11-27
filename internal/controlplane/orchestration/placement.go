@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // placement is a snapshot of capacity read inside one transaction: the
@@ -314,7 +315,7 @@ func (n *nodeLoad) room(r request) string {
 
 // checkAccount says why an account cannot take a Dispatch of the runtime now.
 func (p *placement) checkAccount(runtime, id string) error {
-	if id == GatewayAccountRef {
+	if id == profilestore.GatewayAccountRef {
 		return nil // the gateway serves the model; its accounts are its own to choose and to cool down
 	}
 
@@ -330,7 +331,7 @@ func (p *placement) checkAccount(runtime, id string) error {
 		return fmt.Errorf("%w: account %s is for %s, not %s", ErrInvalid, id, a.Runtime, runtime)
 	case AccountStatus(a.Status) != AccountActive:
 		return fmt.Errorf("%w: account %s is disabled", ErrUnavailable, id)
-	case gatewayOnly(runtime):
+	case profilestore.GatewayOnly(runtime):
 		return fmt.Errorf("%w: a %s worker runs through the model gateway, not under account %s", ErrInvalid,
 			runtime, id)
 	case !runsOnNode(a):
@@ -370,32 +371,32 @@ func (p *placement) serves(n *nodeLoad, runtime string) error {
 // root, then an account that is not cooling down, or none for a model the
 // gateway serves. A node at its limit still counts: the Task waits its turn.
 // A runtime that runs only through the gateway cannot start without it.
-func (p *placement) availability(runtime string, gateway bool, accounts string) Availability {
-	if !gateway && gatewayOnly(runtime) {
-		return Availability{Reason: ReasonNeedsGateway}
+func (p *placement) availability(runtime string, gateway bool, accounts string) profilestore.Availability {
+	if !gateway && profilestore.GatewayOnly(runtime) {
+		return profilestore.Availability{Reason: ReasonNeedsGateway}
 	}
 
 	if !slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
 		return p.serves(n, runtime) == nil && n.row.WorktreeRoot.String != ""
 	}) {
-		return Availability{Reason: ReasonNoNode}
+		return profilestore.Availability{Reason: ReasonNoNode}
 	}
 
 	if gateway && !p.gatewayHasAccount(accounts) {
-		return Availability{Reason: ReasonNoAccount}
+		return profilestore.Availability{Reason: ReasonNoAccount}
 	}
 
 	if gateway {
-		return Availability{Available: true}
+		return profilestore.Availability{Available: true}
 	}
 
 	id, cooling := p.pickAccount(runtime)
 
 	switch {
 	case id != "":
-		return Availability{Available: true}
+		return profilestore.Availability{Available: true}
 	case !cooling:
-		return Availability{Reason: ReasonNoAccount}
+		return profilestore.Availability{Reason: ReasonNoAccount}
 	}
 
 	var first int64
@@ -408,7 +409,7 @@ func (p *placement) availability(runtime string, gateway bool, accounts string) 
 
 	at := millis(first)
 
-	return Availability{Reason: ReasonAccountsCooling, At: &at}
+	return profilestore.Availability{Reason: ReasonAccountsCooling, At: &at}
 }
 
 // checkAccountKnown reports whether an id is an active account of the
@@ -700,7 +701,7 @@ func (p *placement) gatewayHasAccount(runtime string) bool {
 // pickAccount is the first active account of the runtime a node holds, by
 // position, that is not cooling down. cooling reports whether one exists but cools.
 func (p *placement) pickAccount(runtime string) (id string, cooling bool) {
-	if gatewayOnly(runtime) {
+	if profilestore.GatewayOnly(runtime) {
 		return "", false
 	}
 

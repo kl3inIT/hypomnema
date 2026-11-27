@@ -5,16 +5,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // scoutSource is a worker's profile the starting set does not have.
 const scoutSource = "name: scout\ndescription: reads and reports\nruntime: claude\n" +
 	"model: {provider: model-gateway, name: claude-sonnet-5-5}\n"
 
-func (w *world) applyScout() Profile {
+func (w *world) applyScout() profilestore.Profile {
 	w.t.Helper()
 
-	p, _, err := w.s.ApplyProfile(w.t.Context(), "", scoutSource)
+	p, _, err := w.s.Profiles().ApplyProfile(w.t.Context(), "", scoutSource)
 	require.NoError(w.t, err)
 
 	return p
@@ -30,9 +32,9 @@ func TestANeverUsedProfileIsDeletedWithItsVersions(t *testing.T) {
 	ctx := t.Context()
 
 	w.applyScout()
-	require.NoError(t, w.s.DeleteProfile(ctx, "scout"))
+	require.NoError(t, w.s.Profiles().DeleteProfile(ctx, "scout"))
 
-	_, err := w.s.GetProfile(ctx, "scout")
+	_, err := w.s.Profiles().GetProfile(ctx, "scout")
 	require.ErrorIs(t, err, ErrNotFound)
 	assert.NotContains(t, err.Error(), "deleted", "nothing of it is left to bring back")
 
@@ -55,23 +57,23 @@ func TestAUsedProfileIsHiddenAndComesBackWhenApplied(t *testing.T) {
 	task := w.tasks(NewTask{Ref: "a", Profile: "scout", Spec: "look around"})[0]
 	ran := w.dispatchOf(w.schedule().Created[0])
 	require.NoError(t, w.s.CancelTask(ctx, task.ID))
-	require.NoError(t, w.s.DeleteProfile(ctx, "scout"))
+	require.NoError(t, w.s.Profiles().DeleteProfile(ctx, "scout"))
 
-	profiles, err := w.s.ListProfiles(ctx)
+	profiles, err := w.s.Profiles().ListProfiles(ctx)
 	require.NoError(t, err)
 
 	for _, p := range profiles {
 		assert.NotEqual(t, "scout", p.Name, "a deleted profile is not listed")
 	}
 
-	_, err = w.s.GetProfile(ctx, "scout")
+	_, err = w.s.Profiles().GetProfile(ctx, "scout")
 	require.ErrorIs(t, err, ErrNotFound)
 	require.ErrorContains(t, err, "was deleted")
 
 	_, err = w.s.CreateTasks(ctx, w.run.ID, []NewTask{{Ref: "b", Profile: "scout", Spec: "b"}})
 	require.ErrorContains(t, err, "was deleted", "no new task names it")
 
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\nfallbacks: [scout]\n")
 	require.ErrorIs(t, err, ErrNotFound, "nor a backup")
 
@@ -80,12 +82,12 @@ func TestAUsedProfileIsHiddenAndComesBackWhenApplied(t *testing.T) {
 
 	assert.Equal(t, v1.VersionID, w.dispatchOf(ran.ID).ProfileVersionID, "what ran keeps its version")
 
-	back, created, err := w.s.ApplyProfile(ctx, "", scoutSource)
+	back, created, err := w.s.Profiles().ApplyProfile(ctx, "", scoutSource)
 	require.NoError(t, err)
 	assert.True(t, created, "the same source brings it back as a new version")
 	assert.Equal(t, 2, back.Version)
 
-	_, err = w.s.GetProfile(ctx, "scout")
+	_, err = w.s.Profiles().GetProfile(ctx, "scout")
 	require.NoError(t, err)
 	w.tasks(NewTask{Ref: "c", Profile: "scout", Spec: "c"})
 }
@@ -100,34 +102,34 @@ func TestAProfileStillNamedIsNotDeleted(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	err := w.s.DeleteProfile(ctx, DefaultProfile)
+	err := w.s.Profiles().DeleteProfile(ctx, profilestore.DefaultProfile)
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "always there")
 
-	require.ErrorIs(t, w.s.DeleteProfile(ctx, "nobody"), ErrNotFound)
+	require.ErrorIs(t, w.s.Profiles().DeleteProfile(ctx, "nobody"), ErrNotFound)
 
 	w.applyScout()
 	task := w.tasks(NewTask{Ref: "a", Profile: "scout", Spec: "a"})[0]
 
-	err = w.s.DeleteProfile(ctx, "scout")
+	err = w.s.Profiles().DeleteProfile(ctx, "scout")
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "1 unfinished tasks")
 
 	w.failForGood(task.ID)
 	require.Equal(t, TaskFailed, w.task(task.ID).Status)
-	require.ErrorContains(t, w.s.DeleteProfile(ctx, "scout"), "unfinished", "the owner may reopen it")
+	require.ErrorContains(t, w.s.Profiles().DeleteProfile(ctx, "scout"), "unfinished", "the owner may reopen it")
 
 	require.NoError(t, w.s.CancelRun(ctx, w.run.ID))
 
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\nfallbacks: [scout]\n")
 	require.NoError(t, err)
 
-	err = w.s.DeleteProfile(ctx, "scout")
+	err = w.s.Profiles().DeleteProfile(ctx, "scout")
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "as a backup")
 
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\n")
 	require.NoError(t, err)
 
@@ -136,7 +138,7 @@ func TestAProfileStillNamedIsNotDeleted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = w.s.DeleteProfile(ctx, "scout")
+	err = w.s.Profiles().DeleteProfile(ctx, "scout")
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "bots vmap")
 
@@ -144,5 +146,5 @@ func TestAProfileStillNamedIsNotDeleted(t *testing.T) {
 		ID: vmap.ID, Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer"}},
 	})
 	require.NoError(t, err)
-	require.NoError(t, w.s.DeleteProfile(ctx, "scout"))
+	require.NoError(t, w.s.Profiles().DeleteProfile(ctx, "scout"))
 }

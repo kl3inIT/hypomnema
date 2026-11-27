@@ -1245,7 +1245,7 @@ func TestTheOwnerChoosesAChatsModel(t *testing.T) {
 	pi, _ := w.token("pi", bearertoken.Coordinator)
 	ctx := t.Context()
 
-	_, err := w.svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+	_, err := w.svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 

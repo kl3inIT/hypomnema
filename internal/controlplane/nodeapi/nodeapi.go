@@ -24,6 +24,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -751,14 +752,14 @@ func (c *session) push(ctx context.Context) error {
 		delete(c.identityDeadline, o.DispatchID)
 
 		// So is the gateway's key: made now, for this Dispatch and its model only.
-		if c.srv.modelKey != nil && o.AccountRef == orchestration.GatewayAccountRef {
+		if c.srv.modelKey != nil && o.AccountRef == profilestore.GatewayAccountRef {
 			if key, ok := c.srv.modelKey(ctx, o.DispatchID, o.Model); ok {
 				o.ModelKey = key
 			}
 		}
 
 		// And the model's sizes, so its CLI compacts before the window is full (issue #1019).
-		if c.srv.modelSizes != nil && o.AccountRef == orchestration.GatewayAccountRef && o.Model != "" {
+		if c.srv.modelSizes != nil && o.AccountRef == profilestore.GatewayAccountRef && o.Model != "" {
 			if window, output, ok := c.srv.modelSizes(ctx, o.Model); ok {
 				o.ModelContextWindow, o.ModelMaxOutput = window, output
 			}

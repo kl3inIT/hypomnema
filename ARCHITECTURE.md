@@ -2343,7 +2343,9 @@ flowchart LR
   keep their entry; cooling accounts can trigger a handoff to a later entry on the same node and worktree.
   All entries share their role's profile version and memory. See [role routing](docs/role-routing.md) for the
   mapping, owner commands, metrics and migration path for existing profiles and Bots.
-- Legacy profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
+- Legacy profiles (the domain store `orchestration/profilestore` keeps profiles, their versions, the role routing and
+  the providers and models they name, reached through `Service.Profiles()`, issue #1241; issue #42, after Omnara's
+  agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
@@ -2372,7 +2374,7 @@ flowchart LR
   cools down is the gateway's to find. Every model is named with its provider (issue #1002, owner 2026-11-20): a
   profile's `model` gives its `provider`, a Bot's and a chat's model their provider, a role-routing entry its
   `provider`, and a Task's own model is `<provider>/<model>` (`-model opencode-go/deepseek-v4-pro`), read at its
-  first slash (`orchestration` `modelRef`, as 9router's `parseModel`). A bare name is refused when it is applied,
+  first slash (`profilestore` `ModelRef`, as 9router's `parseModel`). A bare name is refused when it is applied,
   when the Task is made and when it is dispatched, with the names it could be written as ("name it
   <provider>/<model>, such as …", as omniroute's "Use provider/model prefix" and LiteLLM's "Pass model as E.g.
   huggingface/starcoder"); it is never resolved by which provider offers it, so a provider added later (OpenCode
@@ -5055,7 +5057,9 @@ its client API, its CLI and the Bots' tools.
   as a `meeting_line` reference `<meeting>/<line>` (issue #1105); for `zalo`, `whatsapp` and `gmail` the owner's
   account (its Connection's label) the chat or thread is in (`source_account`, optional for `lark`, never for a
   meeting), as their stores key a message by account, chat and id and a thread opens in its account; a quote ≤ 2,000
-  and a typed reference); who created it; the Bot's attempt
+  and a typed reference; a named account is checked against the integration's Connection labels on create, source
+  edit and Send, with the labels given on refusal, issue #1252; `inbox_source_connection_labels` repairs old account
+  IDs with a unique matching Connection); who created it; the Bot's attempt
   while doing or review (`work_attempt`, its own id given by `Start`; `work_kind` `chat` or `run` and `work_id`,
   where it works, which may hold attempts at other items too; `work_bot`, the Bot that started it, and
   `work_started_at`); `approval_id` while review, the Approval linked, which was pending and asked by the item's
@@ -6264,6 +6268,8 @@ Node (`internal/node`):
         `verifier.md:23` and pstack's `interrogate/SKILL.md:19`);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
+    - for every worker on a GitHub repository, including read-only roles, how to check quota after a rate limit,
+      wait for the reset or honor the secondary limit's `Retry-After`, and report the wait (issue #1259);
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
       of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`, where base is the
@@ -6293,8 +6299,8 @@ Node (`internal/node`):
          a merge, then `finish` at once, saying whether it merged or "auto-merge on at <sha>", without waiting for
          the checks: the control plane follows the pull request to merged and sends a follow-up when it goes red
          or conflicts (issue #1053, after pstack's `shipping.md:8-9`); without auto-merge the worker waits for the
-         required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`) only when the Task
-         needs their result; without the token (the node's own login, which the control plane cannot read the
+         required checks (`gh pr checks <url> --required --watch --interval 60`, `glab ci status --live`) only when
+         the Task needs their result; without the token (the node's own login, which the control plane cannot read the
          request with), waiting for the required checks with that command, fixing the red ones its diff causes and
          rerunning a flake once, then `finish`, as before #1053. With the owner's GitHub App's token (`github_app`,
          issue #1262) the command is `hypomnema ci wait <url>`, which the App's events end;
@@ -7264,6 +7270,7 @@ internal/controlplane/orchestration/internal/storeutil  what its stores share: t
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
+internal/controlplane/orchestration/profilestore  the profiles and their versions, the role routing, and the providers and models they name: applying, checking, deleting and restoring a version, a profile's requests, reached through orchestration's Profiles(); a profile changed from the main Bot's chat, a profile's availability and what a Dispatch runs with stay in orchestration
 internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
 internal/controlplane/orchestration/githubstore  the owner's GitHub App's installations, deliveries and the CI waited for, reached through orchestration's GitHub()
 internal/controlplane/githubapp  the owner's GitHub App: its manifest and registration, its JWT and installation tokens, its signed deliveries, and the wait for CI
@@ -7323,16 +7330,8 @@ and the node in the control plane binary.
   itself for what only its answers show (issue #737): `web/tests/server` (`go run`, after the build, so that it
   embeds it) migrates a temporary database, adds an owner, a chat and the artifacts of its `pages/` folder as a Bot
   shows them, then runs `controlplane.Serve`. A CDN a page loads is answered in the browser by the test.
-- CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
-  and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
-  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`, with Go for the control plane its browser tests
-  run). `Unit` first sets the runner up as the
-  coordinator's machine is (`deploy/coordinator/setup-box.sh`) and sets `HYPOMNEMA_BOX_TEST=required`, so the Bots'
-  box tests fail rather than skip when a box cannot be made. Each Go job keeps its own build cache. A first
-  job, `Changes`, finds whether anything but documentation changed (`docs/**`, `*.md`); when nothing did, the four
-  are skipped. A last job, `Required`, passes when none of them failed and is the one check to wait for. Chromium
-  for the browser tests is cached by the Playwright version, as t3code's CI does. `make verify` is still the three
-  Go targets in a row, for a laptop.
+- CI runs on pull requests and pushes to `main`. The [CI runbook](docs/ci.md) describes what `Required` checks,
+  how the Race and browser jobs are split, and how to rehearse the main path.
 - A test that needs a migrated database opens a copy of one: `internal/shared/sqlite/sqlitetest` runs the migrations
   once in a test process and hands each test a copy of that file (issue #129, as Coder and Omnara copy a Postgres
   template). Migrating took 1.5 s for each test under the race detector. A test of a migration starts from a copy

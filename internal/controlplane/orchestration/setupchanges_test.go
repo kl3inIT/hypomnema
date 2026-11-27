@@ -180,7 +180,7 @@ func TestTheCoordinatorsProfilesCanBeUndoneUntilUsed(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, created)
 
-	before, err := w.s.GetProfile(ctx, "implementer")
+	before, err := w.s.Profiles().GetProfile(ctx, "implementer")
 	require.NoError(t, err)
 
 	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "",
@@ -196,7 +196,7 @@ func TestTheCoordinatorsProfilesCanBeUndoneUntilUsed(t *testing.T) {
 	_, err = w.s.UndoSetupChange(ctx, changed.ID)
 	require.NoError(t, err)
 
-	restored, err := w.s.GetProfile(ctx, "implementer")
+	restored, err := w.s.Profiles().GetProfile(ctx, "implementer")
 	require.NoError(t, err)
 	assert.Equal(t, before.Source, restored.Source)
 	assert.Equal(t, before.Version+2, restored.Version, "what it was comes back as a new version")
@@ -209,7 +209,7 @@ func TestTheCoordinatorsProfilesCanBeUndoneUntilUsed(t *testing.T) {
 	_, err = w.s.UndoSetupChange(ctx, made.ID)
 	require.ErrorIs(t, err, ErrConflict, "a Task was given to it")
 
-	_, err = w.s.GetProfile(ctx, "checker")
+	_, err = w.s.Profiles().GetProfile(ctx, "checker")
 	require.NoError(t, err)
 }
 
@@ -317,7 +317,8 @@ func TestAProfilesUndoIsRefusedOnceItIsReliedOn(t *testing.T) {
 	require.NoError(t, err)
 	madeChecker := last()
 
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: claude\nfallbacks: [checker]\n")
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "",
+		"name: writer\ndescription: d\nruntime: claude\nfallbacks: [checker]\n")
 	require.NoError(t, err)
 
 	shown, err := w.s.GetSetupChange(ctx, madeChecker.ID)
@@ -450,7 +451,7 @@ func TestUndoingAProfileChangeKeepsItsRequests(t *testing.T) {
 	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "", heavy)
 	require.NoError(t, err)
 
-	changed, err := w.s.GetProfile(ctx, "heavy")
+	changed, err := w.s.Profiles().GetProfile(ctx, "heavy")
 	require.NoError(t, err)
 	require.Equal(t, [2]int64{0, 0}, [2]int64{changed.CPURequestMillis, changed.MemoryRequestBytes})
 
@@ -461,7 +462,7 @@ func TestUndoingAProfileChangeKeepsItsRequests(t *testing.T) {
 	_, err = w.s.UndoSetupChange(ctx, changes[1].ID)
 	require.NoError(t, err)
 
-	restored, err := w.s.GetProfile(ctx, "heavy")
+	restored, err := w.s.Profiles().GetProfile(ctx, "heavy")
 	require.NoError(t, err)
 	assert.Equal(t, [2]int64{1500, 6 << 30}, [2]int64{restored.CPURequestMillis, restored.MemoryRequestBytes})
 }

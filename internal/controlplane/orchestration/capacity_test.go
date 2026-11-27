@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The scenarios of capacity by requests and of sharing room between Bots
@@ -41,7 +43,7 @@ func (w *world) resize(n Node, cpus int, memory int64) {
 func (w *world) light() {
 	w.t.Helper()
 
-	_, _, err := w.s.ApplyProfile(w.t.Context(), "", "name: light\ndescription: d\nruntime: claude\n"+
+	_, _, err := w.s.Profiles().ApplyProfile(w.t.Context(), "", "name: light\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\nrequests: {cpu: 500m, memory: 512Mi}\n")
 	require.NoError(w.t, err)
 }
@@ -302,7 +304,7 @@ func TestADispatchKeepsItsRequest(t *testing.T) {
 	w.tasks(specs(1)...)
 	require.Len(t, w.schedule().Created, 1)
 
-	_, _, err := w.s.ApplyProfile(t.Context(), "", "name: implementer\ndescription: d\nruntime: claude\n"+
+	_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "", "name: implementer\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\nrequests: {cpu: 2, memory: 6Gi}\n")
 	require.NoError(t, err)
 
@@ -419,7 +421,7 @@ func TestEachProfileHasARequest(t *testing.T) {
 	w := newSeedWorld(t)
 	ctx := t.Context()
 
-	explorer, err := w.s.GetProfile(ctx, "explorer")
+	explorer, err := w.s.Profiles().GetProfile(ctx, "explorer")
 	require.NoError(t, err)
 	assert.Equal(t, [2]int64{500, 512 << 20}, [2]int64{explorer.CPURequestMillis, explorer.MemoryRequestBytes},
 		"the migration gives the explorer its own")
@@ -427,17 +429,17 @@ func TestEachProfileHasARequest(t *testing.T) {
 	// Nothing for the other two seeded profiles: a Dispatch under them asks for
 	// the default (TestANodeTakesWhatFitsItsAllocatable).
 	for _, name := range []string{"implementer", "reviewer"} {
-		p, err := w.s.GetProfile(ctx, name)
+		p, err := w.s.Profiles().GetProfile(ctx, name)
 		require.NoError(t, err)
 		assert.Equal(t, [2]int64{0, 0}, [2]int64{p.CPURequestMillis, p.MemoryRequestBytes}, name)
 	}
 
-	p, _, err := w.s.ApplyProfile(ctx, "", "name: heavy\ndescription: d\nruntime: claude\n"+
+	p, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: heavy\ndescription: d\nruntime: claude\n"+
 		"model: {provider: claude-subscription}\nrequests: {cpu: 1.5, memory: 6Gi}\n")
 	require.NoError(t, err)
 	assert.Equal(t, [2]int64{1500, 6 << 30}, [2]int64{p.CPURequestMillis, p.MemoryRequestBytes})
 
-	p, _, err = w.s.ApplyProfile(ctx, "", "name: half\ndescription: d\nruntime: claude\n"+
+	p, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: half\ndescription: d\nruntime: claude\n"+
 		"model: {provider: claude-subscription}\nrequests: {memory: 1G}\n")
 	require.NoError(t, err)
 	assert.Equal(t, [2]int64{0, 1_000_000_000}, [2]int64{p.CPURequestMillis, p.MemoryRequestBytes},
@@ -447,7 +449,7 @@ func TestEachProfileHasARequest(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := w.s.ApplyProfile(t.Context(), "", "name: bad\ndescription: d\nruntime: claude\n"+
+			_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "", "name: bad\ndescription: d\nruntime: claude\n"+
 				"model: {provider: claude-subscription}\nrequests: "+bad+"\n")
 			require.ErrorIs(t, err, ErrInvalid)
 		})
@@ -516,7 +518,7 @@ func TestATaskThatFitsNowhereDoesNotBlockOthers(t *testing.T) {
 	ctx := t.Context()
 	w.sized("node_room", 8, 16*gib)
 
-	_, _, err := w.s.ApplyProfile(ctx, "", "name: huge\ndescription: d\nruntime: claude\n"+
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: huge\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\nrequests: {memory: 64Gi}\n")
 	require.NoError(t, err)
 
@@ -619,7 +621,7 @@ func TestRequestsAreReadAsQuantities(t *testing.T) {
 		t.Run("cpu "+in, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := parseCPU(in)
+			got, err := profilestore.ParseCPU(in)
 			require.NoError(t, err)
 			assert.Equal(t, want, got)
 		})
@@ -631,7 +633,7 @@ func TestRequestsAreReadAsQuantities(t *testing.T) {
 		t.Run("memory "+in, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := parseMemory(in)
+			got, err := profilestore.ParseMemory(in)
 			require.NoError(t, err)
 			assert.Equal(t, want, got)
 		})

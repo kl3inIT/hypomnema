@@ -106,7 +106,7 @@ func (o *owner) checkMachineKey(ctx context.Context, ref string) error {
 // Connections and the owner-made gateway keys.
 func secretReferrers(svc *orchestration.Service) vault.Referrers {
 	return func(ctx context.Context, ref string) ([]string, error) {
-		models, err := svc.ProvidersUsingKeyRef(ctx, ref)
+		models, err := svc.Profiles().ProvidersUsingKeyRef(ctx, ref)
 		if err != nil {
 			return nil, err
 		}

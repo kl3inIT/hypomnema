@@ -10,15 +10,15 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
-// piProviderID is the default provider of pi's models.json (orchestration.PiProvider): the supervisor names it with
+// piProviderID is the default provider of pi's models.json (profilestore.PiProvider): the supervisor names it with
 // each model's gateway name.
 const piProviderID = "hypomnema"
 
 // piWires is the wire pi speaks to the gateway for a model of a subscription of the kind (issue #549), as
-// orchestration.GatewayWires gives omp: the
+// profilestore.GatewayWires gives omp: the
 // subscription's own, as Claude Code and Codex speak to it; the gateway's chat for the rest. Measured on zm on
 // 2026-11-15, a Claude turn is a fifth smaller on Messages with the same cache, and Codex's cache is the same on
 // Responses.
@@ -120,7 +120,7 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 		pm := piModelOf(m.Name, m.Attributes)
 		fallbackModels = append(fallbackModels, pm)
 
-		// The wire is chosen as a worker's offer chooses it (orchestration modelAPI): a subscription's own for a
+		// The wire is chosen as a worker's offer chooses it (profilestore ModelAPITx): a subscription's own for a
 		// name "<subscription>/<model>"; chat, which the gateway turns into each target's, for a name of its table.
 		provider, _, _ := strings.Cut(m.Name, "/")
 		wire := piWires[kinds[provider]]
@@ -140,7 +140,7 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 			Name: "Hypomnema gateway", BaseURL: root + "/v1", API: "openai-completions", APIKey: keyCommand,
 			Models: models,
 		},
-		orchestration.PiFallbackProvider: {
+		profilestore.PiFallbackProvider: {
 			Name: "Hypomnema gateway with Bot fallbacks", BaseURL: root + "/v1", API: "openai-completions",
 			APIKey: keyCommand, Models: fallbackModels,
 		},

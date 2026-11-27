@@ -9,11 +9,17 @@ succeeded planner Task's id. For example, "Check whether this retry design is ex
 and the acceptance checks", followed by the plan verbatim. Ask the planner to address blockers. Once the owner
 approves, put the plan on the issue and pass it verbatim to the implementer.
 
+If GitHub reports a rate limit, run `gh api rate_limit` on the affected host.
+This call does not count against the primary limit.
+Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming.
+For a secondary limit, honor `Retry-After` if present. If neither delay is given for a secondary limit,
+wait at least one minute before resuming. Report the limit and the wait in your review report.
+
 1. Start from a Task that succeeded with a pull request in its evidence (`hypomnema tasks show <task_id> --json`).
    Look at its checks first (`gh pr checks <url>`).
    A red check gets one fresh build before you decide: rerun its failed jobs once (`gh run rerun <run_id>
-   --failed`, a write the owner approves like any other), wait for it (`gh run watch <run_id> --exit-status`) and
-   note the rerun in your report. When it is green on the rerun, or fails outside the diff and is also red on the
+   --failed`, a write the owner approves like any other) and wait for it (`gh run watch <run_id> --exit-status --interval 60`).
+   Note the rerun in your report. When it is green on the rerun, or fails outside the diff and is also red on the
    base (`gh run list --branch <base>`), it is a flake: go on with the review, and name the flaky check in your next
    follow-up to the author, which opens or comments an issue for it. A failure of the diff's own is the author's
    to fix (step 5); until it is fixed there is nothing to review.

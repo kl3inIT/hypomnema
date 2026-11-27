@@ -949,6 +949,16 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "review")
 	require.NoError(t, err)
+	for _, want := range []string{
+		"`gh run watch <run_id> --exit-status --interval 60`",
+		"If GitHub reports a rate limit, run `gh api rate_limit`",
+		"does not count against the primary limit",
+		"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming.",
+		"For a secondary limit, honor `Retry-After`",
+		"Report the limit and the wait in your review report.",
+	} {
+		assert.Contains(t, out, want, "the coordinator conserves GitHub API quota (issue #1259)")
+	}
 	assert.Contains(t, out, "how it answers CodeRabbit",
 		"a review answers CodeRabbit's findings, as the reviewer profile says (issues #766, #1051)")
 	assert.Contains(t, out, `gh pr comment <url> --body

@@ -75,6 +75,11 @@ func TestTheOwnerSendsADraftToTheItemsOwnChatAndItCloses(t *testing.T) {
 	sender := &fakeSender{}
 	w.srv.WithInboxSender(sender)
 
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+
 	td := w.kaiAsks(t)
 	send := openapi.TodoSend{Revision: td.Revision, Text: "Hi Kai, Monday works. See you then!"}
 
@@ -120,6 +125,33 @@ func TestTheOwnerSendsADraftToTheItemsOwnChatAndItCloses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, none.StatusCode(), "an item from no chat has nowhere to send")
 	assert.Len(t, sender.replies(), 1)
+}
+
+// An item whose Connection was removed cannot send through another account of the same service.
+func TestSendNamesTheAvailableConnections(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newInboxWorld(t)
+	sender := &fakeSender{}
+	w.srv.WithInboxSender(sender)
+
+	for _, label := range []string{"me", "main"} {
+		_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+			Integration: "whatsapp", Label: label, Secret: "conn-whatsapp-" + label,
+		})
+		require.NoError(t, err)
+	}
+
+	item := w.kaiAsks(t)
+	_, err := w.svc.RemoveConnection(ctx, "whatsapp", "me")
+	require.NoError(t, err)
+
+	resp, err := w.owner.SendTodoDraftWithResponse(ctx, item.Id, openapi.TodoSend{Revision: item.Revision, Text: "Hi Kai"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode(), string(resp.Body))
+	assert.Contains(t, string(resp.Body), `Connections are: main`)
+	assert.Empty(t, sender.replies())
 }
 
 // Scenario: issue #1111, sections 1 and 2, over the API. The owner hands an item to the main Bot with a prompt: it

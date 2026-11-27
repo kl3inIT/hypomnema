@@ -95,10 +95,10 @@ The three boundaries that matter:
 2. **Orchestration state has one writer**: only `controlplane/orchestration` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. A domain that writes no other's tables (the web's users, the
-   memories, the Channels, the Routines) is a store under the tree, `orchestration/userstore`,
-   `orchestration/memorystore`, `orchestration/channelstore` and `orchestration/routinestore`, reached through the
-   root's accessors (`Users()`, `Memories()`, `Channels()`, `Routines()`), as Omnara's `*store` packages behind its
-   facade (issue #404). It imports the generated queries, `internal/storeutil` and `storeerr`, never the root; what
+   memories, the Channels, the Routines, the profiles) is a store under the tree, `orchestration/userstore`,
+   `orchestration/memorystore`, `orchestration/channelstore`, `orchestration/routinestore` and
+   `orchestration/profilestore`, reached through the root's accessors (`Users()`, `Memories()`, `Channels()`,
+   `Routines()`, `Profiles()`), as Omnara's `*store` packages behind its facade (issues #404, #1241). It imports the generated queries, `internal/storeutil` and `storeerr`, never the root; what
    of it ends in `Tx` takes the caller's queries and begins no transaction, and a write that spans another domain
    stays in the root and calls it. These rows change together under concurrency, so one package holds one lock
    order.
