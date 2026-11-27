@@ -64,6 +64,12 @@ const (
 	MaxQuestionText = 4000
 	MaxAnswerText   = 4000
 	MaxOptions      = 10
+	// MaxMoreQuestions and MaxQuestionHeader bound the decisions a question
+	// holds after its first, so 3 in all, and each one's header (issue #1219):
+	// Codex's request_user_input asks 1-3 (request_user_input_spec.rs:72) and
+	// opencode's header is at most 30 characters (schema/src/question.ts:13).
+	MaxMoreQuestions  = 2
+	MaxQuestionHeader = 30
 	// MaxFollowUpText bounds a follow-up's note (issue #666; inferred: a
 	// review's findings pasted whole run longer than an answer, so it takes
 	// the client API's bound of an answer's text, 20,000).

@@ -86,7 +86,7 @@ func TestFollowUpReachesEveryDispatchUntilOneSucceeds(t *testing.T) {
 	c := w.accept(lost)
 	require.NoError(t, w.s.ReportStarted(t.Context(), w.again(c), "pid:43@2", "sess_1"))
 	w.loseLease()
-	require.NoError(t, w.s.SettleUnknown(t.Context(), lost.ID, Settlement{Result: Result{Summary: "gone"}}))
+	w.connect(nil)
 	require.Equal(t, ConversationClosed, w.conversation(lost.ConversationID).Status)
 
 	w.advance(BackoffMax * 2)
@@ -114,9 +114,9 @@ func TestFollowUpIsRefusedWithoutAFinishedWorker(t *testing.T) {
 
 	w.failForGood(failed)
 
-	d, _ := w.start(closed)
-	w.loseLease()
-	require.NoError(t, w.s.SettleUnknown(t.Context(), d.ID, Settlement{Succeeded: true, Result: Result{Summary: "PR #9"}}))
+	d, c := w.start(closed)
+	require.NoError(t, w.finish(c, success("PR #9")))
+	w.closeConversation(d.ConversationID)
 	require.Equal(t, TaskSucceeded, w.task(closed).Status)
 
 	w.start(running)
@@ -215,4 +215,13 @@ func TestFollowUpReplacesAnOpenGate(t *testing.T) {
 
 	_, err = w.s.FollowUpTask(t.Context(), tasks[2].ID, AddressCoordinator, "more")
 	require.ErrorIs(t, err, ErrConflict, "only a gate is replaced")
+}
+
+// closeConversation closes a Conversation as an interrupted Dispatch leaves it, for a Task whose worker is gone.
+func (w *world) closeConversation(id string) {
+	w.t.Helper()
+
+	_, err := w.db.ExecContext(w.t.Context(),
+		`UPDATE conversations SET status = 'closed', close_reason = 'interrupted' WHERE id = ?`, id)
+	require.NoError(w.t, err)
 }

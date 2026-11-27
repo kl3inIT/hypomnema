@@ -779,12 +779,8 @@ func TestStreamTranslatesAnAnswer(t *testing.T) {
 	finish := finishReason(chunks)
 	assert.Equal(t, "tool_calls", finish)
 
-	usage := s.Usage()
-	require.NotNil(t, usage)
-	assert.Equal(t, int64(20), usage.PromptTokens, "input plus the cache read and written")
-	assert.Equal(t, int64(9), usage.CompletionTokens)
-
-	// The stream ends with the usage, as the client and the gateway's meter read it (issue #389).
+	// The stream ends with the usage, input plus the cache read and written, as the client and the gateway's meter
+	// read it (issue #389).
 	last := chunks[len(chunks)-1]
 	assert.Equal(t, []any{}, last["choices"])
 	assert.Equal(t, map[string]any{

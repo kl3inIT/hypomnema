@@ -154,10 +154,6 @@ func openChild(root *os.Root, name string) (*os.Root, error) {
 	return child, nil
 }
 
-func RemoveTree(ctx context.Context, path string, stopped func() bool) error {
-	return RemoveManagedTree(ctx, path, "", "", stopped)
-}
-
 func RemoveManagedTree(ctx context.Context, path, home, allowed string, stopped func() bool) error {
 	root, err := OpenRealDir(filepath.Dir(path))
 	if err != nil {

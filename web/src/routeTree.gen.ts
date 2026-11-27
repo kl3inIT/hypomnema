@@ -12,14 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as GridRouteImport } from './routes/grid'
 import { Route as InboxRouteImport } from './routes/inbox'
-import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as MeetingsRouteImport } from './routes/meetings'
 import { Route as RoutinesRouteImport } from './routes/routines'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as TeamRouteImport } from './routes/team'
-import { Route as AgentsIndexRouteImport } from './routes/agents.index'
-import { Route as AgentsNameRouteImport } from './routes/agents.$name'
-import { Route as AgentsNewRouteImport } from './routes/agents.new'
 import { Route as ArtifactsArtifactIdRouteImport } from './routes/artifacts.$artifactId'
 import { Route as BotsIndexRouteImport } from './routes/bots.index'
 import { Route as BotsIdRouteImport } from './routes/bots.$id'
@@ -33,14 +29,12 @@ import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-yo
 import { Route as SettingsAudioRouteImport } from './routes/settings.audio'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
 import { Route as SettingsConnectRouteImport } from './routes/settings.connect'
-import { Route as SettingsDictionaryRouteImport } from './routes/settings.dictionary'
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsImagesRouteImport } from './routes/settings.images'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsMachinesRouteImport } from './routes/settings.machines'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsMuseRouteImport } from './routes/settings.muse'
-import { Route as SettingsNotesModelRouteImport } from './routes/settings.notes-model'
 import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsSharedLinksRouteImport } from './routes/settings.shared-links'
@@ -71,11 +65,6 @@ const InboxRoute = InboxRouteImport.update({
   path: '/inbox',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MachinesRoute = MachinesRouteImport.update({
-  id: '/machines',
-  path: '/machines',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const MeetingsRoute = MeetingsRouteImport.update({
   id: '/meetings',
   path: '/meetings',
@@ -94,21 +83,6 @@ const StudioRoute = StudioRouteImport.update({
 const TeamRoute = TeamRouteImport.update({
   id: '/team',
   path: '/team',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentsIndexRoute = AgentsIndexRouteImport.update({
-  id: '/agents/',
-  path: '/agents/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentsNameRoute = AgentsNameRouteImport.update({
-  id: '/agents/$name',
-  path: '/agents/$name',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentsNewRoute = AgentsNewRouteImport.update({
-  id: '/agents/new',
-  path: '/agents/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ArtifactsArtifactIdRoute = ArtifactsArtifactIdRouteImport.update({
@@ -176,11 +150,6 @@ const SettingsConnectRoute = SettingsConnectRouteImport.update({
   path: '/settings/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsDictionaryRoute = SettingsDictionaryRouteImport.update({
-  id: '/settings/dictionary',
-  path: '/settings/dictionary',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsGatewayKeysRoute = SettingsGatewayKeysRouteImport.update({
   id: '/settings/gateway-keys',
   path: '/settings/gateway-keys',
@@ -209,11 +178,6 @@ const SettingsModelsRoute = SettingsModelsRouteImport.update({
 const SettingsMuseRoute = SettingsMuseRouteImport.update({
   id: '/settings/muse',
   path: '/settings/muse',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsNotesModelRoute = SettingsNotesModelRouteImport.update({
-  id: '/settings/notes-model',
-  path: '/settings/notes-model',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
@@ -291,13 +255,10 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
   '/inbox': typeof InboxRoute
-  '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
   '/studio': typeof StudioRoute
   '/team': typeof TeamRoute
-  '/agents/$name': typeof AgentsNameRoute
-  '/agents/new': typeof AgentsNewRoute
   '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
@@ -309,21 +270,18 @@ export interface FileRoutesByFullPath {
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/connect': typeof SettingsConnectRoute
-  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/machines': typeof SettingsMachinesRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
-  '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
-  '/agents/': typeof AgentsIndexRoute
   '/bots/': typeof BotsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -339,13 +297,10 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
   '/inbox': typeof InboxRoute
-  '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
   '/studio': typeof StudioRoute
   '/team': typeof TeamRoute
-  '/agents/$name': typeof AgentsNameRoute
-  '/agents/new': typeof AgentsNewRoute
   '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
@@ -357,21 +312,18 @@ export interface FileRoutesByTo {
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/connect': typeof SettingsConnectRoute
-  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/machines': typeof SettingsMachinesRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
-  '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
-  '/agents': typeof AgentsIndexRoute
   '/bots': typeof BotsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -388,13 +340,10 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
   '/inbox': typeof InboxRoute
-  '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
   '/studio': typeof StudioRoute
   '/team': typeof TeamRoute
-  '/agents/$name': typeof AgentsNameRoute
-  '/agents/new': typeof AgentsNewRoute
   '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
@@ -406,21 +355,18 @@ export interface FileRoutesById {
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/connect': typeof SettingsConnectRoute
-  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/machines': typeof SettingsMachinesRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
-  '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
-  '/agents/': typeof AgentsIndexRoute
   '/bots/': typeof BotsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines_/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -438,13 +384,10 @@ export interface FileRouteTypes {
     | '/'
     | '/grid'
     | '/inbox'
-    | '/machines'
     | '/meetings'
     | '/routines'
     | '/studio'
     | '/team'
-    | '/agents/$name'
-    | '/agents/new'
     | '/artifacts/$artifactId'
     | '/bots/$id'
     | '/bots/new'
@@ -456,21 +399,18 @@ export interface FileRouteTypes {
     | '/settings/audio'
     | '/settings/channels'
     | '/settings/connect'
-    | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
     | '/settings/machines'
     | '/settings/models'
     | '/settings/muse'
-    | '/settings/notes-model'
     | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
-    | '/agents/'
     | '/bots/'
     | '/settings/'
     | '/machines/$nodeId/terminal'
@@ -486,13 +426,10 @@ export interface FileRouteTypes {
     | '/'
     | '/grid'
     | '/inbox'
-    | '/machines'
     | '/meetings'
     | '/routines'
     | '/studio'
     | '/team'
-    | '/agents/$name'
-    | '/agents/new'
     | '/artifacts/$artifactId'
     | '/bots/$id'
     | '/bots/new'
@@ -504,21 +441,18 @@ export interface FileRouteTypes {
     | '/settings/audio'
     | '/settings/channels'
     | '/settings/connect'
-    | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
     | '/settings/machines'
     | '/settings/models'
     | '/settings/muse'
-    | '/settings/notes-model'
     | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
-    | '/agents'
     | '/bots'
     | '/settings'
     | '/machines/$nodeId/terminal'
@@ -534,13 +468,10 @@ export interface FileRouteTypes {
     | '/'
     | '/grid'
     | '/inbox'
-    | '/machines'
     | '/meetings'
     | '/routines'
     | '/studio'
     | '/team'
-    | '/agents/$name'
-    | '/agents/new'
     | '/artifacts/$artifactId'
     | '/bots/$id'
     | '/bots/new'
@@ -552,21 +483,18 @@ export interface FileRouteTypes {
     | '/settings/audio'
     | '/settings/channels'
     | '/settings/connect'
-    | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
     | '/settings/machines'
     | '/settings/models'
     | '/settings/muse'
-    | '/settings/notes-model'
     | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
-    | '/agents/'
     | '/bots/'
     | '/settings/'
     | '/machines_/$nodeId/terminal'
@@ -583,13 +511,10 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GridRoute: typeof GridRoute
   InboxRoute: typeof InboxRoute
-  MachinesRoute: typeof MachinesRoute
   MeetingsRoute: typeof MeetingsRoute
   RoutinesRoute: typeof RoutinesRoute
   StudioRoute: typeof StudioRoute
   TeamRoute: typeof TeamRoute
-  AgentsNameRoute: typeof AgentsNameRoute
-  AgentsNewRoute: typeof AgentsNewRoute
   ArtifactsArtifactIdRoute: typeof ArtifactsArtifactIdRoute
   BotsIdRoute: typeof BotsIdRoute
   BotsNewRoute: typeof BotsNewRoute
@@ -601,21 +526,18 @@ export interface RootRouteChildren {
   SettingsAudioRoute: typeof SettingsAudioRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
   SettingsConnectRoute: typeof SettingsConnectRoute
-  SettingsDictionaryRoute: typeof SettingsDictionaryRoute
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsImagesRoute: typeof SettingsImagesRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsMachinesRoute: typeof SettingsMachinesRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsMuseRoute: typeof SettingsMuseRoute
-  SettingsNotesModelRoute: typeof SettingsNotesModelRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsSharedLinksRoute: typeof SettingsSharedLinksRoute
   SettingsUsageRoute: typeof SettingsUsageRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
   SettingsWebSearchRoute: typeof SettingsWebSearchRoute
-  AgentsIndexRoute: typeof AgentsIndexRoute
   BotsIndexRoute: typeof BotsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   MachinesNodeIdTerminalRoute: typeof MachinesNodeIdTerminalRoute
@@ -651,13 +573,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InboxRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/machines': {
-      id: '/machines'
-      path: '/machines'
-      fullPath: '/machines'
-      preLoaderRoute: typeof MachinesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/meetings': {
       id: '/meetings'
       path: '/meetings'
@@ -684,27 +599,6 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/team'
       preLoaderRoute: typeof TeamRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agents/': {
-      id: '/agents/'
-      path: '/agents'
-      fullPath: '/agents/'
-      preLoaderRoute: typeof AgentsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agents/$name': {
-      id: '/agents/$name'
-      path: '/agents/$name'
-      fullPath: '/agents/$name'
-      preLoaderRoute: typeof AgentsNameRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agents/new': {
-      id: '/agents/new'
-      path: '/agents/new'
-      fullPath: '/agents/new'
-      preLoaderRoute: typeof AgentsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/artifacts/$artifactId': {
@@ -798,13 +692,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/dictionary': {
-      id: '/settings/dictionary'
-      path: '/settings/dictionary'
-      fullPath: '/settings/dictionary'
-      preLoaderRoute: typeof SettingsDictionaryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings/gateway-keys': {
       id: '/settings/gateway-keys'
       path: '/settings/gateway-keys'
@@ -845,13 +732,6 @@ declare module '@tanstack/react-router' {
       path: '/settings/muse'
       fullPath: '/settings/muse'
       preLoaderRoute: typeof SettingsMuseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings/notes-model': {
-      id: '/settings/notes-model'
-      path: '/settings/notes-model'
-      fullPath: '/settings/notes-model'
-      preLoaderRoute: typeof SettingsNotesModelRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/notifications': {
@@ -959,13 +839,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GridRoute: GridRoute,
   InboxRoute: InboxRoute,
-  MachinesRoute: MachinesRoute,
   MeetingsRoute: MeetingsRoute,
   RoutinesRoute: RoutinesRoute,
   StudioRoute: StudioRoute,
   TeamRoute: TeamRoute,
-  AgentsNameRoute: AgentsNameRoute,
-  AgentsNewRoute: AgentsNewRoute,
   ArtifactsArtifactIdRoute: ArtifactsArtifactIdRoute,
   BotsIdRoute: BotsIdRoute,
   BotsNewRoute: BotsNewRoute,
@@ -977,21 +854,18 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsAudioRoute: SettingsAudioRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
   SettingsConnectRoute: SettingsConnectRoute,
-  SettingsDictionaryRoute: SettingsDictionaryRoute,
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsImagesRoute: SettingsImagesRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsMachinesRoute: SettingsMachinesRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsMuseRoute: SettingsMuseRoute,
-  SettingsNotesModelRoute: SettingsNotesModelRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsSharedLinksRoute: SettingsSharedLinksRoute,
   SettingsUsageRoute: SettingsUsageRoute,
   SettingsVaultRoute: SettingsVaultRoute,
   SettingsWebSearchRoute: SettingsWebSearchRoute,
-  AgentsIndexRoute: AgentsIndexRoute,
   BotsIndexRoute: BotsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   MachinesNodeIdTerminalRoute: MachinesNodeIdTerminalRoute,

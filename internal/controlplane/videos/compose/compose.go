@@ -876,11 +876,6 @@ func (r Result) ThumbnailAtMs() int64 {
 	return int64(math.Min(CardFadeMs, float64(r.TitleMs)/3))
 }
 
-// LengthMs is a media file's length, in ms, as ffprobe reads it.
-func LengthMs(ctx context.Context, tools ffmpeg.Tools, file string) (int64, error) {
-	return runner{tools: tools}.durationMs(ctx, file)
-}
-
 func copyFile(from, to string) error {
 	raw, err := os.ReadFile(from) //nolint:gosec // The caller's own file.
 	if err != nil {

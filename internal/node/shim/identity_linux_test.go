@@ -235,7 +235,7 @@ func TestKillRecordedRejectsMatchingWorkerOutsideShimGroupAndSession(t *testing.
 	require.ErrorContains(t, err, "orphaned shim group identity does not match")
 }
 
-func TestKillRecordedDoesNotSignalOrphanedLegacyGroup(t *testing.T) {
+func TestKillRecordedDoesNotSignalAGroupWithoutItsIdentity(t *testing.T) {
 	t.Parallel()
 	root, child := startOrphanedGroupFixture(t)
 	require.NoError(t, root.Remove(identityFile))

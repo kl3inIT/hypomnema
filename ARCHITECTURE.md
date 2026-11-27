@@ -319,7 +319,7 @@ main is numbered (`00143_inbox.sql`); a new one is made with `make migration-cre
 (`YYYYMMDDHHMMSS_name.sql`, which sorts after every number), and `make migration-fix` (goose `fix`) numbers it after
 main's last right before its pull request is merged; a push to main refuses one named by its time (issue #954). The
 schema
-holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
+holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects, account
 cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
@@ -405,15 +405,15 @@ sequenceDiagram
   it, and so does the node's next hello (issue #590, after Omnara's daemon reconciliation): one of the node's
   Dispatches that may still run (`starting`, `running`, `unknown`, `stop_unknown`) that the node neither claims nor
   holds with a queued accept or final report ends `failed` (`lost`), and one it claims whose worker never started (no
-  process) ends `failed` (`start_failed`) and is released instead of reattached. A node of an earlier release does
-  not list what it holds, and nothing it does not claim is ended. A claim still the node's at its epoch is
+  process) ends `failed` (`start_failed`) and is released instead of reattached. A hello that only checks an install
+  does not list what the node holds, and nothing it does not claim is ended. A claim still the node's at its epoch is
   answered `retain` and its lease is renewed, even one that ran out while the control plane was down; a heartbeat
   never renews a lease that ran out (issue #833, after Omnara's registration, which ends by renewing the lease,
   `machine_daemon_runtime_store.go:218-233`). A node whose lease heartbeat is refused ends its session and says
   hello again, as Omnara's daemon registers again when its heartbeat is refused (`machinedaemon/client.go:147-170`):
   the hello renews the lease, or offers the reattach once the Dispatch was marked unknown; it sends no heartbeat for
   a Dispatch whose reattach is still queued. Nothing else ends an unknown Dispatch: no timer
-  does, and `SettleUnknown` and `AbandonDispatch` in orchestration have no route or command. A cancel stops the Dispatch and cancels the Task only once
+  does, and no route or command settles one. A cancel stops the Dispatch and cancels the Task only once
   the stop is confirmed. Worker errors, failed launches and lost Dispatches count toward a breaker of three with a
   back-off before each retry; rate limits cool the account (runtime, account) down on every node and are not counted; a login
   that is needed blocks the Task. Every node call carries a request id and is answered once (receipts).
@@ -454,6 +454,23 @@ sequenceDiagram
   is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
   to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
   `internal/node/workertools`).
+  A question stands alone (issue #1219): `ask` and `finish`'s Gate take `questions`, one decision each and at most 3
+  (Codex's `request_user_input`), each with a header of at most 30 characters (opencode) and options
+  `{label, description}`, the description saying what choosing it changes and where it is learned from, the
+  recommended one first. The first decision stays in the question's `text` and `options`, the next ones in `more`
+  (migration `question_header_and_more`, with `header`), and the answer gives one choice for each, the next ones in
+  its `more`; a question asked before is one decision with no header. A worker still may send one `question` with
+  bare labels. The resumed worker is told each decision with its answer. Node and control plane update on their own
+  schedules, so each says what it takes, as `StoreGuides` and MCP's initialize do: the control plane's offer says
+  `question_parts`, and only then do the worker's tools offer several decisions and descriptions (else they offer
+  one question, refuse several, and write a header or a description into its text); the node's hello says
+  `question_parts`, and a node that does not is sent an answered question of several decisions folded into one,
+  every decision in its text and every answer in its answer's text (`nodeapi/questions.go`). The client API gives a
+  Gate asked with headers the `summary` of the final report its worker stopped with (a Gate asked before gets none
+  and reads as it did), and the question card (`QuestionForm`) shows it above the decisions, three lines measured
+  on the page that open to the whole, then each decision under its header with each option's description under
+  its label, sent as one answer (Paperclip's card); the Task's panel, which shows the summary under it, leaves it
+  out. `hypomnema answer` takes one quoted answer for each decision.
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
@@ -632,8 +649,9 @@ sequenceDiagram
     no tab for 5 minutes (T3 Code's rules); the sign-ins stay in the profile. Chrome found gone is started again,
     and the tabs it held are not used again. A Chrome left by an earlier control plane is closed at the first call.
   - A worker and a Bot's pi find the browser's tools on the agent API's `GET /agent/v1/tools` and call one on
-    `POST /agent/v1/tools/call` (see "An agent's tools"; a Bot's since issue #536, step 4); `GET /agent/v1/browser/tools` and `POST /agent/v1/browser/call`
-    (`{tool, arguments}`) still serve any agent the API knows, for a node of an earlier release; the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
+    `POST /agent/v1/tools/call` (see "An agent's tools"; a Bot's since issue #536, step 4), and so do the coordinator
+    token and a Routine's script, each in a tab of its own (`c-<token>`, `r-<routine>`), the browser's tools alone
+    (issue #1220 moved them there from `/agent/v1/browser/*`); a read run gets none. The answer is the tool's result as MCP has it, `content` and `isError`, and nothing
     of how the engine is set up. Which agent used which tool is logged, never the arguments.
   - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
     select, scroll, back, forward, reload, the waits, screenshot, get text, URL and title, eval. Tabs, `close`,
@@ -661,9 +679,7 @@ sequenceDiagram
     the list changes without a node release; any other
     tool's call is passed to `POST /agent/v1/tools/call` and its answer, a screenshot as image content, is passed
     back as it is.
-    A control plane that cannot be reached leaves the worker `ask` and `finish`. A node of a release before issue
-    #536 lists `GET /agent/v1/browser/tools` (the browser's and the gateway's) and defines `memory` itself; both
-    routes and `POST /agent/v1/memory` stay for it. The tab is not closed when the Dispatch settles: the idle
+    A control plane that cannot be reached leaves the worker `ask` and `finish`. The tab is not closed when the Dispatch settles: the idle
     rules close it.
   - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
     agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
@@ -1498,15 +1514,7 @@ sequenceDiagram
     random bytes in base64url, kept as a credential is (issue #996, [Credentials](#credentials)): its SHA-256 finds
     the link, and a copy sealed in the vault (a generic secret named after the link, as an owner-made gateway key's
     value is) lets the owner copy it again; the lists open it. Without a vault's keys no link is made (503): none is
-    kept by its hash alone. A link made before (its token in plaintext until migration `credential_state`) is moved
-    as the control plane starts, before anything is served (`MoveShareTokens`, with `secure_delete` on), so its URL
-    keeps working; then the files are cleared (`ScrubShareTokens`: `VACUUM`, and `wal_checkpoint(TRUNCATE)`, whose
-    busy column must say it was done), so no plaintext is left in the database's files or its log. The migration
-    records what the files owe (`share_token_scrub`), cleared only once they are clear: a stop in between, or a
-    reader holding an older snapshot, leaves it, the start tries again every 30 s, and no link or file of one is served meanwhile
-    (503). Without the vault's keys an old link is neither moved, served, nor read back from its plaintext, which
-    is kept only until a start with the keys seals it, since the owner could never read it again otherwise; the
-    start logs how many wait. Only the owner
+    kept by its hash alone. Only the owner
     makes, lists and revokes links (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has
     no tool for it). Revoking marks the row with the reason and deletes its sealed copy; the Vault names a link as
     its copy's user and refuses to delete it. Deleting the artifact with its chat deletes its links
@@ -1631,8 +1639,7 @@ sequenceDiagram
     /bots/{bot_id}/memory` replaces the whole memory with his lines (empty lines and repeats dropped, the same
     limit), from the Bot's page or `hypomnema memory set`. No journal, no undo.
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<id>/`, pi's
-    working directory; for the main Bot a link to the directory pi always worked in, so its chats go on; for a Bot
-    from before ids a link, made once, to the directory of its old name, the path its sessions record), reads
+    working directory; for the main Bot a link to the directory pi always worked in, so its chats go on), reads
     `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory, the list of its notes and which
     file of `/memories` each is) and gives it to pi with `--append-system-prompt`. The memory is thus read once per pi
     process, as Hermes gives its memory once per session; a change is in the prompt from pi's next start. pi
@@ -1863,9 +1870,7 @@ sequenceDiagram
     is not given the tool. The owner has a directory with only `USER.md`; the coordinator and Routine scripts
     have no MCP. Its description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
     provider caches stay the same; Anthropic's system-prompt text, which asks to record progress, is not used.
-    Which agent changed a memory and with which command is logged, never the text. A node of a release before
-    issue #536 defines the old `{target, action, text, match}` tool itself and calls `POST /agent/v1/memory`,
-    which takes only a worker's key and stays for it.
+    Which agent changed a memory and with which command is logged, never the text.
   - The offer carries both memories as they are when it is made (`memory`, `owner_memory`) and the list of the
     agent's notes with their sizes (`memory_notes`, `memorystore.AgentNotesTx`). The worker's first message gives
     them after the profile's instruction; the notes are listed, not given, and only to a worker that has the tool
@@ -2049,8 +2054,7 @@ flowchart LR
     Routine row names commands, `hypomnema superset chart` and `hypomnema artifact show`, which a Routine's script
     runs. Only a skill that names no command an agent may lack goes to the store, and every whole-folder skill is
     one ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install`
-    takes out an unedited copy of `slides` and `pages` an earlier release put in `~/.agents/skills`, as it does
-    `pdf`'s, and installs no whole-folder skill itself.
+    installs no whole-folder skill itself.
   - A built-in skill's `description` says what it does and when to use it, in "the owner" and a third-person verb,
     and leaves long capability lists to the body (issue #672, after Codex's skill-creator, "Describe the actual
     capability and when it applies ... Avoid exhaustive capability lists", and OpenAI's GPT-6 guide, "Keep
@@ -2088,12 +2092,8 @@ flowchart LR
     (`PI_CODING_AGENT_DIR`, which omp reads skills from); opencode in the Conversation's `skills` folder, which its
     configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The CLI finds them
     by itself, so the worker's first message names no skill or folder.
-  - A node says at its hello that it writes no guide of its own (`store_guides`, issue #536). Until issue #536 a
-    node wrote the guides of its Run's Integrations and of the phone into `$HYPOMNEMA_SKILLS` and named them in the
-    worker's first message; a node of such a release does not say so, and the node API leaves out of its offers
-    every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
-    guide once, from the node, until the node takes the release that leaves them to the store. The control plane
-    keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
+  - A node writes no guide of its own (issue #536): the guides of a Run's Integrations and of the phone come with the
+    offer's skills, each carrying its `requires`.
   - Tools use a preset and exceptions beside the skills (see "Tool switches" under "An
     agent's tools").
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
@@ -2345,30 +2345,10 @@ flowchart LR
   when the Task is made and when it is dispatched, with the names it could be written as ("name it
   <provider>/<model>, such as …", as omniroute's "Use provider/model prefix" and LiteLLM's "Pass model as E.g.
   huggingface/starcoder"); it is never resolved by which provider offers it, so a provider added later (OpenCode
-  Zen, #965) changes no meaning. A migration gave each Task's stored bare model the provider the code before
-  dispatched it under, read the way that code read it (`orchestration/model_names.go`, run by `Migrate` right
-  after `*_models_named_with_provider.sql` and before any later migration): the role-chain entry its last Dispatch
-  recorded, else the one provider that offers the whole name, slash and all, to the Task's runtime (its own, its
-  last Dispatch's version's, its role chain's first entry's, or its profile's), among the kinds before OpenCode
-  Zen; each change is kept in `model_name_changes`. A name it would not have placed is left as it was and marked
-  (`tasks.model_unresolved`): it is read whole, never at a slash it has, and refused when the Task is dispatched, as
-  the code before refused it; such a Task waits with the reason (the form to write the model in) and the owner is
-  told, and the other Tasks of the scheduler's pass go on. The way back restores each changed model and gives every
-  other Task named with its provider, one made after the upgrade too, its model's own name where the code before
-  would place that name at the same provider, among its runtime's kinds then, which have no Zen; for a role Task,
-  whose runtime the role chain's YAML picks, only when every runtime taking the provider's kind would; it keeps the
-  provider where it would not, so a provider of Zen's kind under any name keeps it. Zen's way back splits a Bot's
-  fallbacks at their commas, never as JSON, as a model's name may hold a quote. The migration also gives a profile version, a Bot or a chat that names a model without a provider the one
-  provider that offers it to its runtime (the version's, pi's for a Bot and a chat), among the kinds before Zen,
-  recorded in `model_provider_changes`; the way back leaves each without it again while it still names what the
-  conversion left it with. One two providers or none offer is left, and is refused with the form to write it in
-  wherever it would be used: at dispatch (`resolveVersion`), for the coordinator (`PiModel`) and on an edit that
-  leaves it alone (`keptModel`), so no bare model reaches a worker or pi. An edit that leaves a model with a single
-  provider alone (a Bot's persona, a chat's effort, an undone setup change) is accepted and stores that provider;
-  a new model needs its provider.
+  Zen, #965) changes no meaning.
   A profile version is restored by its id (`POST /profiles/{name}/versions/{version_id}/restore`, the profile page's
   Restore): its own source as the page shows it, with its tool policy as migration 00123 re-expressed it (never the
-  old allowlist its YAML still writes), and the provider that version recorded for a model the source names without one; the
+  old allowlist its YAML still writes); the
   same YAML under another provider is a new version. A name with an empty part (`opencode-go/`, `/`) is refused. The gateway itself already takes only `<provider>/<model>` or a name of its own
   table, and every worker and Bot is given those names. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
@@ -2549,7 +2529,7 @@ flowchart LR
     the `connections` table ([issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Its token is a secret
     in the vault (`conn-<host>-<label>`); the Connection only names it, and the API returns labels, never a token.
     The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the two
-    APIs, which may not open a secret. `hosts token set|rm` and `/hosts/{host}/token` act on the Connection
+    APIs, which may not open a secret. `integrations connect <host>` without `--label` makes the Connection
     `default`, which is also what a host's single token of before became.
   - Work on a repository uses the Connection its registered repository names (`repos add --connection`), else
     the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
@@ -2823,7 +2803,9 @@ flowchart LR
         [issue #618](https://github.com/kl3inIT/hypomnema/issues/618): until 2026-11-16 only the main Bot's),
         as a personal OpenMausBot installation gives every bot the person's connected apps
         (`docs/composio.md`). A worker given it, a coordinator token and a Routine's script never get it, and a
-        Routine's run is no turn of his (`OwnerTurn`); OpenMausBot's `server/cloud-team.ts`, cited here until
+        Routine's run is no turn of his (`OwnerTurn`); his words typed in the Inbox for an item are his turn in its
+        chat, and a Bot the item was passed to on his line may use it in that item's chat (the owner's mark, issue
+        #1229); OpenMausBot's `server/cloud-team.ts`, cited here until
         2026-11-19, keeps personal connections out of a team shared with other people and is not the source
         ([research](docs/research/2026-11-19-scheduled-runs-and-owner-accounts.md)). The
         agent API applies it in its list of accounts and so in the service proxy's check of every request.
@@ -3001,7 +2983,7 @@ flowchart LR
   - **A Bot reads GitHub through the service proxy** ([issue #685](https://github.com/kl3inIT/hypomnema/issues/685);
     design in [#659](https://github.com/kl3inIT/hypomnema/issues/659#issuecomment-6937471532), after Onyx's `gh`
     behind its egress proxy). The Integration is `github.com`, whose Connections are the git host's: the token
-    workers are given per Dispatch, kept in the vault by `hosts token set` / `integrations connect github.com`. The
+    workers are given per Dispatch, kept in the vault by `integrations connect github.com`. The
     owner switches one on for chats (`integrations chats github.com:default on`; the client API's
     `PATCH /integrations/{integration}/connections/{label}` sets it on a git host's Connection itself) and puts it
     on a Bot's list (`bots set <bot> --connections …,github.com:default`). The proxy's `Token` opens it from the
@@ -3350,6 +3332,10 @@ flowchart LR
       as a turn (a person's message, a wake-up, an answered Approval for the coordinator), delivered or not, is
       the owner's own: another person's message, a Run's event, a Routine's run and an Approval answered after
       its request each end it (OpenMausBot `outside-lineage.ts`, OpenClaw "a wake is never an owner turn").
+      In an Inbox item's chat, his own words typed in the Inbox (his prompt as he hands the item over, his comment)
+      are his turn as his message is, and a wake-up without his words is not (decision 7 of issue #1229); a chat
+      that holds **the owner's mark** is his turn while its last input is the hand-off that marked it (the Inbox's
+      passing from Bot to Bot, below).
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
       roster of the Lark groups its bot is in (`channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
@@ -4052,6 +4038,9 @@ capabilities do not exist yet.
   `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+  The name stays visible when the table scrolls sideways. Models and extra capabilities each show up to three
+  chips and open the full list from the remaining count. A key without a stored value shows its prefix and a short
+  status that opens the explanation in a popover when pressed (issue #1235).
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
   `GET /gateway/usage?period=24h|7d|30d|90d|12m&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day
   else, starting at the viewer's midnight; 90 days a bar a UTC day and 12 months a bar a calendar month, read from
@@ -4113,7 +4102,8 @@ capabilities do not exist yet.
   release script's dry run (`RELEASE_DRY_RUN=1`) is how a test checks that Codex's license and notice go out with
   the control plane. Codex then lists the models in `/model` instead of its bundled ones, and a level it sends is one the
   gateway passes on.
-- Settings → Connect a tool (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
+- Connect a tool opens from the Gateway keys header with no key chosen, or from a row with that key chosen
+  (issue #1235). The page (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
   Claude Code, Codex, omp and OpenCode with a key (the owner's keys whose value is stored; a key opened with its
   row's Connect on Gateway keys even without, its files then holding `<your gateway key>`), a model the key may use
   from the tool, and the files with their paths and copy buttons; a card shows and copies only the answer for the
@@ -4935,9 +4925,8 @@ gateway chat model writes its summary, decisions and actions.
   Settings' group Meetings until then, issue #762), out of the Settings menu as Hyprnote keeps its dictionary and AI
   settings out of its meeting list: Dictionary, the words (the owner's as chips to remove, the found ones marked
   speaker, Bot or repository), and Notes model, picked with the single-model picker the Bots use
-  (`features/agents/model-picker.tsx`). The old `/settings/dictionary` and `/settings/notes-model` redirect there. Settings' "Back to app"
+  (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
-  Old Agents and Machines list URLs redirect into Settings and are skipped as return destinations.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
@@ -5115,6 +5104,24 @@ its client API, its CLI and the Bots' tools.
   needs that Bot's accounts or context, else to do it itself or start a Run. A project Bot is told to give it back
   to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an item is passed to is
   woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now.
+- The owner's mark (issue #1229, after OpenMausBot's `handsOnLending` and `handedInUnproven`,
+  `server/host/cloud-lending-turns.ts`, and OpenClaw's `spawnedBySenderIsOwner`,
+  `src/agents/subagents/spawn/spawn-parent-lineage.ts`): each wake-up of an item records who it comes from and the
+  item, `chat_messages.wake_by` and `wake_todo` (`owner` for his own words, his prompt as he hands it over or his
+  comment, which are his turn in that chat as his message is, decision 7; `owner_gave` when he gives it without a
+  word, no turn of his; `bot_for_owner` for a Bot's hand-off on his line; `bot` for any other). A Bot's `pass_to`, or
+  its add of an item for another Bot (`inbox_add`, the client API's `POST /inbox`), is on his line when the chat the
+  Bot acts in (`Change.Chat`, `NewTodo.Chat`, from its token; none in a Routine's run) has as its last turn input his
+  own message or words, or the hand-off that marked it for this same item (`orchestration.whoseTurn`, `lineFor`): a
+  mark never reaches another item, not even one the Bot adds for itself. The chat it wakes then holds the mark while
+  no other turn input ever came there (`LastTurnInput`'s `owner_only`: only his own words, a marked hand-off, a Run's
+  events and his answer to an Approval leave it; any other input, such as a Channel person's message, a `bot`
+  hand-off, his giving the item without a word (`owner_gave`), a background command's end or a Routine's run, clears
+  it for good; the migration records the wake-ups of before as `owner` when they carry his words, and leaves the rest
+  unmarked, which clears): `OwnerTurn` there is true for the marked hand-off, so the Bot uses his own accounts (user
+  Connections) in that chat only, as it may by its Connections list (`Bot.MayUse`). A Run's events there are no turn
+  of his and leave the mark. A new Connection request takes his own words, not a mark (`chatTurnOf`). It has no timer
+  and is kept in the database. Sends still go through his Approval, and the Bot still drafts its replies.
 - Reads: `Get` with its latest 500 events, read in one transaction with the item, as every mutation returns the
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
@@ -5287,9 +5294,7 @@ beside the one list (see "A phone, on a node that holds one"). The list follows 
 server declares `tools.listChanged`, and after each `tools/call`, before its answer, lists again and sends
 `notifications/tools/list_changed` when the list differs from the one it last answered (a list that failed to load
 is no change), as the MCP Go SDK notifies only on a real change and Omnigent's bridge on a changed agent; pi lists
-again on it. A turn that calls no tool keeps the list it had. The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
-`POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
-gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
+again on it. A turn that calls no tool keeps the list it had.
 
 | Tool | Worker | Bot's pi | Owner |
 |---|---|---|---|
@@ -5309,7 +5314,9 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | yes |
 | `ask`, `finish` (the node's own) | yes | no | no |
 
-The consolidated tool routes give no tools to the coordinator token or Routine scripts. The owner's `hypomnema mcp` and
+The consolidated tool routes give the coordinator token and a non-read Routine script the browser's tools alone, each
+in a tab of its own (`c-<token>`, `r-<routine>`; see the browser above), and the phone's on its own route; a read
+run gets no browser. The owner's `hypomnema mcp` and
 `hypomnema tools list` / `tools call` use the token from `client.json` and share the same tool adapter. On the
 owner's machine, add the server with `claude mcp add hypomnema -- hypomnema mcp` or
 `codex mcp add hypomnema -- hypomnema mcp` (see the [CLI guide](README.md#using-your-tools-and-accounts-locally)).
@@ -5329,7 +5336,7 @@ allowlists to exceptions to `full` so existing access stays the same; unused boo
   plane's tools and appear once at most per list, or the profile or Bot is refused (`400`).
   `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).
 - Enforced where the tools are listed and again on every call: `/agent/v1/tools` and `/agent/v1/tools/call`, and
-  the older routes (browser, phone, gateway, `/agent/v1/memory`). A tool switched off is left out of the list and its
+  the phone's routes. A tool switched off is left out of the list and its
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
   gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
   its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
@@ -5450,7 +5457,7 @@ flowchart LR
   for a Bot whose list has the owner's account (pi keeps them listed between his turns, #748), the phone's while
   a node holds it; then the commands, `gh` and `glab` only a Bot's (a worker keeps its own). A worker gets it
   after its rules, before the profile's instruction and the task: the node API puts the names in the offer
-  (`nodeproto.Offer.Tools`, a node of an earlier release ignores them) and the runner writes the block
+  (`nodeproto.Offer.Tools`) and the runner writes the block
   (`runner.Prompt`); the account brief after it names the accounts and no longer the phone's rules. A Bot's pi gets it first in what `hypomnema bots prompt` prints, before the persona, from
   `GET /v1/bots/{id}/tools`. It holds no date and nothing of a task or chat, so a worker and a Bot with the same
   families get the same block and the start of the prompt stays the same for the provider's cache (#672). MCP
@@ -5505,17 +5512,14 @@ flowchart LR
   title, `app_id` to replace, and its answer "Shown as app X. To change it, call show_html again with app_id"; and
   OpenClaw's `show_widget`) shows a page, a PDF, an image or any file as an artifact (Artifacts, above). `path` is
   a file or folder in the folder the agent works in: a Bot's folder, where pi starts `hypomnema mcp`; a worker's
-  worktree, which the runner writes into `agent.json` beside the key (a node of an earlier release does not, and
-  its server reads the path in the folder its CLI started it in). The tools server reads it there by
+  worktree, which the runner writes into `agent.json` beside the key. The tools server reads it there by
   `artifactpack.Read` and sends the files whole in the call, base64 (`agenttool.ArtifactCall`), as
   `generate_image` sends its images, since a node does not share the control plane's disk (OpenMausBot's server
   reads the bot's folder itself); the control plane checks them again by the client API's rules and keeps them
   with `ShowArtifact`. The answer: "Shown as artifact <id> (revision N). To change it, call show_artifact again
   with id <id>.", what a folder left out, and for a worker "Name artifact <id> in your finish summary." A worker
   whose Run has no chat is told to name the file's path in its finish summary instead (inference: neither
-  reference has a sub-agent without a conversation). A tools server of an earlier release passes the arguments on
-  as they are: `html` works, `path` is refused with "this node's tools cannot send a folder yet; send html, or
-  wait for its update". No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
+  reference has a sub-agent without a conversation). No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
   commands stay for the owner and Routine scripts.
 - `routines` `{action: list | set | run, name?, every_minutes?, cron?, timezone?, prompt?, script?,
   timeout_seconds?, summary?, quiet?}` (issue #536, step 5) is a Bot's pi's own Routines as one tool with an
@@ -5530,8 +5534,8 @@ flowchart LR
   `trigger_id`. Pausing, removing, undoing and taking back a grant stay the owner's (OpenMausBot leaves deleting a
   trigger to the person). `script` is a file of the Bot's folder, where pi starts `hypomnema mcp`: the tools
   server reads it there (`os.Root`, at most 100 KB) and sends its text with the call (`agenttool.RoutineCall`),
-  never a text the agent sent itself; the Routine keeps the file's name and that text. A tools server of an
-  earlier release sends the path alone, which is refused ("this tools server cannot send a script yet"). What the
+  never a text the agent sent itself; the Routine keeps the file's name and that text; a path without its text is
+  refused. What the
   store refuses (a schedule out of bounds, a name of another Bot's, a change from a Routine's run's own chat, a
   run still going) is the tool's error. A Routine's script itself has no MCP and keeps the commands.
 
@@ -5742,11 +5746,11 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
-  - `hosts list|add|rm`, `integrations list|connect|disconnect` (and the older `hosts token set|rm`) and
+  - `hosts list|add|rm`, `integrations list|connect|disconnect` and
     `repos list|add|set|rm`: the git hosts a Run can be on, the accounts connected to each, and the repositories
     registered under a name; every token reads them, only the owner's changes them.
-    `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
-    set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
+    `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `integrations
+    connect <host>` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
     URL (`--name`, `--base`, `--connection`, `--ssh-url` with `--ssh-host-key-file`); `repos set <name>` changes the
     flags it is given and keeps the rest (an empty `--ssh-url` clones over HTTPS again). `git ssh-key` prints the public key nodes clone
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
@@ -5869,13 +5873,8 @@ The owner's commands:
   proxy and its approvals, without deleting a branch.
   `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
-  (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
-  (`web-search` and `images` since issue #492; the guides' stubs `google-workspace`, `lark`, `aws`, `superset`
-  and `android-device`, which ran `hypomnema skills get`, since issue #536 put the guides in the store;
-  `retiredStubs`) is taken out of both folders when it matches a released one, and its folder when nothing else
-  is in it, as Codex replaces its whole system skills folder at an update; an edited one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
-  #536): an unedited copy (its digest in `releasedFolders`) is removed, since the skills store now places it, and
-  it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
+  (otherwise only with `--force`, keeping a backup). It is the only stub; the pdf, slides and pages folders are
+  not installed in `~/.agents/skills`, since the skills store places them (issues #492, #536). `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
 - The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder (until
   issue #492 installed as described here; since then published into the skills store, above): Hermes's
@@ -5883,10 +5882,7 @@ The owner's commands:
   `third_party/hermes-agent/NOTICE`), adapted to the Bots' box: `python` is the documents environment (above), the
   scripts are named where the skill is installed (`~/.agents/skills/pdf/scripts`), and OCR, nano-pdf editing and
   Hermes's tests are left out. A skill without a `guide.md` is such a folder. Until issue #536 `skills install`
-  copied a folder skill not in the store into `~/.agents/skills`; since every one is in the store it installs none,
-  and the folder's digest (each file's path and content, Python caches left out, after Hermes's
-  `tools/skills_sync.py` `dir_hash`) only tells an unedited copy an earlier release installed, which it removes,
-  from an edited one, which it leaves.
+  copied a folder skill not in the store into `~/.agents/skills`; since every one is in the store it installs none.
 - The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, and since
   issue #536 reaches every agent kind through the skills store (above), naming the Superset tools:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
@@ -5925,7 +5921,7 @@ Node (`internal/node`):
   until issue #381, is ignored when the file is read and dropped when it is written.
 - At connect the node finds `claude`, `codex`, `omp` and `opencode` and reads their `--version`: omp and opencode
   where the control plane had it install them, else on its PATH.
-- Since issue #107 the control plane tells every node, from node release v0.9.17 on, to have omp and opencode, as it
+- Since issue #107 the control plane tells every node to have omp and opencode, as it
   tells it an Integration's tools (`agenttool.Runtimes`): omp 18.18.6 from its GitHub release (one binary per
   system), opencode 2.2.7 from npm's `@opencode/cli-<os>-<arch>` (linux x64: the baseline build, which needs no
   AVX2, as opencode's own installer picks on such a CPU), each pinned by SHA-256 and installed under
@@ -5946,7 +5942,7 @@ Node (`internal/node`):
   watch), then kills the shim by its PID file and removes `run/<dispatch>`, also when no job is in memory.
 - Adopting a worker (issue #403): the journal's offset and the turn's state after it (`Turn.State`: the CLI's
   session, its result or failure, the usage) are one checkpoint, `run/<dispatch>/offset`, renamed into place after
-  each read; a bare number, as daemons before #403 wrote, is an offset with no state. A new daemon hands the state
+  each read. A new daemon hands the state
   to `Runtime.Adopted`, so an adopted ACP worker cancels its own session on a stop and a worker that exits after
   the restart is reported with its outcome, not as exited (Orca records the provider's session id on its persisted
   record; Omnara keeps a process's state in its store, not in its output). A run directory with no PID file is
@@ -5975,7 +5971,7 @@ Node (`internal/node`):
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
   own, away from the user's and the project's); the part that names the gateway is `internal/shared/agentconfig`'s,
-  which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
+  which writes the Connect a tool page's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
   out of its tools. Neither is given an image model. The model's context window and largest output are the
@@ -6299,8 +6295,8 @@ Node (`internal/node`):
   its PID. A saved PID alone is not enough to signal a process group. On Linux, if the shim and its worker have
   both exited, the node checks the recorded boot ID and looks for a surviving process in the shim's recorded
   group and session before signaling it, even if the worker's PID has been reused. The node does not signal
-  an orphaned group on macOS or for a legacy shim without `shim.identity` after the shim exits, because it
-  cannot verify the group's identity. Any remaining children and the Dispatch's temp may therefore remain
+  an orphaned group on macOS, nor a shim without `shim.identity`, because it cannot verify the group's
+  identity. Any remaining children and the Dispatch's temp may therefore remain
   until those children exit. The shim socket uses the configured home
   path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
   maintenance never removes state or its sidecars, accounts, shim records and journals,
@@ -6375,8 +6371,7 @@ Node (`internal/node`):
   already read (an artifact page's text, an SVG's text, a file's preview), keyed by the bytes' generated key with
   a word after it. An image's bytes keep their own read, typed by the file's name, under the generated key.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in
-  Settings under Workers since issue #857, out of the main sidebar; the old `/agents`, `/agents/$name` and
-  `/agents/new` redirect to the same page there): `/settings/agents` lists the profiles as cards or a table, each with its
+  Settings under Workers since issue #857, out of the main sidebar): `/settings/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
   again every 10 s. `/settings/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
   the runtime, a model from `GET /models` in a picker with a search (issue #200, after Omnara's model combobox
@@ -6761,8 +6756,7 @@ Node (`internal/node`):
     the chat it opens to and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
-- The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857; the old `/machines`
-  redirects there) lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
+- The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857) lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
   from 65 % and red from 90 % and are grey while it is not connected, its load average, each of its GPUs when it has any (use with

@@ -324,20 +324,6 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, referrers)
 	svc.WithShareVault(secrets.Copies())
 
-	// A share link made before its token was hashed (issue #996) is moved out of plaintext before anything is
-	// served, so its URL keeps working; without a vault it keeps its plaintext until one can seal it.
-	move, err := svc.MoveShareTokens(ctx)
-	if err != nil {
-		return fmt.Errorf("moving the tokens of share links: %w", err)
-	}
-
-	logShareTokenMove(ctx, logger, move)
-
-	// Then the files are cleared of the old plaintext; until they are, no link is served, and it is tried again.
-	if !scrubShareTokens(ctx, svc, logger) {
-		go retryShareScrub(ctx, svc, logger)
-	}
-
 	// The account each git host token belongs to is read at its host once, so workers commit as it (issue #991).
 	tokens := connections{svc: svc, vault: secrets, identities: &gitIdentities{
 		ways: &connproxy.Transports{
@@ -1118,41 +1104,6 @@ type channelStore struct {
 	*channelstore.Store
 }
 
-// shareScrubEvery is how often clearing the database's files of old share tokens is tried again while a reader
-// holds an older snapshot or the vault is not configured (issue #996).
-const shareScrubEvery = 30 * time.Second
-
-// scrubShareTokens clears the database's files of old share tokens and reports whether nothing is left to clear.
-func scrubShareTokens(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) bool {
-	done, err := svc.ScrubShareTokens(ctx)
-	if err != nil && ctx.Err() == nil {
-		logger.WarnContext(ctx, "clearing old share tokens from the database's files",
-			slog.String("event", "controlplane.share_scrub_failed"), slog.String("error", err.Error()))
-	}
-
-	return done
-}
-
-// retryShareScrub tries scrubShareTokens again until it is done or ctx ends.
-func retryShareScrub(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) {
-	tick := time.NewTicker(shareScrubEvery)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			if scrubShareTokens(ctx, svc, logger) {
-				logger.InfoContext(ctx, "cleared old share tokens from the database's files; links are served",
-					slog.String("event", "controlplane.share_scrub_done"))
-
-				return
-			}
-		}
-	}
-}
-
 // shareViewsWriteEvery is how often the openings of share links counted in memory are written (issue #996), and
 // shareViewsLastWrite how long the last write may take as the control plane stops.
 const (
@@ -1185,19 +1136,6 @@ func writeShareViews(ctx context.Context, svc *orchestration.Service, logger *sl
 		case <-tick.C:
 			write(ctx)
 		}
-	}
-}
-
-// logShareTokenMove says, once as the control plane starts, what MoveShareTokens did (issue #996).
-func logShareTokenMove(ctx context.Context, logger *slog.Logger, move orchestration.ShareTokenMove) {
-	if move.Moved > 0 {
-		logger.InfoContext(ctx, "moved the tokens of share links out of plaintext",
-			slog.String("event", "controlplane.share_tokens_moved"), slog.Int("links", move.Moved))
-	}
-
-	if move.Waiting > 0 {
-		logger.WarnContext(ctx, "share links made before are not served until the vault is configured to seal them",
-			slog.String("event", "controlplane.share_tokens_waiting"), slog.Int("links", move.Waiting))
 	}
 }
 

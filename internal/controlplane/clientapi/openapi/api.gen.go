@@ -3173,10 +3173,11 @@ type AllowList struct {
 	Names   []string `json:"names"`
 }
 
-// Answer Pick one option by index, and add text when it allows; a question without options takes text.
+// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
 type Answer struct {
-	Option *int    `json:"option,omitempty"`
-	Text   *string `json:"text,omitempty"`
+	More   *[]Choice `json:"more,omitempty"`
+	Option *int      `json:"option,omitempty"`
+	Text   *string   `json:"text,omitempty"`
 }
 
 // Approval One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
@@ -3921,6 +3922,12 @@ type ChatWake struct {
 // ChatWakeEvent defines model for ChatWake.Event.
 type ChatWakeEvent string
 
+// Choice The answer to one of a question's more decisions, as the first's.
+type Choice struct {
+	Option *int    `json:"option,omitempty"`
+	Text   *string `json:"text,omitempty"`
+}
+
 // CodexModelCatalog Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
 type CodexModelCatalog struct {
 	Models []CodexModelInfo `json:"models"`
@@ -4534,7 +4541,7 @@ type GatewayRequestList struct {
 	HasMore bool `json:"has_more"`
 }
 
-// GatewayTool A tool Settings → Connect a tool writes a file for.
+// GatewayTool A tool that can be configured from the Connect a tool button on Gateway keys.
 type GatewayTool string
 
 // GatewayToolConfig defines model for GatewayToolConfig.
@@ -4550,7 +4557,7 @@ type GatewayToolConfig struct {
 	// Models The models the key may use from the tool, by name.
 	Models []string `json:"models"`
 
-	// Tool A tool Settings → Connect a tool writes a file for.
+	// Tool A tool that can be configured from the Connect a tool button on Gateway keys.
 	Tool GatewayTool `json:"tool"`
 }
 
@@ -5984,8 +5991,11 @@ type NodeTool struct {
 
 // Option defines model for Option.
 type Option struct {
-	AllowsText *bool  `json:"allows_text,omitempty"`
-	Label      string `json:"label"`
+	AllowsText *bool `json:"allows_text,omitempty"`
+
+	// Description One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option asked before has none.
+	Description *string `json:"description,omitempty"`
+	Label       string  `json:"label"`
 }
 
 // OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
@@ -6116,20 +6126,29 @@ type PushSubscriptionList struct {
 type Question struct {
 	AddressedTo Addressee `json:"addressed_to"`
 
-	// Answer Pick one option by index, and add text when it allows; a question without options takes text.
-	Answer       *Answer        `json:"answer,omitempty"`
-	AnsweredAt   *time.Time     `json:"answered_at,omitempty"`
-	AnsweredBy   *Addressee     `json:"answered_by,omitempty"`
-	CancelReason *string        `json:"cancel_reason,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	DispatchId   string         `json:"dispatch_id"`
-	Id           string         `json:"id"`
-	Mode         QuestionMode   `json:"mode"`
-	Options      []Option       `json:"options"`
-	RunId        string         `json:"run_id"`
-	Status       QuestionStatus `json:"status"`
-	TaskId       string         `json:"task_id"`
-	Text         string         `json:"text"`
+	// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
+	Answer       *Answer    `json:"answer,omitempty"`
+	AnsweredAt   *time.Time `json:"answered_at,omitempty"`
+	AnsweredBy   *Addressee `json:"answered_by,omitempty"`
+	CancelReason *string    `json:"cancel_reason,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DispatchId   string     `json:"dispatch_id"`
+
+	// Header A short title of the first decision (issue #1219); none on a question asked before.
+	Header *string      `json:"header,omitempty"`
+	Id     string       `json:"id"`
+	Mode   QuestionMode `json:"mode"`
+
+	// More The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the answer's more at the same place.
+	More    *[]QuestionPart `json:"more,omitempty"`
+	Options []Option        `json:"options"`
+	RunId   string          `json:"run_id"`
+	Status  QuestionStatus  `json:"status"`
+
+	// Summary For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with, shown above the options; none for a Gate asked before, which reads as it did.
+	Summary *string `json:"summary,omitempty"`
+	TaskId  string  `json:"task_id"`
+	Text    string  `json:"text"`
 }
 
 // QuestionList defines model for QuestionList.
@@ -6139,6 +6158,14 @@ type QuestionList struct {
 
 // QuestionMode defines model for QuestionMode.
 type QuestionMode string
+
+// QuestionPart One decision a question asks after its first, on the same card (issue
+type QuestionPart struct {
+	// Header A short title of the decision, at most 30 characters.
+	Header  *string  `json:"header,omitempty"`
+	Options []Option `json:"options"`
+	Text    string   `json:"text"`
+}
 
 // QuestionStatus defines model for QuestionStatus.
 type QuestionStatus string
@@ -9176,9 +9203,6 @@ type PutGitHostJSONRequestBody = NewGitHost
 // PutGitHostConnectionJSONRequestBody defines body for PutGitHostConnection for application/json ContentType.
 type PutGitHostConnectionJSONRequestBody = NewGitHostToken
 
-// PutGitHostTokenJSONRequestBody defines body for PutGitHostToken for application/json ContentType.
-type PutGitHostTokenJSONRequestBody = NewGitHostToken
-
 // GenerateImagesJSONRequestBody defines body for GenerateImages for application/json ContentType.
 type GenerateImagesJSONRequestBody = ImageRequest
 
@@ -10730,7 +10754,7 @@ type ClientInterface interface {
 
 	// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 	GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -10977,29 +11001,6 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
 	PutGitHostConnection(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	//
-	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-	DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes any type of body and a specified content type.
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GenerateImagesWithBody Make or edit images through the owner's subscriptions; any token, a Bot's included
 	//
@@ -11945,7 +11946,7 @@ type ClientInterface interface {
 
 	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 	RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -15242,7 +15243,7 @@ func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body Update
 
 // GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 func (c *Client) GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -15820,59 +15821,6 @@ func (c *Client) PutGitHostConnectionWithBody(ctx context.Context, host string, 
 // Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
 func (c *Client) PutGitHostConnection(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutGitHostConnectionRequest(c.Server, host, label, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-//
-// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-func (c *Client) DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteGitHostTokenRequest(c.Server, host)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes any type of body and a specified content type.
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *Client) PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutGitHostTokenRequestWithBody(c.Server, host, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *Client) PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutGitHostTokenRequest(c.Server, host, body)
 	if err != nil {
 		return nil, err
 	}
@@ -18067,7 +18015,7 @@ func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors 
 
 // RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 func (c *Client) RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -25892,87 +25840,6 @@ func NewPutGitHostConnectionRequestWithBody(server string, host string, label st
 	}
 
 	operationPath := fmt.Sprintf("/hosts/%s/connections/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteGitHostTokenRequest constructs an http.Request for the DeleteGitHostToken method
-func NewDeleteGitHostTokenRequest(server string, host string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPutGitHostTokenRequest calls the generic PutGitHostToken builder with application/json body
-func NewPutGitHostTokenRequest(server string, host string, body PutGitHostTokenJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPutGitHostTokenRequestWithBody(server, host, "application/json", bodyReader)
-}
-
-// NewPutGitHostTokenRequestWithBody constructs an http.Request for the PutGitHostToken method, with any body, and a specified content type
-func NewPutGitHostTokenRequestWithBody(server string, host string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -35163,7 +35030,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -35438,31 +35305,6 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
 	PutGitHostConnectionWithResponse(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostConnectionResponse, error)
-
-	// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
-	//
-	// Returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-	DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error)
-
-	// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
-
-	// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
 
 	// GenerateImagesWithBodyWithResponse Make or edit images through the owner's subscriptions; any token, a Bot's included
 	//
@@ -36498,7 +36340,7 @@ type ClientWithResponsesInterface interface {
 
 	// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -43381,102 +43223,6 @@ func (r PutGitHostConnectionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutGitHostConnectionResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteGitHostTokenResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *GitHost
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r DeleteGitHostTokenResponse) GetJSON200() *GitHost {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r DeleteGitHostTokenResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r DeleteGitHostTokenResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteGitHostTokenResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteGitHostTokenResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteGitHostTokenResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type PutGitHostTokenResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *GitHost
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r PutGitHostTokenResponse) GetJSON200() *GitHost {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r PutGitHostTokenResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r PutGitHostTokenResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r PutGitHostTokenResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PutGitHostTokenResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r PutGitHostTokenResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -53623,7 +53369,7 @@ func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, 
 
 // GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -54101,49 +53847,6 @@ func (c *ClientWithResponses) PutGitHostConnectionWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParsePutGitHostConnectionResponse(rsp)
-}
-
-// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
-//
-// Returns a wrapper object for the known response body format(s).
-//
-// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-func (c *ClientWithResponses) DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error) {
-	rsp, err := c.DeleteGitHostToken(ctx, host, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteGitHostTokenResponse(rsp)
-}
-
-// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *ClientWithResponses) PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
-	rsp, err := c.PutGitHostTokenWithBody(ctx, host, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePutGitHostTokenResponse(rsp)
-}
-
-// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *ClientWithResponses) PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
-	rsp, err := c.PutGitHostToken(ctx, host, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePutGitHostTokenResponse(rsp)
 }
 
 // GenerateImagesWithBodyWithResponse Make or edit images through the owner's subscriptions; any token, a Bot's included
@@ -55924,7 +55627,7 @@ func (c *ClientWithResponses) ListProfileVersionsWithResponse(ctx context.Contex
 
 // RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -61591,72 +61294,6 @@ func ParsePutGitHostConnectionResponse(rsp *http.Response) (*PutGitHostConnectio
 	}
 
 	response := &PutGitHostConnectionResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest GitHost
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteGitHostTokenResponse parses an HTTP response from a DeleteGitHostTokenWithResponse call
-func ParseDeleteGitHostTokenResponse(rsp *http.Response) (*DeleteGitHostTokenResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteGitHostTokenResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest GitHost
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePutGitHostTokenResponse parses an HTTP response from a PutGitHostTokenWithResponse call
-func ParsePutGitHostTokenResponse(rsp *http.Response) (*PutGitHostTokenResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PutGitHostTokenResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -67634,12 +67271,6 @@ type ServerInterface interface {
 	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
 	// (PUT /hosts/{host}/connections/{label})
 	PutGitHostConnection(w http.ResponseWriter, r *http.Request, host string, label string)
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	// (DELETE /hosts/{host}/token)
-	DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string)
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	// (PUT /hosts/{host}/token)
-	PutGitHostToken(w http.ResponseWriter, r *http.Request, host string)
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(w http.ResponseWriter, r *http.Request)
@@ -72074,58 +71705,6 @@ func (siw *ServerInterfaceWrapper) PutGitHostConnection(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutGitHostConnection(w, r, host, label)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteGitHostToken operation middleware
-func (siw *ServerInterfaceWrapper) DeleteGitHostToken(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "host" -------------
-	var host string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteGitHostToken(w, r, host)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PutGitHostToken operation middleware
-func (siw *ServerInterfaceWrapper) PutGitHostToken(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "host" -------------
-	var host string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PutGitHostToken(w, r, host)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -77861,8 +77440,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}", wrapper.PutGitHost)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/token", wrapper.DeleteGitHostToken)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/token", wrapper.PutGitHostToken)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.DeleteGitHostConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.PutGitHostConnection)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations", wrapper.ListIntegrations)
@@ -83193,85 +82770,6 @@ type PutGitHostConnectiondefaultJSONResponse struct {
 }
 
 func (response PutGitHostConnectiondefaultJSONResponse) VisitPutGitHostConnectionResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteGitHostTokenRequestObject struct {
-	Host string `json:"host"`
-}
-
-type DeleteGitHostTokenResponseObject interface {
-	VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error
-}
-
-type DeleteGitHostToken200JSONResponse GitHost
-
-func (response DeleteGitHostToken200JSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteGitHostTokendefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response DeleteGitHostTokendefaultJSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutGitHostTokenRequestObject struct {
-	Host string `json:"host"`
-	Body *PutGitHostTokenJSONRequestBody
-}
-
-type PutGitHostTokenResponseObject interface {
-	VisitPutGitHostTokenResponse(w http.ResponseWriter) error
-}
-
-type PutGitHostToken200JSONResponse GitHost
-
-func (response PutGitHostToken200JSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutGitHostTokendefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response PutGitHostTokendefaultJSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -90527,12 +90025,6 @@ type StrictServerInterface interface {
 	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
 	// (PUT /hosts/{host}/connections/{label})
 	PutGitHostConnection(ctx context.Context, request PutGitHostConnectionRequestObject) (PutGitHostConnectionResponseObject, error)
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	// (DELETE /hosts/{host}/token)
-	DeleteGitHostToken(ctx context.Context, request DeleteGitHostTokenRequestObject) (DeleteGitHostTokenResponseObject, error)
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	// (PUT /hosts/{host}/token)
-	PutGitHostToken(ctx context.Context, request PutGitHostTokenRequestObject) (PutGitHostTokenResponseObject, error)
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(ctx context.Context, request GenerateImagesRequestObject) (GenerateImagesResponseObject, error)
@@ -94734,65 +94226,6 @@ func (sh *strictHandler) PutGitHostConnection(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutGitHostConnectionResponseObject); ok {
 		if err := validResponse.VisitPutGitHostConnectionResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteGitHostToken operation middleware
-func (sh *strictHandler) DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
-	var request DeleteGitHostTokenRequestObject
-
-	request.Host = host
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteGitHostToken(ctx, request.(DeleteGitHostTokenRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteGitHostToken")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteGitHostTokenResponseObject); ok {
-		if err := validResponse.VisitDeleteGitHostTokenResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PutGitHostToken operation middleware
-func (sh *strictHandler) PutGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
-	var request PutGitHostTokenRequestObject
-
-	request.Host = host
-
-	var body PutGitHostTokenJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PutGitHostToken(ctx, request.(PutGitHostTokenRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PutGitHostToken")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PutGitHostTokenResponseObject); ok {
-		if err := validResponse.VisitPutGitHostTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

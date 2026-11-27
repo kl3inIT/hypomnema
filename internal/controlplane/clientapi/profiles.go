@@ -72,8 +72,8 @@ func (s *Server) ApplyProfile(ctx context.Context, req openapi.ApplyProfileReque
 	return openapi.ApplyProfile200JSONResponse(toProfile(p)), nil
 }
 
-// RestoreProfileVersion applies one of a profile's versions again, as ApplyProfile, with the provider that version
-// recorded for a model its YAML names without one (issue #1002): the owner, or the main Bot from its chat.
+// RestoreProfileVersion applies one of a profile's versions again, as ApplyProfile: the owner, or the main Bot from
+// its chat.
 func (s *Server) RestoreProfileVersion(ctx context.Context, req openapi.RestoreProfileVersionRequestObject,
 ) (openapi.RestoreProfileVersionResponseObject, error) {
 	chat, err := setupChat(principal(ctx))

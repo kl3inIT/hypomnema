@@ -218,28 +218,6 @@ func TestABackgroundCommandWhoseUnitIsGoneIsLostAndAStrayUnitLetGo(t *testing.T)
 	assert.Contains(t, units.called(), "cleanup cht_deleted bg_bbbbbb keep")
 }
 
-// Scenario (issues #1058, #1084): a control plane without a launcher reports lost, once after its start, the commands
-// an earlier release ran in pi's box, which the restart ended.
-func TestWithoutALauncherTheCommandsLeftAreReportedLostOnce(t *testing.T) {
-	t.Parallel()
-
-	svc, _ := newStore(t)
-	ctx := t.Context()
-
-	chat, err := svc.CreateChat(ctx, "", "")
-	require.NoError(t, err)
-	require.NoError(t, svc.StartBackground(ctx, chat.ID, "an old pi", "bg_dddddd"))
-
-	sup := New(svc, Config{})
-	observe(t, sup)
-	observe(t, sup)
-
-	got := wakes(t, svc, chat.ID)
-	require.Len(t, got, 1)
-	assert.Contains(t, got[0], "Background command bg_dddddd (started ")
-	assert.Contains(t, got[0], "ended with no result: the control plane restarted, which stopped it")
-}
-
 // Scenario (issue #1084, review round 1): a chat deleted while its last command runs takes its row; the next pass
 // still lists the units, since the last list had one, and lets go of the command's unit, then stops listing.
 func TestADeletedChatsLastBackgroundCommandIsLetGo(t *testing.T) {

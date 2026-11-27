@@ -102,7 +102,7 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 	write(t, filepath.Join(root, "lib", "pi-background.mts"), "export default function () {}\n", 0o600)
 
 	// The control plane's CLI, as the launcher calls it before pi starts. `bots show` names the main Bot as
-	// coordinator and the Bot of the id `+otherBot+` as other, the names their directories had before ids.
+	// coordinator and the Bot of the id `+otherBot+` as other, whose directory had that name before ids.
 	write(t, filepath.Join(root, "bin", "hypomnema"), `#!/bin/sh
 case "$1 $2 $3" in
   "bots show `+orchestration.DefaultBotID+`") printf '%s\tcoordinator (main)\tpi\n' "$3"; exit 0 ;;
@@ -340,12 +340,12 @@ func TestALarkGroupsPiRunsInItsBoxToo(t *testing.T) {
 	assert.NotContains(t, seen["python"], "/tools/", "without a documents environment pi starts all the same")
 }
 
-// otherBot is the id of a Bot from before ids (issue #466), whose directory is named by its name, other.
+// otherBot is the id of a Bot whose name, other, names a directory from before ids (issue #466).
 const otherBot = "bot_otheraaaaaaaaaaaaaaaaaaaaa"
 
-// Scenario: a Bot from before ids starts in the directory named by its old name, the path its sessions record,
-// through a link of its id, made once; a rename later moves nothing.
-func TestABotFromBeforeIDsKeepsItsDirectory(t *testing.T) {
+// Scenario (issue #1220): a Bot starts in the directory of its id. A directory of its name from before ids is no
+// longer linked to: the links of such Bots were made once, and a new one is never made.
+func TestABotStartsInTheDirectoryOfItsID(t *testing.T) {
 	t.Parallel()
 	needBox(t)
 
@@ -354,11 +354,11 @@ func TestABotFromBeforeIDsKeepsItsDirectory(t *testing.T) {
 	seen, stderr, err := w.start(t, "hyp_bot_v1_other\n")
 	require.NoError(t, err, stderr)
 
-	assert.Equal(t, filepath.Join(w.home, "bots", "other"), seen["cwd"])
+	assert.Equal(t, filepath.Join(w.home, "bots", otherBot), seen["cwd"])
 
-	link, err := os.Readlink(filepath.Join(w.home, "bots", otherBot))
+	info, err := os.Lstat(filepath.Join(w.home, "bots", otherBot))
 	require.NoError(t, err)
-	assert.Equal(t, "other", link)
+	assert.True(t, info.IsDir(), "a directory of its own, not a link to the old name's")
 }
 
 // Scenario: pi does not start without its token, nor without a box.

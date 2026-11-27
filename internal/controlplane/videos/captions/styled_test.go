@@ -31,10 +31,11 @@ func placed(t *testing.T, preset string, pos Position, w, h int, cues []Cue, rin
 	r, err := newRenderer(preset, w, h)
 	require.NoError(t, err)
 
-	out, err := r.place(cues, pos, rings)
+	// Every cue's frames laid out, as estimated, and placed; fit is left out, as these tests need no ffmpeg.
+	laid, err := r.layoutCues(cues)
 	require.NoError(t, err)
 
-	return out
+	return r.placeCues(laid, pos, rings)
 }
 
 func shownWords(pf placedFrame) []string {
@@ -61,7 +62,7 @@ func TestLegacyIsTheCaptionsOfBefore(t *testing.T) {
 		got, err := Render(t.Context(), ffmpeg.Tools{}, cues, Look{Preset: Legacy, Position: PositionPreset},
 			size[0], size[1], []compose.Ring{{AtMs: 1000, X: 360, Y: 1200, Size: 101}})
 		require.NoError(t, err)
-		assert.Equal(t, ASS(cues, size[0], size[1], Default), got)
+		assert.Equal(t, positionedASS(cues, size[0], size[1], Default, PositionPreset), got)
 	}
 }
 

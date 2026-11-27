@@ -29,9 +29,8 @@ func (w *world) listedOn(path, key string) []string {
 
 // Scenario: a worker profile turns the browser off by its family and the
 // memory by its name (issue #536, step 7). Its worker finds neither on the
-// one list nor on the browser's older route, and each call of them is refused
-// as a tool it never had, on every route, before it reaches the browser; the
-// refusal is logged. What the profile left on is still there.
+// one list, and each call of them is refused as a tool it never had, before
+// it reaches the browser; the refusal is logged. What the profile left on is still there.
 func TestAWorkersProfileTurnsToolsOff(t *testing.T) {
 	t.Parallel()
 
@@ -42,19 +41,11 @@ func TestAWorkersProfileTurnsToolsOff(t *testing.T) {
 	assert.NotContains(t, names, "agent_browser_open")
 	assert.NotContains(t, names, agenttool.ToolMemory)
 	assert.Contains(t, names, agenttool.ToolShowArtifact, "what is not turned off stays")
-	assert.Empty(t, w.listedOn(agenttool.PathBrowserTools, key))
 
 	status, _, _ := w.use(key, "agent_browser_open", `{"url":"https://example.com"}`)
 	assert.Equal(t, http.StatusNotFound, status)
 
-	status, _ = w.browse(key, "agent_browser_open", `{"url":"https://example.com"}`)
-	assert.Equal(t, http.StatusNotFound, status)
-
 	status, _, _ = w.use(key, agenttool.ToolMemory, `{"target":"owner","action":"add","text":"x"}`)
-	assert.Equal(t, http.StatusNotFound, status)
-
-	status, _ = w.call(http.MethodPost, agenttool.PathMemory, key,
-		agenttool.MemoryChange{Target: "owner", Action: "add", Text: "x"})
 	assert.Equal(t, http.StatusNotFound, status)
 
 	assert.Empty(t, w.browser.calls, "a tool turned off never reaches the browser")

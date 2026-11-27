@@ -133,8 +133,21 @@ RETURNING seq;
 -- The chat's last message of those pi is given as a turn (UndeliveredChatMessages says which): a person's message,
 -- a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
 -- message, given to pi or about to be, ends his turn (issue #468). The line that wakes pi to continue a turn a
--- restart cut is no input of its own: the continued turn is the cut one's (issue #716).
-SELECT role, sender_id FROM chat_messages
+-- restart cut is no input of its own: the continued turn is the cut one's (issue #716). wake_by and wake_todo are who
+-- an Inbox item's wake-up comes from and the item it is for (issue #1229); owner_only says no turn input ever came in
+-- the chat but the owner's own words (his message without a sender, his words typed in the Inbox), a hand-off on his
+-- line, a Run's events and his answer to an Approval: anything else (a Channel person's message, a hand-off not on
+-- his line, the owner giving the item without a word, a background command's end, any other wake-up) and a Routine's
+-- run clear a mark there for good, as OpenMausBot's handedInUnproven clears forOwner and its conversation gate
+-- refuses a conversation with anyone else's line (server/host/cloud-lending-turns.ts, server/cloud-lending.ts).
+SELECT role, sender_id, wake_by, wake_todo,
+       CAST(NOT EXISTS (SELECT 1 FROM chat_messages o WHERE o.chat_id = @chat_id
+                          AND (o.role = 'owner' OR o.event_seq IS NOT NULL OR o.to_coordinator = 1)
+                          AND o.kind NOT IN ('continued', 'approval') AND o.event_seq IS NULL
+                          AND NOT (o.role = 'owner' AND o.sender_id IS NULL)
+                          AND coalesce(o.wake_by, '') NOT IN ('owner', 'bot_for_owner'))
+            AND NOT EXISTS (SELECT 1 FROM routine_runs r WHERE r.chat_id = @chat_id) AS INTEGER) AS owner_only
+FROM chat_messages
 WHERE chat_id = @chat_id AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1) AND kind <> 'continued'
 ORDER BY seq DESC
 LIMIT 1;

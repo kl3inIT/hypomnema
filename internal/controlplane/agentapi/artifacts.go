@@ -99,9 +99,6 @@ func artifactFiles(in agenttool.ArtifactCall) ([]artifactpack.File, string) {
 		}
 
 		return files, ""
-	case in.Path != "":
-		// A tools server of an earlier release sends the path without reading it.
-		return nil, "this node's tools cannot send a folder yet; send html, or wait for its update"
 	default:
 		return nil, "give html, one HTML document, or path, a file or folder in the folder you work in"
 	}

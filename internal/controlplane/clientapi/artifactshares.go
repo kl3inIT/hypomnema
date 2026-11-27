@@ -157,11 +157,6 @@ func (s *Server) shareFiles(w http.ResponseWriter, r *http.Request) {
 		answerText(w, http.StatusNotFound, "Not found.")
 
 		return
-	case errors.Is(err, orchestration.ErrUnavailable):
-		// Old links' tokens are being cleared from the database's files (issue #996), as what a link shows answers.
-		answerText(w, http.StatusServiceUnavailable, "Links are not served yet; try again shortly.")
-
-		return
 	case err != nil:
 		answerText(w, http.StatusInternalServerError, "The link could not be read.")
 

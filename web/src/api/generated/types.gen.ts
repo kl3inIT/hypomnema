@@ -405,15 +405,40 @@ export type QuestionMode = 'wait' | 'gate';
 
 export type Option = {
   label: string;
+  /**
+   * One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option asked before has none.
+   */
+  description?: string;
   allows_text?: boolean;
 };
 
 /**
- * Pick one option by index, and add text when it allows; a question without options takes text.
+ * One decision a question asks after its first, on the same card (issue
+ */
+export type QuestionPart = {
+  /**
+   * A short title of the decision, at most 30 characters.
+   */
+  header?: string;
+  text: string;
+  options: Array<Option>;
+};
+
+/**
+ * The answer to one of a question's more decisions, as the first's.
+ */
+export type Choice = {
+  option?: number;
+  text?: string;
+};
+
+/**
+ * Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
  */
 export type Answer = {
   option?: number;
   text?: string;
+  more?: Array<Choice>;
 };
 
 export type Question = {
@@ -423,8 +448,20 @@ export type Question = {
   run_id: string;
   mode: QuestionMode;
   addressed_to: Addressee;
+  /**
+   * A short title of the first decision (issue #1219); none on a question asked before.
+   */
+  header?: string;
   text: string;
   options: Array<Option>;
+  /**
+   * The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the answer's more at the same place.
+   */
+  more?: Array<QuestionPart>;
+  /**
+   * For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with, shown above the options; none for a Gate asked before, which reads as it did.
+   */
+  summary?: string;
   status: QuestionStatus;
   cancel_reason?: string;
   answer?: Answer;
@@ -2877,7 +2914,7 @@ export type CreatedGatewayKey = {
 };
 
 /**
- * A tool Settings → Connect a tool writes a file for.
+ * A tool that can be configured from the Connect a tool button on Gateway keys.
  */
 export type GatewayTool = 'claude_code' | 'codex' | 'omp' | 'opencode';
 
@@ -7582,60 +7619,6 @@ export type PutGitHostResponses = {
 };
 
 export type PutGitHostResponse = PutGitHostResponses[keyof PutGitHostResponses];
-
-export type DeleteGitHostTokenData = {
-  body?: never;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type DeleteGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type DeleteGitHostTokenError = DeleteGitHostTokenErrors[keyof DeleteGitHostTokenErrors];
-
-export type DeleteGitHostTokenResponses = {
-  /**
-   * The host, now without a token.
-   */
-  200: GitHost;
-};
-
-export type DeleteGitHostTokenResponse = DeleteGitHostTokenResponses[keyof DeleteGitHostTokenResponses];
-
-export type PutGitHostTokenData = {
-  body: NewGitHostToken;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type PutGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type PutGitHostTokenError = PutGitHostTokenErrors[keyof PutGitHostTokenErrors];
-
-export type PutGitHostTokenResponses = {
-  /**
-   * The host, now with a token.
-   */
-  200: GitHost;
-};
-
-export type PutGitHostTokenResponse = PutGitHostTokenResponses[keyof PutGitHostTokenResponses];
 
 export type DeleteGitHostConnectionData = {
   body?: never;

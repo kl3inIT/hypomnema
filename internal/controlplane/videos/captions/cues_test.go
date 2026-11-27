@@ -180,7 +180,7 @@ func TestASSHighlightsTheSpokenWord(t *testing.T) {
 		Default)
 	require.NoError(t, err)
 
-	ass := ASS(cues, 720, 1280, Default)
+	ass := positionedASS(cues, 720, 1280, Default, PositionPreset)
 	assert.Contains(t, ass, "PlayResX: 720\nPlayResY: 1280")
 	assert.Contains(t, ass, "Style: Default,Be Vietnam Pro SemiBold,")
 	assert.Contains(t, ass, event+`0,0:00:01.00,0:00:01.50,Default,,0,0,0,,{\c&H0000D4FF&}Xin{\c&H00FFFFFF&} chào`)

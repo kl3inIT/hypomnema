@@ -339,12 +339,7 @@ func renameBotRow(ctx context.Context, q *store.Queries, now int64, id, name str
 // checkBot checks a Bot's model, skills and lists before it is stored, and
 // sets the provider its model is found at.
 func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
-	check := checkModel
-	if had != nil && b.Model == had.Model && b.Provider == had.Provider {
-		check = keptModel // the stored model, left as it is (issue #1002)
-	}
-
-	provider, err := check(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
+	provider, err := checkModel(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
 	if err != nil {
 		return err
 	}

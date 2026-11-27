@@ -425,8 +425,7 @@ func (s *Server) AnswerQuestion(ctx context.Context, req openapi.AnswerQuestionR
 		by = orchestration.AddressCoordinator
 	}
 
-	q, err := s.svc.AnswerQuestion(ctx, req.QuestionId, by,
-		orchestration.Answer{Option: req.Body.Option, Text: val(req.Body.Text)})
+	q, err := s.svc.AnswerQuestion(ctx, req.QuestionId, by, answerOf(*req.Body))
 	if err != nil {
 		return nil, err
 	}
