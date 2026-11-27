@@ -1,0 +1,58 @@
+package coordinator
+
+import (
+	"context"
+	"log/slog"
+	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+)
+
+// The recall before a turn the owner starts (issue #805, row 4), after OpenMausBot's autoRecallPrompt
+// (server/index.ts:1155-1161, 8384-8388): a turn of his own words, a message he wrote in the Bot's chat, an Inbox item
+// he handed over with a prompt or his comment on one, is given with the passages of the Bot's other chats that share
+// its words in front of it, fenced as the Bot's own notes. It rides in front of the turn's text, never in the system
+// prompt, and is not kept in the chat. A turn of no words of his (a Run's wake-up, a Routine's run, a Bot that passed
+// an item, the line that continues a cut turn) recalls nothing, as OpenMausBot recalls for no routine run, webhook
+// or other bot; orchestration's Recall leaves out a Routine's chat and a Lark chat.
+
+// recallText is the owner's words a turn of one kind holds: his messages, or those its wake-ups carry.
+func recallText(msgs []orchestration.ChatMessage) string {
+	var words []string
+
+	for _, m := range msgs {
+		switch {
+		case m.Role == orchestration.ChatOwner && m.Sender == nil:
+			words = append(words, m.Text)
+		case m.Role == orchestration.ChatSystem && m.Recall != "":
+			words = append(words, m.Recall)
+		}
+	}
+
+	return strings.Join(words, "\n\n")
+}
+
+// withRecall is the turn's text with what it recalls in front. A recall that fails is logged and the turn goes
+// without it, as OpenMausBot's buildRecall gives nothing on an error.
+func (s *Supervisor) withRecall(ctx context.Context, chatID string, msgs []orchestration.ChatMessage,
+	text string,
+) string {
+	words := recallText(msgs)
+	if words == "" {
+		return text
+	}
+
+	recalled, err := s.svc.Recall(ctx, chatID, words)
+	if err != nil {
+		s.cfg.Logger.WarnContext(ctx, "recalling the Bot's earlier chats failed", slog.String("chat_id", chatID),
+			slog.String("event", "coordinator.recall_failed"), slog.String("error", err.Error()))
+
+		return text
+	}
+
+	if recalled == "" {
+		return text
+	}
+
+	return recalled + "\n\n" + text
+}

@@ -35,6 +35,11 @@ func (s *Server) ToolUnavailability(ctx context.Context, runtime string) map[str
 			switch family.Name {
 			case "memory", "artifacts", "routines":
 				continue
+			case "chats":
+				if searchesChats(a) {
+					continue
+				}
+				reason = "This runtime does not get this tool"
 			case "superset":
 				if s.relay != nil {
 					continue

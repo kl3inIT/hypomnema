@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -43,12 +44,29 @@ func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w i
 		return "", err
 	}
 
-	wake := store.InsertTodoWakeParams{ChatID: chat, Text: text, Now: now}
+	wake := store.InsertTodoWakeParams{ChatID: chat, Text: text, Now: now, Recall: inboxRecall(w)}
 	if err := q.InsertTodoWake(ctx, wake); err != nil {
 		return "", fmt.Errorf("waking the Bot of to-do %s: %w", w.Todo.ID, err)
 	}
 
 	return chat, nil
+}
+
+// inboxRecall is the owner's words a wake-up carries, which the turn it starts is recalled by (issue #805): his
+// comment, or the item's title and his prompt when he handed it over, as OpenMausBot recalls by the message a person
+// starts a turn with (server/index.ts autoRecallPrompt). An item passed by a Bot, or given with no prompt, carries
+// none: no one wrote to the Bot.
+func inboxRecall(w inboxstore.Wake) sql.NullString {
+	text := strings.TrimSpace(w.Text)
+	if w.By.Kind != inboxstore.Owner || text == "" {
+		return sql.NullString{}
+	}
+
+	if w.Kind == inboxstore.WakeGiven {
+		text = w.Todo.Title + "\n" + text
+	}
+
+	return sql.NullString{String: text, Valid: true}
 }
 
 // wakeText is what the Bot is told: the item handed to it with the owner's prompt, passed to it by a Bot, or his

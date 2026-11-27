@@ -43,7 +43,7 @@ func (w *world) connect(c orchestration.Connection) {
 // Scenario (issue #723, decisions 2.2 and 2.3; issue #789, decision 8): the "Tools" block is built from the tools
 // each agent gets. A Claude Code worker and a Bot's pi with the same families get the same block, a line for
 // each: the memory, the artifacts, the web, images, audio, the browser and the phone. A Bot's own Routines add
-// their line, and a Bot that switches the speech off gets a block without it.
+// their line, and its own chats theirs (issue #805), and a Bot that switches the speech off gets a block without it.
 func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 	t.Parallel()
 
@@ -62,7 +62,7 @@ func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 		"what the block is built from starts with what the worker's tools server lists")
 
 	same, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "same", Tools: []string{"phone"},
-		ToolsOff: []string{agenttool.ToolRoutines}})
+		ToolsOff: []string{agenttool.ToolRoutines, agenttool.ToolChatSearch}})
 	require.NoError(t, err)
 
 	block := agenttool.ToolGuide(workerTools)
@@ -79,6 +79,8 @@ func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "own"})
 	require.NoError(t, err)
 	assert.Contains(t, agenttool.ToolGuide(api.BotTools(ctx, bot)), "\n- Routines: ")
+	assert.Contains(t, agenttool.ToolGuide(api.BotTools(ctx, bot)), "\n- Chats: Search your own earlier chats with "+
+		"chat_search before asking the owner to repeat something", "a Bot is told to search its chats (issue #805)")
 
 	quiet, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "quiet", ToolsOff: []string{"audio_*"}})
 	require.NoError(t, err)

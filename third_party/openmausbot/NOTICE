@@ -37,6 +37,15 @@ folderPageCsp), which web/src/features/artifacts sent as the frame's meta
 until then. Changed: sent as the page's response header, its own files named
 by the page's address, and no base.
 
+The recall of a Bot's earlier chats (internal/controlplane/orchestration/
+chatsearch.go, issue #805), from its server/recall.ts and server/message-db.ts
+at c175749a8: the fence's words (RECALL_OPEN, RECALL_CLOSE), the limits (8,
+500 and 6,000 characters, 4 passages, 2 words shared from 5), the stop words
+and fillers, the prefix of a word of four letters or more and the cleaning of a
+passage. Changed: written in Go over Hypomnema's chats, the words reworded for
+chats with the owner, no memory files searched, and a word is what FTS5's
+tokenizer reads as one.
+
 From OpenMausBot's own NOTICE, for that code:
 
 The egress gate for the bots' browser (server/browser/egress/) adapts T3 Code's

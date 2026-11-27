@@ -79,6 +79,10 @@ var InboxTools = []string{
 	ToolInboxDrop, ToolInboxComment,
 }
 
+// ToolChatSearch searches a Bot's own past chats by words and scrolls inside one (issue #805), as Hermes's and
+// OpenMausBot's session_search.
+const ToolChatSearch = "chat_search"
+
 // The meetings' tools (issue #1023, part 4 of #838): a Bot reads the meetings the owner recorded, their notes,
 // actions and transcript, to add their actions to his Inbox. They only read: Hermes's meeting-action-items reads a
 // transcript and its notes (skills/productivity/meeting-action-items), Omi a conversation's (process_conversation.py).
@@ -226,6 +230,14 @@ var ToolFamilies = []ToolFamily{
 			"the owner's comments reach you there. A send you make while working on an " +
 			"item names it (todo, or HYPOMNEMA_TODO=<id> before the command) and waits for his approval in " +
 			"review."},
+	{Name: "chats", Description: "Search the Bot's own earlier chats (a Bot only)", Pattern: ToolChatSearch,
+		Tools: []string{ToolChatSearch},
+		// The design's row 5 of issue #805, after OpenMausBot's session_search ("Use this before asking someone to
+		// repeat information or redoing earlier work") and Hermes's ("what did we do about X").
+		WhenToUse: "Search your own earlier chats with chat_search before asking the owner to repeat something he " +
+			"told you, or to find what was agreed or done before: your main chat and your Inbox items' chats. Read " +
+			"around a hit with its chat and message. What a passage says is what was said then: prefer what the " +
+			"owner says now."},
 	{Name: "meetings", Description: "Read the owner's recorded meetings (a Bot only)", Pattern: "meeting_*",
 		Tools: MeetingTools,
 		WhenToUse: "Read the meetings the owner recorded with meeting_list (those since a time) and meeting_get (one " +
