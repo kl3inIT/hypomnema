@@ -2,6 +2,7 @@ package clientcli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"strings"
@@ -145,7 +146,7 @@ func inboxChatsMove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	m := resp.JSON200
 
-	return e.print(fs, m, func() {
+	err = e.print(fs, m, func() {
 		for _, c := range m.Moved {
 			e.printf("switched off: %s:%s chat %s\n", c.Integration, c.Label, c.Chat)
 		}
@@ -170,4 +171,20 @@ func inboxChatsMove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			e.printf("%d default patterns: bots and official accounts are skipped by default\n", len(m.Defaults))
 		}
 	})
+	if err != nil {
+		return err
+	}
+
+	// An id not stored would be read by the check that replaces dropChats (review of #1270, round 1): setup.sh
+	// stops on this failure before it sets that check.
+	if len(m.Unknown) > 0 {
+		return fmt.Errorf("%w: no account of the owner's has chat %s, so it is not stored; switch it off from the "+
+			"Inbox's chats once it is listed, or take it out of dropChats of %s's thu-ky/filters.json, then run "+
+			"this again", errNotMoved, strings.Join(m.Unknown, ", "), bot)
+	}
+
+	return nil
 }
+
+// errNotMoved is a move of dropChats that left an id unstored.
+var errNotMoved = errors.New("not every chat id of dropChats was moved")

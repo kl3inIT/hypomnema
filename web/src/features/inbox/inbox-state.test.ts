@@ -285,7 +285,7 @@ test("a row names the chat and the person, not the account's number", () => {
     todo("z", {
       source: {
         kind: "zalo",
-        id: "2261258766901429891",
+        id: "1000000000000000001",
         account: "2223515701293677881",
         quote: "a kieemr tra cho :O",
         ref: { kind: "zalo_message", ref: "8520580535290" },

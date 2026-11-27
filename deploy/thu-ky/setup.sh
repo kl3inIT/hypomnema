@@ -35,8 +35,10 @@ routine() {
 
 # Which chats the triage reads is the owner's choice per chat, kept by the control plane (issue #1270). Before the
 # check that reads those choices is set, the chat ids the Bot's thu-ky/filters.json named in dropChats become his
-# choices, switched off: run again, it changes nothing, and a chat he switched on since stays on. It stops here when
-# the control plane cannot do it (one released before #1270), so that the new check never reads a chat dropChats left
+# choices, switched off: run again, it changes nothing, and a chat he switched on since stays on. It fails, and
+# setup stops here, until every such id is stored: while one of his accounts cannot be listed (its session not open),
+# for an id none of his accounts has (take it out of dropChats, or switch the chat off once it is listed), and on a
+# control plane released before #1270. So the new check, which reads dropChats no more, never reads a chat it left
 # out.
 if [ -n "$bot" ]; then
   hypomnema inbox chats move --bot "$bot"

@@ -324,7 +324,7 @@ test("one account is named by the label its reads give", async () => {
     const answer = await w.call(name, args);
     return name.startsWith("zalo_") ? { account: "main", ...answer } : answer;
   };
-  const one = [{ name: "zalo_chats", inputSchema: { properties: { limit: {} } } }, { name: "zalo_messages" }];
+  const one = [{ name: "zalo_chats", inputSchema: { properties: { limit: {} } } }, { name: "zalo_messages" }, { name: "inbox_chats" }];
   const got = await check({ tools: one, call, state: { sources: { zalo: since } }, now });
 
   assert.equal(got.wake, true);

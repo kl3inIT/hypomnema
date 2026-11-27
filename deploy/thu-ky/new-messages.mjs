@@ -125,10 +125,13 @@ export function skipped(config, account, id, name) {
 }
 
 // choicesOf reads the owner's choices of which chats the secretary reads (inbox_chats, issue #1270): each chat he
-// set by its account and id, and the bot default's patterns, which take the place of dropChats. A control plane
-// without the tool leaves dropChats as it is.
+// set by its account and id, and the bot default's patterns, which take the place of dropChats. A run without the
+// tool (the Bot's Inbox tools switched off, a control plane released before #1270) cannot know them: it fails as a
+// failed read does, so that none of his chats is read rather than the defaults (review of #1270, round 1).
 async function choicesOf(tools, call) {
-  if (!tools.some((t) => t.name === "inbox_chats")) return {};
+  if (!tools.some((t) => t.name === "inbox_chats")) {
+    throw new Error("this run has no inbox_chats tool: the Bot needs the inbox tools");
+  }
   const { defaults = {}, chats = [] } = await call("inbox_chats", {});
   return {
     chosen: new Map(chats.map((c) => [`${c.account}\u0000${c.chat}`, c.reads])),
@@ -137,6 +140,14 @@ async function choicesOf(tools, call) {
   };
 }
 
+
+// chatOf is the account (integration:label) and the chat a conversation is in, with the chat's name, as its fields
+// say or, for one carried by an earlier version, its line; undefined for a mail thread or a meeting.
+export function chatOf(f) {
+  if (f.account && f.chat) return { account: f.account, chat: f.chat, name: f.name };
+  const m = f.where?.match(/^(\S+) chat "(.*)"(?: thread \S+)? \(id ([^)]+)\)$/);
+  return m ? { account: m[1], chat: m[3], name: m[2] } : undefined;
+}
 
 // A source's state: mark, the time it was read through; for Zalo and WhatsApp also gaps, the spans of time below
 // the mark not read yet (after, before), the newest first, left by a run that reached its cap.
@@ -239,6 +250,7 @@ async function readMessaging(call, source, st, now, config) {
   }
   const found = [...chats].map(([id, c]) => ({
     where: `${keyOf({ ...source, label })} chat "${c.name}" (id ${id})`,
+    account: keyOf({ ...source, label }), chat: id, name: c.name,
     count: c.count,
     mine: c.mine,
     from: [...c.from],
@@ -360,6 +372,7 @@ async function readLark(call, source, st, now, config) {
           const entry = out.get(id) ?? {
             where: `${source.account} chat "${chat.name || chat.chat_id}"${thread ? ` thread ${thread}` : ""} ` +
               `(id ${chat.chat_id})`,
+            account: source.account, chat: chat.chat_id, name: chat.name || chat.chat_id,
             count: 0, mine: 0, from: new Set(), latest: 0, rank: chat.chat_mode === "p2p" ? ranks.direct : ranks.group,
           };
           if (m.sender?.id === me) {
@@ -639,7 +652,6 @@ function merge(carried, f) {
 export async function check({ tools, call, state = {}, config = {}, now = new Date() }) {
   config = { ...defaults, ...config };
   const kept = { ...(state.sources ?? {}) };
-  const found = (state.carry ?? []).map((f) => ({ ...f }));
   const fresh = [];
   const problems = [];
   const firstMark = new Date(now.getTime() - config.firstLookBackMinutes * 60_000).toISOString();
@@ -650,6 +662,17 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
     config = { ...config, ...(await choicesOf(tools, call)) };
   } catch (error) {
     unchosen = `which chats the owner switched off could not be read (${error.message})`;
+  }
+  // What was carried gets this run's choices before anything is printed (review of #1270, round 1): a chat he
+  // switched off since is dropped; when his choices cannot be read, a carried chat is held, neither printed nor
+  // dropped, until a run can check it. A mail thread or a meeting is no chat.
+  const found = [];
+  const held = [];
+  for (const f of state.carry ?? []) {
+    const c = chatOf(f);
+    if (!c) found.push({ ...f });
+    else if (unchosen) held.push(f);
+    else if (!skipped(config, c.account, c.chat, c.name)) found.push({ ...f });
   }
   for (const source of sources(tools)) {
     const key = keyOf(source);
@@ -678,9 +701,11 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
   // When the Bot was last woken (issue #1119): the owner's changes to his Inbox since then are what it learns from.
   // The check cannot read the Inbox, so it names the moment, and a check that wakes no one keeps it.
   const woke = state.woke ? { woke: state.woke } : {};
+  const holding = held.length ? { carry: held } : {};
   if (found.length === 0) {
     return {
-      wake: false, text: [...lines, JSON.stringify({ wakeAgent: false })].join("\n"), state: { sources: kept, ...woke },
+      wake: false, text: [...lines, JSON.stringify({ wakeAgent: false })].join("\n"),
+      state: { sources: kept, ...woke, ...holding },
     };
   }
   const corrections = `The owner's own changes to his Inbox since the last run: inbox_list with owner_changed_since ` +
@@ -702,7 +727,9 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
   return {
     wake: true,
     text: [intro, ...shown, ...more, ...lines, corrections].join("\n"),
-    state: { sources: kept, woke: now.toISOString(), ...(carry.length ? { carry } : {}) },
+    state: {
+      sources: kept, woke: now.toISOString(), ...(held.length + carry.length ? { carry: [...held, ...carry] } : {}),
+    },
   };
 }
 

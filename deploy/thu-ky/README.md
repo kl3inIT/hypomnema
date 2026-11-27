@@ -34,13 +34,18 @@ on|off` from the terminal). A chat he never set takes its kind's default, the sa
 and groups are read, a bot's or an official account's (by its name or id: Zalo's own accounts, `OA`, official
 accounts, ads, newsletters, WhatsApp broadcasts) is not. A chat switched off is still synced and kept, and a Bot
 reads it when he asks; only the check skips it, before any model. The check reads the choices with `inbox_chats`
-once a run; when they cannot be read, it reads none of his chats that run and says so.
+once a run, so the Bot needs the `inbox` tools. When they cannot be read, or the run has no `inbox_chats`, it reads
+none of his chats that run and says so: their marks are kept and read next time, and mail and meetings still are. What
+a run had no room for is carried to the next one with the choices of that run: a chat switched off meanwhile is
+dropped, and a carried chat whose choice cannot be read is kept for a later run, not printed.
 
 Until 2026-11-27 the check left chats out by `dropChats` of `thu-ky/filters.json`, and the owner added chat ids
 there. `setup.sh` moves them once, before it sets the new check: each exact id (`^<id>$`) of a chat one of his
 accounts has becomes his choice, switched off (`hypomnema inbox chats move [--bot <name or id>]`, which prints what it
 moved, the ids no account has and the patterns that are not one chat's id). Run again, it changes nothing, and a
-chat he switched on since stays on. Once the control plane has `inbox_chats`, the check no longer reads
+chat he switched on since stays on. It fails, and `setup.sh` stops before it sets the check, until every such id is
+stored: while one of his accounts cannot be listed (a Zalo or WhatsApp session not open), and for an id none of his
+accounts has, which he takes out of `dropChats` or switches off on the screen once it is listed. Once the control plane has `inbox_chats`, the check no longer reads
 `dropChats`; the field may be removed from `filters.json`.
 
 The owner's own new messages wake the triage too (issue #1182): his "dạ oki chị" to a request for work is work he

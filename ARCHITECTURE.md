@@ -5337,11 +5337,14 @@ its client API, its CLI and the Bots' tools.
     /inbox/chat-sources/moves` (the one-time move below); the CLI's `inbox chats`, `inbox chats set` and `inbox
     chats move`. A Bot's pi and its Routine's check get `inbox_chats` (family `inbox`, allowed in a read run): the
     owner's choices of the accounts the Bot may read and the defaults with their patterns. The check reads it once a
-    run and skips a chat he switched off before any model; when it cannot be read, none of his chats is read that run.
+    run and skips a chat he switched off before any model; when it cannot be read or the run lacks it, none of his
+    chats is read that run. The conversations a run carried get the next run's choices before anything is printed: a
+    chat switched off is dropped, and one whose choice cannot be read is held, unprinted, waking nobody.
     A chat switched off is still synced, kept and read by a Bot when he asks. The move reads `dropChats` of a Bot's
     `thu-ky/filters.json` (through its folder's helper) and switches off, as his choice, each exact id (`^<id>$`) of a
-    chat one of his accounts has, unless he set that chat already, so that running it again changes nothing;
-    `deploy/thu-ky/setup.sh` runs it before it sets the check, which no longer reads `dropChats` once the control
+    chat one of his accounts has, unless he set that chat already, so that running it again changes nothing. It
+    fails (503) while one of his accounts cannot be listed, and the CLI exits non-zero for an id no account has;
+    `deploy/thu-ky/setup.sh` runs it and stops on that failure before it sets the check, which no longer reads `dropChats` once the control
     plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
     `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
     kind and state filters as the Machines page's segmented controls, and a card of rows, each with its kind's icon,

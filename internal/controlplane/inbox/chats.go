@@ -256,8 +256,10 @@ type MovedChat struct {
 
 // MoveDropChats moves the ids of patterns, a Bot's thu-ky/filters.json dropChats, into the owner's choices (issue
 // #1270): an exact id, `^<id>$`, of a chat one of the sources has is switched off as his choice, unless he made one
-// for that chat already, so that running it again changes nothing. A source that cannot be listed is named, and
-// what the others have is still moved.
+// for that chat already, so that running it again changes nothing. What the sources that can be listed have is
+// moved; a source that cannot be listed may hold an id still to move, so the move then fails, naming the sources
+// and the ids not found, and is run again once they can be (review of #1270, round 1: the check that replaces
+// dropChats is set only after every id is stored).
 func (c Chats) MoveDropChats(ctx context.Context, sources []Source, patterns []string,
 	add func(ctx context.Context, integration, label, chat string, reads bool) (bool, error),
 ) (Moved, error) {
@@ -314,6 +316,11 @@ func (c Chats) MoveDropChats(ctx context.Context, sources []Source, patterns []s
 		if !found[id] {
 			out.Unknown = append(out.Unknown, id)
 		}
+	}
+
+	if len(out.NotRead) > 0 {
+		return out, fmt.Errorf("%w: %s; the dropChats ids not stored yet: %s. Run it again once the accounts can be "+
+			"read", storeerr.ErrUnavailable, strings.Join(out.NotRead, "; "), strings.Join(out.Unknown, ", "))
 	}
 
 	return out, nil

@@ -246,9 +246,11 @@ export function InboxScreen({
     >
       <PageHeader className="inbox-topbar" />
       <div className="flex flex-col gap-3 px-3 pt-1 pb-3 sm:px-5">
-        <PageHeading title="Inbox" className="pb-3 md:pt-4">
-          <div className="flex items-center gap-2">
-            <div className="w-52 max-md:flex-1">
+        {/* The title keeps its width and the search gives way to the filters and the gear (review of #1270:
+            at 1280 px the gear pushed the search over the title). */}
+        <PageHeading title="Inbox" className="pb-3 md:grid-cols-[auto_minmax(0,1fr)] md:pt-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="w-52 max-md:flex-1 md:min-w-28">
               <InputGroup>
                 <InputGroupAddon>
                   <Search />
