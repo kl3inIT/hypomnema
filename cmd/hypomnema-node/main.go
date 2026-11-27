@@ -20,6 +20,13 @@
 //	hypomnema-node gitssh -- ARGS
 //	                        git's ssh for a repository cloned over SSH, with the control plane's key
 //	                        (set as GIT_SSH_COMMAND by the daemon)
+//	hypomnema-node gh DIR ARGS
+//	                        the worker's gh with a fresh token of the owner's GitHub App (run by the
+//	                        gh script the daemon puts first on the worker's PATH)
+//	hypomnema-node git-credential get
+//	                        git's credential helper for github.com, with a fresh token of the App's
+//	hypomnema-node hypomnema DIR ci wait PR [--timeout 2h]
+//	                        the worker's `hypomnema ci wait`: wait for a pull request's CI on the App's events
 //	hypomnema-node version  print the version
 package main
 
@@ -35,6 +42,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node"
 	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
+	"github.com/kl3inIT/hypomnema/internal/node/githubapp"
 	"github.com/kl3inIT/hypomnema/internal/node/gitssh"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/workertools"
@@ -161,6 +169,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return agenttool.FromEnv().Run(ctx, args[1], args[2:])
 	case gitssh.Subcommand:
 		return gitssh.Main(ctx, args[1:])
+	case githubapp.GHSubcommand:
+		// The worker's gh on a repository the owner's GitHub App covers, with a fresh token of the App's (issue #1262).
+		return githubapp.MainGH(ctx, args[1:])
+	case githubapp.CredentialSubcommand:
+		return githubapp.MainCredential(ctx, args[1:], os.Stdin, stdout)
+	case githubapp.CLISubcommand:
+		// The worker's `hypomnema ci wait <pr>` (issue #1262).
+		return githubapp.MainCLI(ctx, args[1:], stdout, os.Stderr)
 	case diskguard.ScopedSubcommand:
 		return diskguard.ScopedExec(args[1:])
 	case "shim", "mcp":

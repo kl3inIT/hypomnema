@@ -1,0 +1,20 @@
+Omnara
+Copyright Omnara contributors.
+
+Used under the Apache License, Version 2.0 (third_party/omnara/LICENSE). Source: https://github.com/omnara-ai/omnara at
+2ef7f95a50eb379afb6be18d5145ca1d64ac9306.
+
+What is adapted from it here (issue #1262):
+
+- The owner's GitHub App (internal/controlplane/githubapp): the manifest's code exchange and the checks of its
+  answer (internal/integration/github/setup.go ConvertManifest), reading the App's RSA key and signing its JWT
+  (auth.go parsePrivateKey, appJWT), making an installation's token (auth.go mintInstallationToken) and keeping it,
+  one maker a key (installation_token_cache.go), checking a delivery's X-Hub-Signature-256 and its headers
+  (webhooks.go ValidSignature, validHeaderValue), and the manifest's fields
+  (internal/httpapi/github_app_setup_routes.go). Changed: the token is made with every permission the installation
+  has and reused until 15 minutes before its end; the credential is one vault secret of the control plane's.
+- A worker's gh and git credential helper with a fresh installation token (internal/node/githubapp), from
+  internal/machinedaemon/git_credential_helper.go RunGitHubCLI and RunGitCredentialHelper. Changed: the helpers ask
+  the control plane's agent API with the Dispatch's key instead of a daemon's local socket.
+
+Files changed by Hypomnema are Hypomnema's; the notices above say what each was adapted from.

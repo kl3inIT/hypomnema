@@ -76,7 +76,7 @@ type Browser interface {
 	Page(ctx context.Context, key string, cookies []browser.Cookie) (Page, error)
 	DisposeContext(ctx context.Context, key string)
 	OpenOwnerTab(ctx context.Context, address string) error
-	// EvaluateOwnerTab runs a script in the owner's tab; ErrHeld while he holds the browser.
+	// EvaluateOwnerTab runs a script in the owner's tab; ErrHeld while he holds his own tab.
 	EvaluateOwnerTab(ctx context.Context, expression string, result any) error
 	ProfileCookies(ctx context.Context, domain string) ([]browser.Cookie, error)
 	ClearProfileCookies(ctx context.Context, cookies []browser.Cookie) error

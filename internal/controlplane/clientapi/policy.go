@@ -44,6 +44,10 @@ type policy struct {
 
 var policies = map[string]policy{
 	"GetMe":                       {},
+	"GetGitHubApp":                {scope: scopeOwner},
+	"SyncGitHubAppInstallations":  {scope: scopeOwner},
+	"TestGitHubAppDelivery":       {scope: scopeOwner},
+	"WaitPullRequestCI":           {long: true},
 	"CreateSession":               {public: true},
 	"DeleteSession":               {},
 	"ListRuns":                    {},

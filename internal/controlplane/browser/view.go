@@ -53,9 +53,11 @@ const (
 	maxStreamMessage = 64 << 20
 	// streamFile ends the name of the file in which a session's daemon writes its stream's port.
 	streamFile = ".stream"
+	// frontTimeout bounds bringing a tab to the front, as Chrome's list of its tabs is bounded (chromeTabs).
+	frontTimeout = 5 * time.Second
 )
 
-// The controller a view is told.
+// The controller a view is told: who drives its tab.
 const (
 	ControllerAgent = "agent"
 	ControllerYou   = "you"
@@ -82,7 +84,7 @@ type Update struct {
 	Viewport *Size
 	// URL is the tab's address.
 	URL string
-	// Controller is who drives the browser, ControllerAgent or ControllerYou.
+	// Controller is who drives the tab, ControllerAgent or ControllerYou.
 	Controller string
 }
 
@@ -133,10 +135,15 @@ type streamMessage struct {
 
 // View is the owner's view of one tab.
 type View struct {
-	e    *Engine
-	s    *session
-	tab  string
+	e     *Engine
+	s     *session
+	tab   string
+	order uint64
+	// hold is who drives the tab (control.go).
+	hold *ownerhold.Hold
 	conn *websocket.Conn
+	// life is the view's own context, which Close ends: a move of its tab to the front waits on it (front.go).
+	life context.Context //nolint:containedctx // The view's own lifetime, which Close ends.
 	stop context.CancelFunc
 
 	messages chan streamMessage
@@ -161,13 +168,15 @@ type View struct {
 // Watch opens the owner's view of a tab: an agent's, by the name the agent
 // has in the browser, or OwnerTab.
 func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
-	if !e.control.Opened(maxViews) {
+	hold, ok := e.holds.open(tab)
+	if !ok {
 		return nil, ErrTooManyViews
 	}
+	order, deadline := e.focus.request(tab == OwnerTab)
 
-	v, err := e.watch(ctx, tab)
+	v, err := e.watch(ctx, tab, hold, order, deadline)
 	if err != nil {
-		e.control.Unopened()
+		e.holds.unopened(hold)
 
 		return nil, err
 	}
@@ -175,8 +184,13 @@ func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
 	return v, nil
 }
 
-func (e *Engine) watch(ctx context.Context, tab string) (*View, error) {
-	s, err := e.viewed(ctx, tab)
+func (e *Engine) watch(
+	ctx context.Context, tab string, hold *ownerhold.Hold, order uint64, deadline time.Time,
+) (*View, error) {
+	s, err := e.viewed(ctx, tab, deadline)
+	if tab == OwnerTab {
+		e.focus.prepared()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -206,18 +220,21 @@ func (e *Engine) watch(ctx context.Context, tab string) (*View, error) {
 	conn.SetReadLimit(maxStreamMessage)
 
 	v := &View{
-		e: e, s: s, tab: tab, conn: conn, stop: stop,
+		e: e, s: s, tab: tab, order: order, hold: hold, conn: conn, life: streaming, stop: stop,
 		messages: make(chan streamMessage, 8), again: make(chan struct{}, 1),
 	}
 
 	go v.pump(streaming)
+
+	// Chrome paints only the tab in front (front.go).
+	e.front(v, deadline, true)
 
 	return v, nil
 }
 
 // viewed returns the tab's session with a view counted on it, so that it is
 // not closed as idle. The owner's own tab is made when it is not there.
-func (e *Engine) viewed(ctx context.Context, tab string) (*session, error) {
+func (e *Engine) viewed(ctx context.Context, tab string, deadline time.Time) (*session, error) {
 	if tab == OwnerTab {
 		s, cdp, _, err := e.attach(ctx, OwnerTab)
 		if err != nil {
@@ -225,15 +242,35 @@ func (e *Engine) viewed(ctx context.Context, tab string) (*session, error) {
 		}
 
 		s.mu.Lock()
-		defer s.mu.Unlock()
+		opened := s.opened
+		s.mu.Unlock()
 
-		if !s.opened {
-			if _, err := e.tool(ctx, s, cdp, toolOpen, json.RawMessage(`{"url":"`+blankPage+`"}`)); err != nil {
+		// A tab that is made comes in front of the others: making it is queued behind the agents' calls running,
+		// as bringing a tab to the front is (front.go; review of PR #1233).
+		if !opened {
+			err := e.focus.alone(ctx, deadline, func() error {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+
+				if s.opened {
+					return nil
+				}
+
+				if _, err := e.tool(ctx, s, cdp, toolOpen, json.RawMessage(`{"url":"`+blankPage+`"}`)); err != nil {
+					return err
+				}
+
+				s.opened = true
+
+				return nil
+			})
+			if err != nil {
 				return nil, err
 			}
-
-			s.opened = true
 		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
 		e.mu.Lock()
 		defer e.mu.Unlock()
@@ -294,7 +331,7 @@ func (v *View) pump(ctx context.Context) {
 // stream ended.
 func (v *View) Next(ctx context.Context) (Update, error) {
 	for {
-		held, changed := v.e.control.State()
+		held, changed := v.hold.State()
 
 		v.mu.Lock()
 		say := !v.told || held != v.held
@@ -414,14 +451,14 @@ func (v *View) Do(ctx context.Context, a Action) error {
 
 		return v.release(ctx)
 	case "takeControl":
-		v.e.control.Take(ctx, now)
-		v.e.cfg.Logger.InfoContext(ctx, "the owner took the browser",
+		v.hold.Take(ctx, now)
+		v.e.cfg.Logger.InfoContext(ctx, "the owner took a tab",
 			slog.String("event", "browser.taken"), slog.String("tab", v.tab))
 
 		return nil
 	case "releaseControl":
-		if v.e.control.Release() {
-			v.e.released(ctx, ownerhold.ReleasedAsked)
+		if v.hold.Release() {
+			v.e.released(ctx, v.tab, ownerhold.ReleasedAsked)
 		}
 
 		return nil
@@ -447,7 +484,7 @@ func (v *View) Do(ctx context.Context, a Action) error {
 		return nil
 	}
 
-	if !v.e.control.Input(now) {
+	if !v.hold.Input(now) {
 		select {
 		case v.again <- struct{}{}:
 		default:
@@ -542,7 +579,7 @@ func input(a Action) (message map[string]any, tool string, arguments json.RawMes
 	return nil, "", nil
 }
 
-// human runs a tool in a tab for the owner, who holds the browser.
+// human runs a tool in a tab for the owner, who holds it.
 func (e *Engine) human(ctx context.Context, s *session, tool string, arguments json.RawMessage) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -573,19 +610,24 @@ func (e *Engine) human(ctx context.Context, s *session, tool string, arguments j
 // however it went (ownerhold.Closed); only releaseControl ends it at once.
 func (v *View) Close(ctx context.Context) {
 	v.closing.Do(func() {
+		// The view opened before this one brings its tab back to the front (front.go).
+		if before := v.e.focus.closed(v); before != nil {
+			v.e.front(before, time.Now().Add(v.e.focus.waitFor()), false)
+		}
+
 		v.stop()
 		_ = v.conn.Close(websocket.StatusNormalClosure, "")
 
 		v.e.unviewed(v.s)
 		v.e.unwatched(ctx, v.s)
 
-		v.e.control.Closed(v.e.cfg.Clock.Now())
+		v.e.holds.closed(v.hold, v.e.cfg.Clock.Now())
 	})
 }
 
-func (e *Engine) released(ctx context.Context, reason string) {
-	e.cfg.Logger.InfoContext(ctx, "the browser went back to the agents",
-		slog.String("event", "browser.released"), slog.String("reason", reason))
+func (e *Engine) released(ctx context.Context, tab, reason string) {
+	e.cfg.Logger.InfoContext(ctx, "a tab went back to its agent",
+		slog.String("event", "browser.released"), slog.String("tab", tab), slog.String("reason", reason))
 }
 
 // Tab is one tab of the shared browser.
@@ -598,19 +640,21 @@ type Tab struct {
 	Favicon string
 	// Views is how many views of it are open.
 	Views int
+	// Held says that the owner holds it: its agent's calls are refused.
+	Held bool
 }
 
-// Tabs lists the open tabs, and says whether the owner holds the browser.
+// Tabs lists the open tabs, and says whether the owner holds any of them.
 // It starts nothing.
 func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
-	held, _ := e.control.State()
+	held := e.holds.held()
 
 	e.mu.Lock()
 
 	if e.cdp == "" {
 		e.mu.Unlock()
 
-		return nil, held
+		return nil, len(held) > 0
 	}
 
 	cdp := e.cdp
@@ -618,7 +662,7 @@ func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
 	targets := map[string]int{}
 
 	for agent, s := range e.sessions {
-		tab := Tab{ID: agent, Views: s.views}
+		tab := Tab{ID: agent, Views: s.views, Held: held[agent]}
 
 		// agent-browser keeps the tab a session is pinned to, and its last address, in a file.
 		var bound struct {
@@ -646,7 +690,7 @@ func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
 		}
 	}
 
-	return tabs, held
+	return tabs, len(held) > 0
 }
 
 // chromeTab is one of Chrome's targets as its DevTools port lists them.

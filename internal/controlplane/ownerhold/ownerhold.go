@@ -1,11 +1,12 @@
-// Package ownerhold is who drives a tool the agents share and the owner
+// Package ownerhold is who drives a thing the agents use and the owner
 // watches: the agents, or the owner who took control (issue #219 for the
 // browser, issue #417 for the phone). While the owner holds it every agent's
-// call is refused, reads included: the owner may be typing a password. As
-// OpenMausBot's ProfileControl (server/browser/control.ts), and not T3 Code's
-// control of one tab (apps/server/src/preview/SessionControl.ts). The
-// browser kept it as its own until the phone took the same rules (issue
-// #417: "same release rules as the browser").
+// call on it is refused, reads included: the owner may be typing a password.
+// The phone has one Hold, as OpenMausBot's ProfileControl holds a whole
+// browser (server/browser/control.ts); the browser has one a tab, as T3
+// Code's SessionControl is one tab's (apps/server/src/preview/SessionControl.ts;
+// issue #1113). The browser kept it as its own until the phone took the same
+// rules (issue #417: "same release rules as the browser").
 package ownerhold
 
 import (
@@ -190,6 +191,15 @@ func (c *Hold) Unopened() {
 	defer c.mu.Unlock()
 
 	c.views--
+}
+
+// Unused says that nothing uses the Hold: the owner does not hold it, no
+// agent's call is in it and no view is open.
+func (c *Hold) Unused() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return !c.held && c.running == 0 && c.views == 0
 }
 
 // Viewing says whether a view is open.
