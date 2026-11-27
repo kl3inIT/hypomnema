@@ -103,8 +103,8 @@ func TestAQuestionIsFoldedForAControlPlaneThatKeepsOne(t *testing.T) {
 
 	old := sent(false)
 	require.NotNil(t, old.Gate)
-	assert.Equal(t, nodeproto.Ask{To: "owner", Text: "Answer each decision in turn:\n"+
-		"1. Items: One item each?\n   - Yes: Do it now.\n   - Other\n"+
+	assert.Equal(t, nodeproto.Ask{To: "owner", Text: "Answer each decision in turn:\n" +
+		"1. Items: One item each?\n   - Yes: Do it now.\n   - Other\n" +
 		"2. Server: Fix it now?\n   - Yes: Do it now.\n   - Other"}, *old.Gate, "every decision is in the text")
 	assert.Equal(t, "planned", old.Summary)
 

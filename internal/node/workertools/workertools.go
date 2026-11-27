@@ -539,7 +539,6 @@ func (a asked) ask(to string, parts bool) (nodeproto.Ask, error) {
 	return out, nil
 }
 
-
 func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int, message string),
 ) (map[string]any, error) {
 	var a struct {

@@ -182,7 +182,7 @@ type Daemon struct {
 	// questionParts is what the control plane said at the last hello: it keeps a question's several decisions
 	// (issue #1219). A question reported on a connection without it is folded into one (oneQuestionOf).
 	questionParts bool
-	hellos              chan struct{}
+	hellos        chan struct{}
 	// uploadNow has the takes' uploads tried at once (takes.go).
 	uploadNow chan struct{}
 	// base is Run's context, for what outlives one socket: a terminal's connection.
