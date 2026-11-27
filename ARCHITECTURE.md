@@ -6508,7 +6508,10 @@ Node (`internal/node`):
     /inbox/{id}` with assignee `me` at the revision read, which clears `waiting`; also in the detail's top bar and
     Cmd+K). On a computer the first item of Needs you is open when none is
     chosen; when nothing waits, the right pane says so with the to-dos added and closed today.
-  - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
+  - The detail: previous and next with "n of N in <group>". Opening a to-do from the list or stepping to it lands at
+    its newest comment with the composer in view. A to-do without comments opens at the top, where the description
+    always stays. The pane uses chat's `use-stick-to-bottom` and its scroll button to follow new comments at the
+    bottom and return there after scrolling up (issue #1249). A to-do's Snooze (Later today, Tomorrow, Monday, Next
     week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; the channel's mark and name and
     the chat's, the person's or the meeting's name; its properties as circle's `issue-properties-panel.tsx`, each an
     icon and its value (issue #1173): Status, circle's status icon and its name (`web/src/components/ui/status.tsx`:
