@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test"
 import { shot } from "./shot.js"
 import type { GatewayKey as Key, GatewayToolConfig } from "../src/api/generated/types.gen.js"
 
-// Settings → Connect a tool (issue #907), built, against a fake client API, on a phone and a desktop.
+// Connect a tool from Gateway keys (issues #907 and #1235), built against a fake client API on a phone and a desktop.
 
 const now = new Date().toISOString()
 // Fake keys: the files are those the control plane writes (internal/shared/agentconfig), with these in them.
@@ -184,8 +184,8 @@ async function fakeServer(page: Page, slow = new Set<string>()) {
 const fits = (page: Page) =>
   page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
-// Scenario: the owner opens Connect a tool. Each of the four tools has a card with a key whose value is stored and
-// a model of that key, and its files with their paths and what they turn on; changing the model writes them again.
+// Scenario: the owner opens the Connect a tool page linked by the Gateway keys header button. Each tool has a card
+// where the owner picks a stored key and a model, and sees the files and their paths. Changing the model writes them again.
 test("the owner copies each tool's file", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/connect")

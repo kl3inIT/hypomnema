@@ -86,7 +86,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorAlert } from "@/components/error-alert"
@@ -346,12 +345,18 @@ function KeyValue({ gatewayKey }: { gatewayKey: GatewayKey }) {
       <div className="grid gap-1 text-xs text-muted-foreground">
         <code>{gatewayKey.prefix ? `${gatewayKey.prefix}…` : "—"}</code>
         <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger type="button">Can&apos;t be shown</TooltipTrigger>
-            <TooltipContent>
-              Made before keys could be shown again; make a new one to copy it.
-            </TooltipContent>
-          </Tooltip>
+          <Popover>
+            <PopoverTrigger type="button">
+              <span className="underline decoration-dotted underline-offset-2">
+                Can&apos;t be shown
+              </span>
+            </PopoverTrigger>
+            <PopoverContent align="start" aria-label="Key value unavailable">
+              <p className="whitespace-normal">
+                Made before keys could be shown again; make a new one to copy it.
+              </p>
+            </PopoverContent>
+          </Popover>
           <KeyDialog gatewayKey={gatewayKey} />
         </div>
       </div>
