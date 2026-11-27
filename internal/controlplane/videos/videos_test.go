@@ -63,6 +63,8 @@ type fakeSpeech struct {
 	failAfter map[string]int
 	sttFails  bool
 	noWords   bool
+	// speeds are the speeds each line was asked with, by its text.
+	speeds map[string][]float64
 	// timed gives the words' times with the speech when they are asked, with an audio tag spoken before them, as
 	// Soniox's WebSocket gives them (issue #1285, row 2).
 	timed bool
@@ -74,7 +76,9 @@ type fakeSpeech struct {
 }
 
 func newFakeSpeech() *fakeSpeech {
-	return &fakeSpeech{spoken: map[string]int{}, down: map[string]bool{}, failAfter: map[string]int{}}
+	return &fakeSpeech{
+		spoken: map[string]int{}, down: map[string]bool{}, failAfter: map[string]int{}, speeds: map[string][]float64{},
+	}
 }
 
 func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakRequest) (speech.Speech, error) {
@@ -105,6 +109,7 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 	}
 
 	f.spoken[req.Provider+"|"+req.Voice+"|"+req.Input]++
+	f.speeds[req.Input] = append(f.speeds[req.Input], req.Speed)
 
 	out := speech.Speech{Audio: []byte(req.Input), Provider: req.Provider}
 

@@ -23,7 +23,7 @@ func TestTheWordTimesFollowTheirClip(t *testing.T) {
 	assert.Equal(t, 2, r.speech.heard, "two distinct clips, two Transcribes")
 
 	clip := filepath.Join(r.dir, voiceDir,
-		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language)+"."+clipFormat)
+		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language, 0)+"."+clipFormat)
 	require.FileExists(t, clip)
 	require.NoError(t, os.WriteFile(clip+".words.json", []byte(`[{"Word":"STALE","Start":0,"End":0.3}]`), 0o600))
 	require.NoError(t, os.Remove(clip))
@@ -78,8 +78,41 @@ func TestAClipTimedByItsSpeechIsNotHeardAgain(t *testing.T) {
 	assert.NotContains(t, r.maker.captions[0], "excited")
 
 	clip := filepath.Join(r.dir, voiceDir,
-		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language)+"."+clipFormat)
+		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language, 0)+"."+clipFormat)
 	words, err := os.ReadFile(clip + ".words.json") //nolint:gosec // The test's own file.
 	require.NoError(t, err)
 	assert.Contains(t, string(words), `"Word":"Chạm"`)
+}
+
+// A video is spoken at the speed it was made with (issue #1285, row 3; the owner, 2026-11-27): every line is asked
+// with it, the revision says it, a clip of another speed is not reused, a retry or a look change keeps it, and a
+// speed out of 0.7-1.3 is refused before anything is queued.
+func TestAVideoIsSpokenAtItsSpeed(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+
+	_, _, err := r.svc.Make(t.Context(), MakeRequest{Take: takeID, By: "d-1", Speed: 1.5})
+	require.ErrorIs(t, err, ErrInvalid)
+
+	v, rev, err := r.svc.Make(t.Context(), MakeRequest{Take: takeID, By: "d-1", Speed: 1.2})
+	require.NoError(t, err)
+	assert.InDelta(t, 1.2, rev.Speed, 1e-9)
+	r.runAll(t)
+
+	require.Equal(t, Review, r.revision(t, v.ID, 1).State)
+	assert.Equal(t, []float64{1.2}, r.speech.speeds["Chạm vào Đăng nhập"])
+
+	_, _, err = r.svc.Make(t.Context(), MakeRequest{Take: takeID, By: "d-1"})
+	require.NoError(t, err)
+	r.runAll(t)
+	assert.Equal(t, []float64{1.2, 0}, r.speech.speeds["Chạm vào Đăng nhập"], "another speed, another clip")
+
+	_, look, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-speed", Look: &LookInput{
+		Frame: &FrameInput{Chrome: ptr("full")},
+	}})
+	require.NoError(t, err)
+	assert.InDelta(t, 1.2, look.Speed, 1e-9, "a look change keeps the speed")
+	r.runAll(t)
+	assert.Len(t, r.speech.speeds["Chạm vào Đăng nhập"], 2, "its clip at 1.2 is reused")
 }
