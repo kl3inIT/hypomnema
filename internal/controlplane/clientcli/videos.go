@@ -113,10 +113,12 @@ func (e *env) printVideo(v *openapi.Video) {
 }
 
 func videosMake(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	body := openapi.VideoMake{Take: fs.Arg(0), Title: optional(fs, "title"), Voice: optional(fs, "voice")}
+	body := openapi.VideoMake{
+		Take: fs.Arg(0), Title: optional(fs, "title"), Voice: optional(fs, "voice"), Template: optional(fs, "template"),
+	}
 
 	if a := str(fs, "aspect"); a != "" {
-		aspect := openapi.VideoMakeAspect(a)
+		aspect := openapi.VideoAspect(a)
 		body.Aspect = &aspect
 	}
 
@@ -472,12 +474,68 @@ func videosLooks(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	})
 }
 
+// videosTemplates lists the templates (issue #1230, row 5): each one's length, aspects, captions and cards, then its
+// sections with their words and seconds.
+func videosTemplates(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	resp, err := e.api.ListVideoTemplatesWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("listing the templates: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("listing the templates", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		for _, t := range resp.JSON200.Templates {
+			e.printf("%s  %s\n", t.Id, templateLine(t))
+
+			for _, sec := range t.Sections {
+				e.printf("  %s, %d words (%.0f s): %s\n", sec.Name, sec.Words, sec.Seconds, sec.Purpose)
+			}
+		}
+	})
+}
+
+// templateLine is a template's name, length, aspects, captions and cards on one line.
+func templateLine(t openapi.VideoTemplate) string {
+	aspects := make([]string, 0, len(t.Aspects))
+	for _, a := range t.Aspects {
+		aspects = append(aspects, string(a))
+	}
+
+	length := fmt.Sprintf("%d-%d s", t.Length.MinS, t.Length.MaxS)
+	if t.Length.MinS == t.Length.MaxS {
+		length = fmt.Sprintf("%d s", t.Length.MinS)
+	}
+
+	parts := []string{t.Name, length, strings.Join(aspects, " or ")}
+	if !t.Captions {
+		parts = append(parts, "no captions")
+	}
+
+	var cards []string
+	if t.Cards != nil && t.Cards.Title != nil {
+		cards = append(cards, "a title card")
+	}
+
+	if t.Cards != nil && t.Cards.End != nil {
+		cards = append(cards, "an end card")
+	}
+
+	if len(cards) == 0 {
+		cards = append(cards, "no cards")
+	}
+
+	return strings.Join(append(parts, strings.Join(cards, " and ")), ", ")
+}
+
 func videosPreview(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	take := fs.Arg(0)
-	body := openapi.VideoPreview{Take: take}
+	body := openapi.VideoPreview{Take: take, Template: optional(fs, "template")}
 
 	if a := str(fs, "aspect"); a != "" {
-		aspect := openapi.VideoPreviewAspect(a)
+		aspect := openapi.VideoAspect(a)
 		body.Aspect = &aspect
 	}
 

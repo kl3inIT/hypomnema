@@ -2460,6 +2460,27 @@ func (e TranscriptItemKind) Valid() bool {
 	}
 }
 
+// Defines values for VideoAspect.
+const (
+	AspectAppStore  VideoAspect = "886x1920"
+	AspectLandscape VideoAspect = "16:9"
+	AspectPortrait  VideoAspect = "9:16"
+)
+
+// Valid indicates whether the value is a known member of the VideoAspect enum.
+func (e VideoAspect) Valid() bool {
+	switch e {
+	case AspectAppStore:
+		return true
+	case AspectLandscape:
+		return true
+	case AspectPortrait:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VideoCaptionPosition.
 const (
 	PositionBottom     VideoCaptionPosition = "bottom"
@@ -2511,42 +2532,6 @@ func (e VideoChrome) Valid() bool {
 	}
 }
 
-// Defines values for VideoMakeAspect.
-const (
-	VideoMakeAspectN169 VideoMakeAspect = "16:9"
-	VideoMakeAspectN916 VideoMakeAspect = "9:16"
-)
-
-// Valid indicates whether the value is a known member of the VideoMakeAspect enum.
-func (e VideoMakeAspect) Valid() bool {
-	switch e {
-	case VideoMakeAspectN169:
-		return true
-	case VideoMakeAspectN916:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for VideoPreviewAspect.
-const (
-	VideoPreviewAspectN169 VideoPreviewAspect = "16:9"
-	VideoPreviewAspectN916 VideoPreviewAspect = "9:16"
-)
-
-// Valid indicates whether the value is a known member of the VideoPreviewAspect enum.
-func (e VideoPreviewAspect) Valid() bool {
-	switch e {
-	case VideoPreviewAspectN169:
-		return true
-	case VideoPreviewAspectN916:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for VideoPreviewCard.
 const (
 	VideoPreviewCardEnd   VideoPreviewCard = "end"
@@ -2559,24 +2544,6 @@ func (e VideoPreviewCard) Valid() bool {
 	case VideoPreviewCardEnd:
 		return true
 	case VideoPreviewCardTitle:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for VideoRevisionAspect.
-const (
-	VideoRevisionAspectN169 VideoRevisionAspect = "16:9"
-	VideoRevisionAspectN916 VideoRevisionAspect = "9:16"
-)
-
-// Valid indicates whether the value is a known member of the VideoRevisionAspect enum.
-func (e VideoRevisionAspect) Valid() bool {
-	switch e {
-	case VideoRevisionAspectN169:
-		return true
-	case VideoRevisionAspectN916:
 		return true
 	default:
 		return false
@@ -7694,6 +7661,9 @@ type Video struct {
 	Title string `json:"title"`
 }
 
+// VideoAspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+type VideoAspect string
+
 // VideoBackground One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
 type VideoBackground struct {
 	Colors *[]string `json:"colors,omitempty"`
@@ -7845,15 +7815,18 @@ type VideoLooks struct {
 
 // VideoMake defines model for VideoMake.
 type VideoMake struct {
-	// Aspect Absent: 9:16.
-	Aspect *VideoMakeAspect `json:"aspect,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect *VideoAspect `json:"aspect,omitempty"`
 
-	// Captions Absent: true.
+	// Captions Absent: the template's, else true.
 	Captions *bool `json:"captions,omitempty"`
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
 	Take string          `json:"take"`
+
+	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
+	Template *string `json:"template,omitempty"`
 
 	// Title The video's title, on its first make; absent: the take's.
 	Title *string `json:"title,omitempty"`
@@ -7861,9 +7834,6 @@ type VideoMake struct {
 	// Voice Absent: each provider's set on Settings → Audio.
 	Voice *string `json:"voice,omitempty"`
 }
-
-// VideoMakeAspect Absent: 9:16.
-type VideoMakeAspect string
 
 // VideoMusic The music a revision is made with, as a snapshot of the track when it was chosen; absent: none. A track taken from the default or another revision that was deleted is none, with fell_back_from.
 type VideoMusic struct {
@@ -7931,10 +7901,10 @@ type VideoPreset struct {
 
 // VideoPreview defines model for VideoPreview.
 type VideoPreview struct {
-	// Aspect Absent: 9:16.
-	Aspect *VideoPreviewAspect `json:"aspect,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect *VideoAspect `json:"aspect,omitempty"`
 
-	// Captions Absent: true.
+	// Captions Absent: the template's, else true.
 	Captions *bool `json:"captions,omitempty"`
 
 	// Card A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
@@ -7946,10 +7916,10 @@ type VideoPreview struct {
 	// Rev A revision of the take's video the look starts from, as a look change does; its first line is shown.
 	Rev  *int   `json:"rev,omitempty"`
 	Take string `json:"take"`
-}
 
-// VideoPreviewAspect Absent: 9:16.
-type VideoPreviewAspect string
+	// Template A template's id, the look resolved as a make with it; refused with rev.
+	Template *string `json:"template,omitempty"`
+}
 
 // VideoPreviewCard A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
 type VideoPreviewCard string
@@ -7962,10 +7932,11 @@ type VideoProgress struct {
 
 // VideoRevision One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed at a stage with its cause, interrupted when the control plane stopped while it was made.
 type VideoRevision struct {
-	Aspect      VideoRevisionAspect `json:"aspect"`
-	Captions    bool                `json:"captions"`
-	CreatedAt   time.Time           `json:"created_at"`
-	FailedCause *string             `json:"failed_cause,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect      VideoAspect `json:"aspect"`
+	Captions    bool        `json:"captions"`
+	CreatedAt   time.Time   `json:"created_at"`
+	FailedCause *string     `json:"failed_cause,omitempty"`
 
 	// FailedStage The stage it failed at.
 	FailedStage *string `json:"failed_stage,omitempty"`
@@ -8001,11 +7972,68 @@ type VideoRevision struct {
 	Warnings []string `json:"warnings"`
 }
 
-// VideoRevisionAspect defines model for VideoRevision.Aspect.
-type VideoRevisionAspect string
-
 // VideoRevisionState defines model for VideoRevision.State.
 type VideoRevisionState string
+
+// VideoTemplate A template of a video (issue
+type VideoTemplate struct {
+	// Aspects The aspects it is made in, its default first.
+	Aspects []VideoAspect `json:"aspects"`
+
+	// Captions Whether its videos have captions unless the make says.
+	Captions bool `json:"captions"`
+
+	// Cards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+	Cards *VideoTemplateCards `json:"cards,omitempty"`
+	Id    string              `json:"id"`
+
+	// Length How long its videos are meant to be, in seconds.
+	Length VideoTemplateLength `json:"length"`
+
+	// Look How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+	Look     VideoLook              `json:"look"`
+	Name     string                 `json:"name"`
+	Sections []VideoTemplateSection `json:"sections"`
+	UseCase  string                 `json:"use_case"`
+
+	// Words The sections' words.
+	Words int `json:"words"`
+}
+
+// VideoTemplateCard defines model for VideoTemplateCard.
+type VideoTemplateCard struct {
+	DurationMs int64   `json:"duration_ms"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoTemplateCards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+type VideoTemplateCards struct {
+	Accent string             `json:"accent"`
+	End    *VideoTemplateCard `json:"end,omitempty"`
+	Title  *VideoTemplateCard `json:"title,omitempty"`
+}
+
+// VideoTemplateLength How long its videos are meant to be, in seconds.
+type VideoTemplateLength struct {
+	MaxS int `json:"max_s"`
+	MinS int `json:"min_s"`
+}
+
+// VideoTemplateSection defines model for VideoTemplateSection.
+type VideoTemplateSection struct {
+	Name    string `json:"name"`
+	Purpose string `json:"purpose"`
+
+	// Seconds Its words at 2.5 a second.
+	Seconds float64 `json:"seconds"`
+	Words   int     `json:"words"`
+}
+
+// VideoTemplates defines model for VideoTemplates.
+type VideoTemplates struct {
+	Templates []VideoTemplate `json:"templates"`
+}
 
 // WebFetchRequest defines model for WebFetchRequest.
 type WebFetchRequest struct {
@@ -12593,6 +12621,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 	PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	//
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	//
+	// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+	ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	//
@@ -19593,6 +19628,23 @@ func (c *Client) PreviewVideoLookWithBody(ctx context.Context, contentType strin
 // Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 func (c *Client) PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPreviewVideoLookRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListVideoTemplates The templates a video is made from (owner only; issue
+//
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+//
+// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+func (c *Client) ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListVideoTemplatesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -33314,6 +33366,33 @@ func NewPreviewVideoLookRequestWithBody(server string, contentType string, body 
 	return req, nil
 }
 
+// NewListVideoTemplatesRequest constructs an http.Request for the ListVideoTemplates method
+func NewListVideoTemplatesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/templates")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDeleteVideoRequest constructs an http.Request for the DeleteVideo method
 func NewDeleteVideoRequest(server string, videoId VideoID) (*http.Request, error) {
 	var err error
@@ -37101,6 +37180,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 	PreviewVideoLookWithResponse(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewVideoLookResponse, error)
+
+	// ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
+	//
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+	ListVideoTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoTemplatesResponse, error)
 
 	// DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
 	//
@@ -50838,6 +50926,54 @@ func (r PreviewVideoLookResponse) ContentType() string {
 	return ""
 }
 
+type ListVideoTemplatesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *VideoTemplates
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListVideoTemplatesResponse) GetJSON200() *VideoTemplates {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListVideoTemplatesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListVideoTemplatesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListVideoTemplatesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListVideoTemplatesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListVideoTemplatesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteVideoResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -56951,6 +57087,21 @@ func (c *ClientWithResponses) PreviewVideoLookWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParsePreviewVideoLookResponse(rsp)
+}
+
+// ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
+//
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+func (c *ClientWithResponses) ListVideoTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoTemplatesResponse, error) {
+	rsp, err := c.ListVideoTemplates(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListVideoTemplatesResponse(rsp)
 }
 
 // DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
@@ -66584,6 +66735,39 @@ func ParsePreviewVideoLookResponse(rsp *http.Response) (*PreviewVideoLookRespons
 	return response, nil
 }
 
+// ParseListVideoTemplatesResponse parses an HTTP response from a ListVideoTemplatesWithResponse call
+func ParseListVideoTemplatesResponse(rsp *http.Response) (*ListVideoTemplatesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListVideoTemplatesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VideoTemplates
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteVideoResponse parses an HTTP response from a DeleteVideoWithResponse call
 func ParseDeleteVideoResponse(rsp *http.Response) (*DeleteVideoResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -67762,6 +67946,9 @@ type ServerInterface interface {
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(w http.ResponseWriter, r *http.Request)
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	// (GET /videos/templates)
+	ListVideoTemplates(w http.ResponseWriter, r *http.Request)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(w http.ResponseWriter, r *http.Request, videoId VideoID)
@@ -76873,6 +77060,20 @@ func (siw *ServerInterfaceWrapper) PreviewVideoLook(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListVideoTemplates operation middleware
+func (siw *ServerInterfaceWrapper) ListVideoTemplates(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVideoTemplates(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteVideo operation middleware
 func (siw *ServerInterfaceWrapper) DeleteVideo(w http.ResponseWriter, r *http.Request) {
 
@@ -77432,6 +77633,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos", wrapper.ListVideos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos", wrapper.MakeVideo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/looks", wrapper.ListVideoLooks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/templates", wrapper.ListVideoTemplates)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/preview", wrapper.PreviewVideoLook)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/music", wrapper.ListVideoMusic)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/videos/music/{music_id}", wrapper.DeleteVideoMusic)
@@ -89222,6 +89424,44 @@ func (response PreviewVideoLookdefaultJSONResponse) VisitPreviewVideoLookRespons
 	return err
 }
 
+type ListVideoTemplatesRequestObject struct {
+}
+
+type ListVideoTemplatesResponseObject interface {
+	VisitListVideoTemplatesResponse(w http.ResponseWriter) error
+}
+
+type ListVideoTemplates200JSONResponse VideoTemplates
+
+func (response ListVideoTemplates200JSONResponse) VisitListVideoTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVideoTemplatesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListVideoTemplatesdefaultJSONResponse) VisitListVideoTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteVideoRequestObject struct {
 	VideoId VideoID `json:"video_id"`
 }
@@ -90516,6 +90756,9 @@ type StrictServerInterface interface {
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(ctx context.Context, request PreviewVideoLookRequestObject) (PreviewVideoLookResponseObject, error)
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	// (GET /videos/templates)
+	ListVideoTemplates(ctx context.Context, request ListVideoTemplatesRequestObject) (ListVideoTemplatesResponseObject, error)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(ctx context.Context, request DeleteVideoRequestObject) (DeleteVideoResponseObject, error)
@@ -98801,6 +99044,30 @@ func (sh *strictHandler) PreviewVideoLook(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PreviewVideoLookResponseObject); ok {
 		if err := validResponse.VisitPreviewVideoLookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVideoTemplates operation middleware
+func (sh *strictHandler) ListVideoTemplates(w http.ResponseWriter, r *http.Request) {
+	var request ListVideoTemplatesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVideoTemplates(ctx, request.(ListVideoTemplatesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVideoTemplates")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVideoTemplatesResponseObject); ok {
+		if err := validResponse.VisitListVideoTemplatesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -12,10 +12,12 @@ import {
   Send,
   User,
 } from "lucide-react"
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useStickToBottom } from "use-stick-to-bottom"
 
-import type { Todo } from "@/api/generated/types.gen"
+import type { Todo, TodoEvent } from "@/api/generated/types.gen"
 import { AgentAvatar } from "@/components/agent-avatar"
+import { ScrollToBottomButton } from "@/components/scroll-to-bottom-button"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -111,9 +113,27 @@ export function InboxDetail({
   onProject?: (project: string | undefined) => void
 }) {
   const actions = detailActions(row, now)
+  const isTodo = row.kind === "todo"
+  const detail = useTodo(isTodo ? row.todo.id : undefined)
+  const events = detail.data?.events
+  const hasComments = events?.some((event) => event.kind === "commented") ?? false
+  const followFirstComment = useRef(true)
+  const { scrollRef, contentRef, scrollToBottom, isAtBottom, escapedFromLock } = useStickToBottom({
+    initial: false,
+    resize: "instant",
+  })
+
+  // A loaded thread opens at its end. An empty thread stays at the top while its description
+  // lays out, and follows its first new comment if the reader was at the bottom.
+  useLayoutEffect(() => {
+    if (!detail.data) return
+    const follow = followFirstComment.current
+    followFirstComment.current = !hasComments && isAtBottom && !escapedFromLock
+    if (hasComments && follow) void scrollToBottom("instant")
+  }, [detail.data, hasComments, isAtBottom, escapedFromLock, scrollToBottom])
 
   return (
-    <article aria-label="Item" className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <article aria-label="Item" className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="inbox-topbar flex min-h-12 shrink-0 items-center gap-1 border-b bg-background px-2 py-1.5 md:flex-wrap">
         {phone && (
           <Button variant="ghost" size="sm" onClick={onBack}>
@@ -156,11 +176,23 @@ export function InboxDetail({
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-        <div className="mx-auto flex max-w-2xl flex-col gap-5">
+      <div
+        ref={isTodo ? scrollRef : undefined}
+        data-scroll-restoration-id={`inbox-detail:${row.key}`}
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6",
+          isTodo && "[overflow-anchor:none]",
+        )}
+      >
+        <div
+          ref={isTodo ? contentRef : undefined}
+          className="mx-auto flex max-w-2xl flex-col gap-5"
+        >
           {row.kind === "todo" && (
             <TodoBody
               row={row}
+              events={events}
+              loading={detail.isPending}
               now={now}
               botName={botName}
               mainBot={mainBot}
@@ -207,6 +239,12 @@ export function InboxDetail({
           )}
         </div>
       </div>
+      {hasComments && !isAtBottom && (
+        <ScrollToBottomButton
+          label="Scroll to the latest comment"
+          onClick={() => void scrollToBottom()}
+        />
+      )}
     </article>
   )
 }
@@ -382,6 +420,8 @@ function Said({ todo, origin, children }: { todo: Todo; origin: Origin; children
 
 function TodoBody({
   row,
+  events,
+  loading,
   now,
   botName,
   mainBot,
@@ -394,6 +434,8 @@ function TodoBody({
   onStatus,
 }: {
   row: Extract<Row, { kind: "todo" }>
+  events?: readonly TodoEvent[]
+  loading: boolean
   now: number
   botName: (id: string) => string
   mainBot: string
@@ -406,7 +448,6 @@ function TodoBody({
   onStatus: (move: Action) => void
 }) {
   const { todo } = row
-  const detail = useTodo(todo.id)
   const origin = useOrigin(row, chats)
   const kind = sourceOf(row)
   const source = sourceNames[kind]
@@ -534,8 +575,8 @@ function TodoBody({
       />
       <Section title="Comments">
         <CommentTimeline
-          events={detail.data?.events}
-          loading={detail.isPending}
+          events={events}
+          loading={loading}
           now={now}
           from={fromOf(todo, kind, origin)}
           botName={botName}

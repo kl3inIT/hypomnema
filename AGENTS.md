@@ -86,8 +86,10 @@
   side by side never take the same version (#954; goose `create`, Omnara's `migration-create`). Its pull request
   stays green with that name while open; right before it is merged (for a worker, before turning on auto-merge) it
   merges main, runs `make migration-fix`, which numbers it after main's last (goose `fix`), and `make
-  migration-check`, then pushes and merges once green. A push to main refuses a migration named by its time, and
-  one whose number main took meanwhile; then run `make migration-fix` again (#334, #954).
+  migration-check`, then pushes and merges once green. The `migrations-current` status checks PR heads against
+  main and is refreshed for open PRs that add migrations when migrations change on main. If main takes a number
+  while the PR is open, merge main and run `make migration-fix` again (#1263). A push to main refuses a migration
+  named by its time or one whose number main took meanwhile (#334, #954).
 - A merge conflict in generated code (`internal/controlplane/clientapi/openapi/api.gen.go`,
   `web/src/api/generated/*.gen.ts`) is never edited by hand: resolve `api/openapi.yaml` first, take either side of
   the generated files, then run `make openapi-generate`, `make web-api-generate` and `make openapi-check` (#754).
@@ -126,7 +128,7 @@ check in the same change, and a rule whose mistake can no longer happen is dropp
 | Import boundaries, no wall clock in the orchestration core, the banned packages ([conventions](docs/conventions.md#layout-and-boundaries)) | `make lint`, `.golangci.yml` depguard and forbidigo (CI Static) |
 | The node links no control plane code, and the control plane no node code | `make deps-check` (CI Static) |
 | Generated code is what its source generates, never edited by hand | `make sqlc-check`, `make openapi-check`, `make web-api-check` (CI Static, Web) |
-| A numbered migration on main never changes; no two share a number; a new one comes after main's last | `make migration-check` against main, or on a push the commit before (CI Static) |
+| A numbered migration on main never changes; no two share a number; a new one comes after main's last | `make migration-check` against main, or on a push the commit before (CI Static); `migrations-current` on PR heads (`migrations-current.yml`) |
 | A migration named by its time never reaches main or a release | `make migration-check MIGRATION_TIMESTAMPS=refuse` on a push to main (`ci.yml`); `release.yml` releases only a green commit |
 | The goose that makes migration files is the goose the binary migrates with | `make goose-version-check` (CI Static) |
 | A pull request merges only with its checks green | the `Required` check on main's branch protection |

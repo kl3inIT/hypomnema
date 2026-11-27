@@ -72,6 +72,7 @@ function world({
   projects: withProjects = false,
   waiting = false,
   described = false,
+  longThread = false,
 }: {
   review?: boolean
   sources?: boolean
@@ -82,6 +83,7 @@ function world({
   projects?: boolean
   waiting?: boolean
   described?: boolean
+  longThread?: boolean
 } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
@@ -487,6 +489,25 @@ function world({
     const thread = (threads[t.id] ??= [])
     thread.push({ id: thread.length + 2, at: at(0), revision: t.revision, before: {}, ...event })
   }
+  const botComment = (text: string) => {
+    const t = todos.find((todo) => todo.id === "tdo_reply")!
+    t.revision += 1
+    remember(t, { actor: { kind: "bot", id: "bot_main" }, kind: "commented", after: { text } })
+  }
+  if (longThread) {
+    todos.find((todo) => todo.id === "tdo_reply")!.notes =
+      "Confirm the dates in the contract before replying to Kai."
+    todos.find((todo) => todo.id === "tdo_login")!.notes =
+      "Check the connection settings and confirm the last successful sync.\n\n".repeat(40)
+    for (let i = 1; i <= 10; i++) {
+      botComment(
+        `Contract update ${i}\n\n` +
+          "I checked the delivery dates against the signed agreement. I will confirm the remaining details with Kai and update the draft before it goes out.".repeat(
+            2,
+          ),
+      )
+    }
+  }
   const run = (id: string, m: object = {}) => ({
     id,
     routine_id: "rtn_triage",
@@ -504,6 +525,7 @@ function world({
 
   return {
     sent,
+    botComment,
     files,
     give(id: string, bot: string, chat: string) {
       const t = todos.find((each) => each.id === id)!
@@ -998,6 +1020,67 @@ const list = (page: Page) => page.getByRole("region", { name: "Inbox list" })
 const group = (page: Page, name: string) => list(page).getByRole("region", { name, exact: true })
 const rowsOf = (page: Page, name: string) => group(page, name).getByTestId("inbox-row")
 const item = (page: Page) => page.getByRole("article", { name: "Item" })
+
+test("an Inbox item opens at its newest comment from the list and arrows", async ({
+  page,
+  isMobile,
+}) => {
+  await world({ longThread: true }).serve(page)
+  await page.goto(isMobile ? "/inbox" : "/inbox?item=todo%3Atdo_login")
+  await rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" }).click()
+
+  const detail = item(page)
+  const newest = detail.getByText("Contract update 10", { exact: true })
+  const box = detail.getByRole("textbox", { name: "Message" })
+  const description = detail.getByText("Confirm the dates in the contract before replying to Kai.")
+  await expect(newest).toBeInViewport()
+  await expect(box).toBeInViewport({ ratio: 1 })
+  await expect(description).not.toBeInViewport()
+  await shot(page, "inbox-newest-comment")
+
+  await detail.getByRole("button", { name: "Next" }).click()
+  await expect(
+    detail.getByRole("region", { name: "Comments" }).getByRole("listitem").first(),
+  ).toBeAttached()
+  await expect(detail.getByRole("heading", { name: "Log in again: lark:me" })).toBeInViewport()
+  await expect(box).not.toBeInViewport()
+  await detail.getByRole("button", { name: "Previous" }).click()
+  await expect(newest).toBeInViewport()
+  await expect(box).toBeInViewport({ ratio: 1 })
+})
+
+test("an open Inbox thread follows Bot comments only from the bottom", async ({ page }) => {
+  const w = world({ longThread: true })
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_reply")
+
+  const detail = item(page)
+  const box = detail.getByRole("textbox", { name: "Message" })
+  const description = detail.getByText("Confirm the dates in the contract before replying to Kai.")
+  const down = detail.getByRole("button", { name: "Scroll to the latest comment" })
+  await expect(detail.getByText("Contract update 10", { exact: true })).toBeAttached()
+  await box.scrollIntoViewIfNeeded()
+  w.botComment("The revised delivery date is confirmed.")
+  await expect(detail.getByText("The revised delivery date is confirmed.")).toBeInViewport({
+    timeout: 15_000,
+  })
+  await expect(box).toBeInViewport({ ratio: 1 })
+
+  await description.scrollIntoViewIfNeeded()
+  await expect(description).toBeInViewport()
+  w.botComment("The final draft is ready for review.")
+  const newest = detail.getByText("The final draft is ready for review.")
+  await expect(newest).toBeAttached({ timeout: 15_000 })
+  await expect(description).toBeInViewport()
+  await expect(newest).not.toBeInViewport()
+  await expect(down).toBeVisible()
+  await shot(page, "inbox-scrolled-up")
+
+  await down.click()
+  await expect(newest).toBeInViewport()
+  await expect(box).toBeInViewport({ ratio: 1 })
+  await expect(down).toBeHidden()
+})
 
 test.describe("iPhone Home Screen layout", () => {
   test.use({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1 })
