@@ -38,30 +38,31 @@ var accentPink = [3]int{0xff, 0x33, 0x66}
 const storeURL = "https://play.google.com/store/apps/details?id=vn.secondbite.app"
 
 // assertClearMargins checks that a card's frame shows only its background in the outer 6% of its width on each
-// side, the card's words all inside: ground is the background painted on the frame's size.
+// side and of its height at its top and bottom, the card's words all inside: ground is the background painted on
+// the frame's size.
 func assertClearMargins(t *testing.T, px []byte, size Size, ground *image.NRGBA, name string) {
 	t.Helper()
 
-	margin := size.Width * 6 / 100
-	worst := 0
+	mx, my := size.Width*6/100, size.Height*6/100
+	worst, at := 0, [2]int{}
 
 	for y := range size.Height {
-		for _, x := range []int{margin - 1, size.Width - margin} {
-			for dx := range margin {
-				xx := x - dx
-				if x > size.Width/2 {
-					xx = x + dx
-				}
+		for x := range size.Width {
+			if x >= mx && x < size.Width-mx && y >= my && y < size.Height-my {
+				continue
+			}
 
-				got, i := pixel(px, size, xx, y), 4*(y*size.Width+xx)
-				for k := range 3 {
-					worst = max(worst, abs(got[k]-int(ground.Pix[i+k])))
+			got, i := pixel(px, size, x, y), 4*(y*size.Width+x)
+			for k := range 3 {
+				if d := abs(got[k] - int(ground.Pix[i+k])); d > worst {
+					worst, at = d, [2]int{x, y}
 				}
 			}
 		}
 	}
 
-	assert.LessOrEqual(t, worst, 24, "%s: only the background within %d px of its sides", name, margin)
+	assert.LessOrEqual(t, worst, 24, "%s: only the background within %d px of its sides and %d of its top and "+
+		"bottom; %d off at %v", name, mx, my, worst, at)
 }
 
 func abs(v int) int {
@@ -383,4 +384,63 @@ func TestFitTextKeepsTheWholeLine(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 720.0/17, em, 1e-9, "words that wrap keep their size")
 	assert.Equal(t, []string{"Đặt món SecondBite chỉ", "trong 30 giây"}, lines)
+}
+
+// The longest card the API allows, at 9:16 and 16:9, in the sample and in the video: every block of it, shrunk
+// together, stays inside the card's width and height (the review of #1242, round 2).
+func TestTheLongestCardFitsTheCard(t *testing.T) {
+	t.Parallel()
+
+	tools := tools(t)
+	card := Card{
+		Title: "Mouthwatering Southwestern Mediterranean Specialties",
+		Subtitle: "Browse delicious and freshly prepared meals from nearby restaurants and order from your phone " +
+			"in just thirty seconds.",
+		CTAURL: "https://play.google.com/store/apps/details?id=vn.secondbite.app&referrer=utm_source%3Dfacebook" +
+			"%26utm_medium%3Dsocial%26utm_campaign%3DSecondBite2026SecondBite2026SecondBite2026SecondBite2026Se" +
+			"-install",
+		DurationMs: designEndMs,
+	}
+	require.NoError(t, Cards{Accent: DefaultAccent, End: &card}.Check(), "within the API's bounds")
+	require.Len(t, []rune(card.CTAURL), MaxCardURL)
+
+	bg := Background{Preset: DefaultBackground}
+
+	for _, aspect := range []Aspect{Portrait, Landscape} {
+		t.Run(string(aspect), func(t *testing.T) {
+			t.Parallel()
+
+			size, err := aspect.Size()
+			require.NoError(t, err)
+
+			ground := newCanvas(size.Width, size.Height)
+			paintBackground(ground, bg)
+
+			dir := t.TempDir()
+			still := filepath.Join(dir, "card.jpg")
+			require.NoError(t, CardStill(t.Context(), tools, CardStillInput{
+				Card: card, Accent: DefaultAccent, Background: bg, Aspect: aspect,
+				Work: filepath.Join(dir, "work"), Out: still,
+			}))
+
+			//nolint:gosec // The test's ffmpeg.
+			raw, err := exec.CommandContext(t.Context(), tools.FFmpeg, "-v", "error", "-i", still, "-f", "rawvideo",
+				"-pix_fmt", "rgb24", "-").Output()
+			require.NoError(t, err)
+			require.Len(t, raw, 3*size.Width*size.Height)
+			assertClearMargins(t, raw, size, ground.image(), "the sample")
+
+			voices := cardsTake(t, tools, dir)
+			out := filepath.Join(dir, "v.mp4")
+			res, err := Compose(t.Context(), tools, Input{
+				Dir: dir, Voice: voices, Aspect: aspect, Background: bg,
+				Cards: &Cards{Accent: DefaultAccent, End: &card},
+				Work:  filepath.Join(dir, "work-video"), Out: out,
+			})
+			require.NoError(t, err)
+
+			endAt := res.Scenes[1].OutStartMs + res.Scenes[1].OutLengthMs
+			assertClearMargins(t, frameAt(t, tools, out, endAt+designEndMs/2, size), size, ground.image(), "the video")
+		})
+	}
 }
