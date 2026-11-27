@@ -152,7 +152,8 @@ func TestReviewOwnerMarkMakesNoNewConnectionCardAfterADecline(t *testing.T) {
 
 // Scenario: review of PR #1237, issue #1229 rule 3. An item's chat from before the migration, woken by a Bot that
 // passed it with nothing to show it was on the owner's line, takes no mark when a pass on his line wakes it again: the
-// migration records that old wake-up as a Bot's, and the owner's old prompt as his.
+// migration leaves that old wake-up unmarked (NULL), an input that clears a mark, and records the owner's old prompt as
+// his.
 func TestReviewOwnerMarkTakesNoChatWokenWithoutProofBefore(t *testing.T) {
 	t.Parallel()
 
