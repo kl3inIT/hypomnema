@@ -1544,7 +1544,7 @@ test("the Inbox hands over files and shows a pasted screenshot in an owner comme
   })()`)
   await expect(chips.getByText("notes.txt")).toBeVisible()
   await expect(chips.getByText("image.png")).toBeVisible()
-  await expect(chips.locator("img")).toBeVisible()
+  await expect(chips.locator("img[src^=\"blob:\"]")).toBeVisible()
   await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
   await send.scrollIntoViewIfNeeded()
   await shot(page, "inbox-1245-chips")
