@@ -18,6 +18,14 @@ import (
 func (w *world) ranFor(t *testing.T, td inboxstore.Todo, id, pr string) []inboxstore.Link {
 	t.Helper()
 
+	return w.ranAs(t, td, id, "implementer", pr)
+}
+
+// ranAs is ranFor with the task's profile: an implementer opens the pull request it reports, a reviewer only names
+// the one it reviewed.
+func (w *world) ranAs(t *testing.T, td inboxstore.Todo, id, profile, pr string) []inboxstore.Link {
+	t.Helper()
+
 	require.NotNil(t, td.Work, "the item is doing")
 	require.NotEmpty(t, td.Chat, "the item has its own chat")
 
@@ -34,7 +42,7 @@ func (w *world) ranFor(t *testing.T, td inboxstore.Todo, id, pr string) []inboxs
 		{`INSERT INTO runs (id, objective, status, created_by, created_at, updated_at, chat_id, bot_id)
 			VALUES (?, 'Fix it', 'open', 'bot', ?, ?, ?, ?)`, []any{id, now, now, td.Chat, td.Work.Bot}},
 		{`INSERT INTO tasks (id, run_id, position, profile, spec, status, created_at, updated_at)
-			VALUES (?, ?, 0, 'implementer', 'Fix it', 'succeeded', ?, ?)`, []any{id + "_t", id, now, now}},
+			VALUES (?, ?, 0, ?, 'Fix it', 'succeeded', ?, ?)`, []any{id + "_t", id, profile, now, now}},
 		{`INSERT INTO conversations (id, task_id, node_id, worktree, runtime, account_ref, status, created_at,
 			updated_at) VALUES (?, ?, 'node_1', 'wt', 'claude', 'acc', 'open', ?, ?)`,
 			[]any{id + "_c", id + "_t", now, now}},
@@ -143,7 +151,7 @@ func TestReviewOwnerReplyWithOwnerFileURL(t *testing.T) {
 	}
 
 	commented, err := w.inbox.CommentWith(ctx, bot(w.kai), doing.ID, "Bảng tổng hợp đây ạ.",
-		inboxstore.Attached{Files: []string{"exports/q3-dashboards.xlsx"}, From: w.chat})
+		inboxstore.Attached{Files: []string{"exports/q3-dashboards.xlsx"}, From: w.chat, Checked: true})
 	require.NoError(t, err)
 
 	doing.Revision = commented.Revision
@@ -187,4 +195,102 @@ func TestReviewDelegatedFix(t *testing.T) {
 	w.clock.now = w.clock.now.Add(time.Hour)
 	_, err = w.inbox.Done(ctx, inAttempt(bot(w.kai), early), itsOwn(before...))
 	require.ErrorIs(t, err, storeerr.ErrInvalid)
+}
+
+// Scenario: review round 3 of PR #1243. Lan asks the owner in the team's WhatsApp group; kai, doing the item, sends
+// "em nhận rồi ạ" with his approval, and its send is recorded; then the owner answers Lan himself and links the file
+// he made. kai's own close is refused while its evidence holds his answer or his link: every piece of evidence it
+// gives must be its own work, since the close records them all as its own. Its ack alone is its own work.
+func TestRound3ApprovedAckPlusOwnersReplyAndFile(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	w.inbox.WithSent(teamMessages())
+	itsOwn := func(evidence ...inboxstore.Link) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai},
+			How: inboxstore.ClosedByBot, Evidence: evidence}
+	}
+	message := func(id string) inboxstore.Link {
+		return inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: id, Account: "main", Chat: "team"}
+	}
+
+	doing := w.handedTo(t, w.teamAsk(t, inboxstore.Open))
+	sent, err := w.inbox.RecordSent(ctx, inAttempt(bot(w.kai), doing), message("3EB0ACK"))
+	require.NoError(t, err)
+
+	his := inboxstore.Link{Kind: inboxstore.LinkURL, Ref: "https://drive.example.com/luma-keys.xlsx"}
+	for name, evidence := range map[string][]inboxstore.Link{
+		"its ack and his answer":       {message("3EB0ACK"), message("mine")},
+		"its ack and his file":         {message("3EB0ACK"), his},
+		"its ack, his answer and file": {message("3EB0ACK"), message("mine"), his},
+		"his answer and its ack":       {message("mine"), message("3EB0ACK")},
+	} {
+		_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), sent), itsOwn(evidence...))
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "%s: his work is not kai's", name)
+	}
+
+	w.unchanged(t, sent)
+
+	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), sent), itsOwn(message("3EB0ACK")))
+	require.NoError(t, err)
+	require.NotNil(t, done.DoneBy)
+	assert.Equal(t, inboxstore.ABot, done.DoneBy.Kind)
+}
+
+// Scenario: review round 3 of PR #1243. kai starts a Run from the item's chat whose reviewer task reports the pull
+// request it reviewed, the owner's: that pull request is not kai's work, as the pull requests the control plane
+// follows leave a review task out (pullrequests.go, reviewerProfile). An implementer's is.
+func TestRound3ReviewerEvidenceIsNotItsPullRequest(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	itsOwn := func(evidence ...inboxstore.Link) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai},
+			How: inboxstore.ClosedByBot, Evidence: evidence}
+	}
+	owners := inboxstore.Link{Kind: inboxstore.LinkPullRequest, Ref: "https://github.com/o/r/pull/77"}
+
+	for _, profile := range []string{"reviewer", "reviewer-strict"} {
+		doing := w.handedTo(t, w.threadAsk(t))
+		w.ranAs(t, doing, "run_"+profile, profile, owners.Ref)
+		_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), itsOwn(owners))
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "%s reported the pull request it reviewed", profile)
+	}
+
+	doing := w.handedTo(t, w.threadAsk(t))
+	w.ranAs(t, doing, "run_impl", "implementer", owners.Ref)
+	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), itsOwn(owners))
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, done.State)
+}
+
+// Scenario: review round 3 of PR #1243. A file a Bot's comment names counts as its work only when the agent API read
+// it in the Bot's folder (Attached.Checked): a path alone, which may name a file never made, does not.
+func TestRound3MissingFileIsNotWork(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	itsOwn := func(evidence ...inboxstore.Link) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai},
+			How: inboxstore.ClosedByBot, Evidence: evidence}
+	}
+
+	doing := w.handedTo(t, w.threadAsk(t))
+	unread, err := w.inbox.CommentWith(ctx, bot(w.kai), doing.ID, "Báo cáo đây ạ.",
+		inboxstore.Attached{Files: []string{"exports/never-made.xlsx"}, From: w.chat})
+	require.NoError(t, err)
+	doing.Revision = unread.Revision
+	_, err = w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), itsOwn(commentOf(last(unread))...))
+	require.ErrorIs(t, err, storeerr.ErrInvalid, "a path the agent API did not read")
+
+	read, err := w.inbox.CommentWith(ctx, bot(w.kai), doing.ID, "Báo cáo đây ạ.",
+		inboxstore.Attached{Files: []string{"exports/q3.xlsx"}, From: w.chat, Checked: true})
+	require.NoError(t, err)
+	doing.Revision = read.Revision
+	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), itsOwn(commentOf(last(read))...))
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, done.State)
 }

@@ -1,0 +1,70 @@
+package inboxstore_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+)
+
+// askIn is an ask kai found in a chat of the owner's account, by service, account and chat.
+func (w *world) askIn(t *testing.T, kind, account, chat string, project string) inboxstore.Todo {
+	t.Helper()
+
+	td, err := w.inbox.Create(t.Context(), bot(w.kai), inboxstore.NewTodo{
+		Title: "Trả lời: xem giúp số liệu tuần", State: inboxstore.Open, Assignee: me,
+		WhyOpen: inboxstore.AskedDirectly, Project: project,
+		Source: inboxstore.Source{Kind: kind, ID: chat, Account: account, Quote: "anh xem giúp em số liệu tuần nhé",
+			Ref: &inboxstore.Link{Kind: kind + "_message", Ref: "m_" + chat}},
+	})
+	require.NoError(t, err)
+
+	return td
+}
+
+// Scenario: issue #1206, the department rule the owner approved on 2026-11-27. The triage's item from a Zalo group
+// has no department; the owner puts it in VMAP. That teaches the chat: the next item a Bot adds from the same group
+// of the same account, without a department, takes VMAP, as Linear's Asks put every request of a Slack channel in
+// that channel's team. Another chat, or the same chat id of another account, learns nothing; a department the Bot
+// names stays its own; a Bot's change teaches nothing; and the owner taking the item out of its department forgets
+// the chat.
+func TestTheOwnersDepartmentChangeTeachesItsChat(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	vmap := w.project(t, "VMAP")
+	beyond := w.project(t, "BeyondPilot")
+
+	first := w.askIn(t, inboxstore.FromZalo, "main", "g_data", "")
+	assert.Empty(t, first.Project, "nothing is known of the chat")
+
+	moved, err := w.inbox.Edit(ctx, by(owner, first), inboxstore.Edit{Project: &vmap.ID})
+	require.NoError(t, err)
+	assert.Equal(t, vmap.ID, moved.Project)
+
+	assert.Equal(t, vmap.ID, w.askIn(t, inboxstore.FromZalo, "main", "g_data", "").Project, "the chat is known")
+	assert.Empty(t, w.askIn(t, inboxstore.FromZalo, "main", "g_other", "").Project, "another chat")
+	assert.Empty(t, w.askIn(t, inboxstore.FromWhatsApp, "main", "g_data", "").Project, "another service")
+	assert.Equal(t, beyond.ID, w.askIn(t, inboxstore.FromZalo, "main", "g_data", beyond.ID).Project,
+		"a department the Bot names stays")
+
+	// A Bot's change teaches nothing.
+	other := w.askIn(t, inboxstore.FromLark, "me", "oc_team", "")
+	_, err = w.inbox.Edit(ctx, by(bot(w.kai), other), inboxstore.Edit{Project: &beyond.ID})
+	require.NoError(t, err)
+	assert.Empty(t, w.askIn(t, inboxstore.FromLark, "me", "oc_team", "").Project, "a Bot's change")
+
+	// The owner moves an item to BeyondPilot, then out of any department: the chat follows him each time.
+	again := w.askIn(t, inboxstore.FromZalo, "main", "g_data", "")
+	again, err = w.inbox.Edit(ctx, by(owner, again), inboxstore.Edit{Project: &beyond.ID})
+	require.NoError(t, err)
+	assert.Equal(t, beyond.ID, w.askIn(t, inboxstore.FromZalo, "main", "g_data", "").Project, "his latest change")
+
+	none := ""
+	_, err = w.inbox.Edit(ctx, by(owner, again), inboxstore.Edit{Project: &none})
+	require.NoError(t, err)
+	assert.Empty(t, w.askIn(t, inboxstore.FromZalo, "main", "g_data", "").Project, "he took it out of any")
+}

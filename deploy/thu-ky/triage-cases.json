@@ -945,19 +945,19 @@
   },
   {
    "name": "17. a new ask on a topic already listed is a comment on that item, not a second item",
-   "from": "issue #1206, comment of 2026-11-27 (Dự Án Ma; made up here)",
+   "from": "issue #1206, comment of 2026-11-27 (its group, people, times and words made up here)",
    "chat": {
     "service": "zalo",
-    "id": "g_ma",
-    "name": "Dự Án Ma",
+    "id": "g_orchard",
+    "name": "Nhóm Vườn Cam",
     "kind": "group"
    },
-   "since": "2026-11-27T03:30:00Z",
+   "since": "2026-10-21T08:00:00Z",
    "items": [
     {
-     "id": "tdo_claude",
+     "id": "tdo_printer",
      "revision": 1,
-     "title": "Mở Claude trên gateway cho ae Dự Án Ma dùng",
+     "title": "Cài máy in mới cho phòng họp tầng 3",
      "state": "open",
      "why_open": "promised",
      "assignee": {
@@ -965,9 +965,9 @@
      },
      "source": {
       "kind": "zalo",
-      "id": "g_ma",
+      "id": "g_orchard",
       "account": "main",
-      "quote": "@Hồng Đạt mở claude trên gateway cho ae dùng với / ok để anh mở",
+      "quote": "@Quân cài giúp máy in mới ở phòng họp tầng 3 nhé / ok để anh cài",
       "ref": {
        "kind": "zalo_message",
        "ref": "z_ok"
@@ -984,33 +984,33 @@
    "messages": [
     {
      "ID": "z_old",
-     "At": "2026-11-26T02:00:00Z",
-     "SenderName": "Nhật Nhữ",
-     "Text": "@Hồng Đạt mở claude trên gateway cho ae dùng với"
+     "At": "2026-10-20T03:00:00Z",
+     "SenderName": "Thảo",
+     "Text": "@Quân cài giúp máy in mới ở phòng họp tầng 3 nhé"
     },
     {
      "ID": "z_ok",
-     "At": "2026-11-26T02:05:00Z",
+     "At": "2026-10-20T03:04:00Z",
      "SenderName": "Quân",
-     "Text": "ok để anh mở",
+     "Text": "ok để anh cài",
      "FromMe": true
     },
     {
      "ID": "z_new",
-     "At": "2026-11-27T03:39:00Z",
-     "SenderName": "Nhật Nhữ",
-     "Text": "@Hồng Đạt có claude không log t sửa 3 cái main flow"
+     "At": "2026-10-21T08:12:00Z",
+     "SenderName": "Thảo",
+     "Text": "@Quân máy in tầng 3 có driver chưa anh, chiều nay em cần in tài liệu"
     }
    ],
    "expect": {
     "adds": 0,
     "comments": [
      {
-      "id": "tdo_claude"
+      "id": "tdo_printer"
      }
     ],
     "open": [
-     "tdo_claude"
+     "tdo_printer"
     ]
    }
   },
@@ -1274,6 +1274,149 @@
       "id": "tdo_team",
       "done_by": "person",
       "evidence": "z_done"
+     }
+    ]
+   }
+  },
+  {
+   "name": "21. a message in a chat the owner put in VMAP makes an item in VMAP",
+   "from": "issue #1206, the department rule of 2026-11-27 (made up)",
+   "since": "2026-10-22T02:00:00Z",
+   "departments": [
+    {
+     "name": "VMAP",
+     "chats": [
+      {
+       "kind": "lark",
+       "account": "me",
+       "id": "oc_mdoc_research"
+      }
+     ]
+    },
+    {
+     "name": "BeyondPilot",
+     "chats": []
+    }
+   ],
+   "lark": {
+    "chats": [
+     {
+      "chat_id": "oc_mdoc_research",
+      "name": "[MDOC] Data & AI Research",
+      "chat_mode": "group"
+     }
+    ],
+    "users": {
+     "ou_huyen": "Huyền"
+    },
+    "messages": {
+     "oc_mdoc_research": [
+      {
+       "message_id": "om_ask",
+       "create_time": "1792635000000",
+       "sender": {
+        "id": "ou_huyen",
+        "sender_type": "user"
+       },
+       "msg_type": "text",
+       "body": {
+        "content": "{\"text\": \"@_user_1 anh gửi giúp em bảng số liệu thử nghiệm mô hình tuần này trước 4h chiều nhé\"}"
+       },
+       "mentions": [
+        {
+         "key": "@_user_1",
+         "id": "ou_me",
+         "name": "Quân"
+        }
+       ]
+      }
+     ]
+    },
+    "threads": {}
+   },
+   "expect": {
+    "adds": 1,
+    "count": [
+     {
+      "project": "VMAP",
+      "n": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "22. a message from a contact the owner's context places in BeyondPilot makes an item in BeyondPilot",
+   "from": "issue #1206, the department rule of 2026-11-27 (made up)",
+   "chat": {
+    "service": "whatsapp",
+    "id": "6590000001@s.whatsapp.net",
+    "name": "Ryan Tan",
+    "kind": "dm"
+   },
+   "since": "2026-10-22T02:00:00Z",
+   "departments": [
+    {
+     "name": "VMAP",
+     "chats": []
+    },
+    {
+     "name": "BeyondPilot",
+     "chats": []
+    }
+   ],
+   "context": "## People\n- Ryan Tan: investor relations at the fund, BeyondPilot; English; he calls him Ryan. (WhatsApp 6590000001@s.whatsapp.net)\n\n## Projects and teams\n- BeyondPilot (department BeyondPilot): the WhatsApp chat with Ryan Tan (6590000001@s.whatsapp.net). (item tdo_example)\n",
+   "messages": [
+    {
+     "ID": "w_ask",
+     "At": "2026-10-22T02:15:00Z",
+     "SenderName": "Ryan Tan",
+     "Text": "Hi, could you send me the updated pitch deck by Thursday?"
+    }
+   ],
+   "expect": {
+    "adds": 1,
+    "count": [
+     {
+      "project": "BeyondPilot",
+      "n": 1
+     }
+    ]
+   }
+  },
+  {
+   "name": "23. an ask in a direct chat no department is known for gets none",
+   "from": "issue #1206, the department rule of 2026-11-27 (made up)",
+   "chat": {
+    "service": "zalo",
+    "id": "u_long",
+    "name": "Long",
+    "kind": "dm"
+   },
+   "since": "2026-10-22T02:00:00Z",
+   "departments": [
+    {
+     "name": "VMAP",
+     "chats": []
+    },
+    {
+     "name": "BeyondPilot",
+     "chats": []
+    }
+   ],
+   "messages": [
+    {
+     "ID": "z_ask",
+     "At": "2026-10-22T02:20:00Z",
+     "SenderName": "Long",
+     "Text": "anh ơi xem giúp em bản đồ tuyến giao hàng mới với, mai em gửi khách"
+    }
+   ],
+   "expect": {
+    "adds": 1,
+    "count": [
+     {
+      "project": "",
+      "n": 1
      }
     ]
    }

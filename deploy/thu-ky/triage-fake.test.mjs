@@ -119,3 +119,22 @@ test("the fake refuses a Bot's own close on a link", () => {
     evidence: [{ kind: "url", ref: "https://drive.example.com/q3-dashboards.xlsx" }] });
   assert.match(onLink.error ?? "", /^invalid request: a Bot closes as its own only what it did/);
 });
+
+// The department rule (issue #1206, owner 2026-11-27): an item a Bot adds from a chat whose department the owner
+// taught (departments' chats) takes it when the Bot names none; a department named must be one of his; a chat nobody
+// taught gets none. The owner's context, when a case gives it, is the run's.
+test("the fake puts an item from a known chat in its department, as the server does", () => {
+  const w = fakeWorld({ departments: [{ name: "VMAP", chats: [{ kind: "lark", account: "me", id: "oc_mdoc" }] },
+    { name: "BeyondPilot", chats: [] }] });
+  assert.deepEqual(w.call("inbox_list", {}).projects, ["VMAP", "BeyondPilot"]);
+  const known = w.call("inbox_add", { title: "a", why_open: "asked_directly",
+    source: { kind: "lark", chat: "oc_mdoc", account: "me" } });
+  assert.equal(known.project, "VMAP");
+  const named = w.call("inbox_add", { title: "b", why_open: "asked_directly", project: "BeyondPilot",
+    source: { kind: "lark", chat: "oc_mdoc", account: "me" } });
+  assert.equal(named.project, "BeyondPilot");
+  const unknown = w.call("inbox_add", { title: "c", why_open: "asked_directly",
+    source: { kind: "zalo", chat: "u_new", account: "main" } });
+  assert.equal(unknown.project, undefined);
+  assert.match(w.call("inbox_add", { title: "d", project: "Nowhere" }).error, /^not found/);
+});

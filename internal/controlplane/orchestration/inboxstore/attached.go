@@ -44,6 +44,9 @@ type Attached struct {
 	// From is the Bot's chat it comments from: its files are read through the item's own chat when that is the
 	// Bot's, else through this one.
 	From string
+	// Checked says the caller read each file in the Bot's folder (the agent API, issue #1206): only then is the
+	// comment the Bot's work as evidence (botsWork).
+	Checked bool
 }
 
 // checked is what a comment carries, its paths made relative as the chat reads them (media.ts folderPath), or why
