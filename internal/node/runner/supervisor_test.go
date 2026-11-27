@@ -535,7 +535,7 @@ func TestTheJournalIsReadOnceAcrossARestart(t *testing.T) {
 	require.Eventually(t, func() bool {
 		info, err := os.Stat(filepath.Join(dir, shim.JournalFile))
 
-		return err == nil && len(g.rt.last().seen()) == 2 && readOffset(dir) == info.Size()
+		return err == nil && len(g.rt.last().seen()) == 2 && checkpointOffset(dir) == info.Size()
 	}, 20*time.Second, 20*time.Millisecond, "the first two lines are read and the offset saved")
 
 	again := g.restart()
@@ -857,16 +857,22 @@ func TestReleaseWaitsForTheJournalReader(t *testing.T) {
 	assert.DirExists(t, dir, "releasing a worker leaves its journal in place")
 }
 
-// Scenario: a node takes a release while its workers run. The new daemon
-// reads on from the bare offset the earlier one wrote, with no turn state.
-func TestAnEarlierDaemonsOffsetIsRead(t *testing.T) {
+// checkpointOffset is how far the checkpoint in dir says the journal was read.
+func checkpointOffset(dir string) int64 {
+	n, _ := readCheckpoint(dir)
+
+	return n
+}
+
+// Scenario: a checkpoint is read back with the offset and the turn's state
+// it was written with; a missing one reads as nothing.
+func TestACheckpointIsReadBack(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, offsetFile), []byte("123"), 0o600))
 
 	n, state := readCheckpoint(dir)
-	assert.Equal(t, int64(123), n)
+	assert.Zero(t, n)
 	assert.Nil(t, state)
 
 	writeCheckpoint(dir, 456, []byte(`{"done":true}`))
@@ -923,6 +929,6 @@ func (g *rig) waitRead(n int) {
 	require.Eventually(g.t, func() bool {
 		info, err := os.Stat(filepath.Join(dir, shim.JournalFile))
 
-		return err == nil && len(g.rt.last().seen()) == n && readOffset(dir) == info.Size()
+		return err == nil && len(g.rt.last().seen()) == n && checkpointOffset(dir) == info.Size()
 	}, 20*time.Second, 20*time.Millisecond)
 }

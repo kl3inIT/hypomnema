@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
-	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
 
 // The control plane's tools for an agent (issue #536, the decision
@@ -43,18 +42,15 @@ import (
 //   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
 //     worker and a Bot's pi;
 //   - video_make, video_get (videos.go, issue #818): a worker and a Bot's pi,
-//     for the takes each filmed;
+//     for the takes each filmed; video_templates (issue #1230), the templates
+//     video_make takes;
 //   - browser_video_start, browser_video_say, browser_video_stop
 //     (browsertakes.go, issue #1189): an agent with its own tab, beside the
 //     browser's tools.
 //
 // The owner gets the installed tools and all Connections without switches.
 // Tools that require a Run or chat (artifacts and Routines) still require one.
-// The phone's tools are listed on their own route
-// (device.go): a node of the release before step 4 lists that route beside
-// this one, and would list them twice were they here. The browser's,
-// gateway's and memory's older routes stay for tools servers of an earlier
-// release.
+// The phone's tools are listed on their own route (device.go).
 
 // toolList is the definitions of the tools an agent gets, in the shape of
 // tools/list: the memory's, show_artifact, routines, the gateway's,
@@ -126,9 +122,11 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	return out
 }
 
-// hasBrowser says whether the caller gets its own tab when the control plane has a browser.
+// hasBrowser says whether the caller gets its own tab when the control plane has a browser: every agent with tools,
+// and the coordinator token and a Routine's script, each in a tab of its own (c-, r-), as the browser's own routes
+// gave every agent but a read run before issue #1220 moved them here.
 func (s *Server) hasBrowser(a agent) bool {
-	return s.browser != nil && a.hasAgentTools()
+	return s.browser != nil && (a.hasAgentTools() || (a.coordinator && !a.readRun))
 }
 
 // listTools lists the agent's tools (PathTools).
@@ -224,7 +222,7 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
 	case slices.Contains(nodeTools, asked.Tool) && s.hasNodeTools(a):
 		s.nodeCall(w, r, a, asked)
-	case (asked.Tool == devicetool.VideoMake || asked.Tool == devicetool.VideoGet) && s.hasVideoTools(a):
+	case slices.Contains(videoToolNames, asked.Tool) && s.hasVideoTools(a):
 		s.videoCall(w, r, a, asked)
 	case slices.Contains(browserTakeTools, asked.Tool) && s.hasBrowserTakes(a):
 		s.browserTakeCall(w, r, a, asked)
@@ -258,8 +256,7 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 
 // The switches of a profile or a Bot (issue #536, step 7; #492, row 10):
 // what an agent kind gets, narrowed by the agent's `tools` and `tools_off`,
-// on every route that lists or calls a tool, the older per-family ones too,
-// as OpenMausBot filters both an MCP server's discovery and its calls, with
+// on every route that lists or calls a tool, as OpenMausBot filters both an MCP server's discovery and its calls, with
 // server-side checks behind them (docs/tool-selection.md), and OpenClaw
 // applies its allow and deny lists to what a run may call
 // (docs/gateway/config-tools/tool-policy.md). They are read at each request:

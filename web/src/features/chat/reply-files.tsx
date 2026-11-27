@@ -14,7 +14,6 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { rawURL } from "@/features/files/files-state"
 import { KindIcon } from "@/features/preview/kind-icon"
-import { mediaTypeOf, previewKind } from "@/features/preview/preview-kind"
 import { problemOf } from "@/lib/server-error"
 
 import { botFolder } from "./attachments"
@@ -78,7 +77,7 @@ function ReplyFile({ chat, path }: { chat: string; path: string }) {
           ) : state === "error" ? (
             <CircleAlert />
           ) : (
-            <KindIcon kind={previewKind(name, mediaTypeOf(name))} />
+            <KindIcon name={name} />
           )}
         </AttachmentMedia>
         <AttachmentContent>

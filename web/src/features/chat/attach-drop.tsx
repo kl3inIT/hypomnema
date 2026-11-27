@@ -12,13 +12,14 @@ export function AttachDrop({
   className,
   children,
 }: {
-  attachments: Attachments
+  attachments?: Attachments
   className?: string
   children: ReactNode
 }) {
   // dragging is true while files are held over it.
   const [dragging, setDragging] = useState(false)
-  const holdsFiles = (event: React.DragEvent) => event.dataTransfer.types.includes("Files")
+  const holdsFiles = (event: React.DragEvent) =>
+    !!attachments && event.dataTransfer.types.includes("Files")
 
   return (
     <div
@@ -33,7 +34,7 @@ export function AttachDrop({
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false)
       }}
       onDrop={(event) => {
-        if (!holdsFiles(event)) return
+        if (!attachments || !holdsFiles(event)) return
         event.preventDefault()
         setDragging(false)
         attachments.attach([...event.dataTransfer.files])

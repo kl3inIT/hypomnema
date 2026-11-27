@@ -207,6 +207,8 @@ func peakOf(samples []float32) float64 {
 // PR1.2 and PR1.4: three 3 s clips at -20, -30 and -40 dBFS, mixed with a tone of music and again with the duck
 // off (the control). Under the clips and in their 300 ms gaps the music is 12 dB under the control's; the voice is
 // the control's under each; the gains are the design's arithmetic, and the control's music is the bed's at its gain.
+// The mixes are compared before the master (#1230, row 2), whose loudnorm moves each mix's level by its own measure
+// and so the levels of one against another's; TestTheMasterIsAtItsLoudness checks the master.
 func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 	t.Parallel()
 
@@ -216,9 +218,11 @@ func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 	voices := musicTake(t, tools, dir, clips)
 	track := sineTrack(t, tools, filepath.Join(dir, "music.wav"), musicHz, 0.25, 30)
 
-	ducked := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000}, "ducked")
-	control := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, NoDuck: true}, "control")
-	quieter := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, GainDB: -6}, "quieter")
+	ducked := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, NoMaster: true}, "ducked")
+	control := composeWith(t, tools, dir, voices,
+		&Music{File: track, LengthMs: 30000, NoDuck: true, NoMaster: true}, "control")
+	quieter := composeWith(t, tools, dir, voices,
+		&Music{File: track, LengthMs: 30000, GainDB: -6, NoMaster: true}, "quieter")
 	require.NotNil(t, ducked.Music)
 	require.NotNil(t, control.Music)
 	require.NotNil(t, quieter.Music)
@@ -509,7 +513,7 @@ func probeOf(t *testing.T, tools ffmpeg.Tools, file, stream string) streamProbe 
 
 // PR1.6, PR1.7 and PR1.8: two looped tracks at +10 dB: the in-phase sine of TestTheBed, whose seams go over full
 // scale in the bed, and the stress of the peaks, a quiet sine with loud clicks. In both videos the true peak is at
-// most -1 dBTP and no sample reaches full scale; without the limiter the stress's true peak is warned of. The
+// most -1 dBTP and no sample reaches full scale; without the master the stress's true peak is warned of. The
 // sound is stereo 44.1 kHz as long as its picture, and Burn keeps it as it is.
 func TestTheMixIsLimited(t *testing.T) {
 	t.Parallel()
@@ -552,9 +556,9 @@ func TestTheMixIsLimited(t *testing.T) {
 	assert.Equal(t, audioMD5(t, tools, limited.out), audioMD5(t, tools, burned), "Burn copies the sound")
 
 	loud := composeWith(t, tools, dir, voices,
-		&Music{File: track, LengthMs: 10000, GainDB: v5MaxGainDB, noLimiter: true}, "unlimited")
+		&Music{File: track, LengthMs: 10000, GainDB: v5MaxGainDB, NoMaster: true}, "unlimited")
 	require.NotNil(t, loud.Music)
-	t.Logf("without the limiter: %+v", *loud.Music)
+	t.Logf("without the master: %+v", *loud.Music)
 	assert.Greater(t, loud.Music.OutTPdB, v5PeakDBTP)
 	assert.Contains(t, loud.Warnings, fmt.Sprintf("the mix's true peak is %.1f dBTP, over -1 dBTP", loud.Music.OutTPdB))
 }

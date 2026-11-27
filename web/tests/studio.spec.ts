@@ -274,6 +274,11 @@ type Look = {
     gain_db: number
     fell_back_from?: { track: string; name: string; length_ms: number }
   }
+  cards?: {
+    accent: string
+    title?: { title: string; subtitle?: string; cta_url?: string; duration_ms: number }
+    end?: { title: string; subtitle?: string; cta_url?: string; duration_ms: number }
+  }
 }
 
 const frameOf = (chrome: string) => ({
@@ -342,6 +347,110 @@ const catalogue = {
     ...savedLook,
     music: { track: lofi, name: "Lo-fi buổi sáng", length_ms: 95_000, gain_db: 0 },
   },
+}
+
+// templates are GET /videos/templates' (issue #1230, rows 3-5), as the server's documents hold them
+// (internal/controlplane/videos/templates/), their looks over the saved default.
+function templates(look: Look) {
+  const step = (n: number, words = 15) => ({
+    name: `Step ${n}`,
+    purpose: "One idea, pinned to one action on the screen.",
+    words,
+    seconds: words / 2.5,
+  })
+  const section = (name: string, words: number, purpose: string) => ({
+    name,
+    purpose,
+    words,
+    seconds: words / 2.5,
+  })
+  const { music: _music, ...withoutMusic } = look
+
+  return {
+    templates: [
+      {
+        id: "app-ad",
+        name: "App ad",
+        use_case:
+          "A short ad for a fanpage, Reels, TikTok or Shorts: the app's one workflow, its proof, and the call to action on the end card.",
+        length: { min_s: 15, max_s: 30 },
+        aspects: ["9:16"],
+        captions: true,
+        sections: [
+          section("Hook", 10, "The outcome already happening, said flat; no name or logo first."),
+          step(1),
+          step(2),
+          step(3),
+          section(
+            "Proof",
+            10,
+            "The result as a number or a before and after, earned on the screen.",
+          ),
+        ],
+        words: 65,
+        look,
+        cards: {
+          accent: "#6c8cff",
+          end: { title: "Tải ứng dụng ngay", subtitle: "{title}", duration_ms: 3000 },
+        },
+      },
+      {
+        id: "feature-announcement",
+        name: "Feature announcement",
+        use_case:
+          "Thirty seconds on one feature that shipped: what it is, why it matters, and where to try it.",
+        length: { min_s: 30, max_s: 30 },
+        aspects: ["9:16", "16:9"],
+        captions: true,
+        sections: [
+          section("What shipped", 18, "Show the new thing happening and name it once."),
+          section("Why it matters", 30, "The before and after."),
+          section("One click to try", 25, "Exactly where to go: one deep link, one ask, no menu."),
+        ],
+        words: 73,
+        look,
+      },
+      {
+        id: "product-walkthrough",
+        name: "Product walkthrough",
+        use_case: "A full problem-to-proof demo, opened by a title card and closed by an end card.",
+        length: { min_s: 60, max_s: 90 },
+        aspects: ["16:9"],
+        captions: true,
+        sections: [
+          section("Problem", 30, "One concrete scene of the pain; name no product yet."),
+          section("Promise", 20, "One sentence: what this is and the outcome it produces."),
+          step(1, 35),
+          step(2, 35),
+          step(3, 35),
+          section("Proof", 25, "The result as a number or a before and after."),
+          section("Call to action", 15, "One ask, the same one the end card shows."),
+        ],
+        words: 195,
+        look,
+        cards: {
+          accent: "#6c8cff",
+          title: { title: "{title}", duration_ms: 2600 },
+          end: { title: "Dùng thử ngay", subtitle: "{title}", duration_ms: 3000 },
+        },
+      },
+      {
+        id: "app-store-preview",
+        name: "App Store preview",
+        use_case:
+          "An App Store app preview for the modern iPhone: the app's own screen only, at 886x1920.",
+        length: { min_s: 15, max_s: 30 },
+        aspects: ["886x1920"],
+        captions: false,
+        sections: [step(1), step(2), step(3)],
+        words: 45,
+        look: {
+          ...withoutMusic,
+          frame: { chrome: "full", padding: 48, radius: 14, shadow: true, safe_top: false },
+        },
+      },
+    ],
+  }
 }
 
 // The owner's music library (issue #910): a track of each format the Studio plays, a corrupt one, one whose file is
@@ -684,6 +793,8 @@ async function fakeServer(page: Page): Promise<Server> {
         return json({ ...take, id: turnedTake, title: "Xoay ngang" })
       case `GET /takes/${silentTake}`:
         return json({ ...take, id: silentTake, title: "Thử luồng nộp địa điểm", steps: [] })
+      case "GET /videos/templates":
+        return json(templates(server.defaultLook))
       case "GET /videos/looks":
         server.looksRead++
 
@@ -1223,6 +1334,229 @@ test("Change look posts only the sections changed and the new revision appears",
   expect(server.looks[0]!.body).toEqual({ look: { background: { preset: "ocean" } } })
   expect(server.looks[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
   await expect(page.getByTestId("video-progress")).toContainText("Revision 2 is queued")
+})
+
+// Scenario: the owner gives a video a title card and an end card in Make video (issue #1230, row 1). The sample
+// draws the picture without the cards' words; with a card chosen over it, that card, once it has a title. The make
+// sends both cards, their empty words left out, in the accent.
+test("Make video sends the cards, and the sample draws a card chosen", async ({ page }) => {
+  const server = await fakeServer(page)
+  await page.goto(`/studio/takes/${takeId}`)
+  await page.getByTestId("take-view").getByRole("button", { name: "Make video" }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Make a video" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  const cards = look.getByRole("group", { name: "Cards" })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await expect(look.getByRole("group", { name: "What the sample shows" })).toHaveCount(0)
+
+  await cards.getByRole("switch", { name: "End card" }).click()
+  const end = cards.getByLabel("Title", { exact: true }).last()
+  await end.fill("Tải SecondBite")
+  await cards.getByLabel("URL", { exact: true }).last().fill("secondbite.vn")
+  await expect(cards.getByLabel("Seconds")).toHaveValue("3")
+  // Typing a card's words asks no new sample of the picture.
+  const asked = server.samples.length
+  await cards.getByLabel("Line under it").fill("Đặt món trong 30 giây")
+  await page.waitForTimeout(300)
+  expect(server.samples.length).toBe(asked)
+
+  const shows = look.getByRole("group", { name: "What the sample shows" })
+  await shows.getByRole("button", { name: "End" }).click()
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({
+      take: takeId,
+      aspect: "9:16",
+      captions: true,
+      card: "end",
+      look: {
+        cards: {
+          accent: "#6c8cff",
+          end: {
+            title: "Tải SecondBite",
+            subtitle: "Đặt món trong 30 giây",
+            cta_url: "secondbite.vn",
+            duration_ms: 3000,
+          },
+        },
+      },
+    })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await expect(look.getByTestId("look-sample").locator("..")).toContainText("The end card")
+  await showSample(look)
+  await shot(page, "studio-card-sample")
+
+  // A title card with no title yet is not drawn.
+  await cards.getByRole("switch", { name: "Title card" }).click()
+  await shows.getByRole("button", { name: "Title" }).click()
+  await expect(look.getByTestId("look-sample")).toContainText("Give the card a title to see it.")
+  await cards.getByLabel("Title", { exact: true }).first().fill("SecondBite")
+  await cards.getByLabel("Seconds").first().fill("2.5")
+  // The sample of the title card carries it alone (the review of #1242).
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({
+      take: takeId,
+      aspect: "9:16",
+      captions: true,
+      card: "title",
+      look: { cards: { accent: "#6c8cff", title: { title: "SecondBite", duration_ms: 2500 } } },
+    })
+  await cards.scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-cards")
+
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+  expect((server.made[0] as { look?: unknown }).look).toEqual({
+    cards: {
+      accent: "#6c8cff",
+      title: { title: "SecondBite", duration_ms: 2500 },
+      end: {
+        title: "Tải SecondBite",
+        subtitle: "Đặt món trong 30 giây",
+        cta_url: "secondbite.vn",
+        duration_ms: 3000,
+      },
+    },
+  })
+})
+
+// Scenario: Make video with a template (issue #1230, row 5): the picker shows the template's skeleton, its use
+// case, length, shape, cards and sections with their words; picking App ad keeps the shape to 9:16 and turns its end
+// card on with its call to action over the take's title, and the make and the sample name the template without a
+// look of their own. A card's title changed is sent; the App Store preview takes its own shape and no captions;
+// None gives every shape back, and the shape and captions the owner had.
+test("Make video takes a template, its skeleton shown and its look the start", async ({ page }) => {
+  const server = await fakeServer(page)
+  await page.goto(`/studio/takes/${takeId}`)
+  await page.getByTestId("take-view").getByRole("button", { name: "Make video" }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Make a video" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  const cards = look.getByRole("group", { name: "Cards" })
+  const shape = dialog.getByRole("group", { name: "Shape" })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+
+  await dialog.getByLabel("Template").click()
+  await page.getByRole("option", { name: "App ad" }).click()
+  const skeleton = dialog.getByTestId("template-skeleton")
+  await expect(skeleton).toContainText("15-30 s · 9:16 · captions · an end card")
+  await expect(skeleton.getByRole("listitem")).toHaveCount(5)
+  await expect(skeleton.getByRole("listitem").first()).toContainText("Hook ~10 words, 4 s:")
+  await expect(shape.getByRole("button", { name: /^16:9/ })).toBeDisabled()
+  await expect(shape.getByRole("button", { name: /^9:16/ })).toHaveAttribute("aria-pressed", "true")
+  await expect(cards.getByRole("switch", { name: "End card" })).toBeChecked()
+  await expect(cards.getByRole("switch", { name: "Title card" })).not.toBeChecked()
+  await expect(cards.getByLabel("Title", { exact: true })).toHaveValue("Tải ứng dụng ngay")
+  await expect(cards.getByLabel("Line under it")).toHaveValue("Đăng nhập cửa hàng")
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({ take: takeId, aspect: "9:16", captions: true, template: "app-ad" })
+  await skeleton.scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-template")
+  await shape.scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-template-shape")
+  await cards.scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-template-card")
+
+  await cards.getByLabel("Title", { exact: true }).fill("Tải SecondBite")
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+  expect(server.made[0]).toEqual({
+    take: takeId,
+    captions: true,
+    aspect: "9:16",
+    template: "app-ad",
+    look: {
+      cards: {
+        accent: "#6c8cff",
+        end: { title: "Tải SecondBite", subtitle: "Đăng nhập cửa hàng", duration_ms: 3000 },
+      },
+    },
+  })
+
+  // The App Store preview: its own shape, no captions, no card; None gives every shape back.
+  await page.goto(`/studio/takes/${takeId}`)
+  await page.getByTestId("take-view").getByRole("button", { name: "Make video" }).click()
+  await dialog.getByLabel("Template").click()
+  await page.getByRole("option", { name: "App Store preview" }).click()
+  await expect(shape.getByRole("button", { name: /^App Store/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await expect(dialog.getByRole("switch", { name: "Captions" })).not.toBeChecked()
+  await expect(cards.getByRole("switch", { name: "End card" })).not.toBeChecked()
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({ take: takeId, aspect: "886x1920", captions: false, template: "app-store-preview" })
+
+  await dialog.getByLabel("Template").click()
+  await page.getByRole("option", { name: "None" }).click()
+  await expect(shape.getByRole("button", { name: /^16:9/ })).toBeEnabled()
+  await expect(skeleton).toHaveCount(0)
+  // None gives back the shape and captions the template set and the owner left (review of #1246).
+  await expect(shape.getByRole("button", { name: /^9:16/ })).toHaveAttribute("aria-pressed", "true")
+  await expect(dialog.getByRole("switch", { name: "Captions" })).toBeChecked()
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+  expect(server.made.at(-1)).toEqual({ take: takeId, captions: true, aspect: "9:16" })
+})
+
+// Scenario: Change look on a revision made with cards starts from them; the end card turned off is the only change
+// sent, the title card kept.
+test("Change look starts from the revision's cards", async ({ page }) => {
+  const server = await fakeServer(page)
+  const made = revision(1, "review")
+  server.revisions = [
+    {
+      ...made,
+      look: {
+        ...made.look,
+        cards: {
+          accent: "#ff3366",
+          title: { title: "SecondBite", duration_ms: 2600 },
+          end: { title: "Tải SecondBite", cta_url: "secondbite.vn", duration_ms: 3000 },
+        },
+      },
+    },
+  ]
+  await page.goto(`/studio/videos/${videoId}`)
+  await page
+    .getByRole("complementary", { name: "Review" })
+    .getByRole("button", { name: "Change look" })
+    .click()
+
+  const dialog = page.getByRole("dialog", { name: "Change the look" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  const cards = look.getByRole("group", { name: "Cards" })
+  await expect(cards.getByRole("switch", { name: "Title card" })).toBeChecked()
+  await expect(cards.getByLabel("URL", { exact: true }).last()).toHaveValue("secondbite.vn")
+  await cards.scrollIntoViewIfNeeded()
+  await shot(page, "studio-change-look-cards")
+
+  // The revision's end card, unchanged, is drawn from the revision: the sample sends no look.
+  await look
+    .getByRole("group", { name: "What the sample shows" })
+    .getByRole("button", { name: "End" })
+    .click()
+  await expect
+    .poll(() => server.samples.at(-1)!.body)
+    .toEqual({ take: takeId, aspect: "16:9", captions: false, rev: 1, card: "end" })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await showSample(look)
+  await shot(page, "studio-change-look-card-sample")
+
+  await cards.getByRole("switch", { name: "End card" }).click()
+  await expect(
+    look.getByRole("group", { name: "What the sample shows" }).getByRole("button", { name: "End" }),
+  ).toHaveCount(0)
+  await dialog.getByRole("button", { name: "Change look" }).click()
+
+  await expect(dialog).toBeHidden()
+  expect(server.looks[0]!.body).toEqual({
+    look: { cards: { accent: "#ff3366", title: { title: "SecondBite", duration_ms: 2600 } } },
+  })
 })
 
 // The Music group of the Look (issue #910, row 18).

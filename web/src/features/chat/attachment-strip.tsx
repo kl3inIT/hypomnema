@@ -1,4 +1,4 @@
-import { FileText, X } from "lucide-react"
+import { X } from "lucide-react"
 
 import {
   Attachment,
@@ -11,6 +11,7 @@ import {
   AttachmentTitle,
 } from "@/components/ui/attachment"
 import { Spinner } from "@/components/ui/spinner"
+import { KindIcon } from "@/features/preview/kind-icon"
 
 import { formatSize, type Attachments } from "./attachments"
 
@@ -47,7 +48,7 @@ export function AttachmentStrip({ attachments }: { attachments: Attachments }) {
                   ) : item.state === "uploading" ? (
                     <Spinner />
                   ) : (
-                    <FileText />
+                    <KindIcon name={item.name} />
                   )}
                 </AttachmentMedia>
                 <AttachmentContent>

@@ -484,20 +484,3 @@ test("an agent is deleted after a question, unless another names it", async ({ p
   await expect(page.getByRole("article", { name: "explorer" })).toHaveCount(0)
   await expect(page.getByRole("article", { name: "reviewer" })).toBeVisible()
 })
-
-// Scenario: the Agents moved into Settings (issue #857); old links to the list, an agent and a copy of one lead to
-// the same pages there.
-test("the old addresses of the Agents open them in Settings", async ({ page }) => {
-  await fakeServer(page)
-
-  await page.goto("/agents")
-  await expect(page).toHaveURL(/\/settings\/agents$/)
-  await expect(page.getByRole("heading", { name: "Agents", level: 1 })).toBeVisible()
-
-  await page.goto("/agents/reviewer")
-  await expect(page).toHaveURL(/\/settings\/agents\/reviewer$/)
-  await expect(page.getByRole("heading", { name: "reviewer", level: 2 })).toBeVisible()
-
-  await page.goto("/agents/new?from=reviewer")
-  await expect(page).toHaveURL(/\/settings\/agents\/new\?from=reviewer$/)
-})

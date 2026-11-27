@@ -112,7 +112,7 @@ func TestOnlyABotsPiSetsAndRunsItsRoutines(t *testing.T) {
 		{map[string]any{"action": "set", "name": "sales-copy", "every_minutes": 2}, "every 5 to 1440 minutes"},
 		{map[string]any{"action": "set", "name": "fresh", "summary": "s"}, "a prompt, or a script file"},
 		{map[string]any{"action": "set", "name": "fresh", "every_minutes": 60, "script": "routines/copy.sh"},
-			"cannot send a script yet"},
+			"came without its text"},
 		{map[string]any{"action": "run", "name": "missing"}, "you have no routine missing"},
 		{map[string]any{"action": "pause", "name": "sales-copy"}, "action is list, set or run"},
 	} {

@@ -456,6 +456,15 @@ func memoryBrief(agent, owner string, notes []string, hasTool bool) string {
 func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 	var b strings.Builder
 
+	// Issue #1259 follows GitHub's REST API rate limit guidance for all repository roles.
+	if githost.Kind(o.RepoKind) == githost.GitHub {
+		b.WriteString("\nIf GitHub reports a rate limit, run `gh api rate_limit` on the affected host. " +
+			"This call does not count against the primary limit. " +
+			"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming. " +
+			"For a secondary limit, honor `Retry-After` if present. If neither delay is given for a secondary limit, " +
+			"wait at least one minute before resuming. Report the limit and the wait in your summary.\n")
+	}
+
 	own, push, base := worktree.Branch(o.TaskID), pushBranch(o), prBase(o)
 
 	fmt.Fprintf(&b, "\nWork only in %s", here)

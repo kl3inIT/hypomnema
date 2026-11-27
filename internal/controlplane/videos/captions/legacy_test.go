@@ -46,7 +46,8 @@ func TestClassicTakesThePositionChosen(t *testing.T) {
 		return ass
 	}
 
-	assert.Equal(t, ASS(cues, 720, 1280, Default), render(PositionPreset), "Classic's own is unchanged")
+	assert.Equal(t, positionedASS(cues, 720, 1280, Default, PositionPreset), render(PositionPreset),
+		"Classic's own is unchanged")
 
 	for p, want := range map[Position][2]string{
 		PositionBottom: {"2", "90"}, PositionLowerThird: {"2", "205"}, PositionCenter: {"5", "0"},

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // Setup changes (issue #169, part 3): the Bot coordinator alone makes,
@@ -200,9 +201,10 @@ func (s *Service) DeleteBotFromChat(ctx context.Context, chat, name string) erro
 }
 
 // ApplyProfileFromChat is ApplyProfile by the Bot coordinator from its chat.
-func (s *Service) ApplyProfileFromChat(ctx context.Context, chat, name, source string) (Profile, bool, error) {
+func (s *Service) ApplyProfileFromChat(ctx context.Context, chat, name, source string,
+) (profilestore.Profile, bool, error) {
 	if chat == "" {
-		return Profile{}, false, fmt.Errorf("%w: a bot's change is made from a chat", ErrInvalid)
+		return profilestore.Profile{}, false, fmt.Errorf("%w: a bot's change is made from a chat", ErrInvalid)
 	}
 
 	return s.applyProfile(ctx, chat, name, source)
@@ -430,18 +432,18 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 	b := before.bot(r.Name)
 
 	// What it was may no longer be served or exist: say so rather than put back a Bot that cannot run.
-	provider, err := keptModel(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
+	provider, err := profilestore.CheckModelTx(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
 	if err != nil {
 		return err
 	}
 
 	b.Provider = provider
 
-	if err := checkSkills(ctx, q, b.Skills, b.SkillsOff); err != nil {
+	if err := profilestore.CheckSkillsTx(ctx, q, b.Skills, b.SkillsOff); err != nil {
 		return err
 	}
 
-	if err := checkTools(b.Preset, b.Tools, b.ToolsOff); err != nil {
+	if err := profilestore.CheckTools(b.Preset, b.Tools, b.ToolsOff); err != nil {
 		return err
 	}
 
@@ -450,11 +452,7 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 
 func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, r store.SetupChange) error {
 	if r.Action == actionMade {
-		if err := q.DeleteProfileVersions(ctx, r.Name); err != nil {
-			return fmt.Errorf("removing the versions of profile %s: %w", r.Name, err)
-		}
-
-		return q.DeleteProfile(ctx, r.Name)
+		return profilestore.RemoveTx(ctx, q, r.Name)
 	}
 
 	var beforeID string
@@ -462,41 +460,5 @@ func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, 
 		return fmt.Errorf("reading what profile %s was before: %w", r.Name, err)
 	}
 
-	// Versions never change and their numbers only rise: what it was before comes back as a new version.
-	before, err := q.GetProfileVersion(ctx, beforeID)
-	if err != nil {
-		return notFound(err, "profile version", beforeID)
-	}
-
-	current, err := q.CurrentProfileVersion(ctx, r.Name)
-	if err != nil {
-		return notFound(err, "profile", r.Name)
-	}
-
-	if _, err := keptModel(ctx, q, before.Runtime, before.Provider.String, before.Model.String,
-		before.Effort.String); err != nil {
-		return fmt.Errorf("profile %s as it was: %w", r.Name, err)
-	}
-
-	// A backup it named may have gone since: the scheduler would not find it.
-	for _, name := range splitNames(before.Fallbacks) {
-		if _, err := q.GetProfile(ctx, name); err != nil {
-			return fmt.Errorf("%w: profile %s as it was names the backup %s, which is gone; change it by hand",
-				ErrConflict, r.Name, name)
-		}
-	}
-
-	id := s.newID("pfv")
-
-	if err := q.SetProfileVersion(ctx, store.SetProfileVersionParams{Name: r.Name, VersionID: id, Now: now}); err != nil {
-		return fmt.Errorf("pointing profile %s at what it was: %w", r.Name, err)
-	}
-
-	return q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
-		ID: id, Profile: r.Name, Version: current.Version + 1, Source: before.Source, Digest: before.Digest,
-		Description: before.Description, Runtime: before.Runtime, Provider: before.Provider, Model: before.Model,
-		Effort: before.Effort, Instruction: before.Instruction, Fallbacks: before.Fallbacks, Skills: before.Skills,
-		SkillsOff: before.SkillsOff, Preset: before.Preset, Tools: before.Tools, ToolsOff: before.ToolsOff,
-		CpuRequestMillis: before.CpuRequestMillis, MemoryRequestBytes: before.MemoryRequestBytes, Now: now,
-	})
+	return s.profiles.RestoreVersionTx(ctx, q, now, r.Name, beforeID)
 }

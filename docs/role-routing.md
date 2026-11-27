@@ -1,6 +1,6 @@
 # Worker role routing
 
-The [default mapping](../internal/controlplane/orchestration/role_routing.yaml) selects ordered runtime and model
+The [default mapping](../internal/controlplane/orchestration/profilestore/role_routing.yaml) selects ordered runtime and model
 entries for a worker role and Task kind. `hypomnema profiles routing` prints the effective YAML. The owner can
 replace it with `hypomnema profiles routing-apply <file>`: every entry is validated against the provider's model
 catalog before the whole mapping is stored. The built-in mapping can refer to models that a server has not yet

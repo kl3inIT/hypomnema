@@ -25,6 +25,7 @@ const reply = {
     "",
     "MEDIA:out/tuan/dong-gop-vmap-den-15-11.xlsx",
     "MEDIA:out/tuan/old-report.zip",
+    "MEDIA:out/tuan/summary.pdf",
     "",
     "To send another file, write the line so:",
     "",
@@ -102,7 +103,16 @@ test("a reply's MEDIA: lines are files to download", async ({ page }) => {
 
   const log = page.getByRole("log")
   const files = log.getByRole("list", { name: "Files" })
-  await expect(files.getByRole("link")).toHaveCount(2)
+  await expect(files.getByRole("link")).toHaveCount(3)
+  await expect(files.locator("img")).toHaveCount(3)
+  const icons = await files
+    .locator("img")
+    .evaluateAll((images) => images.map((image) => image.getAttribute("src")))
+  expect(icons).toEqual([
+    expect.stringMatching(/\/table\.svg$/),
+    expect.stringMatching(/\/zip\.svg$/),
+    expect.stringMatching(/\/pdf\.svg$/),
+  ])
   await expect(log).toContainText("every column kept.")
   await expect(
     log.locator("pre, code").filter({ hasText: "MEDIA:out/report.xlsx" }),

@@ -538,7 +538,8 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 
 		return
 	case in.Path != "" && len(in.File) == 0:
-		answerTool(w, "this machine's tools cannot send a file yet; send the text alone, or wait for its update", true)
+		// The tools server reads the file into file; a call without it would send the text alone.
+		answerTool(w, "the file's path came without the file; send the text alone", true)
 
 		return
 	case in.Text == "" && len(in.File) == 0:

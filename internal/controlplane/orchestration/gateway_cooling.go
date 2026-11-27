@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 func gatewayRoute(ctx context.Context, q *store.Queries, runtime, model string) (string, error) {
@@ -17,7 +18,7 @@ func gatewayRoute(ctx context.Context, q *store.Queries, runtime, model string) 
 	case "claude":
 		return "/v1/messages", nil
 	case "omp":
-		wire, err := modelAPI(ctx, q, GatewayAccountRef, model)
+		wire, err := profilestore.ModelAPITx(ctx, q, profilestore.GatewayAccountRef, model)
 		if err != nil {
 			return "", err
 		}

@@ -12,6 +12,17 @@ import type { Attachments } from "./attachments"
 import { clearDraft, readDraft, saveDrafts, writeDraft } from "./drafts"
 import { recall, type Walk } from "./recall"
 
+function uploadedFiles(items: Attachments["items"]): ChatAttachment[] {
+  return items
+    .filter((item) => item.state === "done")
+    .map((item) => ({
+      name: item.name,
+      path: item.path,
+      size: item.size,
+      ...(item.type && { type: item.type }),
+    }))
+}
+
 // The message box, after t3code's composer (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code): chat/ComposerSurface.tsx for the raised card with its glass and outline,
 // chat/ChatComposer.tsx for the body and footer, chat/ComposerPrimaryActions.tsx for the round Send and Stop.
@@ -36,6 +47,7 @@ import { recall, type Walk } from "./recall"
 // "Hand to Hypo", and Send is then a button with those words.
 export function Composer({
   onSend,
+  onSendingChange,
   ready,
   onStop,
   working,
@@ -50,6 +62,8 @@ export function Composer({
   submit,
 }: {
   onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
+  // The Inbox keeps the outgoing files in their folder until the send settles.
+  onSendingChange?: (sending: boolean) => void
   // ready is what the message waits for before it leaves the box and the draft, such as a new chat's Bots (issue
   // #1055); a refusal leaves it there and says why.
   ready?: () => Promise<unknown>
@@ -101,15 +115,11 @@ export function Composer({
   // files are not: they go with it, and come back into the draft if it is not sent.
   useEffect(() => {
     if (!key || !items || sending) return
-    const up = items
-      .filter((item) => item.state === "done")
-      .map((item) => ({
-        name: item.name,
-        path: item.path,
-        size: item.size,
-        ...(item.type && { type: item.type }),
-      }))
-    writeDraft(key, { files: up, ...(chat && { chat }), ...(draftBot && { bot: draftBot }) })
+    writeDraft(key, {
+      files: uploadedFiles(items),
+      ...(chat && { chat }),
+      ...(draftBot && { bot: draftBot }),
+    })
   }, [key, items, chat, draftBot, sending])
 
   // The draft is saved as the composer goes, to another chat or page.
@@ -163,6 +173,7 @@ export function Composer({
     // assistant-ui's composer detaches its text and attachments at send. What is typed meanwhile is the next draft.
     if (key) clearDraft(key)
 
+    onSendingChange?.(true)
     try {
       const files = attachments ? await attachments.draft.ready() : []
       await onSend(message, files)
@@ -175,8 +186,12 @@ export function Composer({
       // What was typed meanwhile is kept; the failed text goes back only into an empty box.
       const typed = box.current?.value ?? ""
       if (typed === "") type(message)
+      // pagehide can save the draft before the effect runs after the refusal.
+      if (key && attachments)
+        writeDraft(key, { files: uploadedFiles(attachments.draft.snapshot()) })
       setError(`Not sent: ${errorText(err)}`)
     } finally {
+      onSendingChange?.(false)
       setSending(false)
     }
   }

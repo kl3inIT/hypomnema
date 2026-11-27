@@ -444,7 +444,7 @@ func TestAChatChoosesItsModelAndEffort(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\n"+
+	_, err := w.s.Profiles().ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\n"+
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet, haiku]\n")
 	require.NoError(t, err)
 

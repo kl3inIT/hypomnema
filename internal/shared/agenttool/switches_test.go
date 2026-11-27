@@ -74,14 +74,15 @@ func TestThePhoneFamilyIsThePhonesTools(t *testing.T) {
 	}
 
 	// video_make and video_get are the control plane's, served on its own tools route, apart from the phone
-	// (issue #818); the phone's switch names them too.
-	offered = append(offered, devicetool.VideoMake, devicetool.VideoGet)
+	// (issue #818), and so is video_templates (issue #1230); the phone's switch names them too.
+	offered = append(offered, devicetool.VideoMake, devicetool.VideoGet, devicetool.VideoTemplates)
 
 	phone := ToolFamilies[len(ToolFamilies)-1]
 	require.Equal(t, "phone", phone.Name)
 	assert.ElementsMatch(t, offered, phone.Tools)
 	assert.False(t, devicetool.Routed(devicetool.VideoMake), "a render is not the phone's")
 	assert.False(t, devicetool.Routed(devicetool.VideoGet))
+	assert.False(t, devicetool.Routed(devicetool.VideoTemplates))
 	assert.True(t, devicetool.Routed(devicetool.VideoStatus))
 }
 
@@ -157,7 +158,8 @@ func TestAReadRunReadsMeetingsAndNothingThatWrites(t *testing.T) {
 func TestTheBrowserFamilyGivesTheVideoToolsThatReadATake(t *testing.T) {
 	t.Parallel()
 
-	read := []string{devicetool.VideoStatus, devicetool.VideoList, devicetool.VideoMake, devicetool.VideoGet}
+	read := []string{devicetool.VideoStatus, devicetool.VideoList, devicetool.VideoMake, devicetool.VideoGet,
+		devicetool.VideoTemplates}
 	full := ToolSwitches{Preset: PresetFull}
 
 	for _, tool := range append([]string{devicetool.BrowserVideoStart, devicetool.BrowserVideoSay}, read...) {

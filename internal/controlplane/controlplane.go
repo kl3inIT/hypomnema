@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/inbox"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
@@ -63,6 +64,9 @@ const (
 	binary    = "hypomnema"
 	envPrefix = "HYPOMNEMA"
 )
+
+// larkIntegration is the Integration of the owner's Lark sign-in.
+const larkIntegration = "lark"
 
 // Config is the control plane's configuration, read from the environment.
 type Config struct {
@@ -324,20 +328,6 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, referrers)
 	svc.WithShareVault(secrets.Copies())
 
-	// A share link made before its token was hashed (issue #996) is moved out of plaintext before anything is
-	// served, so its URL keeps working; without a vault it keeps its plaintext until one can seal it.
-	move, err := svc.MoveShareTokens(ctx)
-	if err != nil {
-		return fmt.Errorf("moving the tokens of share links: %w", err)
-	}
-
-	logShareTokenMove(ctx, logger, move)
-
-	// Then the files are cleared of the old plaintext; until they are, no link is served, and it is tried again.
-	if !scrubShareTokens(ctx, svc, logger) {
-		go retryShareScrub(ctx, svc, logger)
-	}
-
 	// The account each git host token belongs to is read at its host once, so workers commit as it (issue #991).
 	tokens := connections{svc: svc, vault: secrets, identities: &gitIdentities{
 		ways: &connproxy.Transports{
@@ -464,7 +454,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			return slices.Contains(ownPorts, port)
 		}},
 	})
-	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
+	metered := modelgateway.MeteredWeb{Web: webSearch, Gateway: gateway, Logger: logger}
 
 	// Speech-to-text and text-to-speech (issue #694), with the owner's keys in the vault and what the owner set on
 	// the Audio page, read at each call.
@@ -496,7 +486,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// New sweeps the music folder once, before anything is served; no request's context is there yet.
 	videoSvc, err := videos.New(videos.Config{ //nolint:contextcheck // As above.
 		DB: db, Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "videos"), Takes: phoneTakes,
-		Speech:   videoAudio{speech: voice, gateway: gateway, chats: svc, logger: logger},
+		Speech:   modelgateway.VideoAudio{Speech: voice, Gateway: gateway, BotOf: chatBot(svc), Logger: logger},
 		Settings: gateway.AudioSettings, Tools: ffmpegTools, Ready: ffmpegReady, Logger: logger,
 	})
 	if err != nil {
@@ -579,21 +569,21 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return token.AccessToken, err
 	}
 	// The Inbox checks the message the owner sent that a Bot gives as evidence that he answered (issue #1004).
-	svc.Inbox().WithSent(inboxSent{
-		messages: integrations.Messages, members: integrations.Members, larkToken: larkToken,
-		larkURL: "https://" + serviceproxy.LarkHost, client: &http.Client{Timeout: 30 * time.Second},
-	})
+	svc.Inbox().WithSent(inbox.NewSent(inbox.Config{
+		Messages: integrations.Messages, Members: integrations.Members, LarkToken: larkToken,
+		LarkURL: "https://" + serviceproxy.LarkHost, Client: &http.Client{Timeout: 30 * time.Second},
+	}))
 	// The owner sends a reply from the Inbox through his own accounts (issue #1111), tagging whom it names (#1200).
-	ownerReplies := inboxSender{
-		send: integrations.Send, messages: integrations.Messages, members: integrations.Members, larkToken: larkToken,
-		googleToken: func(ctx context.Context, label string) (string, error) {
+	ownerReplies := inbox.NewSender(inbox.Config{
+		Send: integrations.Send, Messages: integrations.Messages, Members: integrations.Members, LarkToken: larkToken,
+		GoogleToken: func(ctx context.Context, label string) (string, error) {
 			token, err := integrations.Token(ctx, integration.GoogleID, label)
 
 			return token.AccessToken, err
 		},
-		larkURL: "https://" + serviceproxy.LarkHost, gmailURL: "https://gmail.googleapis.com",
-		client: &http.Client{Timeout: 30 * time.Second}, log: logger,
-	}
+		LarkURL: "https://" + serviceproxy.LarkHost, GmailURL: "https://gmail.googleapis.com",
+		Client: &http.Client{Timeout: 30 * time.Second}, Log: logger,
+	})
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
@@ -622,14 +612,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// Every worker's and every Bot's pi's web tools, generate_image and speech tools (issues #354, #492, #723), each
 	// call recorded on its Dispatch's key or on the key of the chat's running pi; before anything is served.
-	agents.WithWeb(agentWeb{worker: workerWeb{metered}, bot: botWeb{meteredWeb: metered, chats: sup}}).
+	agents.WithWeb(agentWeb{
+		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
+	}).
 		WithImages(agentImages{
-			worker: workerImages{server: gatewayServer, gateway: gateway, logger: logger},
-			bot:    botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+			worker: modelgateway.WorkerImages{Server: gatewayServer, Gateway: gateway, Logger: logger},
+			bot:    modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},
 		}).
 		WithAudio(agentAudio{
-			worker: workerAudio{speech: voice, gateway: gateway, logger: logger},
-			bot:    botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
+			worker: modelgateway.WorkerAudio{Speech: voice, Gateway: gateway, Logger: logger},
+			bot:    modelgateway.BotAudio{Speech: voice, Gateway: gateway, Chats: sup, Logger: logger},
 		})
 
 	// The Channels (issues #136, #169 and #404): one runtime for every kind, each kind's Channel found in the
@@ -645,7 +637,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	channelData := channelStore{Service: svc, Store: svc.Channels()}
 
 	runtime := channels.New(channelData, sup, registry, secrets, logger).WithWebURL(cfg.PublicURL).
-		WithHearer(channelVoice{speech: voice, gateway: gateway, chats: svc, logger: logger})
+		WithHearer(modelgateway.ChannelVoice{Speech: voice, Gateway: gateway, BotOf: chatBot(svc), Logger: logger})
 	if bots != nil {
 		runtime.WithFiles(bots)
 	}
@@ -691,11 +683,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithBuiltinSkills(builtinSkills).
 		WithRoutines(routineRunner).
 		WithMeetings(meetingWork).
-		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
+		WithWeb(modelgateway.BotWeb{MeteredWeb: metered, Chats: sup}).
 		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
-		WithImages(botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+		WithImages(modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},
 			imageSettings{Service: gateway, server: gatewayServer}).
-		WithAudio(botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
+		WithAudio(modelgateway.BotAudio{Speech: voice, Gateway: gateway, Chats: sup, Logger: logger},
 			audioSettings{Service: gateway, speech: voice}).
 		WithBotTools(agents.BotTools).WithToolUnavailability(agents.ToolUnavailability)
 	if cfg.VaultKeys != nil {
@@ -798,14 +790,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// The subscription providers are given the models their vendors serve (issue #623), and again as soon as an
 	// account's first list of models is read (issue #814).
 	vendorModelsDone := make(chan struct{})
-	vendor := &vendorModels{subs: subscriptions, providers: svc, logger: logger}
+	vendor := subscription.NewVendorModels(subscriptions, svc.Profiles(), logger)
 
-	subscriptions.OnFirstList(func(string) { vendor.update(ctx) })
+	subscriptions.OnFirstList(func(string) { vendor.Update(ctx) })
 
 	go func() {
 		defer close(vendorModelsDone)
 
-		vendorModelsLoop(ctx, vendor)
+		vendor.Loop(ctx)
 	}()
 
 	// Old requests and the revoked keys no request names are deleted once a day (issue #628).
@@ -1118,41 +1110,6 @@ type channelStore struct {
 	*channelstore.Store
 }
 
-// shareScrubEvery is how often clearing the database's files of old share tokens is tried again while a reader
-// holds an older snapshot or the vault is not configured (issue #996).
-const shareScrubEvery = 30 * time.Second
-
-// scrubShareTokens clears the database's files of old share tokens and reports whether nothing is left to clear.
-func scrubShareTokens(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) bool {
-	done, err := svc.ScrubShareTokens(ctx)
-	if err != nil && ctx.Err() == nil {
-		logger.WarnContext(ctx, "clearing old share tokens from the database's files",
-			slog.String("event", "controlplane.share_scrub_failed"), slog.String("error", err.Error()))
-	}
-
-	return done
-}
-
-// retryShareScrub tries scrubShareTokens again until it is done or ctx ends.
-func retryShareScrub(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) {
-	tick := time.NewTicker(shareScrubEvery)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			if scrubShareTokens(ctx, svc, logger) {
-				logger.InfoContext(ctx, "cleared old share tokens from the database's files; links are served",
-					slog.String("event", "controlplane.share_scrub_done"))
-
-				return
-			}
-		}
-	}
-}
-
 // shareViewsWriteEvery is how often the openings of share links counted in memory are written (issue #996), and
 // shareViewsLastWrite how long the last write may take as the control plane stops.
 const (
@@ -1185,19 +1142,6 @@ func writeShareViews(ctx context.Context, svc *orchestration.Service, logger *sl
 		case <-tick.C:
 			write(ctx)
 		}
-	}
-}
-
-// logShareTokenMove says, once as the control plane starts, what MoveShareTokens did (issue #996).
-func logShareTokenMove(ctx context.Context, logger *slog.Logger, move orchestration.ShareTokenMove) {
-	if move.Moved > 0 {
-		logger.InfoContext(ctx, "moved the tokens of share links out of plaintext",
-			slog.String("event", "controlplane.share_tokens_moved"), slog.Int("links", move.Moved))
-	}
-
-	if move.Waiting > 0 {
-		logger.WarnContext(ctx, "share links made before are not served until the vault is configured to seal them",
-			slog.String("event", "controlplane.share_tokens_waiting"), slog.Int("links", move.Waiting))
 	}
 }
 

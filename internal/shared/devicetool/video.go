@@ -42,6 +42,8 @@ const (
 	// routed to the phone nor among IsVideo's.
 	VideoMake = "video_make"
 	VideoGet  = "video_get"
+	// VideoTemplates lists the templates video_make takes (issue #1230, row 5), the control plane's own as they are.
+	VideoTemplates = "video_templates"
 )
 
 // The browser take's tools (issue #1189, row 4): start, say and stop filming the agent's own tab of the shared
@@ -63,7 +65,7 @@ func Routed(name string) bool {
 
 // IsVideo says whether a tool is one of the phone's video tools.
 func IsVideo(name string) bool {
-	return strings.HasPrefix(name, VideoPrefix) && name != VideoMake && name != VideoGet
+	return strings.HasPrefix(name, VideoPrefix) && name != VideoMake && name != VideoGet && name != VideoTemplates
 }
 
 // Limits of the video tools' arguments.

@@ -224,7 +224,7 @@ func (f *fakeMaker) Burn(_ context.Context, _ ffmpeg.Tools, video, captions, wor
 	return out, os.WriteFile(out, []byte("burned:"+filepath.Base(video)), 0o600)
 }
 
-func (f *fakeMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string) error {
+func (f *fakeMaker) Thumbnail(_ context.Context, _ ffmpeg.Tools, _, out string, _ int64) error {
 	f.mu.Lock()
 	fail := f.fail
 	f.mu.Unlock()

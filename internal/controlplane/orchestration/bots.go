@@ -14,6 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
@@ -28,7 +29,7 @@ const DefaultBotID = "bot_mainaaaaaaaaaaaaaaaaaaaaaa"
 const maxBotName = 64
 
 // botRuntime is what every Bot runs: pi, started by the control plane.
-const botRuntime = "pi"
+const botRuntime = profilestore.BotRuntime
 
 // Limits of a Bot's texts. The memory's is an agent's, memorystore's
 // (Hermes's): the whole memory is in pi's prompt in every chat.
@@ -339,12 +340,7 @@ func renameBotRow(ctx context.Context, q *store.Queries, now int64, id, name str
 // checkBot checks a Bot's model, skills and lists before it is stored, and
 // sets the provider its model is found at.
 func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
-	check := checkModel
-	if had != nil && b.Model == had.Model && b.Provider == had.Provider {
-		check = keptModel // the stored model, left as it is (issue #1002)
-	}
-
-	provider, err := check(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
+	provider, err := profilestore.CheckModelTx(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
 	if err != nil {
 		return err
 	}
@@ -356,11 +352,11 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 		return err
 	}
 
-	if err := checkSkills(ctx, q, b.Skills, b.SkillsOff); err != nil {
+	if err := profilestore.CheckSkillsTx(ctx, q, b.Skills, b.SkillsOff); err != nil {
 		return err
 	}
 
-	if err := checkTools(b.Preset, b.Tools, b.ToolsOff); err != nil {
+	if err := profilestore.CheckTools(b.Preset, b.Tools, b.ToolsOff); err != nil {
 		return err
 	}
 
@@ -371,8 +367,8 @@ func checkBotFallbacks(ctx context.Context, q *store.Queries, b *Bot) error {
 	if len(b.Fallbacks) == 0 {
 		return nil
 	}
-	if len(b.Fallbacks) > MaxFallbacks {
-		return fmt.Errorf("%w: a bot can have at most %d fallbacks", ErrInvalid, MaxFallbacks)
+	if len(b.Fallbacks) > profilestore.MaxFallbacks {
+		return fmt.Errorf("%w: a bot can have at most %d fallbacks", ErrInvalid, profilestore.MaxFallbacks)
 	}
 	if b.Model == "" {
 		return fmt.Errorf("%w: choose a primary model before adding fallbacks", ErrInvalid)
@@ -389,7 +385,7 @@ func checkBotFallbacks(ctx context.Context, q *store.Queries, b *Bot) error {
 		if provider == "" || model == "" || strings.ContainsAny(ref, ",\r\n") || strings.TrimSpace(ref) != ref {
 			return fmt.Errorf("%w: fallback %q must be provider/model", ErrInvalid, ref)
 		}
-		if _, err := checkModel(ctx, q, botRuntime, provider, model, ""); err != nil {
+		if _, err := profilestore.CheckModelTx(ctx, q, botRuntime, provider, model, ""); err != nil {
 			return err
 		}
 		name, err := gatewayBotModel(ctx, q, provider, model)
@@ -409,10 +405,10 @@ func gatewayBotModel(ctx context.Context, q *store.Queries, provider, model stri
 	if err != nil {
 		return "", notFound(err, "provider", provider)
 	}
-	if !throughGateway(row.Kind) {
+	if !profilestore.ThroughGateway(row.Kind) {
 		return "", fmt.Errorf("%w: bot fallbacks require gateway models; %s/%s is not one", ErrInvalid, provider, model)
 	}
-	return GatewayModelName(row.Kind, provider, model), nil
+	return profilestore.GatewayModelName(row.Kind, provider, model), nil
 }
 
 func (s *Service) ChatFallbacks(ctx context.Context, chatID, requested string) ([]string, error) {
@@ -425,7 +421,7 @@ func (s *Service) ChatFallbacks(ctx context.Context, chatID, requested string) (
 		return nil, err
 	}
 	primary, err := s.PiModel(ctx, ChatModel{Provider: bot.Provider, Model: bot.Model})
-	if err != nil || primary.Provider != PiProvider || primary.Model != requested {
+	if err != nil || primary.Provider != profilestore.PiProvider || primary.Model != requested {
 		return nil, err
 	}
 

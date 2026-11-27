@@ -40,6 +40,11 @@ func TestHandingAnItemToABotWakesItWithThePromptAndTheItem(t *testing.T) {
 	w := newSeedWorld(t)
 	ctx := t.Context()
 
+	_, err := w.s.SaveServiceConnection(ctx, Connection{
+		Integration: "whatsapp", Label: "me", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+
 	found, err := w.s.Inbox().Create(ctx, inboxBot, inboxstore.NewTodo{
 		Title: "Reply to Kai about the pilot", State: inboxstore.Proposed, Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
 		Draft: "Hi Kai, the pilot starts Monday.",

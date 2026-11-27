@@ -20,7 +20,7 @@ const (
 	DefaultMaxOutput     int64 = 16384
 )
 
-// The wires a subscription's model is spoken to on (issue #549), as orchestration.GatewayWires names them; empty
+// The wires a subscription's model is spoken to on (issue #549), as profilestore.GatewayWires names them; empty
 // is OpenAI's chat.
 const (
 	WireMessages  = "anthropic-messages"

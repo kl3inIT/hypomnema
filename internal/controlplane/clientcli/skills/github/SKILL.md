@@ -24,7 +24,7 @@ left out.
   plane, which adds the token of the github.com account the owner gave you. The tool itself holds a placeholder.
 - **Never run `gh auth login`, `gh auth logout`, `gh auth setup-git`, `gh auth token` or `gh config set`**, and never
   set `GH_TOKEN` or `GITHUB_TOKEN` yourself. If a command says you were given no account, say so: only the owner
-  connects one (`hosts token set github.com`) and allows it for chats.
+  connects one (`integrations connect github.com`) and allows it for chats.
 - Only github.com's API is reached: `git clone` and `gh repo clone` do not work here. Read files with
   `gh api repos/OWNER/REPO/contents/PATH` instead. Giving coding work to a worker is the `hypomnema-coordinator`
   skill's.

@@ -77,17 +77,20 @@
   comment on that issue.
 - Before pushing, once, after the last edit or merge: `make verify-static` and the unit tests of what the change
   touched (`go test` on the changed packages; for the web client, `pnpm --dir web exec vitest related --run` on the
-  changed files, and `pnpm --dir web typecheck` and `lint`). Do not run the whole suite locally: CI's Unit, Race and
-  browser jobs are the full proof (t3code `AGENTS.md:102,111`, OpenClaw `AGENTS.md:86`, Orca `AGENTS.md:8`, Coder
-  `AGENTS.md:46`; owner, 2026-11-19).
+  changed files, and `pnpm --dir web typecheck` and `lint`). Do not run the whole suite locally (t3code
+  `AGENTS.md:102,111`, OpenClaw `AGENTS.md:86`, Orca `AGENTS.md:8`, Coder `AGENTS.md:46`; owner, 2026-11-19).
+  CI runs the full Go Unit and browser suites and selected Race shards on code PRs. Main and manual dispatches
+  run all Race shards and `govulncheck` ([CI runbook](docs/ci.md)).
 - Do not merge main into a branch only because main advanced. Merge it for a conflict, for a red check whose cause
   is on main, or for a migration. After a merge, rerun only the checks it affects (OpenClaw `AGENTS.md:46`).
 - A migration is made with `make migration-create NAME=what_it_does`, which names it by its time, so branches open
   side by side never take the same version (#954; goose `create`, Omnara's `migration-create`). Its pull request
   stays green with that name while open; right before it is merged (for a worker, before turning on auto-merge) it
   merges main, runs `make migration-fix`, which numbers it after main's last (goose `fix`), and `make
-  migration-check`, then pushes and merges once green. A push to main refuses a migration named by its time, and
-  one whose number main took meanwhile; then run `make migration-fix` again (#334, #954).
+  migration-check`, then pushes and merges once green. The `migrations-current` status checks PR heads against
+  main and is refreshed for open PRs that add migrations when migrations change on main. If main takes a number
+  while the PR is open, merge main and run `make migration-fix` again (#1263). A push to main refuses a migration
+  named by its time or one whose number main took meanwhile (#334, #954).
 - A merge conflict in generated code (`internal/controlplane/clientapi/openapi/api.gen.go`,
   `web/src/api/generated/*.gen.ts`) is never edited by hand: resolve `api/openapi.yaml` first, take either side of
   the generated files, then run `make openapi-generate`, `make web-api-generate` and `make openapi-check` (#754).
@@ -99,7 +102,7 @@
   come after: `pnpm --dir web install --frozen-lockfile`, then `pnpm --dir web exec playwright install chromium`;
   `pnpm --dir web exec playwright install-deps --dry-run chromium` names the system libraries it lacks, which take
   sudo. Without `make` (it takes sudo too), run the recipes of the Makefile's targets by hand: `make verify` is
-  `verify-static` (`fmt-check`, `tidy-check`, `lint`, `deps-check`, `sqlc-check`, `openapi-check`,
+  `verify-static` (`tidy-check`, `lint`, `deps-check`, `sqlc-check`, `openapi-check`,
   `migration-check`, `goose-version-check`), `unit` and `race`, with `go` for `$(GO)`. What needs sudo, such as gcc for `make race` and
   Chromium's libraries, is left to CI and said in the pull request
   ([research](docs/research/2026-11-12-a-repository-tools-for-workers.md); owner, 2026-11-12; issue #718).
@@ -122,14 +125,16 @@ check in the same change, and a rule whose mistake can no longer happen is dropp
 
 | Rule | Enforced by |
 |---|---|
-| Go files are gofmt-formatted; `go.mod` and `go.sum` of each module are tidy | `make fmt-check`, `make tidy-check` (CI Static) |
+| Go files are gofmt-formatted; `go.mod` and `go.sum` of each module are tidy | `make lint`, `make tidy-check` (CI Static) |
 | Import boundaries, no wall clock in the orchestration core, the banned packages ([conventions](docs/conventions.md#layout-and-boundaries)) | `make lint`, `.golangci.yml` depguard and forbidigo (CI Static) |
 | The node links no control plane code, and the control plane no node code | `make deps-check` (CI Static) |
 | Generated code is what its source generates, never edited by hand | `make sqlc-check`, `make openapi-check`, `make web-api-check` (CI Static, Web) |
-| A numbered migration on main never changes; no two share a number; a new one comes after main's last | `make migration-check` against main, or on a push the commit before (CI Static) |
+| A numbered migration on main never changes; no two share a number; a new one comes after main's last | `make migration-check` against main, or on a push the commit before (CI Static); `migrations-current` on PR heads (`migrations-current.yml`) |
 | A migration named by its time never reaches main or a release | `make migration-check MIGRATION_TIMESTAMPS=refuse` on a push to main (`ci.yml`); `release.yml` releases only a green commit |
 | The goose that makes migration files is the goose the binary migrates with | `make goose-version-check` (CI Static) |
 | A pull request merges only with its checks green | the `Required` check on main's branch protection |
+| A store package never imports orchestration's root ([conventions](docs/conventions.md#layout-and-boundaries)) | the build: the root imports its stores, so the import is a cycle |
+| `internal/controlplane` only assembles and holds the owner's server commands; feature logic lives in its feature's package ([conventions](docs/conventions.md#layout-and-boundaries)) | nothing: the reviewer |
 | Reference-based design, asking first, a "From" for each decision, the merge steps above, docs in the change | nothing: the reviewer and the owner |
 
 ## Skills

@@ -421,12 +421,6 @@ type inboxSourceArgs struct {
 	Account string `json:"account"`
 }
 
-// sourceIntegration is the Integration whose Connection a source names its account by.
-var sourceIntegration = map[string]string{
-	inboxstore.FromZalo: "zalo", inboxstore.FromWhatsApp: "whatsapp", inboxstore.FromLark: "lark",
-	inboxstore.FromGmail: "google",
-}
-
 // readSource is where a Bot read an item, as it names it (issue #1105): what of the owner's it read, in any of its
 // chats or runs, accepted only when it may read it now as its reads are: an account it may use (Bot.MayUse, as
 // agentapi's tools and the service proxy check it), or a meeting that is there for a Bot that reads meetings. The
@@ -467,7 +461,7 @@ func (s *Server) readSource(ctx context.Context, a agent, in inboxArgs) (inboxst
 		return src, nil
 	}
 
-	integration := sourceIntegration[src.Kind]
+	integration := src.ConnectionIntegration()
 	if src.Account == "" {
 		return inboxstore.Source{}, fmt.Errorf("%w: a to-do from %s names the owner's account you read it with, "+
 			"the label of %s:<label>", orchestration.ErrInvalid, src.Kind, integration)
@@ -512,8 +506,13 @@ func (s *Server) accountLabel(ctx context.Context, a agent, integration, named s
 		}
 	}
 
-	return "", fmt.Errorf("%w: you may not use %s:%s, so nothing is added from it", orchestration.ErrForbidden,
-		integration, named)
+	labels := make([]string, 0, len(may))
+	for _, c := range may {
+		labels = append(labels, c.Label)
+	}
+
+	return "", fmt.Errorf("%w: you may not use %s:%s; available Connection labels: %s",
+		orchestration.ErrForbidden, integration, named, inboxstore.ConnectionLabelList(labels))
 }
 
 // sameAccount says whether two names of an account are one: a phone number with or without its + and spaces, and

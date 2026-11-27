@@ -211,7 +211,7 @@ func TestABotSendsAsTheOwnerOnlyAfterHisApproval(t *testing.T) {
 
 	_, text, isError = w.use(pi, agenttool.ToolWhatsAppSend, `{"chat":"120363@g.us","path":"quote.pdf"}`)
 	assert.True(t, isError)
-	assert.Contains(t, text, "cannot send a file yet")
+	assert.Contains(t, text, "came without the file")
 	assert.Len(t, w.whatsapp.sent, 1)
 }
 

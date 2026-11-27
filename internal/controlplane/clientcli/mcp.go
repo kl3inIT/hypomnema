@@ -22,9 +22,7 @@ import (
 // web_fetch, generate_image, audio_transcribe, audio_speak, the shared browser's, and Superset's superset_*
 // when its Bot may use a Superset account) and the phone's (PathDeviceTools,
 // issue #536 step 4), as a worker's server does (internal/node/workertools),
-// so that a Bot is offered none of a worker's own (ask, finish). The phone's
-// stay on their own route because a node of the release before this one lists
-// both routes, and would list the phone's twice were they on the one list. An image is saved under images/ in the folder pi
+// so that a Bot is offered none of a worker's own (ask, finish). An image is saved under images/ in the folder pi
 // works in, the Bot's, whose files its chat sends, and the answer gives the
 // MEDIA line that sends it; show_artifact's path and a Routine's script are
 // read in that folder.

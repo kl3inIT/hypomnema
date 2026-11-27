@@ -86,9 +86,6 @@ func (s *Stream) Finished() bool { return s.finish != "" }
 // Failed reports an error inside the stream.
 func (s *Stream) Failed() *Failure { return s.failure }
 
-// Usage is what the answer used, once known.
-func (s *Stream) Usage() *Usage { return s.usage }
-
 type messagesEvent struct {
 	Type    string `json:"type"`
 	Index   int    `json:"index"`

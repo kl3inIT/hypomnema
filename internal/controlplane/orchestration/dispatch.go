@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 // The Dispatch lifecycle (issue #19, PR 2): the coordinator creates a
@@ -73,8 +74,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
 	case until != 0:
 		return fmt.Errorf("%w: gateway model %s waits until %s", ErrCoolingDown, r.model, millis(until))
-	case gatewayOnly(r.runtime) && !r.gateway:
-		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
+	case profilestore.GatewayOnly(r.runtime) && !r.gateway:
+		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, profilestore.NeedsGatewayMessage) // issue #381
 	case len(r.chain) > 0 && !spec.Continue && r.runtime != spec.Runtime:
 		return fmt.Errorf("%w: role routing selected runtime %s", ErrInvalid, r.runtime)
 	}
@@ -496,60 +497,6 @@ func (s *Service) RecordEffect(ctx context.Context, call NodeCall, e Effect) err
 	})
 }
 
-// resourceKinds lists what a Dispatch can hold on its node.
-var resourceKinds = []string{"worktree", "vault_session", "process"}
-
-// RecordResource records something the Dispatch holds on its node. owned
-// resources are released by the node after the Dispatch settles, unless its
-// Conversation continues; an abandoned Dispatch lists what was not released.
-func (s *Service) RecordResource(ctx context.Context, call NodeCall, r Resource) error {
-	if !slices.Contains(resourceKinds, r.Kind) || r.Ref == "" || (r.Custody != "owned" && r.Custody != "external") {
-		return fmt.Errorf("%w: a resource needs a known kind, a ref and a custody", ErrInvalid)
-	}
-
-	payload := []string{r.Kind, r.Ref, r.Custody}
-
-	return nodeVoid(ctx, s, call, "resource", payload, func(q *store.Queries, now int64, d store.Dispatch) error {
-		if err := checkEpoch(d, call); err != nil {
-			return err
-		}
-
-		if DispatchStatus(d.Status).settled() {
-			return fmt.Errorf("%w: dispatch %s is %s", ErrConflict, d.ID, d.Status)
-		}
-
-		if err := q.RecordResource(ctx, store.RecordResourceParams{
-			DispatchID: d.ID, Kind: r.Kind, Ref: r.Ref, Custody: r.Custody, Now: now,
-		}); err != nil {
-			return fmt.Errorf("recording a resource of %s: %w", d.ID, err)
-		}
-
-		return nil
-	})
-}
-
-// ReleaseResource records that the node released a resource.
-func (s *Service) ReleaseResource(ctx context.Context, call NodeCall, kind, ref string) error {
-	payload := []string{kind, ref}
-
-	return nodeVoid(ctx, s, call, "release", payload, func(q *store.Queries, now int64, d store.Dispatch) error {
-		if err := checkEpoch(d, call); err != nil {
-			return err
-		}
-
-		n, err := q.ReleaseResource(ctx, store.ReleaseResourceParams{Now: now, DispatchID: d.ID, Kind: kind, Ref: ref})
-		if err != nil {
-			return fmt.Errorf("releasing a resource of %s: %w", d.ID, err)
-		}
-
-		if n != 1 {
-			return fmt.Errorf("%w: %s %s of %s is not held", ErrNotFound, kind, ref, d.ID)
-		}
-
-		return nil
-	})
-}
-
 // ReportStopped is the node confirming that the worker stopped after a stop
 // request. Only a confirmed stop cancels the Task (Omnigent never reports a
 // stop it has not confirmed).
@@ -766,63 +713,6 @@ func (s *Service) ReattachDispatch(ctx context.Context, call NodeCall, processRe
 		})
 }
 
-// SettleUnknown is the coordinator deciding an unknown Dispatch after checking
-// its effects: it succeeded, or it is lost (a counted failure). The decision is
-// not first-hand, so the Conversation is closed.
-func (s *Service) SettleUnknown(ctx context.Context, id string, st Settlement) error {
-	if st.Succeeded && strings.TrimSpace(st.Result.Summary) == "" {
-		return fmt.Errorf("%w: a success needs a summary", ErrInvalid)
-	}
-
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		d, err := q.GetDispatch(ctx, id)
-		if err != nil {
-			return notFound(err, "dispatch", id)
-		}
-
-		if !slices.Contains([]DispatchStatus{DispatchUnknown, DispatchStopUnknown}, DispatchStatus(d.Status)) {
-			return fmt.Errorf("%w: dispatch %s is %s, not unknown", ErrConflict, id, d.Status)
-		}
-
-		if st.Succeeded {
-			return s.settle(ctx, q, now, d, DispatchSucceeded, FailureNone, &st.Result, nil, false)
-		}
-
-		return s.settle(ctx, q, now, d, DispatchFailed, FailureLost, &st.Result, nil, false)
-	})
-}
-
-// AbandonDispatch gives up finding out what an unknown Dispatch did. The Task
-// counts it as lost, and the resources it may still hold are returned.
-func (s *Service) AbandonDispatch(ctx context.Context, id string) ([]Resource, error) {
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		d, err := q.GetDispatch(ctx, id)
-		if err != nil {
-			return notFound(err, "dispatch", id)
-		}
-
-		return s.settle(ctx, q, now, d, DispatchAbandoned, FailureNone, nil, nil, false)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	all, err := s.ListResources(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	held := []Resource{}
-
-	for _, r := range all {
-		if r.ReleasedAt == nil {
-			held = append(held, r)
-		}
-	}
-
-	return held, nil
-}
-
 // settle ends a Dispatch and moves its Task in the same transaction. A Task
 // whose cancel was requested is canceled whatever the outcome. firstHand is
 // false when the coordinator decided instead of the worker; the Conversation
@@ -835,7 +725,7 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		return notFound(err, "conversation", d.ConversationID)
 	}
 	var knownGatewayReset bool
-	if class == FailureRateLimited && conv.AccountRef == GatewayAccountRef {
+	if class == FailureRateLimited && conv.AccountRef == profilestore.GatewayAccountRef {
 		resetsAt, knownGatewayReset, err = gatewayReset(ctx, q, now, d, conv)
 		if err != nil {
 			return err
@@ -982,7 +872,7 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			return err
 		}
 
-		if !may || (conv.AccountRef == GatewayAccountRef && d.RoleChain == "") {
+		if !may || (conv.AccountRef == profilestore.GatewayAccountRef && d.RoleChain == "") {
 			if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
 				NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
 			}); err != nil {
@@ -1037,7 +927,7 @@ func stalledAttempts(ctx context.Context, q *store.Queries, taskID string) (bool
 func coolAccount(ctx context.Context, q *store.Queries, now int64, dispatchID string, conv store.Conversation,
 	until int64,
 ) error {
-	if conv.AccountRef == GatewayAccountRef {
+	if conv.AccountRef == profilestore.GatewayAccountRef {
 		return nil // the gateway cools its own accounts down
 	}
 
@@ -1368,21 +1258,6 @@ func (s *Service) ListEffects(ctx context.Context, dispatchID string) ([]Effect,
 		out = append(out, Effect{
 			Seq: int(r.Seq), Kind: r.Kind, Ref: r.Ref, Phase: EffectPhase(r.Phase), Payload: r.Payload.String,
 		})
-	}
-
-	return out, nil
-}
-
-// ListResources returns what a Dispatch holds or held on its node.
-func (s *Service) ListResources(ctx context.Context, dispatchID string) ([]Resource, error) {
-	rows, err := s.read().ListResources(ctx, dispatchID)
-	if err != nil {
-		return nil, fmt.Errorf("listing resources: %w", err)
-	}
-
-	out := make([]Resource, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, Resource{Kind: r.Kind, Ref: r.Ref, Custody: r.Custody, ReleasedAt: optionalTime(r.ReleasedAt)})
 	}
 
 	return out, nil

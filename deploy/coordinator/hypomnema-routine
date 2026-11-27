@@ -64,12 +64,9 @@ esac
 
 # The Bot's own directory, as hypomnema-pi makes it: the script works where the Bot does. The box binds its real
 # path.
-# A Bot's directory is named by its id, which never changes, so a rename moves nothing (issue #466). A Bot from
-# before ids keeps the directory named by its old name, which pi recorded in its sessions: the id is a link to it,
-# made once, at the first start after the release, as the main Bot's has always been a link to ../work. The name is
-# read from the control plane while no directory of the id is there.
-# bot_dir makes $home/bots/<id> when it is not there: a link to ../work for the main Bot, a link to the directory of
-# the Bot's name when there is one, or nothing (mkdir follows).
+# A Bot's directory is named by its id, which never changes, so a rename moves nothing (issue #466). The links of
+# Bots from before ids to their old-named directories were made once and stay as they are (issue #1220).
+# bot_dir makes $home/bots/<id> when it is not there: a link to ../work for the main Bot, or nothing (mkdir follows).
 bot_dir() {
   [ -e "$home/bots/$1" ] || [ -L "$home/bots/$1" ] && return 0
   line=$(HOME="$user_home" "$hypomnema" bots show "$1" < /dev/null | sed -n 1p) || return 0
@@ -79,8 +76,6 @@ bot_dir() {
       mkdir -p "$home/work"
       ln -s ../work "$home/bots/$1"
       ;;
-    "" | */* | .* | *[!a-z0-9-]*) ;;
-    *) [ -d "$home/bots/$label" ] && [ ! -L "$home/bots/$label" ] && ln -s "$label" "$home/bots/$1" ;;
   esac
   return 0
 }

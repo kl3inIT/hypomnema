@@ -428,3 +428,76 @@ func TestAWorkerAsksSeveralDecisionsOnlyOfAControlPlaneThatKeepsThem(t *testing.
 		Options: []nodeproto.Option{{Label: "Yes"}, {Label: "No"}, {Label: "Other", AllowsText: true}},
 	}, final.Gate, "the header and the description are kept in the text")
 }
+
+// Scenario (issue #1220, review round 1 of PR #1236): the node's own tools stay with the old routes gone. A worker
+// whose Task may push lists ask, finish and publish_branch first, and calls each: the question waits for the
+// runner's answer, the finish lands in the bridge, and the push is asked of the node, whose answer ends the call.
+func TestTheNodesOwnToolsAreListedAndCalled(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, bridge.EnablePublish(dir))
+
+	c := newClientIn(t, dir)
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+	tools, ok := c.read()["result"].(map[string]any)["tools"].([]any)
+	require.True(t, ok)
+
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.(map[string]any)["name"].(string)) //nolint:forcetypeassert // test
+	}
+
+	assert.Equal(t, []string{"ask", "finish", "publish_branch"}, names, "without the agent API, only its own")
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
+		"name": "ask", "arguments": map[string]any{"question": "which base?"},
+	}})
+
+	var qs []bridge.Question
+
+	require.Eventually(t, func() bool {
+		var err error
+		qs, err = bridge.Questions(dir)
+
+		return err == nil && len(qs) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, bridge.Answer(dir, qs[0].Seq, "main"))
+
+	for msg := c.read(); ; msg = c.read() {
+		if msg["method"] == "notifications/progress" {
+			continue
+		}
+
+		assert.Equal(t, "The answer: main", text(t, msg))
+
+		break
+	}
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{
+		"name": "publish_branch", "arguments": map[string]any{},
+	}})
+
+	var requests []string
+
+	require.Eventually(t, func() bool {
+		var err error
+		requests, err = bridge.PublishRequests(dir)
+
+		return err == nil && len(requests) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, bridge.CompletePublish(dir, requests[0], bridge.PublishResult{Message: "Pushed at abc123."}))
+	assert.Equal(t, "Pushed at abc123.", text(t, c.read()))
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{
+		"name": "finish", "arguments": map[string]any{"summary": "done"},
+	}})
+	assert.Contains(t, text(t, c.read()), "End your turn now")
+
+	final, ok, err := bridge.Finished(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "done", final.Summary)
+}

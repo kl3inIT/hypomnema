@@ -29,6 +29,7 @@
 package speech
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -298,6 +299,23 @@ type Audio struct {
 	MIME string
 	Size int64
 	Open func() (io.ReadCloser, error)
+}
+
+// RecordingOf is a recording held whole, as the service reads one: its type read from its bytes when none is given,
+// and "recording" its name when it has none.
+func RecordingOf(data []byte, name, mime string) Audio {
+	if mime == "" {
+		mime = http.DetectContentType(data)
+	}
+
+	if name == "" {
+		name = "recording"
+	}
+
+	return Audio{
+		Name: name, MIME: mime, Size: int64(len(data)),
+		Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil },
+	}
 }
 
 // TranscribeRequest is a recording and how it is to be heard.

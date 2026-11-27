@@ -309,7 +309,7 @@ var ToolFamilies = []ToolFamily{
 		// preset does with it, and a switch off of either family takes it away, as a deny of either group does.
 		Tools: append(slices.Clone(BrowserTools), devicetool.BrowserVideoStart, devicetool.BrowserVideoSay,
 			devicetool.BrowserVideoStop, devicetool.VideoStatus, devicetool.VideoList, devicetool.VideoMake,
-			devicetool.VideoGet),
+			devicetool.VideoGet, devicetool.VideoTemplates),
 		WhenToUse: "Open a page that needs a sign-in, a script or clicks with the agent_browser_* tools and read it " +
 			"there (agent_browser_snapshot, agent_browser_get_text); do not download its scripts to read or " +
 			"search them. A page you open is in your own tab of the browser every agent shares, never in the " +
@@ -327,7 +327,7 @@ var ToolFamilies = []ToolFamily{
 		Tools: []string{devicetool.Screen, devicetool.Layout, devicetool.Tap, devicetool.Swipe, devicetool.Type,
 			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.Location, devicetool.VideoStart,
 			devicetool.VideoSay, devicetool.VideoStop, devicetool.VideoStatus, devicetool.VideoList,
-			devicetool.VideoMake, devicetool.VideoGet},
+			devicetool.VideoMake, devicetool.VideoGet, devicetool.VideoTemplates},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
 			"and tap its numbered boxes. A phone or machine stopped for idleness is started by any device_* call; " +

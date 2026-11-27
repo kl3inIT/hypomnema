@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 )
 
 func (p *placement) roleCoolingUntil(r resolved) int64 {
@@ -57,7 +58,7 @@ func placeRoleBackup(ctx context.Context, q *store.Queries, p *placement, task s
 	}
 	for index := current.chainIndex + 1; index < len(current.chain); index++ {
 		backup, err := resolveRoleEntry(ctx, q, version, task, current.chain, index)
-		if errors.Is(err, errRoleEntry) {
+		if errors.Is(err, profilestore.ErrRoleEntry) {
 			reason = err.Error()
 			continue
 		}

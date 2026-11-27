@@ -506,16 +506,16 @@ func (e ChatRole) Valid() bool {
 
 // Defines values for ChatToolActivityPhase.
 const (
-	End   ChatToolActivityPhase = "end"
-	Start ChatToolActivityPhase = "start"
+	ChatToolActivityPhaseEnd   ChatToolActivityPhase = "end"
+	ChatToolActivityPhaseStart ChatToolActivityPhase = "start"
 )
 
 // Valid indicates whether the value is a known member of the ChatToolActivityPhase enum.
 func (e ChatToolActivityPhase) Valid() bool {
 	switch e {
-	case End:
+	case ChatToolActivityPhaseEnd:
 		return true
-	case Start:
+	case ChatToolActivityPhaseStart:
 		return true
 	default:
 		return false
@@ -2463,6 +2463,27 @@ func (e TranscriptItemKind) Valid() bool {
 	}
 }
 
+// Defines values for VideoAspect.
+const (
+	AspectAppStore  VideoAspect = "886x1920"
+	AspectLandscape VideoAspect = "16:9"
+	AspectPortrait  VideoAspect = "9:16"
+)
+
+// Valid indicates whether the value is a known member of the VideoAspect enum.
+func (e VideoAspect) Valid() bool {
+	switch e {
+	case AspectAppStore:
+		return true
+	case AspectLandscape:
+		return true
+	case AspectPortrait:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VideoCaptionPosition.
 const (
 	PositionBottom     VideoCaptionPosition = "bottom"
@@ -2514,54 +2535,18 @@ func (e VideoChrome) Valid() bool {
 	}
 }
 
-// Defines values for VideoMakeAspect.
+// Defines values for VideoPreviewCard.
 const (
-	VideoMakeAspectN169 VideoMakeAspect = "16:9"
-	VideoMakeAspectN916 VideoMakeAspect = "9:16"
+	VideoPreviewCardEnd   VideoPreviewCard = "end"
+	VideoPreviewCardTitle VideoPreviewCard = "title"
 )
 
-// Valid indicates whether the value is a known member of the VideoMakeAspect enum.
-func (e VideoMakeAspect) Valid() bool {
+// Valid indicates whether the value is a known member of the VideoPreviewCard enum.
+func (e VideoPreviewCard) Valid() bool {
 	switch e {
-	case VideoMakeAspectN169:
+	case VideoPreviewCardEnd:
 		return true
-	case VideoMakeAspectN916:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for VideoPreviewAspect.
-const (
-	VideoPreviewAspectN169 VideoPreviewAspect = "16:9"
-	VideoPreviewAspectN916 VideoPreviewAspect = "9:16"
-)
-
-// Valid indicates whether the value is a known member of the VideoPreviewAspect enum.
-func (e VideoPreviewAspect) Valid() bool {
-	switch e {
-	case VideoPreviewAspectN169:
-		return true
-	case VideoPreviewAspectN916:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for VideoRevisionAspect.
-const (
-	VideoRevisionAspectN169 VideoRevisionAspect = "16:9"
-	VideoRevisionAspectN916 VideoRevisionAspect = "9:16"
-)
-
-// Valid indicates whether the value is a known member of the VideoRevisionAspect enum.
-func (e VideoRevisionAspect) Valid() bool {
-	switch e {
-	case VideoRevisionAspectN169:
-		return true
-	case VideoRevisionAspectN916:
+	case VideoPreviewCardTitle:
 		return true
 	default:
 		return false
@@ -7323,9 +7308,11 @@ type TodoChange struct {
 	Revision int `json:"revision"`
 }
 
-// TodoComment defines model for TodoComment.
+// TodoComment The text may be empty when the owner sends files.
 type TodoComment struct {
-	Text string `json:"text"`
+	// Attachments The owner's files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+	Text        string            `json:"text"`
 }
 
 // TodoDone defines model for TodoDone.
@@ -7403,7 +7390,7 @@ type TodoEvent struct {
 	Before map[string]interface{} `json:"before"`
 	Id     int64                  `json:"id"`
 
-	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
 	Kind string `json:"kind"`
 
 	// Revision The revision the change made.
@@ -7412,10 +7399,16 @@ type TodoEvent struct {
 
 // TodoHand defines model for TodoHand.
 type TodoHand struct {
+	// Attachments Files uploaded into the item's chat folder in the Bot's folder.
+	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
+
 	// Bot The Bot's id; absent, the main Bot.
 	Bot *string `json:"bot,omitempty"`
 
-	// Prompt What the owner asks of the Bot, its first comment; optional.
+	// ChatId The chat id reserved before uploading files when the item has no chat with this Bot.
+	ChatId *string `json:"chat_id,omitempty"`
+
+	// Prompt What the owner asks of the Bot, its first comment; may be empty when it carries files.
 	Prompt   *string `json:"prompt,omitempty"`
 	Revision int     `json:"revision"`
 }
@@ -7671,6 +7664,9 @@ type Video struct {
 	Title string `json:"title"`
 }
 
+// VideoAspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+type VideoAspect string
+
 // VideoBackground One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
 type VideoBackground struct {
 	Colors *[]string `json:"colors,omitempty"`
@@ -7694,6 +7690,40 @@ type VideoCaptionsInput struct {
 
 	// Preset A preset's id of GET /videos/looks; absent: clean.
 	Preset *string `json:"preset,omitempty"`
+}
+
+// VideoCard defines model for VideoCard.
+type VideoCard struct {
+	CtaUrl     *string `json:"cta_url,omitempty"`
+	DurationMs int64   `json:"duration_ms"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoCardInput defines model for VideoCardInput.
+type VideoCardInput struct {
+	// CtaUrl Where the viewer is sent, drawn in the accent.
+	CtaUrl *string `json:"cta_url,omitempty"`
+
+	// DurationMs Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms.
+	DurationMs *int64  `json:"duration_ms,omitempty"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoCards A revision's title card and end card; absent, it has none.
+type VideoCards struct {
+	Accent string     `json:"accent"`
+	End    *VideoCard `json:"end,omitempty"`
+	Title  *VideoCard `json:"title,omitempty"`
+}
+
+// VideoCardsInput The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+type VideoCardsInput struct {
+	// Accent The rule over the title and the URL; absent: #6c8cff.
+	Accent *string         `json:"accent,omitempty"`
+	End    *VideoCardInput `json:"end,omitempty"`
+	Title  *VideoCardInput `json:"title,omitempty"`
 }
 
 // VideoChanges defines model for VideoChanges.
@@ -7745,6 +7775,9 @@ type VideoLook struct {
 	Background *VideoBackground `json:"background,omitempty"`
 	Captions   VideoCaptions    `json:"captions"`
 
+	// Cards A revision's title card and end card; absent, it has none.
+	Cards *VideoCards `json:"cards,omitempty"`
+
 	// FellBackFrom What is drawn around the picture: full is none, the picture filling the video; absent: none.
 	FellBackFrom *VideoChrome `json:"fell_back_from,omitempty"`
 	Frame        VideoFrame   `json:"frame"`
@@ -7764,7 +7797,10 @@ type VideoLookInput struct {
 	// Background One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
 	Background *VideoBackground    `json:"background,omitempty"`
 	Captions   *VideoCaptionsInput `json:"captions,omitempty"`
-	Frame      *VideoFrameInput    `json:"frame,omitempty"`
+
+	// Cards The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+	Cards *VideoCardsInput `json:"cards,omitempty"`
+	Frame *VideoFrameInput `json:"frame,omitempty"`
 
 	// Music The music sent (issue #910): its track is required, none or a track's id of GET /videos/music; a track deleted is refused with conflict.
 	Music *VideoMusicInput `json:"music,omitempty"`
@@ -7782,15 +7818,18 @@ type VideoLooks struct {
 
 // VideoMake defines model for VideoMake.
 type VideoMake struct {
-	// Aspect Absent: 9:16.
-	Aspect *VideoMakeAspect `json:"aspect,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect *VideoAspect `json:"aspect,omitempty"`
 
-	// Captions Absent: true.
+	// Captions Absent: the template's, else true.
 	Captions *bool `json:"captions,omitempty"`
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
 	Take string          `json:"take"`
+
+	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
+	Template *string `json:"template,omitempty"`
 
 	// Title The video's title, on its first make; absent: the take's.
 	Title *string `json:"title,omitempty"`
@@ -7798,9 +7837,6 @@ type VideoMake struct {
 	// Voice Absent: each provider's set on Settings → Audio.
 	Voice *string `json:"voice,omitempty"`
 }
-
-// VideoMakeAspect Absent: 9:16.
-type VideoMakeAspect string
 
 // VideoMusic The music a revision is made with, as a snapshot of the track when it was chosen; absent: none. A track taken from the default or another revision that was deleted is none, with fell_back_from.
 type VideoMusic struct {
@@ -7868,11 +7904,14 @@ type VideoPreset struct {
 
 // VideoPreview defines model for VideoPreview.
 type VideoPreview struct {
-	// Aspect Absent: 9:16.
-	Aspect *VideoPreviewAspect `json:"aspect,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect *VideoAspect `json:"aspect,omitempty"`
 
-	// Captions Absent: true.
+	// Captions Absent: the template's, else true.
 	Captions *bool `json:"captions,omitempty"`
+
+	// Card A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+	Card *VideoPreviewCard `json:"card,omitempty"`
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
@@ -7880,10 +7919,13 @@ type VideoPreview struct {
 	// Rev A revision of the take's video the look starts from, as a look change does; its first line is shown.
 	Rev  *int   `json:"rev,omitempty"`
 	Take string `json:"take"`
+
+	// Template A template's id, the look resolved as a make with it; refused with rev.
+	Template *string `json:"template,omitempty"`
 }
 
-// VideoPreviewAspect Absent: 9:16.
-type VideoPreviewAspect string
+// VideoPreviewCard A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+type VideoPreviewCard string
 
 // VideoProgress While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
 type VideoProgress struct {
@@ -7893,10 +7935,11 @@ type VideoProgress struct {
 
 // VideoRevision One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed at a stage with its cause, interrupted when the control plane stopped while it was made.
 type VideoRevision struct {
-	Aspect      VideoRevisionAspect `json:"aspect"`
-	Captions    bool                `json:"captions"`
-	CreatedAt   time.Time           `json:"created_at"`
-	FailedCause *string             `json:"failed_cause,omitempty"`
+	// Aspect The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+	Aspect      VideoAspect `json:"aspect"`
+	Captions    bool        `json:"captions"`
+	CreatedAt   time.Time   `json:"created_at"`
+	FailedCause *string     `json:"failed_cause,omitempty"`
 
 	// FailedStage The stage it failed at.
 	FailedStage *string `json:"failed_stage,omitempty"`
@@ -7932,11 +7975,68 @@ type VideoRevision struct {
 	Warnings []string `json:"warnings"`
 }
 
-// VideoRevisionAspect defines model for VideoRevision.Aspect.
-type VideoRevisionAspect string
-
 // VideoRevisionState defines model for VideoRevision.State.
 type VideoRevisionState string
+
+// VideoTemplate A template of a video (issue
+type VideoTemplate struct {
+	// Aspects The aspects it is made in, its default first.
+	Aspects []VideoAspect `json:"aspects"`
+
+	// Captions Whether its videos have captions unless the make says.
+	Captions bool `json:"captions"`
+
+	// Cards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+	Cards *VideoTemplateCards `json:"cards,omitempty"`
+	Id    string              `json:"id"`
+
+	// Length How long its videos are meant to be, in seconds.
+	Length VideoTemplateLength `json:"length"`
+
+	// Look How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+	Look     VideoLook              `json:"look"`
+	Name     string                 `json:"name"`
+	Sections []VideoTemplateSection `json:"sections"`
+	UseCase  string                 `json:"use_case"`
+
+	// Words The sections' words.
+	Words int `json:"words"`
+}
+
+// VideoTemplateCard defines model for VideoTemplateCard.
+type VideoTemplateCard struct {
+	DurationMs int64   `json:"duration_ms"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	Title      string  `json:"title"`
+}
+
+// VideoTemplateCards The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+type VideoTemplateCards struct {
+	Accent string             `json:"accent"`
+	End    *VideoTemplateCard `json:"end,omitempty"`
+	Title  *VideoTemplateCard `json:"title,omitempty"`
+}
+
+// VideoTemplateLength How long its videos are meant to be, in seconds.
+type VideoTemplateLength struct {
+	MaxS int `json:"max_s"`
+	MinS int `json:"min_s"`
+}
+
+// VideoTemplateSection defines model for VideoTemplateSection.
+type VideoTemplateSection struct {
+	Name    string `json:"name"`
+	Purpose string `json:"purpose"`
+
+	// Seconds Its words at 2.5 a second.
+	Seconds float64 `json:"seconds"`
+	Words   int     `json:"words"`
+}
+
+// VideoTemplates defines model for VideoTemplates.
+type VideoTemplates struct {
+	Templates []VideoTemplate `json:"templates"`
+}
 
 // WebFetchRequest defines model for WebFetchRequest.
 type WebFetchRequest struct {
@@ -9141,9 +9241,6 @@ type PutGitHostJSONRequestBody = NewGitHost
 
 // PutGitHostConnectionJSONRequestBody defines body for PutGitHostConnection for application/json ContentType.
 type PutGitHostConnectionJSONRequestBody = NewGitHostToken
-
-// PutGitHostTokenJSONRequestBody defines body for PutGitHostToken for application/json ContentType.
-type PutGitHostTokenJSONRequestBody = NewGitHostToken
 
 // GenerateImagesJSONRequestBody defines body for GenerateImages for application/json ContentType.
 type GenerateImagesJSONRequestBody = ImageRequest
@@ -10944,29 +11041,6 @@ type ClientInterface interface {
 	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
 	PutGitHostConnection(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	//
-	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-	DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes any type of body and a specified content type.
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// GenerateImagesWithBody Make or edit images through the owner's subscriptions; any token, a Bot's included
 	//
 	// With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -11911,7 +11985,7 @@ type ClientInterface interface {
 
 	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 	RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -12550,6 +12624,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 	PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	//
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	//
+	// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+	ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	//
@@ -15796,59 +15877,6 @@ func (c *Client) PutGitHostConnection(ctx context.Context, host string, label st
 	return c.Client.Do(req)
 }
 
-// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-//
-// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-func (c *Client) DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteGitHostTokenRequest(c.Server, host)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes any type of body and a specified content type.
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *Client) PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutGitHostTokenRequestWithBody(c.Server, host, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *Client) PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutGitHostTokenRequest(c.Server, host, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 // GenerateImagesWithBody Make or edit images through the owner's subscriptions; any token, a Bot's included
 //
 // With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -18033,7 +18061,7 @@ func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors 
 
 // RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
 func (c *Client) RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -19603,6 +19631,23 @@ func (c *Client) PreviewVideoLookWithBody(ctx context.Context, contentType strin
 // Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 func (c *Client) PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPreviewVideoLookRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListVideoTemplates The templates a video is made from (owner only; issue
+//
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+//
+// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+func (c *Client) ListVideoTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListVideoTemplatesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -25858,87 +25903,6 @@ func NewPutGitHostConnectionRequestWithBody(server string, host string, label st
 	}
 
 	operationPath := fmt.Sprintf("/hosts/%s/connections/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteGitHostTokenRequest constructs an http.Request for the DeleteGitHostToken method
-func NewDeleteGitHostTokenRequest(server string, host string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPutGitHostTokenRequest calls the generic PutGitHostToken builder with application/json body
-func NewPutGitHostTokenRequest(server string, host string, body PutGitHostTokenJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPutGitHostTokenRequestWithBody(server, host, "application/json", bodyReader)
-}
-
-// NewPutGitHostTokenRequestWithBody constructs an http.Request for the PutGitHostToken method, with any body, and a specified content type
-func NewPutGitHostTokenRequestWithBody(server string, host string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -33405,6 +33369,33 @@ func NewPreviewVideoLookRequestWithBody(server string, contentType string, body 
 	return req, nil
 }
 
+// NewListVideoTemplatesRequest constructs an http.Request for the ListVideoTemplates method
+func NewListVideoTemplatesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/templates")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDeleteVideoRequest constructs an http.Request for the DeleteVideo method
 func NewDeleteVideoRequest(server string, videoId VideoID) (*http.Request, error) {
 	var err error
@@ -35405,31 +35396,6 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
 	PutGitHostConnectionWithResponse(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostConnectionResponse, error)
 
-	// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
-	//
-	// Returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-	DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error)
-
-	// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
-
-	// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
-	//
-	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-	PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
-
 	// GenerateImagesWithBodyWithResponse Make or edit images through the owner's subscriptions; any token, a Bot's included
 	//
 	// With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -36464,7 +36430,7 @@ type ClientWithResponsesInterface interface {
 
 	// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 	//
-	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	// Applies that version's own source again, as ApplyProfile does.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -37217,6 +37183,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
 	PreviewVideoLookWithResponse(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewVideoLookResponse, error)
+
+	// ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
+	//
+	// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+	ListVideoTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoTemplatesResponse, error)
 
 	// DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
 	//
@@ -43347,102 +43322,6 @@ func (r PutGitHostConnectionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutGitHostConnectionResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteGitHostTokenResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *GitHost
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r DeleteGitHostTokenResponse) GetJSON200() *GitHost {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r DeleteGitHostTokenResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r DeleteGitHostTokenResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteGitHostTokenResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteGitHostTokenResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteGitHostTokenResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type PutGitHostTokenResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *GitHost
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r PutGitHostTokenResponse) GetJSON200() *GitHost {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r PutGitHostTokenResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r PutGitHostTokenResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r PutGitHostTokenResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PutGitHostTokenResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r PutGitHostTokenResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -51050,6 +50929,54 @@ func (r PreviewVideoLookResponse) ContentType() string {
 	return ""
 }
 
+type ListVideoTemplatesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *VideoTemplates
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListVideoTemplatesResponse) GetJSON200() *VideoTemplates {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListVideoTemplatesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListVideoTemplatesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListVideoTemplatesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListVideoTemplatesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListVideoTemplatesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteVideoResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -54069,49 +53996,6 @@ func (c *ClientWithResponses) PutGitHostConnectionWithResponse(ctx context.Conte
 	return ParsePutGitHostConnectionResponse(rsp)
 }
 
-// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
-//
-// Returns a wrapper object for the known response body format(s).
-//
-// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
-func (c *ClientWithResponses) DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error) {
-	rsp, err := c.DeleteGitHostToken(ctx, host, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteGitHostTokenResponse(rsp)
-}
-
-// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *ClientWithResponses) PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
-	rsp, err := c.PutGitHostTokenWithBody(ctx, host, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePutGitHostTokenResponse(rsp)
-}
-
-// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
-//
-// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
-func (c *ClientWithResponses) PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
-	rsp, err := c.PutGitHostToken(ctx, host, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePutGitHostTokenResponse(rsp)
-}
-
 // GenerateImagesWithBodyWithResponse Make or edit images through the owner's subscriptions; any token, a Bot's included
 //
 // With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
@@ -55890,7 +55774,7 @@ func (c *ClientWithResponses) ListProfileVersionsWithResponse(ctx context.Contex
 
 // RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
 //
-// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+// Applies that version's own source again, as ApplyProfile does.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -57206,6 +57090,21 @@ func (c *ClientWithResponses) PreviewVideoLookWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParsePreviewVideoLookResponse(rsp)
+}
+
+// ListVideoTemplatesWithResponse The templates a video is made from (owner only; issue
+//
+// A template is a stored document: a use case, a target length, the aspects it is made in (the first its default), whether it has captions, the sections its lines are written against, each with its words at 2.5 a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/templates (the `ListVideoTemplates` operationId).
+func (c *ClientWithResponses) ListVideoTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoTemplatesResponse, error) {
+	rsp, err := c.ListVideoTemplates(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListVideoTemplatesResponse(rsp)
 }
 
 // DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
@@ -61557,72 +61456,6 @@ func ParsePutGitHostConnectionResponse(rsp *http.Response) (*PutGitHostConnectio
 	}
 
 	response := &PutGitHostConnectionResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest GitHost
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteGitHostTokenResponse parses an HTTP response from a DeleteGitHostTokenWithResponse call
-func ParseDeleteGitHostTokenResponse(rsp *http.Response) (*DeleteGitHostTokenResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteGitHostTokenResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest GitHost
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePutGitHostTokenResponse parses an HTTP response from a PutGitHostTokenWithResponse call
-func ParsePutGitHostTokenResponse(rsp *http.Response) (*PutGitHostTokenResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PutGitHostTokenResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -66905,6 +66738,39 @@ func ParsePreviewVideoLookResponse(rsp *http.Response) (*PreviewVideoLookRespons
 	return response, nil
 }
 
+// ParseListVideoTemplatesResponse parses an HTTP response from a ListVideoTemplatesWithResponse call
+func ParseListVideoTemplatesResponse(rsp *http.Response) (*ListVideoTemplatesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListVideoTemplatesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VideoTemplates
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteVideoResponse parses an HTTP response from a DeleteVideoWithResponse call
 func ParseDeleteVideoResponse(rsp *http.Response) (*DeleteVideoResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -67600,12 +67466,6 @@ type ServerInterface interface {
 	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
 	// (PUT /hosts/{host}/connections/{label})
 	PutGitHostConnection(w http.ResponseWriter, r *http.Request, host string, label string)
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	// (DELETE /hosts/{host}/token)
-	DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string)
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	// (PUT /hosts/{host}/token)
-	PutGitHostToken(w http.ResponseWriter, r *http.Request, host string)
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(w http.ResponseWriter, r *http.Request)
@@ -68089,6 +67949,9 @@ type ServerInterface interface {
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(w http.ResponseWriter, r *http.Request)
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	// (GET /videos/templates)
+	ListVideoTemplates(w http.ResponseWriter, r *http.Request)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(w http.ResponseWriter, r *http.Request, videoId VideoID)
@@ -72040,58 +71903,6 @@ func (siw *ServerInterfaceWrapper) PutGitHostConnection(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutGitHostConnection(w, r, host, label)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteGitHostToken operation middleware
-func (siw *ServerInterfaceWrapper) DeleteGitHostToken(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "host" -------------
-	var host string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteGitHostToken(w, r, host)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PutGitHostToken operation middleware
-func (siw *ServerInterfaceWrapper) PutGitHostToken(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "host" -------------
-	var host string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PutGitHostToken(w, r, host)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -77252,6 +77063,20 @@ func (siw *ServerInterfaceWrapper) PreviewVideoLook(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListVideoTemplates operation middleware
+func (siw *ServerInterfaceWrapper) ListVideoTemplates(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVideoTemplates(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteVideo operation middleware
 func (siw *ServerInterfaceWrapper) DeleteVideo(w http.ResponseWriter, r *http.Request) {
 
@@ -77811,6 +77636,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos", wrapper.ListVideos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos", wrapper.MakeVideo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/looks", wrapper.ListVideoLooks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/templates", wrapper.ListVideoTemplates)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/preview", wrapper.PreviewVideoLook)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/music", wrapper.ListVideoMusic)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/videos/music/{music_id}", wrapper.DeleteVideoMusic)
@@ -77827,8 +77653,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}", wrapper.PutGitHost)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/token", wrapper.DeleteGitHostToken)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/token", wrapper.PutGitHostToken)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.DeleteGitHostConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.PutGitHostConnection)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations", wrapper.ListIntegrations)
@@ -83159,85 +82983,6 @@ type PutGitHostConnectiondefaultJSONResponse struct {
 }
 
 func (response PutGitHostConnectiondefaultJSONResponse) VisitPutGitHostConnectionResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteGitHostTokenRequestObject struct {
-	Host string `json:"host"`
-}
-
-type DeleteGitHostTokenResponseObject interface {
-	VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error
-}
-
-type DeleteGitHostToken200JSONResponse GitHost
-
-func (response DeleteGitHostToken200JSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteGitHostTokendefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response DeleteGitHostTokendefaultJSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutGitHostTokenRequestObject struct {
-	Host string `json:"host"`
-	Body *PutGitHostTokenJSONRequestBody
-}
-
-type PutGitHostTokenResponseObject interface {
-	VisitPutGitHostTokenResponse(w http.ResponseWriter) error
-}
-
-type PutGitHostToken200JSONResponse GitHost
-
-func (response PutGitHostToken200JSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutGitHostTokendefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response PutGitHostTokendefaultJSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -89682,6 +89427,44 @@ func (response PreviewVideoLookdefaultJSONResponse) VisitPreviewVideoLookRespons
 	return err
 }
 
+type ListVideoTemplatesRequestObject struct {
+}
+
+type ListVideoTemplatesResponseObject interface {
+	VisitListVideoTemplatesResponse(w http.ResponseWriter) error
+}
+
+type ListVideoTemplates200JSONResponse VideoTemplates
+
+func (response ListVideoTemplates200JSONResponse) VisitListVideoTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVideoTemplatesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListVideoTemplatesdefaultJSONResponse) VisitListVideoTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteVideoRequestObject struct {
 	VideoId VideoID `json:"video_id"`
 }
@@ -90493,12 +90276,6 @@ type StrictServerInterface interface {
 	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
 	// (PUT /hosts/{host}/connections/{label})
 	PutGitHostConnection(ctx context.Context, request PutGitHostConnectionRequestObject) (PutGitHostConnectionResponseObject, error)
-	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
-	// (DELETE /hosts/{host}/token)
-	DeleteGitHostToken(ctx context.Context, request DeleteGitHostTokenRequestObject) (DeleteGitHostTokenResponseObject, error)
-	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
-	// (PUT /hosts/{host}/token)
-	PutGitHostToken(ctx context.Context, request PutGitHostTokenRequestObject) (PutGitHostTokenResponseObject, error)
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(ctx context.Context, request GenerateImagesRequestObject) (GenerateImagesResponseObject, error)
@@ -90982,6 +90759,9 @@ type StrictServerInterface interface {
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(ctx context.Context, request PreviewVideoLookRequestObject) (PreviewVideoLookResponseObject, error)
+	// ListVideoTemplates The templates a video is made from (owner only; issue
+	// (GET /videos/templates)
+	ListVideoTemplates(ctx context.Context, request ListVideoTemplatesRequestObject) (ListVideoTemplatesResponseObject, error)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(ctx context.Context, request DeleteVideoRequestObject) (DeleteVideoResponseObject, error)
@@ -94700,65 +94480,6 @@ func (sh *strictHandler) PutGitHostConnection(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutGitHostConnectionResponseObject); ok {
 		if err := validResponse.VisitPutGitHostConnectionResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteGitHostToken operation middleware
-func (sh *strictHandler) DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
-	var request DeleteGitHostTokenRequestObject
-
-	request.Host = host
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteGitHostToken(ctx, request.(DeleteGitHostTokenRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteGitHostToken")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteGitHostTokenResponseObject); ok {
-		if err := validResponse.VisitDeleteGitHostTokenResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PutGitHostToken operation middleware
-func (sh *strictHandler) PutGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
-	var request PutGitHostTokenRequestObject
-
-	request.Host = host
-
-	var body PutGitHostTokenJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PutGitHostToken(ctx, request.(PutGitHostTokenRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PutGitHostToken")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PutGitHostTokenResponseObject); ok {
-		if err := validResponse.VisitPutGitHostTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -99326,6 +99047,30 @@ func (sh *strictHandler) PreviewVideoLook(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PreviewVideoLookResponseObject); ok {
 		if err := validResponse.VisitPreviewVideoLookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVideoTemplates operation middleware
+func (sh *strictHandler) ListVideoTemplates(w http.ResponseWriter, r *http.Request) {
+	var request ListVideoTemplatesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVideoTemplates(ctx, request.(ListVideoTemplatesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVideoTemplates")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVideoTemplatesResponseObject); ok {
+		if err := validResponse.VisitListVideoTemplatesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

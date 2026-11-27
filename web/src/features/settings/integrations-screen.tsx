@@ -8,9 +8,9 @@ import { z } from "zod"
 import "@/api/client"
 import {
   deleteGitHost,
-  deleteGitHostToken,
+  deleteGitHostConnection,
   putGitHost,
-  putGitHostToken,
+  putGitHostConnection,
 } from "@/api/generated/sdk.gen"
 import type { GitHost, GitHostKind, Repo } from "@/api/generated/types.gen"
 import { GitHubIcon, GitLabIcon } from "@/components/icons/brand-icons"
@@ -242,7 +242,9 @@ function HostRow({ host, repos }: { host: GitHost; repos: number }) {
             title={`Remove the token of ${hostName(host)}?`}
             consequence="Workers will use the login of the machine they run on, where it has one. Work already running keeps the token it started with."
             action="Remove token"
-            run={() => deleteGitHostToken({ path: { host: host.host } })}
+            run={() =>
+              deleteGitHostConnection({ path: { host: host.host, label: defaultConnection } })
+            }
             onDone={refresh}
             done={`The token of ${hostName(host)} was removed`}
           />
@@ -339,6 +341,10 @@ const tokenSchema = z.object({
     .regex(/^\S+$/, "A token is one line without spaces."),
 })
 
+// defaultConnection is the label of a host's token set here: its Connection "default", as
+// `integrations connect <host>` makes it without --label.
+const defaultConnection = "default"
+
 // SetToken is the dialog that takes a host's token, as Orca's credential dialogs take one
 // (bitbucket-credentials-dialog.tsx): a password field, what the token needs, and where to make one. The token is
 // sent once and never shown again; it lives in this dialog only until it is sent.
@@ -349,7 +355,10 @@ function SetToken({ host }: { host: GitHost }) {
 
   const save = useMutation({
     mutationFn: (token: string) =>
-      putGitHostToken({ path: { host: host.host }, body: { token: token.trim() } }),
+      putGitHostConnection({
+        path: { host: host.host, label: defaultConnection },
+        body: { token: token.trim() },
+      }),
   })
 
   const form = useForm({
@@ -424,7 +433,10 @@ function AddHost({ product }: { product: Product }) {
 
       await putGitHost({ path: { host }, body: { kind: product.kind } })
       if (value.token.trim() !== "") {
-        await putGitHostToken({ path: { host }, body: { token: value.token.trim() } })
+        await putGitHostConnection({
+          path: { host, label: defaultConnection },
+          body: { token: value.token.trim() },
+        })
       }
     },
     // The host may have been declared even when its token was refused.

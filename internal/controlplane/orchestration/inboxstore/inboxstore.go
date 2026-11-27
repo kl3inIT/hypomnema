@@ -572,6 +572,10 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			}
 		}
 
+		if err := checkSourceAccount(ctx, q, n.Source); err != nil {
+			return err
+		}
+
 		if err := checkAssignee(ctx, q, n.Assignee); err != nil {
 			return err
 		}

@@ -1,0 +1,17 @@
+{
+  "id": "onboarding",
+  "name": "Onboarding / how-to",
+  "use_case": "One task done end to end, for a new user or a help page: the goal, its steps and what the user has at the end.",
+  "length": { "min_s": 20, "max_s": 60 },
+  "aspects": ["16:9"],
+  "captions": true,
+  "sections": [
+    { "name": "Goal", "purpose": "The one task this video gets done.", "words": 10 },
+    { "name": "Step 1", "purpose": "One step of the task, pinned to one action on the screen.", "words": 15 },
+    { "name": "Step 2", "purpose": "One step of the task, pinned to one action on the screen.", "words": 15 },
+    { "name": "Step 3", "purpose": "One step of the task, pinned to one action on the screen.", "words": 15 },
+    { "name": "Result", "purpose": "What the user has now that the task is done.", "words": 10 }
+  ],
+  "look": { "cards": {} },
+  "from": "aidemo docs/blog/product-onboarding-video/index.md:25-30; the steps' and the result's words are app-ad's (inferred)"
+}

@@ -805,6 +805,22 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/VideoLooks" }
         default: { $ref: "#/components/responses/Error" }
+  /videos/templates:
+    get:
+      operationId: ListVideoTemplates
+      summary: The templates a video is made from (owner only; issue #1230)
+      description: >-
+        A template is a stored document: a use case, a target length, the aspects it is made in (the first its
+        default), whether it has captions, the sections its lines are written against, each with its words at 2.5
+        a second, and the look it starts from: its sections over the saved default, its cards apart, {title} in
+        their words the video's title when made. POST /videos and POST /videos/preview take one by its id.
+      responses:
+        "200":
+          description: The templates.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoTemplates" }
+        default: { $ref: "#/components/responses/Error" }
   /videos/preview:
     post:
       operationId: PreviewVideoLook
@@ -1090,41 +1106,6 @@ paths:
       responses:
         "204":
           description: The host is forgotten.
-        default: { $ref: "#/components/responses/Error" }
-  /hosts/{host}/token:
-    parameters:
-      - name: host
-        in: path
-        required: true
-        schema: { type: string, minLength: 3, maxLength: 255 }
-    put:
-      operationId: PutGitHostToken
-      summary: Keep a token as the git host's Connection "default"; only the owner
-      description: >-
-        The form of before a host could have several Connections. The token
-        goes into the vault and is never returned. A worker of a Run on this
-        host gets it for its git, gh and glab.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/NewGitHostToken" }
-      responses:
-        "200":
-          description: The host, now with a token.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/GitHost" }
-        default: { $ref: "#/components/responses/Error" }
-    delete:
-      operationId: DeleteGitHostToken
-      summary: Forget the git host's Connection "default"; only the owner
-      responses:
-        "200":
-          description: The host, now without a token.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/GitHost" }
         default: { $ref: "#/components/responses/Error" }
   /hosts/{host}/connections/{label}:
     parameters:
@@ -4079,9 +4060,7 @@ paths:
       operationId: RestoreProfileVersion
       summary: Apply one of a profile's versions again; the owner, or the main Bot from its chat
       description: >-
-        Applies that version's own source again, as ApplyProfile does. A model its YAML names
-        without a provider, as versions before issue #1002 were written, runs under the provider
-        that version recorded, never one another version recorded for the same YAML.
+        Applies that version's own source again, as ApplyProfile does.
       responses:
         "200":
           description: The version equals the current one, which is returned.
@@ -8532,7 +8511,7 @@ components:
           items: { type: string }
         voice: { type: string, description: The voice asked for; absent, each provider's set on Settings → Audio. }
         captions: { type: boolean }
-        aspect: { type: string, enum: ["9:16", "16:9"] }
+        aspect: { $ref: "#/components/schemas/VideoAspect" }
         provider: { type: string, description: The provider that spoke every scene. }
         model: { type: string }
         used_voice: { type: string, description: The voice it spoke with; absent, the provider's default. }
@@ -8598,10 +8577,19 @@ components:
       properties:
         take: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
         title: { type: string, maxLength: 200, description: "The video's title, on its first make; absent: the take's." }
-        aspect: { type: string, enum: ["9:16", "16:9"], description: "Absent: 9:16." }
-        captions: { type: boolean, description: "Absent: true." }
+        aspect:
+          $ref: "#/components/schemas/VideoAspect"
+          description: "One of the template's; absent: the template's first, else 9:16."
+        captions: { type: boolean, description: "Absent: the template's, else true." }
         voice: { type: string, maxLength: 100, description: "Absent: each provider's set on Settings → Audio." }
         look: { $ref: "#/components/schemas/VideoLookInput" }
+        template:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 40
+          description: >-
+            A template's id of GET /videos/templates: its look's sections in place of the default's where the make
+            sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
     VideoLookChange:
       type: object
       additionalProperties: false
@@ -8613,13 +8601,92 @@ components:
       required: [take]
       properties:
         take: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
-        aspect: { type: string, enum: ["9:16", "16:9"], description: "Absent: 9:16." }
-        captions: { type: boolean, description: "Absent: true." }
+        aspect:
+          $ref: "#/components/schemas/VideoAspect"
+          description: "One of the template's; absent: the template's first, else 9:16."
+        captions: { type: boolean, description: "Absent: the template's, else true." }
         look: { $ref: "#/components/schemas/VideoLookInput" }
+        template:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 40
+          description: A template's id, the look resolved as a make with it; refused with rev.
         rev:
           type: integer
           minimum: 1
           description: A revision of the take's video the look starts from, as a look change does; its first line is shown.
+        card:
+          type: string
+          enum: [title, end]
+          description: >-
+            A card of the look to draw in place of the take's picture, as the video shows it between its fades;
+            absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card
+            shown: the contract checks every card sent, so another card without its title yet is refused (400)
+            before the sample is drawn, and the sample draws the card shown alone.
+    VideoAspect:
+      type: string
+      description: "The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920."
+      enum: ["9:16", "16:9", "886x1920"]
+      x-enum-varnames: [AspectPortrait, AspectLandscape, AspectAppStore]
+    VideoTemplates:
+      type: object
+      required: [templates]
+      properties:
+        templates:
+          type: array
+          items: { $ref: "#/components/schemas/VideoTemplate" }
+    VideoTemplate:
+      type: object
+      description: A template of a video (issue #1230), the look it starts from resolved over the saved default now.
+      required: [id, name, use_case, length, aspects, captions, sections, words, look]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        use_case: { type: string }
+        length: { $ref: "#/components/schemas/VideoTemplateLength" }
+        aspects:
+          type: array
+          description: The aspects it is made in, its default first.
+          items: { $ref: "#/components/schemas/VideoAspect" }
+        captions: { type: boolean, description: Whether its videos have captions unless the make says. }
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/VideoTemplateSection" }
+        words: { type: integer, description: The sections' words. }
+        look: { $ref: "#/components/schemas/VideoLook" }
+        cards: { $ref: "#/components/schemas/VideoTemplateCards" }
+    VideoTemplateLength:
+      type: object
+      description: How long its videos are meant to be, in seconds.
+      required: [min_s, max_s]
+      properties:
+        min_s: { type: integer }
+        max_s: { type: integer }
+    VideoTemplateSection:
+      type: object
+      required: [name, purpose, words, seconds]
+      properties:
+        name: { type: string }
+        purpose: { type: string }
+        words: { type: integer }
+        seconds: { type: number, format: double, description: Its words at 2.5 a second. }
+    VideoTemplateCards:
+      type: object
+      description: >-
+        The cards a template's video has, their words as stored, where {title} is the video's title (an end card's
+        call to action over it, as aidemo's outro); absent, none.
+      required: [accent]
+      properties:
+        accent: { type: string }
+        title: { $ref: "#/components/schemas/VideoTemplateCard" }
+        end: { $ref: "#/components/schemas/VideoTemplateCard" }
+    VideoTemplateCard:
+      type: object
+      required: [title, duration_ms]
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        duration_ms: { type: integer, format: int64 }
     VideoLookInput:
       type: object
       additionalProperties: false
@@ -8631,6 +8698,35 @@ components:
         frame: { $ref: "#/components/schemas/VideoFrameInput" }
         background: { $ref: "#/components/schemas/VideoBackground" }
         music: { $ref: "#/components/schemas/VideoMusicInput" }
+        cards: { $ref: "#/components/schemas/VideoCardsInput" }
+    VideoCardsInput:
+      type: object
+      additionalProperties: false
+      description: >-
+        The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes
+        the cards away. They stand on the look's background, the scenes start after the title card and the music
+        plays under both. A make's cards are not saved in the default.
+      properties:
+        accent:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+          description: "The rule over the title and the URL; absent: #6c8cff."
+        title: { $ref: "#/components/schemas/VideoCardInput" }
+        end: { $ref: "#/components/schemas/VideoCardInput" }
+    VideoCardInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 80 }
+        subtitle: { type: string, maxLength: 120 }
+        cta_url: { type: string, maxLength: 200, description: "Where the viewer is sent, drawn in the accent." }
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 500
+          maximum: 10000
+          description: "Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms."
     VideoMusicInput:
       type: object
       additionalProperties: false
@@ -8673,6 +8769,23 @@ components:
           $ref: "#/components/schemas/VideoChrome"
           description: The chrome a frame from the default would have drawn on a take whose phone turned; made full.
         music: { $ref: "#/components/schemas/VideoMusic" }
+        cards: { $ref: "#/components/schemas/VideoCards" }
+    VideoCards:
+      type: object
+      description: A revision's title card and end card; absent, it has none.
+      required: [accent]
+      properties:
+        accent: { type: string }
+        title: { $ref: "#/components/schemas/VideoCard" }
+        end: { $ref: "#/components/schemas/VideoCard" }
+    VideoCard:
+      type: object
+      required: [title, duration_ms]
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        cta_url: { type: string }
+        duration_ms: { type: integer, format: int64 }
     VideoMusic:
       type: object
       description: >-
@@ -11655,7 +11768,8 @@ components:
           description: >-
             created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's
             comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and
-            after.artifacts, the ids of Artifacts it showed (issue #1207).
+            after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments
+            (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
         before: { type: object, additionalProperties: true, description: "The fields that changed, before." }
         after:
           type: object
@@ -11845,12 +11959,24 @@ components:
         prompt:
           type: string
           maxLength: 10000
-          description: What the owner asks of the Bot, its first comment; optional.
+          description: What the owner asks of the Bot, its first comment; may be empty when it carries files.
+        chat_id:
+          type: string
+          description: The chat id reserved before uploading files when the item has no chat with this Bot.
+        attachments:
+          type: array
+          description: Files uploaded into the item's chat folder in the Bot's folder.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
     TodoComment:
       type: object
+      description: The text may be empty when the owner sends files.
       required: [text]
       properties:
-        text: { type: string, minLength: 1, maxLength: 10000 }
+        text: { type: string, maxLength: 10000 }
+        attachments:
+          type: array
+          description: The owner's files uploaded into the item's chat folder in the Bot's folder.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
     TodoSend:
       type: object
       required: [revision, text]

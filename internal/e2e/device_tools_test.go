@@ -168,9 +168,9 @@ func newPhoneRig(t *testing.T, held *fakePhone) *phoneRig {
 func phoneDispatch(t *testing.T, svc *orchestration.Service) (key, dispatch string) {
 	t.Helper()
 	ctx := t.Context()
-	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	_, err := svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
 	require.NoError(t, err)
-	_, _, err = svc.ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
+	_, _, err = svc.Profiles().ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
 		"model: {provider: gateway}\ntools: [phone]\n")
 	require.NoError(t, err)
 	node, _, err := svc.AddNode(ctx, "worker", 1)

@@ -61,6 +61,19 @@ func newWorld(t *testing.T) *world {
 	lan, err := s.PutBot(t.Context(), orchestration.Bot{Name: "lan"})
 	require.NoError(t, err)
 
+	// The Inbox's sources and evidence use these Connections in the scenarios below.
+	for _, c := range []orchestration.Connection{
+		{Integration: "zalo", Label: "main"},
+		{Integration: "whatsapp", Label: "main"},
+		{Integration: "lark", Label: "me"},
+		{Integration: "lark", Label: "work"},
+		{Integration: "google", Label: "work"},
+	} {
+		c.Secret = "conn-" + c.Integration + "-" + c.Label
+		_, err := s.SaveServiceConnection(t.Context(), c)
+		require.NoError(t, err)
+	}
+
 	chat, err := s.CreateChat(t.Context(), kai.ID, "Kai")
 	require.NoError(t, err)
 
@@ -1071,7 +1084,7 @@ func TestABotProposesFromLarkAndZalo(t *testing.T) {
 	for _, src := range []inboxstore.Source{
 		{Kind: inboxstore.FromLark, ID: "oc_123", Quote: "Gửi anh hợp đồng nhé",
 			Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_456"}},
-		{Kind: inboxstore.FromZalo, ID: "g_789", Account: "84901234567", Quote: "Mai họp lúc 9h",
+		{Kind: inboxstore.FromZalo, ID: "g_789", Account: "main", Quote: "Mai họp lúc 9h",
 			Ref: &inboxstore.Link{Kind: inboxstore.LinkZaloMessage, Ref: "1700000000000"}},
 	} {
 		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Answer " + src.Kind,
@@ -1275,6 +1288,41 @@ func TestABotRecordsWhatTheOwnerToldItInItsChat(t *testing.T) {
 	assert.Equal(t, &me, closed.DoneBy)
 }
 
+// The store accepts Connection labels even when the input bypasses the Bot tool's ID mapping.
+func TestWhatsAppSourceRequiresAConnectionLabel(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "main", Account: "+84369230426", Secret: "conn-whatsapp-main",
+	})
+	require.NoError(t, err)
+
+	n := inboxstore.NewTodo{
+		Title: "Reply to Kai", State: inboxstore.Proposed, Assignee: me,
+		Source: inboxstore.Source{Kind: inboxstore.FromWhatsApp, ID: "8491@s.whatsapp.net", Account: "84369230426",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "m1"}},
+	}
+	_, err = w.inbox.Create(ctx, bot(w.kai), n)
+	require.ErrorIs(t, err, storeerr.ErrInvalid)
+	require.ErrorContains(t, err, "main")
+
+	invalid := n.Source
+	n.Source.Account = "main"
+	item, err := w.inbox.Create(ctx, bot(w.kai), n)
+	require.NoError(t, err)
+	assert.Equal(t, "main", item.Source.Account)
+
+	for _, actor := range []inboxstore.Actor{owner, bot(w.kai)} {
+		latest, err := w.inbox.Get(ctx, item.ID)
+		require.NoError(t, err)
+		_, err = w.inbox.Edit(ctx, by(actor, latest), inboxstore.Edit{Source: &invalid})
+		require.ErrorIs(t, err, storeerr.ErrInvalid)
+		require.ErrorContains(t, err, "main")
+	}
+}
+
 // Scenario: a Zalo source names the owner's account, as the Zalo store keys a message by account, chat and id
 // (Codex review of #848, 2026-11-19): the same chat and message id in two accounts are two sources; a Zalo source
 // without its account, or another source with one, is refused.
@@ -1285,7 +1333,12 @@ func TestAZaloSourceNamesItsAccount(t *testing.T) {
 	w := newWorld(t)
 	ref := &inboxstore.Link{Kind: inboxstore.LinkZaloMessage, Ref: "1700000000000"}
 
-	for _, account := range []string{"84901234567", "84907654321"} {
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "zalo", Label: "other", Secret: "fixture",
+	})
+	require.NoError(t, err)
+
+	for _, account := range []string{"main", "other"} {
 		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Answer Linh", State: inboxstore.Proposed,
 			Source:   inboxstore.Source{Kind: inboxstore.FromZalo, ID: "g_789", Account: account, Ref: ref},
 			Assignee: me})

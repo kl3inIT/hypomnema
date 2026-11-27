@@ -1,7 +1,6 @@
 package agentapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -233,20 +232,9 @@ func (s *Server) audioFailed(w http.ResponseWriter, r *http.Request, err error) 
 	return true
 }
 
-// RecordingOf is a recording held whole, as the speech service reads one.
+// RecordingOf is a recording held whole, as the speech service reads one (speech.RecordingOf).
 func RecordingOf(data []byte, name, mime string) speech.Audio {
-	if mime == "" {
-		mime = http.DetectContentType(data)
-	}
-
-	if name == "" {
-		name = "recording"
-	}
-
-	return speech.Audio{
-		Name: name, MIME: mime, Size: int64(len(data)),
-		Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil },
-	}
+	return speech.RecordingOf(data, name, mime)
 }
 
 // TranscriptText is a transcript as an agent reads it: the text, or with

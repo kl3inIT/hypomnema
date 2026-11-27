@@ -237,6 +237,9 @@ async function fakeServer(page: Page): Promise<Server> {
         return json(failedTake)
       case "GET /videos":
         return json({ data: server.made ? [madeVideo] : [] })
+      // No template (#1230): the dialog makes the video in the saved default.
+      case "GET /videos/templates":
+        return json({ templates: [] })
       // The Look's catalogue, as the server starts it (#938); its sample is answered by the default below.
       case "GET /videos/looks":
         return json({

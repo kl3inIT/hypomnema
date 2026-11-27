@@ -19,6 +19,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -50,17 +51,17 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	_, err = svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	_, err = svc.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
 	require.NoError(t, err)
 	_, err = gateway.ApplyModel(ctx, "name: gpt-sol\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n")
 	require.NoError(t, err)
 	window, output := int64(400_000), int64(64_000)
 	_, err = gateway.SetAttributes(ctx, "gpt-sol", modelgateway.Attributes{ContextWindow: &window, MaxOutput: &output})
 	require.NoError(t, err)
-	_, _, err = svc.ApplyProfile(ctx, "",
+	_, _, err = svc.Profiles().ApplyProfile(ctx, "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
 	require.NoError(t, err)
-	_, _, err = svc.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	_, _, err = svc.Profiles().ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 	_, err = svc.AddAccount(ctx, "codex", "acct_1")
 	require.NoError(t, err)
@@ -130,7 +131,7 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 	assert.Zero(t, own.ModelContextWindow, "sizes go with the gateway's models only")
 
 	through := offers["through the gateway"]
-	assert.Equal(t, orchestration.GatewayAccountRef, through.AccountRef)
+	assert.Equal(t, profilestore.GatewayAccountRef, through.AccountRef)
 	assert.Equal(t, "codex", through.Runtime)
 	require.NotEmpty(t, through.ModelKey)
 	assert.Equal(t, window, through.ModelContextWindow, "the gateway's window goes with the offer (issue #1019)")

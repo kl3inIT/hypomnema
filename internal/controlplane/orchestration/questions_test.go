@@ -136,7 +136,7 @@ func TestQuestionSurvivesALostLeaseUntilTheDispatchSettles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, w.heartbeat(ca).Answers, 1)
 
-	require.NoError(t, w.s.SettleUnknown(t.Context(), db.ID, Settlement{Result: Result{Summary: "gone"}}))
+	w.connect([]string{ca.DispatchID})
 	got := w.question(qb)
 	assert.Equal(t, QuestionCanceled, got.Status)
 	assert.Equal(t, "dispatch_ended", got.CancelReason)
@@ -471,10 +471,6 @@ func TestMigrationKeepsDispatchesFromTheSecondSchema(t *testing.T) {
 	effects, err := s.ListEffects(ctx, "d")
 	require.NoError(t, err)
 	assert.Equal(t, []Effect{{Seq: 1, Kind: "push", Ref: "feat/x", Phase: EffectIntent}}, effects)
-
-	resources, err := s.ListResources(ctx, "d")
-	require.NoError(t, err)
-	assert.Len(t, resources, 1)
 
 	var violations int
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM pragma_foreign_key_check").Scan(&violations))

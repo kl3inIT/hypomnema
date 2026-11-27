@@ -69,9 +69,6 @@ WHERE id = @id AND waiting_since IS NOT NULL;
 SELECT * FROM dispatches
 WHERE task_id = @task_id AND status IN ('queued', 'starting', 'running', 'stopping', 'unknown', 'stop_unknown');
 
--- name: LastDispatchOfConversation :one
-SELECT * FROM dispatches WHERE conversation_id = @conversation_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
-
 -- name: WorktreeDispatches :many
 SELECT d.id, d.status, d.accepted_at, d.settled_at, d.declined_low_disk, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
 FROM conversations c JOIN dispatches d ON d.conversation_id = c.id
@@ -235,26 +232,11 @@ FROM tasks t JOIN dispatches d ON d.task_id = t.id JOIN dispatch_effects e ON e.
 WHERE t.run_id = @run_id AND e.kind = 'git_push' AND e.phase = 'done' AND e.payload IS NOT NULL
 ORDER BY branch, sha;
 
--- name: RecordResource :exec
-INSERT INTO dispatch_resources (dispatch_id, kind, ref, custody, created_at)
-VALUES (@dispatch_id, @kind, @ref, @custody, @now)
-ON CONFLICT (dispatch_id, kind, ref) DO NOTHING;
-
--- name: ReleaseResource :execrows
-UPDATE dispatch_resources SET released_at = CAST(@now AS INTEGER)
-WHERE dispatch_id = @dispatch_id AND kind = @kind AND ref = @ref AND released_at IS NULL;
-
--- name: ListResources :many
-SELECT * FROM dispatch_resources WHERE dispatch_id = @dispatch_id ORDER BY created_at, kind, ref;
-
 -- name: UpsertCooldown :exec
 INSERT INTO account_cooldowns (runtime, account_ref, until, reason)
 VALUES (@runtime, @account_ref, @until, @reason)
 ON CONFLICT (runtime, account_ref) DO UPDATE
 SET until = max(account_cooldowns.until, excluded.until), reason = excluded.reason;
-
--- name: GetCooldown :one
-SELECT * FROM account_cooldowns WHERE runtime = @runtime AND account_ref = @account_ref AND until > @now;
 
 -- name: DeleteExpiredCooldowns :execrows
 DELETE FROM account_cooldowns WHERE until <= @now;

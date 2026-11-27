@@ -2402,7 +2402,7 @@ export type VideoRevision = {
    */
   voice?: string;
   captions: boolean;
-  aspect: '9:16' | '16:9';
+  aspect: VideoAspect;
   /**
    * The provider that spoke every scene.
    */
@@ -2489,12 +2489,9 @@ export type VideoMake = {
    * The video's title, on its first make; absent: the take's.
    */
   title?: string;
+  aspect?: VideoAspect;
   /**
-   * Absent: 9:16.
-   */
-  aspect?: '9:16' | '16:9';
-  /**
-   * Absent: true.
+   * Absent: the template's, else true.
    */
   captions?: boolean;
   /**
@@ -2502,6 +2499,10 @@ export type VideoMake = {
    */
   voice?: string;
   look?: VideoLookInput;
+  /**
+   * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
+   */
+  template?: string;
 };
 
 export type VideoLookChange = {
@@ -2510,19 +2511,91 @@ export type VideoLookChange = {
 
 export type VideoPreview = {
   take: string;
+  aspect?: VideoAspect;
   /**
-   * Absent: 9:16.
-   */
-  aspect?: '9:16' | '16:9';
-  /**
-   * Absent: true.
+   * Absent: the template's, else true.
    */
   captions?: boolean;
   look?: VideoLookInput;
   /**
+   * A template's id, the look resolved as a make with it; refused with rev.
+   */
+  template?: string;
+  /**
    * A revision of the take's video the look starts from, as a look change does; its first line is shown.
    */
   rev?: number;
+  /**
+   * A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+   */
+  card?: 'title' | 'end';
+};
+
+/**
+ * The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+ */
+export type VideoAspect = '9:16' | '16:9' | '886x1920';
+
+export type VideoTemplates = {
+  templates: Array<VideoTemplate>;
+};
+
+/**
+ * A template of a video (issue
+ */
+export type VideoTemplate = {
+  id: string;
+  name: string;
+  use_case: string;
+  length: VideoTemplateLength;
+  /**
+   * The aspects it is made in, its default first.
+   */
+  aspects: Array<VideoAspect>;
+  /**
+   * Whether its videos have captions unless the make says.
+   */
+  captions: boolean;
+  sections: Array<VideoTemplateSection>;
+  /**
+   * The sections' words.
+   */
+  words: number;
+  look: VideoLook;
+  cards?: VideoTemplateCards;
+};
+
+/**
+ * How long its videos are meant to be, in seconds.
+ */
+export type VideoTemplateLength = {
+  min_s: number;
+  max_s: number;
+};
+
+export type VideoTemplateSection = {
+  name: string;
+  purpose: string;
+  words: number;
+  /**
+   * Its words at 2.5 a second.
+   */
+  seconds: number;
+};
+
+/**
+ * The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+ */
+export type VideoTemplateCards = {
+  accent: string;
+  title?: VideoTemplateCard;
+  end?: VideoTemplateCard;
+};
+
+export type VideoTemplateCard = {
+  title: string;
+  subtitle?: string;
+  duration_ms: number;
 };
 
 /**
@@ -2533,6 +2606,32 @@ export type VideoLookInput = {
   frame?: VideoFrameInput;
   background?: VideoBackground;
   music?: VideoMusicInput;
+  cards?: VideoCardsInput;
+};
+
+/**
+ * The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+ */
+export type VideoCardsInput = {
+  /**
+   * The rule over the title and the URL; absent: #6c8cff.
+   */
+  accent?: string;
+  title?: VideoCardInput;
+  end?: VideoCardInput;
+};
+
+export type VideoCardInput = {
+  title: string;
+  subtitle?: string;
+  /**
+   * Where the viewer is sent, drawn in the accent.
+   */
+  cta_url?: string;
+  /**
+   * Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms.
+   */
+  duration_ms?: number;
 };
 
 /**
@@ -2583,6 +2682,23 @@ export type VideoLook = {
   background?: VideoBackground;
   fell_back_from?: VideoChrome;
   music?: VideoMusic;
+  cards?: VideoCards;
+};
+
+/**
+ * A revision's title card and end card; absent, it has none.
+ */
+export type VideoCards = {
+  accent: string;
+  title?: VideoCard;
+  end?: VideoCard;
+};
+
+export type VideoCard = {
+  title: string;
+  subtitle?: string;
+  cta_url?: string;
+  duration_ms: number;
 };
 
 /**
@@ -5384,7 +5500,7 @@ export type TodoEvent = {
   revision: number;
   actor: TodoActor;
   /**
-   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
    */
   kind: string;
   /**
@@ -5593,13 +5709,28 @@ export type TodoHand = {
    */
   bot?: string;
   /**
-   * What the owner asks of the Bot, its first comment; optional.
+   * What the owner asks of the Bot, its first comment; may be empty when it carries files.
    */
   prompt?: string;
+  /**
+   * The chat id reserved before uploading files when the item has no chat with this Bot.
+   */
+  chat_id?: string;
+  /**
+   * Files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
+/**
+ * The text may be empty when the owner sends files.
+ */
 export type TodoComment = {
   text: string;
+  /**
+   * The owner's files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
 export type TodoSend = {
@@ -7103,6 +7234,31 @@ export type ListVideoLooksResponses = {
 
 export type ListVideoLooksResponse = ListVideoLooksResponses[keyof ListVideoLooksResponses];
 
+export type ListVideoTemplatesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/videos/templates';
+};
+
+export type ListVideoTemplatesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListVideoTemplatesError = ListVideoTemplatesErrors[keyof ListVideoTemplatesErrors];
+
+export type ListVideoTemplatesResponses = {
+  /**
+   * The templates.
+   */
+  200: VideoTemplates;
+};
+
+export type ListVideoTemplatesResponse = ListVideoTemplatesResponses[keyof ListVideoTemplatesResponses];
+
 export type PreviewVideoLookData = {
   body: VideoPreview;
   path?: never;
@@ -7572,60 +7728,6 @@ export type PutGitHostResponses = {
 };
 
 export type PutGitHostResponse = PutGitHostResponses[keyof PutGitHostResponses];
-
-export type DeleteGitHostTokenData = {
-  body?: never;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type DeleteGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type DeleteGitHostTokenError = DeleteGitHostTokenErrors[keyof DeleteGitHostTokenErrors];
-
-export type DeleteGitHostTokenResponses = {
-  /**
-   * The host, now without a token.
-   */
-  200: GitHost;
-};
-
-export type DeleteGitHostTokenResponse = DeleteGitHostTokenResponses[keyof DeleteGitHostTokenResponses];
-
-export type PutGitHostTokenData = {
-  body: NewGitHostToken;
-  path: {
-    host: string;
-  };
-  query?: never;
-  url: '/hosts/{host}/token';
-};
-
-export type PutGitHostTokenErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type PutGitHostTokenError = PutGitHostTokenErrors[keyof PutGitHostTokenErrors];
-
-export type PutGitHostTokenResponses = {
-  /**
-   * The host, now with a token.
-   */
-  200: GitHost;
-};
-
-export type PutGitHostTokenResponse = PutGitHostTokenResponses[keyof PutGitHostTokenResponses];
 
 export type DeleteGitHostConnectionData = {
   body?: never;

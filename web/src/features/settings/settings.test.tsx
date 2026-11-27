@@ -232,7 +232,7 @@ function server(
 
     if (kind === "hosts" && name) {
       const found = hosts.find((h) => h.host === name)
-      if (sub === "token") {
+      if (sub === "connections") {
         hosts = hosts.map((h) =>
           h.host === name ? { ...h, has_token: request.method === "PUT" } : h,
         )
@@ -251,7 +251,7 @@ function server(
         ]
       }
 
-      return request.method === "DELETE"
+      return request.method === "DELETE" && sub !== "connections"
         ? new Response(null, { status: 204 })
         : json(hosts.find((h) => h.host === name))
     }
@@ -496,7 +496,7 @@ test("the owner gives a host its token", async () => {
     await within(await row("GitLab", "gitlab.com")).findByText("Connected"),
   ).toBeInTheDocument()
   expect(requests).toEqual([
-    { call: "PUT /hosts/gitlab.com/token", body: { token: "glpat-typed" } },
+    { call: "PUT /hosts/gitlab.com/connections/default", body: { token: "glpat-typed" } },
   ])
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   expect(document.body).not.toHaveTextContent("glpat-typed")
@@ -505,7 +505,7 @@ test("the owner gives a host its token", async () => {
 // Scenario: the server refuses a token. The dialog stays open and says why.
 test("a refused token is explained in the dialog", async () => {
   const user = userEvent.setup()
-  server({}, { "PUT /hosts/github.com/token": "the vault has no key" })
+  server({}, { "PUT /hosts/github.com/connections/default": "the vault has no key" })
   await open(IntegrationsScreen, "Integrations")
 
   await user.click(
@@ -561,8 +561,8 @@ test("the owner adds a company's server to its product, removes its token and re
 
   expect(requests).toEqual([
     { call: "PUT /hosts/git.company.example", body: { kind: "github" } },
-    { call: "PUT /hosts/git.company.example/token", body: { token: "ghp_company" } },
-    { call: "DELETE /hosts/git.company.example/token", body: undefined },
+    { call: "PUT /hosts/git.company.example/connections/default", body: { token: "ghp_company" } },
+    { call: "DELETE /hosts/git.company.example/connections/default", body: undefined },
     { call: "DELETE /hosts/git.company.example", body: undefined },
   ])
 })
