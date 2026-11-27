@@ -494,5 +494,5 @@ func TestPromptWaitsForCIOnTheAppsEventsWhenItsTokenIsTheApps(t *testing.T) {
 	assert.NotContains(t, p, "--required --watch")
 
 	d.Offer.RepoToken, d.Offer.GitHubApp = "ghp_x", false
-	assert.Contains(t, Prompt(d), "`gh pr checks <url> --required --watch`")
+	assert.Contains(t, Prompt(d), "`gh pr checks <url> --required --watch --interval 60`")
 }
