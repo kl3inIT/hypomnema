@@ -2573,7 +2573,7 @@ flowchart LR
     the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
     A Connection a registered repository names cannot be removed.
   - **The owner's GitHub App** ([issue #1262](https://github.com/kl3inIT/hypomnema/issues/1262); migration
-    `github_app`; `internal/controlplane/githubapp`, its tables in `orchestration/githubstore`; owner's steps in
+    00188; `internal/controlplane/githubapp`, its tables in `orchestration/githubstore`; owner's steps in
     [docs/github-app.md](docs/github-app.md)). Workers and the coordinator act on the repositories it is installed
     on with its installations' tokens, which count against the App's own rate limit, not the owner's token's
     (GitHub's "Rate limits for GitHub Apps"); GitHub's events end the waits for CI. The owner's token stays for his
