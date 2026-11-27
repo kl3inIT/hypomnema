@@ -54,6 +54,29 @@ func (r runner) ffmpeg(ctx context.Context, args ...string) error {
 	return err
 }
 
+// ffmpegLog runs ffmpeg with args at the info level, and answers what it wrote to stderr: a filter's summary.
+func (r runner) ffmpegLog(ctx context.Context, args ...string) (string, error) {
+	var stderr bytes.Buffer
+
+	//nolint:gosec // The installed program, by its absolute path.
+	cmd := exec.CommandContext(ctx, r.tools.FFmpeg, append([]string{"-hide_banner", "-nostats", "-loglevel", "info", "-y"},
+		args...)...)
+	cmd.Dir = r.dir
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
+		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+
+		return "", fmt.Errorf("%s: %w\n%s", r.tools.FFmpeg, err, strings.Join(lines[max(0, len(lines)-25):], "\n"))
+	}
+
+	return stderr.String(), nil
+}
+
 func (r runner) run(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 

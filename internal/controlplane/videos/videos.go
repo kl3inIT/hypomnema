@@ -184,7 +184,8 @@ type Speech interface {
 type Maker interface {
 	Compose(ctx context.Context, tools ffmpeg.Tools, in compose.Input) (compose.Result, error)
 	Burn(ctx context.Context, tools ffmpeg.Tools, video, captions, work string) (string, error)
-	Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error
+	// Thumbnail writes the video's frame at atMs as a JPEG.
+	Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string, atMs int64) error
 }
 
 // composeMaker is package compose.
@@ -198,8 +199,8 @@ func (composeMaker) Burn(ctx context.Context, tools ffmpeg.Tools, video, caption
 	return compose.Burn(ctx, tools, video, captions, work)
 }
 
-func (composeMaker) Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error {
-	return compose.Thumbnail(ctx, tools, video, out)
+func (composeMaker) Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string, atMs int64) error {
+	return compose.Thumbnail(ctx, tools, video, out, atMs)
 }
 
 // Config is what the Service needs.
@@ -908,7 +909,7 @@ func (s *Service) FirstFrame(ctx context.Context, video, out string) error {
 		return fmt.Errorf("%w: ffmpeg is not installed: %w", ErrUnavailable, err)
 	}
 
-	return s.cfg.Maker.Thumbnail(ctx, tools, video, out)
+	return s.cfg.Maker.Thumbnail(ctx, tools, video, out, 0)
 }
 
 func (s *Service) made(ctx context.Context, id string, rev int, name string) (string, error) {

@@ -1,5 +1,5 @@
-import { Captions, Frame, ImageIcon, Music, Palette } from "lucide-react"
-import { useEffect, useId, useRef, type ReactNode } from "react"
+import { Captions, Clapperboard, Frame, ImageIcon, Music, Palette } from "lucide-react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 
 import type { VideoChrome, VideoLooks, VideoMusic, VideoPreview } from "@/api/generated/types.gen"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
@@ -17,12 +17,15 @@ import { errorText } from "@/lib/server-error"
 import { cn } from "@/lib/utils"
 
 import { paintBackground, templateColors } from "./backgrounds"
+import { CardsGroup } from "./cards-group"
 import {
   backgroundName,
   chromeHints,
   chromeNames,
   positionNames,
   positions,
+  sampleCards,
+  sampleOf,
   type LookFields,
 } from "./look-state"
 import { MusicGroup } from "./music-group"
@@ -32,8 +35,9 @@ import { useLookSample } from "./use-look"
 // caption style and where it sits, the frame around the phone's picture, and the background, each a group with its
 // header as Cap's editor sidebar groups its controls (apps/desktop-gpui/src/editor_tabs.rs, editor_sidebar.rs;
 // AGPLv3, layout only). The fields start from the default or the source revision; the sample and the request carry
-// only the sections changed (look-state.ts). Padding and radius are only in the API and the CLI. Last, the music laid
-// under the voice (#910, row 18; music-group.tsx).
+// only the sections changed (look-state.ts). Padding and radius are only in the API and the CLI. Then the music laid
+// under the voice (#910, row 18; music-group.tsx), and last the title and end cards (#1230, row 1; cards-group.tsx),
+// which the sample draws when one is chosen over it.
 export function LookSection({
   looks,
   value,
@@ -50,7 +54,8 @@ export function LookSection({
   music: VideoMusic | undefined
   // captions: the revision has captions; off, their style is not chosen.
   captions: boolean
-  // sample: the look sample's request, its look the sections changed.
+  // sample: the look sample's request, its look the sections changed; the section draws it without what a still of
+  // the picture does not show (sampleOf), or with the card chosen.
   sample: VideoPreview
   // open: the dialog is shown, so its sample is asked.
   open: boolean
@@ -70,7 +75,7 @@ export function LookSection({
         upright && "sm:flex-row sm:items-start",
       )}
     >
-      <LookSample body={sample} open={open} />
+      <LookSample body={sample} cards={value.cards} open={open} />
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <Group icon={<Captions />} title="Captions" off={!captions && "Captions are off."}>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -232,6 +237,9 @@ export function LookSection({
             enabled={open}
           />
         </Group>
+        <Group icon={<Clapperboard />} title="Cards">
+          <CardsGroup cards={value.cards} onCards={(next) => onChange({ ...value, cards: next })} />
+        </Group>
       </div>
     </section>
   )
@@ -313,13 +321,44 @@ function Swatch({ style }: { style: string }) {
 }
 
 // LookSample is the look over the take's picture at its first step, as the server draws it (row 14): it shows the
-// look, not a frame the video promises to show.
-function LookSample({ body, open }: { body: VideoPreview; open: boolean }) {
-  const sample = useLookSample(body, open)
+// look, not a frame the video promises to show. With a card on, the card can be chosen in its place: it is drawn on
+// the look's background as the video shows it between its fades (#1230, row 1); a card with no title yet is not
+// asked for.
+function LookSample({
+  body,
+  cards,
+  open,
+}: {
+  body: VideoPreview
+  cards: LookFields["cards"]
+  open: boolean
+}) {
+  const [chosen, setChosen] = useState<"picture" | "title" | "end">("picture")
+  const on = sampleCards(cards)
+  const card = chosen !== "picture" && on.includes(chosen) ? chosen : undefined
+  const untitled = card !== undefined && !cards[card]?.title.trim()
+  const sample = useLookSample(sampleOf(card ? { ...body, card } : body), open && !untitled)
   const upright = (body.aspect ?? "9:16") === "9:16"
 
   return (
     <figure className={cn("flex shrink-0 flex-col items-center gap-1.5", upright && "sm:w-40")}>
+      {on.length > 0 && (
+        <ToggleGroup
+          aria-label="What the sample shows"
+          value={[card ?? "picture"]}
+          onValueChange={(next: string[]) => next[0] && setChosen(next[0] as typeof chosen)}
+          variant="choice"
+          spacing={1}
+          size="sm"
+        >
+          <ToggleGroupItem value="picture">Step</ToggleGroupItem>
+          {on.map((side) => (
+            <ToggleGroupItem key={side} value={side}>
+              {side === "title" ? "Title" : "End"}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      )}
       <div
         className={cn(
           "relative flex items-center justify-center overflow-hidden rounded-lg bg-muted",
@@ -328,7 +367,12 @@ function LookSample({ body, open }: { body: VideoPreview; open: boolean }) {
         data-testid="look-sample"
         aria-busy={sample.loading || undefined}
       >
-        {sample.url && !sample.error && (
+        {untitled && (
+          <p className="px-3 text-center text-xs text-muted-foreground">
+            Give the card a title to see it.
+          </p>
+        )}
+        {sample.url && !sample.error && !untitled && (
           <img
             src={sample.url}
             alt="A sample of the look"
@@ -340,6 +384,7 @@ function LookSample({ body, open }: { body: VideoPreview; open: boolean }) {
             {errorText(sample.error)}
           </p>
         ) : (
+          !untitled &&
           (sample.loading || !sample.url) && (
             <span className="absolute">
               <Spinner aria-label="Drawing the sample" />
@@ -348,7 +393,9 @@ function LookSample({ body, open }: { body: VideoPreview; open: boolean }) {
         )}
       </div>
       <figcaption className="text-center text-xs text-muted-foreground">
-        The look at the take's first step. The video may not show that moment.
+        {card
+          ? `The ${card === "title" ? "title" : "end"} card, between its fades.`
+          : "The look at the take's first step. The video may not show that moment."}
       </figcaption>
     </figure>
   )
