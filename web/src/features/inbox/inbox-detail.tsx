@@ -460,7 +460,7 @@ function TodoBody({
   // Its properties as circle's issue properties panel (MIT, Copyright (c) 2025 lndev-ui;
   // components/common/issues/details/issue-properties-panel.tsx), each an icon and its value: its status, changed
   // with the same actions as the top bar's (issue #1173); its priority, with the reason it was set for, and its
-  // project, each its own picker (issue #1157), which a closed item keeps as they were; who does it with their
+  // department, each its own picker (issue #1157), which a closed item keeps as they were; who does it with their
   // avatar, as circle's AssigneeUser; and its date with a calendar, late in the late colour with how late.
   const locked = isClosed(todo)
   const fields: [string, ReactNode][] = [
@@ -490,7 +490,7 @@ function TodoBody({
       </span>,
     ],
     [
-      "Project",
+      "Department",
       <ProjectSelector
         key="project"
         projects={projects}

@@ -5413,7 +5413,10 @@ type MuseAccount struct {
 	State string `json:"state"`
 
 	// Usage Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
-	Usage       string     `json:"usage"`
+	Usage string `json:"usage"`
+
+	// UsageError Why the latest Usage read failed.
+	UsageError  *string    `json:"usage_error,omitempty"`
 	UsageReadAt *time.Time `json:"usage_read_at,omitempty"`
 }
 

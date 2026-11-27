@@ -65,19 +65,21 @@ platforms only.
 
 | Platform | Free routes, in order |
 |---|---|
-| Facebook | Muse, then `site:facebook.com` web search |
+| Facebook | Muse with a fixed template (each post with its link, date and a verbatim quote; asked again per group for depth), then `site:facebook.com` web search |
 | Instagram | Muse |
 | Threads | The official keyword search, then Muse |
-| TikTok, X | `site:` web search (twscrape is free but its accounts were suspended from 2026-11-21) |
+| TikTok | davidteather/TikTok-Api (MIT, 6.8k stars, pushed 2026-11-14; unofficial, a browser and an `ms_token` cookie), then yt-dlp, then `site:tiktok.com` web search |
+| X | A signed-in X account's cookies (`auth_token`, `ct0`), then the owner's API key when he has one, then the signed-in Grok CLI (`grok_x.py`), then `site:x.com` web search. The cookie route is the common default: it heads last30days' auto chain `bird → xai → xurl → xquik` (`env.py:1575`, `bird_x.py`: X's GraphQL with the account's cookies), and openmagpie (twikit), Agent-Reach (opencli) and twscrape read X the same way. Only harken uses the official API v2 (`sources/x.py`). Use a secondary account: twscrape users report suspensions from 2026-11-21. |
 | YouTube | Data API, then yt-dlp |
 | Reddit | Keyless JSON, then the official API |
 | LinkedIn | A signed-in account, then `site:linkedin.com/posts` web search |
 | Google Play | google-play-scraper |
 | Forums | Web search, then a fetch of the thread |
 
-As a result, Facebook, Instagram and TikTok have no item-level evidence with engagement, only Muse's summary and
-search snippets. Reading Facebook groups through a signed-in account is done by no reference, so it is left out
-unless the owner asks for it.
+Muse returns links when asked (owner, 2026-11-27), so Facebook and Instagram get item-level evidence through it.
+Items found by a model (Muse, Grok) are checked before they count: the link is opened and must hold the quote, and
+the date is checked (grok_x validates each post's date from its snowflake id, `_validate_items`, because "its output
+can be confidently wrong"). An item that fails stays as "unverified". Engagement counts are missing on that route.
 
 ## 3. What the references agree on
 
@@ -103,6 +105,62 @@ Where they differ:
 - **Vietnamese text.** No reference handles it. last30days tokenizes Latin text with English stopwords and does no
   diacritic folding. A lexical cluster will be weak for Vietnamese; embeddings, as obsei uses, are the likely fix
   (inferred).
+
+## 3b. More to learn than the sources
+
+**Threads, free.** Muse first: whether Meta AI reads Threads is reported both ways, so test it once Muse is signed in
+again. Then `site:threads.com` web search. Then the official keyword search once Meta grants `threads_keyword_search`;
+without that grant it finds only the account's own posts. last30days reads Threads through ScrapeCreators
+(`scripts/lib/threads.py`), which is paid.
+
+**Probes on 2026-11-27 (owner's Muse account `1`, signed in that day):**
+
+- **Muse on Threads.** Asked for Threads posts about Cốc Cốc, VETC and VMAP from the last 30 days. The first answer
+  stopped mid-work ("sent 10 links to open…"). A follow-up in the same thread returned 10 posts. Each post had an
+  author, a date, a verbatim quote (marked as caption, image text or comment) and likes and replies where seen. Two
+  links were opened with curl, and the `og:description` matched the quotes (`@minhtiensg/post/DfUomw4iepN`,
+  `@coccoc.official/post/Dfe40MVAZjj`). Links come wrapped as `l.meta.ai/?u=…`, so the `u` parameter must be
+  unwrapped. Muse also declined to pad: it said that no VMAP post was found.
+- **Grok through the gateway.** `opencode-go/grok-4.7` on `/v1/chat/completions` answered "I can't search X live". X
+  search is a server-side tool of xAI's own API and of the Grok CLI. OpenCode Go does not pass it on. X therefore
+  needs the owner's X API key, an xAI key, or a signed-in Grok CLI.
+
+**Setup falls into three kinds; the logic is the same for all:**
+
+| Kind | Sources | Setup, after |
+|---|---|---|
+| None | Reddit JSON, yt-dlp, Google Play, App Store, HN, Bluesky, web search, forum fetch, Telegram preview | On/off and a daily live test (web search `source: public`; Agent-Reach `check`) |
+| API key | YouTube Data API, Threads API, X API, xAI | Add a key to the vault and rest on a daily limit (the web-search keyed providers) |
+| Signed-in account | Muse, X, LinkedIn, Grok CLI, TikTok's `ms_token` cookie | Sign in through the owner's tab of the shared Chrome. Cookies go to the vault, accounts are kept in order, and the card shows "sign in again" (the Muse screen; postiz `refreshNeeded`) |
+
+**Other sources the references read** (last30days `scripts/lib/`). Each is listed with the free route where there is
+one:
+
+| Source | What it shows | Where it is read |
+|---|---|---|
+| Meta Ad Library | What a brand pays to say, with video scripts. The public Ad Library page is readable in a browser (inferred). | `meta_ads.py`, through ScrapeCreators |
+| Job posts | What a competitor hires for, which hints at what it builds | `jobs.py`, `hiring_signals.py` |
+| Patents | Long-term technology direction | `patents.py` |
+| News timeline | Events, and who reported them | radar-intelligence (Google News, GDELT); `techmeme.py` |
+| Telegram public channels | Channel posts. The public preview at `t.me/s/<channel>` is readable (inferred). | `telegram.py`, through ScrapeCreators |
+| App Store and Trustpilot reviews | App and company reviews | `trustpilot.py`; obsei |
+| Hacker News, Bluesky, GitHub | Developer discussion, keyless | last30days, harken, obsei |
+
+**Logic worth taking:**
+
+| Idea | Learned from |
+|---|---|
+| A pre-flight check for keyword traps: rewrite the query or ask one question before running | runbook step 0.45 |
+| Resolve where people talk before searching: handles, communities, channels, competitors, found with 2-3 web searches | runbook 0.5-0.55, `competitors.py` |
+| Snowball: mine new handles and hashtags from the first results and search again | `entity_extract.py` |
+| Query intent sets the subqueries, the clustering and the supplements | `planner.py`; radar's five decision profiles |
+| Retry thin sources with a simpler query | `_retry_thin_sources` |
+| 2-3 capped web-search supplements after collection | runbook step 2 |
+| Count before filtering; cap confidence on partial sampling | radar `sampling-contract.md` |
+| Quote tags: pain, trigger, outcome, objection, competitor | marketingskills `source-guides.md` |
+| History across runs before any trend claim; a cross-platform hot board | `--store`; cn `--hot`; radar |
+| Ask over the stored items with citations, plus a judge model | obsei `ask.py` |
+| A daily live test per backend, and a "regressed" flag | Agent-Reach `check`, `regressed()` |
 
 ## 4. How it maps onto Hypomnema
 
@@ -157,13 +215,80 @@ UI: Settings ▸ Listening — one card per platform, its backends in order, sta
 | Ranking and clusters | RRF plus normalized engagement. Clusters tagged `single-source` and `thin-evidence`. Embedding similarity for Vietnamese. | last30days; obsei (embeddings) |
 | Planning and writing | The Bot's model plans the subqueries and writes the report. The tool does no prose. | last30days LAW 7 |
 | Report | Answer first with at most 3 actions. Then what was read and what is missing. Then 1 to 3 findings, each with support and counter-evidence, a High/Medium/Low confidence and what it cannot show. Then verbatim quotes with link and date. Then risks and next focus. Each claim is labelled fact, extraction or judgment. One reviewer pass. | radar, marketingskills, BettaFish template, last30days synthesis |
-| Muse's role | Lead finding (groups, themes), and the only free route into Facebook groups and Instagram. Its claims stay "unverified" until an item backs them. | #781 risks; agent study §2 |
+| Muse and Grok | Asked with a fixed template for items (link, date, verbatim quote). Each item is checked by opening its link and its date; one that fails stays "unverified". | #781 step 2 (the Muse template); last30days `grok_x.py` |
 | Signed-in accounts | A cookie jar in the vault and its own Chrome context. One call at a time, a minimum gap per site, and a 24-hour stop after a challenge. Sign-in through the owner's tab. | Muse pool, linkedin `AGENTS.md:209-223`, Agent-Reach |
 | Screen | A card per platform, after the Muse and web-search screens, with postiz's states (needs sign-in, reconnect, off). Adds last success, last error and items this week. | postiz, harken, BettaFish `crawling_tasks`, the Machines page cards |
 | Saved topics (later) | A cursor per (topic, source), moved after the store writes. Items in Postgres, retention in days, a weekly Routine. | obsei, harken, openmagpie |
 | Left out | A multi-agent forum, PII redaction before store, alerts and spikes | BettaFish shows no gain. Redaction and spike alerts appear in one reference each (obsei), so they wait for a need. |
 
-## 6. Steps
+## 5b. Setup and the Sources screen
+
+Setup was read in last30days (`references/setup-wizard.md`, `lib/env.py`, `lib/doctor.py`, `lib/prescriptions.py`,
+`lib/quality_nudge.py`, `scripts/box_chrome_login.py`), last30days-cn (`login`, `--cookie`, `crawler_bridge.py`),
+Agent-Reach (`runtime/manage.py`, `runtime/session_reuse.py`, `skill/references/sessions.md`), linkedin-mcp-server
+(`--login`, `--import-from-browser`, `login_viewer.py`, `session_status.py`) and postiz (connect and reconnect).
+
+| Step | Keyless | API key | Signed-in account | From |
+|---|---|---|---|---|
+| Default | On, no question | Off until a key | Off until the owner signs in | last30days `KEYLESS_ALWAYS_ON`; Agent-Reach |
+| Before | — | Where to get the key, and what it adds | A consent card with fixed wording (terms and account risk), separate per platform | last30days `setup-wizard.md`, `reddit-session.md` |
+| Enter | — | Paste into the vault; shown only as present | Sign in through the owner's tab of the shared Chrome. The human types; the agent never fills the form. Fallback: paste a cookie header, checked for the platform's login cookies | last30days `box_chrome_login.py`; linkedin-mcp viewer; cn `--cookie`; the Muse sign-in |
+| Verify | "Working" only after a real run succeeded | At the real run | By a real action, not by the presence of cookies | Agent-Reach `sessions.md`; last30days |
+| Broken | "Regressed" if it passed before | Rest on the daily limit | A "!" badge and sign-in again. Use the next free backend meanwhile. On a block, stop and do not switch accounts | Agent-Reach `regressed()`; postiz `refreshNeeded`; last30days |
+| Remove | Off | Delete the key | Sign out clears that site's cookies only | Agent-Reach `logout`, `remove` |
+
+Cookie rules:
+
+- A cookie is never printed or logged, and goes only to its own site.
+- Only the owner signs in.
+- The agent asks the owner only after a real call returned `need_login` (last30days `CONFIGURATION.md:310-336`,
+  Agent-Reach `sessions.md`).
+- No reference validates an API key when it is saved, so none is added.
+
+The Sources screen sits in Settings. It starts from the Machines page cards and grid/table switch and the Muse and Web
+search screens. It holds:
+
+- **Four counted groups at the top:** working, on but unverified, broken, could be on (last30days `doctor.py`).
+- **One card per platform:** its backends in order, the last success, items this week, and the last error with one
+  fix step (harken `source_metrics`, BettaFish `crawling_tasks`, `prescriptions.py`).
+- **A "!" badge,** where a click on the whole card reconnects; the owner is told once (postiz).
+- **Accounts:** in order, with on/off and remove (the Muse screen).
+- **Keys:** add a key and set the provider order (the Web search screen).
+- **Optional sources:** one that is off is never counted as a failure (`quality_nudge.py`).
+
+**Menu.**
+
+- **Settings today.** The Gateway group holds Models, Web search, Images, Muse, Audio, Gateway keys and Usage
+  (`web/src/components/settings-page.tsx`).
+- **Pull requests 1-8.** One entry, "Social listening", goes into Gateway after Web search and Muse, with no group of
+  its own. The Gateway group already keeps search and media providers beside models, as OmniRoute and 9router do.
+  Groups are one level deep, and a section appears once it has a page
+  ([2026-11-10-menus-and-settings.md](2026-11-10-menus-and-settings.md)). A group of one entry adds nothing.
+- **Muse.** It keeps its page, because `muse_ask` also answers research questions beyond listening. Its card on the
+  new page links there.
+- **X and LinkedIn.** They sign in on their own cards.
+- **Pull request 9.** Saved topics add a place "Listening" to the main sidebar beside Meetings and Studio: topics,
+  runs and reports. That is work, not setup; OpenClaw says such places "are workspace destinations, not settings". The
+  source setup then moves behind that page's gear, as Meetings did (#1121, owner 2026-11-23).
+
+## 6. Pull requests
+
+Nine pull requests, each with its own issue under #781:
+
+1. **Core.** Registry, backend chains, failure codes, item, dedup, ranking, clusters, coverage and `listen_search`,
+   with web search and Reddit.
+2. **The `social-listening` skill.** Trap pre-flight, resolve-first, snowball and the report rules.
+3. **Keyless sources in one pull request.** YouTube with transcripts, Google Play, App Store, HN, GitHub, arXiv,
+   Techmeme, DEV.to, Bluesky, careers pages and forum fetch.
+4. **The Sources screen.** Includes the daily live test and "regressed".
+5. **Shared signed-in accounts.** Muse's sign-in generalized: consent card, owner's tab, cookie paste, verify by
+   action and per-site sign-out. Adds X and LinkedIn.
+6. **Muse as a backend.** Template, continue an interrupted answer, unwrap `l.meta.ai` and check links.
+7. **Keyed sources.** YouTube Data API, Threads API, and X API or xAI when the owner has keys.
+8. **TikTok** through TikTok-Api and its `ms_token`.
+9. **Saved topics (later).** Cursors, a weekly Routine and history.
+
+## 7. Steps
 
 1. **Now, without code.** The Bot that writes the Tasco report uses `web_search` (including `site:linkedin.com/posts`
    and `site:voz.vn`), Muse once it is signed in again, and Google Play reviews. It applies the report rules in §5.

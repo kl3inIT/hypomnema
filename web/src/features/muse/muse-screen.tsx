@@ -189,6 +189,11 @@ function AccountRow({
               <Fact icon={Gauge} title="Muse's Settings → Usage, as Muse shows it">
                 {usageLine(account)}
               </Fact>
+              {account.usage_error && (
+                <span className="text-xs wrap-anywhere text-muted-foreground">
+                  {account.usage_error}
+                </span>
+              )}
             </span>
             {account.cause && (
               <span className="mt-1 block text-xs break-words text-muted-foreground">

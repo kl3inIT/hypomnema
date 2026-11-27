@@ -221,14 +221,14 @@ var (
   const visible = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const b = [...document.querySelectorAll(%s)].find(visible)
     || [...document.querySelectorAll('button,[role=button]')]
-      .find(e => visible(e) && (e.getAttribute('aria-label') || '').trim() === 'Settings');
+      .find(e => visible(e) && ['Settings', 'Cài đặt'].includes((e.getAttribute('aria-label') || '').trim()));
   if (!b) return null;
   const r = b.getBoundingClientRect();
   return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
 })()`, q(selSettings))
 	settingsItem = `(() => {
   const visible = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
-  const exact = e => (e.textContent || '').trim() === 'Settings';
+  const exact = e => ['Settings', 'Cài đặt'].includes((e.textContent || '').trim());
   const b = [...document.querySelectorAll('[role=menuitem]')]
     .find(e => visible(e) && (exact(e) || [...e.querySelectorAll('span,div')].some(exact)));
   if (!b) return null;

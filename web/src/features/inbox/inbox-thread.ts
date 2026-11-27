@@ -408,7 +408,7 @@ function editLine(
 
     return { words: handed, icon }
   }
-  // A priority set, with the reason it was set for, and a project changed (issue #1157).
+  // A priority set, with the reason it was set for, and a department changed (issue #1157).
   if (typeof after.priority === "number") {
     const name = priorityNames[after.priority] ?? String(after.priority)
     const why = typeof after.priority_reason === "string" && after.priority_reason
@@ -424,8 +424,8 @@ function editLine(
     return {
       words:
         typeof after.project_id === "string"
-          ? `${who} moved it to ${projectName(after.project_id) ?? "a project"}`
-          : `${who} took it out of its project${reason}`,
+          ? `${who} moved it to ${projectName(after.project_id) ?? "a department"}`
+          : `${who} took it out of its department${reason}`,
       icon: Box,
     }
   }

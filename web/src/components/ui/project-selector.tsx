@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
-// ProjectChoice is a project as the picker shows it: a department, by its id and name.
+// ProjectChoice identifies a department by its id and name.
 interface ProjectChoice {
   id: string
   name: string
@@ -43,14 +43,14 @@ interface ProjectChoice {
 
 interface ProjectSelectorProps {
   projects: ProjectChoice[]
-  // value is the project's id; undefined for none.
+  // value is the department's id; undefined for none.
   value: string | undefined
   onChange: (project: string | undefined) => void
   disabled?: boolean
 }
 
-// ProjectSelector is circle's project picker: a button naming the project, opening a searchable list of the projects,
-// in the sidebar's order, with No project first, the current one checked.
+// ProjectSelector uses circle's project picker to show departments in sidebar order, with No department first
+// and the current choice checked.
 function ProjectSelector({ projects, value, onChange, disabled }: ProjectSelectorProps) {
   const [open, setOpen] = React.useState(false)
   const current = projects.find((p) => p.id === value)
@@ -69,26 +69,26 @@ function ProjectSelector({ projects, value, onChange, disabled }: ProjectSelecto
             size="xs"
             role="combobox"
             aria-expanded={open}
-            aria-label={`Project: ${current?.name ?? "No project"}`}
+            aria-label={`Department: ${current?.name ?? "No department"}`}
           />
         }
       >
         <Box className="size-4" />
-        <span>{current?.name ?? "No project"}</span>
+        <span>{current?.name ?? "No department"}</span>
       </PopoverTrigger>
       <PopoverContent className="w-56 p-0" align="start">
         <Command>
-          <CommandInput placeholder="Set project..." />
+          <CommandInput placeholder="Set department..." />
           <CommandList>
-            <CommandEmpty>No projects found.</CommandEmpty>
+            <CommandEmpty>No departments found.</CommandEmpty>
             <CommandGroup>
               <CommandItem
-                value="No project"
+                value="No department"
                 data-checked={value === undefined}
                 onSelect={() => pick(undefined)}
               >
                 <FolderIcon className="size-4" />
-                No project
+                No department
               </CommandItem>
               {projects.map((project) => (
                 <CommandItem

@@ -7111,6 +7111,7 @@ components:
         usage:
           type: string
           description: Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
+        usage_error: { type: string, description: Why the latest Usage read failed. }
         usage_read_at: { type: string, format: date-time }
         checked_at: { type: string, format: date-time }
     MuseSwitch:
