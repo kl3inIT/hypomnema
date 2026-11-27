@@ -987,6 +987,7 @@ test("files attached by button and paste are sent and shown with the message", a
   await expect(chips.getByText("report.pdf")).toBeVisible()
   await expect(chips.getByText("image.png")).toBeVisible()
   await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
+  await expect(chips.locator('[title="report.pdf"] img')).toHaveAttribute("src", /\/pdf\.svg$/)
   await chips.getByRole("button", { name: "Remove stray.txt" }).click()
   await expect(chips.getByText("stray.txt")).toHaveCount(0)
   expect(calls).toContain("POST folders attachments/cht_1")

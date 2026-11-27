@@ -369,6 +369,18 @@ async function openChat(page: Page, w: ReturnType<typeof world>) {
 const card = (page: Page, title: string) => page.getByRole("button", { name: `Open ${title}` })
 const side = (page: Page) => page.getByRole("complementary", { name: "Artifact" })
 
+test("a spreadsheet artifact card shows its file type icon", async ({ page }) => {
+  await openChat(page, world())
+
+  const spreadsheet = card(page, "Orders, October")
+  const icons = spreadsheet.locator("img")
+  await expect(icons).toHaveCount(2)
+  await expect(icons.first()).toHaveAttribute("src", /\/table\.svg$/)
+  await expect(icons.last()).toHaveAttribute("src", /\/table\.svg$/)
+  await spreadsheet.scrollIntoViewIfNeeded()
+  await shot(page, "artifact-spreadsheet-card")
+})
+
 test.describe("on a desktop", () => {
   test.skip(({ isMobile }) => isMobile, "the panel beside the chat is a desktop's")
 
