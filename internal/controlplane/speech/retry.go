@@ -7,9 +7,10 @@ import (
 	"time"
 )
 
-// An ElevenLabs request that is rate limited (429) or fails on its side (5xx) is asked again twice before its
-// failure counts (issue #1283, row 6), as ElevenLabs's own SDK does (elevenlabs-python core/http_client.py:99-123,
-// 379-382): it waits the Retry-After the answer named, at most 60 seconds, else 1 second doubling with each retry.
+// A text-to-speech request, ElevenLabs's or Soniox's, that times out (408), is rate limited (429) or fails on its side
+// (5xx) is asked again twice before its failure counts (issue #1283, row 6; issue #1285, row 4: Soniox's
+// generate_tts errors name 408, 429, 500 and 503), as ElevenLabs's own SDK does (elevenlabs-python
+// core/http_client.py:99-123, 379-382, which retries 408 too): it waits the Retry-After the answer named, at most 60 seconds, else 1 second doubling with each retry.
 // Only then does the key rest and the next key or provider get asked, as before (rest.go, each). Each attempt has
 // its own speechTimeout and the waits are apart from it, as the SDK's timeout is one request's and it sleeps
 // between them (http_client.py:379-382), so both retries happen even after two Retry-After of 60 seconds (review
@@ -49,7 +50,8 @@ func (s *Service) attempt(ctx context.Context, ask func(ctx context.Context) err
 func retryWait(err error, n int) (time.Duration, bool) {
 	var refused *providerError
 	if !errors.As(err, &refused) || refused.noCredits ||
-		(refused.status != http.StatusTooManyRequests && refused.status < http.StatusInternalServerError) {
+		(refused.status != http.StatusTooManyRequests && refused.status != http.StatusRequestTimeout &&
+			refused.status < http.StatusInternalServerError) {
 		return 0, false
 	}
 

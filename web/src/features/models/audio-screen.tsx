@@ -501,8 +501,8 @@ function KindRow({
               </span>
             </span>
           </ItemDescription>
-          {kind === "tts" && entry.provider === "elevenlabs" && (
-            <ModelField provider={entry.provider} model={entry.model} />
+          {(kind === "tts" || entry.provider === "soniox") && (
+            <ModelField kind={kind} provider={entry.provider} model={entry.model} />
           )}
           {kind === "tts" && link && <VoiceField provider={entry.provider} voice={link.voice} />}
         </ItemContent>
@@ -511,18 +511,27 @@ function KindRow({
   )
 }
 
-// ModelField is the model a provider speaks with (issue #1283, row 1), picked from the provider's own list of
-// speech models, as open-webui's audio settings pick ElevenLabs's TTS model from its GET /v1/models
+// ModelField is the model a provider is asked with for a kind (issue #1283, row 1; Soniox's speech and
+// transcription models, issue #1285, row 1), picked from the provider's own list of models of that kind, as
+// open-webui's audio settings pick ElevenLabs's TTS model from its GET /v1/models
 // (backend/open_webui/routers/audio/__init__.py:1588-1601). The choice is saved at once.
-function ModelField({ provider, model }: { provider: AudioProvider; model: string }) {
+function ModelField({
+  kind,
+  provider,
+  model,
+}: {
+  kind: AudioKind
+  provider: AudioProvider
+  model: string
+}) {
   const id = useId()
   const name = audioProviderName(provider)
   const models = useAudioModels()
-  const choices = modelChoices(models.data?.models ?? [], provider, model)
+  const choices = modelChoices(models.data?.models ?? [], provider, model, kind)
   const save = useChange(
     async (next: string) =>
-      (await setAudioModel({ path: { provider }, body: { model: next } })).data,
-    (next) => `${name} speaks with ${next}`,
+      (await setAudioModel({ path: { provider }, body: { model: next, kind } })).data,
+    (next) => (kind === "stt" ? `${name} hears with ${next}` : `${name} speaks with ${next}`),
   )
   const failed = models.data?.errors?.find((e) => e.provider === provider)
 
@@ -540,7 +549,9 @@ function ModelField({ provider, model }: { provider: AudioProvider; model: strin
         <FieldDescription>
           {failed
             ? `${name}'s list could not be read: ${failed.message}`
-            : `From ${name}'s own list. A line in a language the model does not cover is spoken without its language.`}
+            : kind === "stt"
+              ? `From ${name}'s own list of transcription models.`
+              : `From ${name}'s own list. A line in a language the model does not cover is spoken without its language.`}
         </FieldDescription>
       </Field>
       <ErrorAlert error={save.error ?? models.error} />
@@ -550,8 +561,9 @@ function ModelField({ provider, model }: { provider: AudioProvider; model: strin
 
 // VoiceField is the voice a provider speaks a video of a take with when none is asked (issue #818, row 5), as
 // `hypomnema audio voice` sets it; empty, the provider's own default. ElevenLabs's is picked by name from its
-// voices (issue #1283, row 5), as openclaw and open-webui list them from its GET /v1/voices; when the list cannot
-// be read, and for Soniox, a name or id is typed.
+// voices (issue #1283, row 5), as openclaw and open-webui list them from its GET /v1/voices, and Soniox's from its
+// model's built-in voices and its cloned ones (issue #1285, row 5); when the list cannot be read, a name or id is
+// typed.
 function VoiceField({ provider, voice }: { provider: AudioProvider; voice?: string }) {
   const name = audioProviderName(provider)
   const voices = useAudioVoices()
@@ -565,8 +577,7 @@ function VoiceField({ provider, voice }: { provider: AudioProvider; voice?: stri
   )
   const listed = (voices.data?.voices ?? []).some((v) => v.provider === provider)
 
-  // Only ElevenLabs's voice is picked from its list (#1283, row 5); Soniox's is typed, as before, until #1285.
-  if (provider !== "elevenlabs" || (!listed && !voices.isPending)) {
+  if (!listed && !voices.isPending) {
     return <VoiceInput provider={provider} voice={voice} save={save} />
   }
 

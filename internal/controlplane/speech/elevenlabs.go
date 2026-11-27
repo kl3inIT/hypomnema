@@ -156,8 +156,8 @@ func elevenLabsVoice(voice string) string {
 // what is set (issue #1283, rows 2 and 4). A rate limit or a failure on its side is asked again (retry.go).
 func (s *Service) elevenLabsSpeak(ctx context.Context, k Key, model string, req SpeakRequest) ([]byte, []Word, error) {
 	body := map[string]any{"text": req.Input, "model_id": model}
-	if req.Speed > 0 {
-		body["voice_settings"] = map[string]any{"speed": req.Speed}
+	if speed := s.elevenLabsSpeed(ctx, model, req.Speed); speed > 0 {
+		body["voice_settings"] = map[string]any{"speed": speed}
 	}
 
 	if language := s.elevenLabsLanguage(ctx, k, model, req.Language); language != "" {
@@ -206,6 +206,41 @@ func (s *Service) elevenLabsSpeak(ctx context.Context, k Key, model string, req 
 	}
 
 	return audio, words, nil
+}
+
+// ElevenLabs's speed range (its voice_settings.speed: 0.7 slows, 1.2 speeds up; ElevenLabs's "Control speaking
+// speed", migrate-from-openai; OpenMontage tools/audio/elevenlabs_tts.py:114-119), and the models that do not apply
+// it ("Eleven v4 doesn't apply voice_settings.speed"; OpenMontage refuses speed on eleven_v4, :265).
+const (
+	elevenLabsMinSpeed = 0.7
+	elevenLabsMaxSpeed = 1.2
+)
+
+var elevenLabsNoSpeed = []string{"eleven_v4"}
+
+// elevenLabsSpeed is the speed a model is sent: none for a model that ignores it, with a warning; else the speed
+// asked within ElevenLabs's range, with a warning when it is moved into it (issue #1285, row 3: a video's speed is
+// Soniox's 0.7-1.3, wider than ElevenLabs's).
+func (s *Service) elevenLabsSpeed(ctx context.Context, model string, speed float64) float64 {
+	switch {
+	case speed <= 0:
+		return 0
+	case slices.Contains(elevenLabsNoSpeed, model):
+		s.cfg.Logger.WarnContext(ctx, "the speed is not sent: the ElevenLabs model does not apply it",
+			slog.String("event", "speech.speed_not_taken"), slog.String("model", model),
+			slog.Float64("speed", speed))
+
+		return 0
+	}
+
+	clamped := min(max(speed, elevenLabsMinSpeed), elevenLabsMaxSpeed)
+	if clamped != speed {
+		s.cfg.Logger.WarnContext(ctx, "the speed is moved into ElevenLabs's range",
+			slog.String("event", "speech.speed_clamped"), slog.String("model", model),
+			slog.Float64("speed", speed), slog.Float64("sent", clamped))
+	}
+
+	return clamped
 }
 
 // elevenLabsAlignment is when each character of the text is spoken, in seconds.
@@ -335,11 +370,13 @@ func baseLanguage(code string) string {
 	return code
 }
 
-// ModelInfo is a provider's text-to-speech model, as its list names it.
+// ModelInfo is a provider's model, as its list names it.
 type ModelInfo struct {
 	ID       string
 	Name     string
 	Provider string
+	// Kind is KindTTS for a speech model, KindSTT for a transcription model.
+	Kind string
 	// Languages are the ISO codes it covers, as the provider lists them.
 	Languages []string
 }
@@ -382,7 +419,9 @@ func (s *Service) elevenLabsModelsOf(ctx context.Context, k Key) ([]ModelInfo, e
 			continue
 		}
 
-		info := ModelInfo{ID: m.ModelID, Name: m.Name, Provider: ProviderElevenLabs, Languages: []string{}}
+		info := ModelInfo{
+			ID: m.ModelID, Name: m.Name, Provider: ProviderElevenLabs, Kind: KindTTS, Languages: []string{},
+		}
 		for _, l := range m.Languages {
 			if l.LanguageID != "" {
 				info.Languages = append(info.Languages, l.LanguageID)
@@ -399,9 +438,9 @@ func (s *Service) elevenLabsModelsOf(ctx context.Context, k Key) ([]ModelInfo, e
 	return out, nil
 }
 
-// Models lists the text-to-speech models the owner may choose from, for Settings → Audio: ElevenLabs's, when it
-// is on and has a key, read with the first key that answers. Soniox has one model, so no list. A list that cannot
-// be read is left out, and its reason returned.
+// Models lists the models the owner may choose from, for Settings → Audio, of each provider that is on and has a
+// key, read with its first key that answers: ElevenLabs's speech models (issue #1283), Soniox's speech and
+// transcription models (issue #1285, row 1). A list that cannot be read is left out, and its reason returned.
 func (s *Service) Models(ctx context.Context) ([]ModelInfo, []Failure, error) {
 	set, err := s.settings(ctx)
 	if err != nil {
@@ -413,26 +452,39 @@ func (s *Service) Models(ctx context.Context) ([]ModelInfo, []Failure, error) {
 		return nil, nil, err
 	}
 
-	if slices.Contains(set.Off, ProviderElevenLabs) {
-		return []ModelInfo{}, nil, nil
-	}
+	var (
+		out      = []ModelInfo{}
+		failures []Failure
+	)
 
-	var failures []Failure
-
-	for _, k := range s.leastRecentlyUsed(keys[ProviderElevenLabs]) {
-		models, err := s.elevenLabsModelsOf(ctx, k)
-		if err != nil {
-			failures = append(failures, Failure{
-				Provider: ProviderElevenLabs, Reason: "key " + k.Name + ": " + reasonOf(err),
-			})
-
+	for _, p := range Providers() {
+		if slices.Contains(set.Off, p) {
 			continue
 		}
 
-		return models, failures, nil
+		for _, k := range s.leastRecentlyUsed(keys[p]) {
+			var models []ModelInfo
+
+			if p == ProviderSoniox {
+				models, err = s.sonioxCatalog(ctx, k)
+				err = sonioxError(err)
+			} else {
+				models, err = s.elevenLabsModelsOf(ctx, k)
+			}
+
+			if err != nil {
+				failures = append(failures, Failure{Provider: p, Reason: "key " + k.Name + ": " + reasonOf(err)})
+
+				continue
+			}
+
+			out = append(out, models...)
+
+			break
+		}
 	}
 
-	return []ModelInfo{}, failures, nil
+	return out, failures, nil
 }
 
 // Voice is a voice speech may be made with.
@@ -494,9 +546,10 @@ func (s *Service) elevenLabsVoicesOf(ctx context.Context, k Key) ([]Voice, error
 
 // Voices lists the voices of the text-to-speech providers that are on and
 // have a key, in the owner's order: 9router's GET /v1/audio/voices
-// (9router-go internal/handlers/router.go:132-143). Soniox has no list in
-// the references; its one voice they name, OmniRoute's default, is given. A
-// provider whose list cannot be read is left out, and its reason returned.
+// (9router-go internal/handlers/router.go:132-143). Soniox's are the built-in
+// voices of the model the owner chose and the account's cloned voices ready
+// for it (issue #1285, row 5). A provider whose list cannot be read is left
+// out, and its reason returned.
 func (s *Service) Voices(ctx context.Context) ([]Voice, []Failure, error) {
 	set, err := s.settings(ctx)
 	if err != nil {
@@ -518,14 +571,16 @@ func (s *Service) Voices(ctx context.Context) ([]Voice, []Failure, error) {
 			continue
 		}
 
-		if p == ProviderSoniox {
-			out = append(out, Voice{ID: sonioxDefaultVoice, Name: sonioxDefaultVoice, Provider: ProviderSoniox})
-
-			continue
-		}
-
 		for _, k := range s.leastRecentlyUsed(keys[p]) {
-			voices, err := s.elevenLabsVoicesOf(ctx, k)
+			var voices []Voice
+
+			if p == ProviderSoniox {
+				voices, err = s.sonioxVoicesOf(ctx, k, set.Model(p, KindTTS))
+				err = sonioxError(err)
+			} else {
+				voices, err = s.elevenLabsVoicesOf(ctx, k)
+			}
+
 			if err != nil {
 				failures = append(failures, Failure{Provider: p, Reason: "key " + k.Name + ": " + reasonOf(err)})
 

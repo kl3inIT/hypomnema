@@ -453,6 +453,7 @@ type GatewayAudioProvider struct {
 	UpdatedAt   int64
 	Voice       string
 	TtsModel    string
+	SttModel    string
 }
 
 type GatewayImageProvider struct {
@@ -1271,6 +1272,7 @@ type VideoRevision struct {
 	PinProvider string
 	PinVoice    string
 	PinModel    string
+	Speed       float64
 }
 
 type VideoSetting struct {

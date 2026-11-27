@@ -53,4 +53,5 @@ type VideoRevision struct {
 	PinProvider string
 	PinVoice    string
 	PinModel    string
+	Speed       float64
 }

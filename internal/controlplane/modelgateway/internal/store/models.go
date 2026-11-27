@@ -16,6 +16,7 @@ type GatewayAudioProvider struct {
 	UpdatedAt   int64
 	Voice       string
 	TtsModel    string
+	SttModel    string
 }
 
 type GatewayImageProvider struct {

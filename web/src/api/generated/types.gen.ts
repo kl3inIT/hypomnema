@@ -806,7 +806,7 @@ export type AudioKindLink = {
    */
   on: boolean;
   /**
-   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of ElevenLabs's speech model, else the default.
+   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else the default.
    */
   model: string;
   usage: AudioUsage;
@@ -839,6 +839,7 @@ export type AudioVoice = {
 
 export type AudioModelChoice = {
   model: string;
+  kind?: AudioKind;
 };
 
 export type AudioModels = {
@@ -851,6 +852,7 @@ export type AudioModels = {
 
 export type AudioModelInfo = {
   provider: AudioProvider;
+  kind: AudioKind;
   id: string;
   name: string;
   /**
@@ -978,9 +980,13 @@ export type SpeakRequest = {
    */
   format?: 'mp3' | 'wav' | 'pcm' | 'opus';
   /**
-   * ElevenLabs's voice speed.
+   * The voice's speed: Soniox takes 0.7 to 1.3; ElevenLabs is sent it within 0.7 to 1.2, and none for a model that does not apply it, such as eleven_v4.
    */
   speed?: number;
+  /**
+   * Shorten the pauses between words; sent to Soniox only for a model that supports it.
+   */
+  reduce_silence?: boolean;
   /**
    * The text's language as an ISO-639-1 code, such as vi. Soniox speaks it, en when left out; ElevenLabs is sent it when its model covers it, and left to find it otherwise.
    */
@@ -2508,6 +2514,10 @@ export type VideoRevision = {
    * The voice asked for; absent
    */
   voice?: string;
+  /**
+   * The speed its voice was asked at; absent, the provider's own.
+   */
+  speed?: number;
   captions: boolean;
   aspect: VideoAspect;
   /**
@@ -2605,6 +2615,10 @@ export type VideoMake = {
    * Absent: each provider's set on Settings → Audio.
    */
   voice?: string;
+  /**
+   * The speed every line is spoken at, Soniox's range; absent: the provider's own. ElevenLabs is sent it within its 0.7 to 1.2, and none for a model that does not apply it. A revision made from this one keeps it.
+   */
+  speed?: number;
   look?: VideoLookInput;
   /**
    * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
