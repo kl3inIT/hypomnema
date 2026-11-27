@@ -592,6 +592,7 @@ type GitHost struct {
 
 type GithubAppInstallation struct {
 	Repository     string
+	RepositoryID   int64
 	InstallationID int64
 	Account        string
 	UpdatedAt      int64

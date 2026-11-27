@@ -42,9 +42,11 @@ func nullString(v string) sql.NullString { return sql.NullString{String: v, Vali
 // redelivers within three days ("Redelivering webhooks"), and #1232 reads conversations as they come.
 const keepGitHubRows = 30 * 24 * time.Hour
 
-// Installation is a repository the App is installed on (owner/name in lower case) and its installation.
+// Installation is a repository the App is installed on (owner/name in lower case), GitHub's id of it, and its
+// installation.
 type Installation struct {
 	Repository     string
+	RepositoryID   int64
 	InstallationID int64
 	Account        string
 	UpdatedAt      time.Time
@@ -59,8 +61,8 @@ func (s *Store) SetInstallations(ctx context.Context, installs []Installation) e
 
 		for _, i := range installs {
 			if err := q.PutGitHubAppInstallation(ctx, store.PutGitHubAppInstallationParams{
-				Repository: strings.ToLower(i.Repository), InstallationID: i.InstallationID, Account: i.Account,
-				Now: now,
+				Repository: strings.ToLower(i.Repository), RepositoryID: i.RepositoryID,
+				InstallationID: i.InstallationID, Account: i.Account, Now: now,
 			}); err != nil {
 				return err
 			}
@@ -75,18 +77,22 @@ func (s *Store) SetInstallations(ctx context.Context, installs []Installation) e
 	return nil
 }
 
-// InstallationOf is the installation that covers a repository (owner/name), and false when none does.
-func (s *Store) InstallationOf(ctx context.Context, repository string) (int64, bool, error) {
-	id, err := s.read().GitHubAppInstallationOf(ctx, strings.ToLower(repository))
+// InstallationOf is the installation that covers a repository (owner/name), with GitHub's id of the repository, and
+// false when none does.
+func (s *Store) InstallationOf(ctx context.Context, repository string) (Installation, bool, error) {
+	repository = strings.ToLower(repository)
+
+	row, err := s.read().GitHubAppInstallationOf(ctx, repository)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, false, nil
+		return Installation{}, false, nil
 	}
 
 	if err != nil {
-		return 0, false, fmt.Errorf("reading the GitHub App's installation of %s: %w", repository, err)
+		return Installation{}, false, fmt.Errorf("reading the GitHub App's installation of %s: %w", repository, err)
 	}
 
-	return id, true, nil
+	return Installation{Repository: repository, RepositoryID: row.RepositoryID, InstallationID: row.InstallationID},
+		true, nil
 }
 
 // Installations lists the repositories the App is installed on.
@@ -99,8 +105,8 @@ func (s *Store) Installations(ctx context.Context) ([]Installation, error) {
 	out := make([]Installation, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, Installation{
-			Repository: r.Repository, InstallationID: r.InstallationID, Account: r.Account,
-			UpdatedAt: time.UnixMilli(r.UpdatedAt),
+			Repository: r.Repository, RepositoryID: r.RepositoryID, InstallationID: r.InstallationID,
+			Account: r.Account, UpdatedAt: time.UnixMilli(r.UpdatedAt),
 		})
 	}
 

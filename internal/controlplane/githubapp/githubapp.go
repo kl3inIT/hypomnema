@@ -367,10 +367,12 @@ type Token struct {
 // String keeps a token out of logs.
 func (t Token) String() string { return "installation token until " + t.ExpiresAt.Format(time.RFC3339) }
 
-// mint makes a new token of an installation (POST /app/installations/{id}/access_tokens), with every permission the
-// installation was granted, as Omnara's mintInstallationToken (auth.go:142-170) without its narrowing: a worker's gh
-// and git need all of them.
-func (c Client) mint(ctx context.Context, cred Credential, installation int64) (Token, error) {
+// mint makes a new token of an installation (POST /app/installations/{id}/access_tokens) for the repositories named
+// by id, as Omnara's mintInstallationToken asks for one repository (auth.go:138-162): without repository_ids GitHub
+// gives a token of every repository the installation covers. It keeps every permission the installation was
+// granted, without Omnara's narrowing: a worker's gh and git need all of them. Only the listing of an
+// installation's repositories, which no one is given, asks for none.
+func (c Client) mint(ctx context.Context, cred Credential, installation int64, repositoryIDs []int64) (Token, error) {
 	jwt, err := c.jwt(cred)
 	if err != nil {
 		return Token{}, err
@@ -381,8 +383,13 @@ func (c Client) mint(ctx context.Context, cred Credential, installation int64) (
 		ExpiresAt time.Time `json:"expires_at"`
 	}
 
+	var body any
+	if len(repositoryIDs) > 0 {
+		body = map[string]any{"repository_ids": repositoryIDs}
+	}
+
 	path := "/app/installations/" + strconv.FormatInt(installation, 10) + "/access_tokens"
-	if err := c.do(ctx, http.MethodPost, path, jwt, nil, &answer); err != nil {
+	if err := c.do(ctx, http.MethodPost, path, jwt, body, &answer); err != nil {
 		return Token{}, err
 	}
 
@@ -393,11 +400,17 @@ func (c Client) mint(ctx context.Context, cred Credential, installation int64) (
 	return Token{Value: answer.Token, ExpiresAt: answer.ExpiresAt}, nil
 }
 
-// Installation is one of the App's installations and the repositories it covers, as owner/name in lower case.
+// Installation is one of the App's installations and the repositories it covers.
 type Installation struct {
 	ID           int64
 	Account      string
-	Repositories []string
+	Repositories []Repository
+}
+
+// Repository is a repository an installation covers: owner/name in lower case, and GitHub's id of it.
+type Repository struct {
+	Name string
+	ID   int64
 }
 
 // Installations lists the App's installations (GET /app/installations, with the App's token) and each one's
@@ -433,7 +446,7 @@ func (c Client) Installations(ctx context.Context, cred Credential) ([]Installat
 	}
 
 	for n := range out {
-		token, err := c.mint(ctx, cred, out[n].ID)
+		token, err := c.mint(ctx, cred, out[n].ID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -449,12 +462,13 @@ func (c Client) Installations(ctx context.Context, cred Credential) ([]Installat
 	return out, nil
 }
 
-func (c Client) repositories(ctx context.Context, token string) ([]string, error) {
-	var out []string
+func (c Client) repositories(ctx context.Context, token string) ([]Repository, error) {
+	var out []Repository
 
 	for page := 1; ; page++ {
 		var answer struct {
 			Repositories []struct {
+				ID       int64  `json:"id"`
 				FullName string `json:"full_name"`
 			} `json:"repositories"`
 		}
@@ -465,8 +479,8 @@ func (c Client) repositories(ctx context.Context, token string) ([]string, error
 		}
 
 		for _, r := range answer.Repositories {
-			if name, ok := RepositoryName(r.FullName); ok {
-				out = append(out, name)
+			if name, ok := RepositoryName(r.FullName); ok && r.ID > 0 {
+				out = append(out, Repository{Name: name, ID: r.ID})
 			}
 		}
 
@@ -502,8 +516,9 @@ type Delivery struct {
 }
 
 // Redeliver asks GitHub to send the App's latest delivery again (GET /app/hook/deliveries, then POST
-// /app/hook/deliveries/{id}/attempts, with the App's token): the test delivery of the comment's step 3, which arrives
-// as a new delivery with its own id. With none sent yet it says so.
+// /app/hook/deliveries/{id}/attempts, with the App's token): the test delivery of the comment's step 3. GitHub keeps
+// the delivery's id (X-GitHub-Delivery), so the control plane answers it 200 as handled before; GitHub's Recent
+// Deliveries shows that answer. With none sent yet it says so.
 func (c Client) Redeliver(ctx context.Context, cred Credential) (Delivery, error) {
 	jwt, err := c.jwt(cred)
 	if err != nil {

@@ -71,17 +71,16 @@ func (s *Supervisor) repoSource(o nodeproto.Offer) (worktree.Source, error) {
 	return s.repoSourceWith(o, o.RepoToken)
 }
 
-// freshSource is the repository with a fresh token when the offer's is the owner's GitHub App's, which ends an hour
-// after the offer (issue #1262); the offer's own otherwise, or when no fresh one can be had.
+// freshSource is the repository with the offer's token, or, when the offer is the owner's GitHub App's, which
+// carries none, with a fresh token of the App's asked of the agent API now (issue #1262).
 func (s *Supervisor) freshSource(ctx context.Context, o nodeproto.Offer) (worktree.Source, error) {
-	token := o.RepoToken
+	if !o.GitHubApp {
+		return s.repoSource(o)
+	}
 
-	if o.GitHubApp {
-		fresh, err := (githubapp.Client{URL: s.URL, Key: o.AgentKey, HTTP: &http.Client{Timeout: time.Minute}}).
-			Token(ctx)
-		if err == nil {
-			token = fresh
-		}
+	token, err := (githubapp.Client{URL: s.URL, Key: o.AgentKey, HTTP: &http.Client{Timeout: time.Minute}}).Token(ctx)
+	if err != nil {
+		return worktree.Source{}, err
 	}
 
 	return s.repoSourceWith(o, token)

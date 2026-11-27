@@ -18,12 +18,14 @@ Hypomnema and GitHub as the owner.
 2. **Install.** On the same page, follow **Install it on repositories** and choose the repositories Runs use
    (hypomnema, BeyondPilot, MemoryOS). GitHub sends you back and the page lists them. `hypomnema hosts app` shows
    the same; `hypomnema hosts app sync` reads them again after you change them on GitHub.
-3. **Test a delivery.** Press **Send a test delivery** (or `hypomnema hosts app test`), reload, and check that
-   *Last delivery* is a new one. GitHub's own list is under the App's settings, **Advanced**, **Recent
-   Deliveries**.
+3. **Test a delivery.** Check that the page's *Last delivery* shows one (GitHub sends the App an `installation`
+   event when you install it). Then press **Send a test delivery** (or `hypomnema hosts app test`): GitHub sends
+   that latest delivery again, with the same id, so Hypomnema answers it 200 as handled before and *Last
+   delivery* stays as it was. GitHub's list, under the App's settings, **Advanced**, **Recent Deliveries**, shows the
+   redelivery with that 200 answer.
 
 After this, a worker on one of those repositories gets the App's token and waits for its pull request's CI with
 `hypomnema ci wait <url>`; the coordinator can use the same command. Offers made before the App was installed keep
-the owner's token. To stop using the App, uninstall it from the repositories on GitHub when no Run is working on
-them: new work goes back to the owner's token, while a worker that started with the App's token would get no fresh
-one.
+the owner's token. Each token reaches its Task's repository alone. To stop using the App, uninstall it from the
+repositories on GitHub when no Run is working on them: new work goes back to the owner's token, while a worker that
+started as the App's would get no token of it and run gh with its machine's own login.

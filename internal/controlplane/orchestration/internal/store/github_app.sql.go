@@ -62,14 +62,19 @@ func (q *Queries) GetPullRequestCI(ctx context.Context, arg GetPullRequestCIPara
 }
 
 const gitHubAppInstallationOf = `-- name: GitHubAppInstallationOf :one
-SELECT installation_id FROM github_app_installations WHERE repository = ?1
+SELECT installation_id, repository_id FROM github_app_installations WHERE repository = ?1
 `
 
-func (q *Queries) GitHubAppInstallationOf(ctx context.Context, repository string) (int64, error) {
+type GitHubAppInstallationOfRow struct {
+	InstallationID int64
+	RepositoryID   int64
+}
+
+func (q *Queries) GitHubAppInstallationOf(ctx context.Context, repository string) (GitHubAppInstallationOfRow, error) {
 	row := q.db.QueryRowContext(ctx, gitHubAppInstallationOf, repository)
-	var installation_id int64
-	err := row.Scan(&installation_id)
-	return installation_id, err
+	var i GitHubAppInstallationOfRow
+	err := row.Scan(&i.InstallationID, &i.RepositoryID)
+	return i, err
 }
 
 const latestGitHubDelivery = `-- name: LatestGitHubDelivery :one
@@ -99,7 +104,7 @@ func (q *Queries) LatestGitHubDelivery(ctx context.Context) (LatestGitHubDeliver
 }
 
 const listGitHubAppInstallations = `-- name: ListGitHubAppInstallations :many
-SELECT repository, installation_id, account, updated_at FROM github_app_installations ORDER BY repository
+SELECT repository, repository_id, installation_id, account, updated_at FROM github_app_installations ORDER BY repository
 `
 
 func (q *Queries) ListGitHubAppInstallations(ctx context.Context) ([]GithubAppInstallation, error) {
@@ -113,6 +118,7 @@ func (q *Queries) ListGitHubAppInstallations(ctx context.Context) ([]GithubAppIn
 		var i GithubAppInstallation
 		if err := rows.Scan(
 			&i.Repository,
+			&i.RepositoryID,
 			&i.InstallationID,
 			&i.Account,
 			&i.UpdatedAt,
@@ -131,14 +137,16 @@ func (q *Queries) ListGitHubAppInstallations(ctx context.Context) ([]GithubAppIn
 }
 
 const putGitHubAppInstallation = `-- name: PutGitHubAppInstallation :exec
-INSERT INTO github_app_installations (repository, installation_id, account, updated_at)
-VALUES (?1, ?2, ?3, ?4)
+INSERT INTO github_app_installations (repository, repository_id, installation_id, account, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5)
 ON CONFLICT (repository) DO UPDATE
-SET installation_id = excluded.installation_id, account = excluded.account, updated_at = excluded.updated_at
+SET repository_id = excluded.repository_id, installation_id = excluded.installation_id, account = excluded.account,
+    updated_at = excluded.updated_at
 `
 
 type PutGitHubAppInstallationParams struct {
 	Repository     string
+	RepositoryID   int64
 	InstallationID int64
 	Account        string
 	Now            int64
@@ -147,6 +155,7 @@ type PutGitHubAppInstallationParams struct {
 func (q *Queries) PutGitHubAppInstallation(ctx context.Context, arg PutGitHubAppInstallationParams) error {
 	_, err := q.db.ExecContext(ctx, putGitHubAppInstallation,
 		arg.Repository,
+		arg.RepositoryID,
 		arg.InstallationID,
 		arg.Account,
 		arg.Now,

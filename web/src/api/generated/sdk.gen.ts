@@ -722,7 +722,7 @@ export const syncGitHubAppInstallations = <ThrowOnError extends boolean = true>(
 });
 
 /**
- * Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+ * Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
  */
 export const testGitHubAppDelivery = <ThrowOnError extends boolean = true>(options?: Options<TestGitHubAppDeliveryData, ThrowOnError>): RequestResult<TestGitHubAppDeliveryResponses, TestGitHubAppDeliveryErrors, ThrowOnError> => (options?.client ?? client).post<TestGitHubAppDeliveryResponses, TestGitHubAppDeliveryErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

@@ -258,7 +258,7 @@ func (a *App) SyncInstallations(ctx context.Context) error {
 	for _, i := range installs {
 		for _, repo := range i.Repositories {
 			out = append(out, githubstore.Installation{
-				Repository: repo, InstallationID: i.ID, Account: i.Account,
+				Repository: repo.Name, RepositoryID: repo.ID, InstallationID: i.ID, Account: i.Account,
 			})
 		}
 	}
@@ -266,7 +266,7 @@ func (a *App) SyncInstallations(ctx context.Context) error {
 	return a.store().SetInstallations(ctx, out)
 }
 
-// TestDelivery asks GitHub to send the App's latest delivery again, which arrives as a new one.
+// TestDelivery asks GitHub to send the App's latest delivery again, with its id, which is answered as handled before.
 func (a *App) TestDelivery(ctx context.Context) (string, string, error) {
 	cred, ok, err := a.credential(ctx)
 	if err != nil {
@@ -302,7 +302,7 @@ func (a *App) TokenFor(ctx context.Context, host, path string) (Token, bool, err
 		return Token{}, false, err
 	}
 
-	token, err := a.tokens.Of(ctx, cred, installation)
+	token, err := a.tokens.Of(ctx, cred, installation.InstallationID, installation.RepositoryID)
 	if err != nil {
 		return Token{}, false, fmt.Errorf("making a token of the GitHub App's installation on %s: %w",
 			path, err)
@@ -421,13 +421,17 @@ func (a *App) handle(ctx context.Context, cred Credential, ev Event) {
 
 		var errs []error
 		for _, pr := range suite.PullRequests {
-			errs = append(errs, a.ciEnded(ctx, cred, ev, pr.Number))
+			errs = append(errs, a.ciEnded(ctx, ev, pr.Number))
 		}
 
 		err = errors.Join(errs...)
 	case "pull_request":
-		if ev.Action == "closed" && ev.PullRequest != nil {
+		switch {
+		case ev.PullRequest == nil:
+		case ev.Action == "closed":
 			err = a.closed(ctx, ev)
+		case ev.Action == "synchronize" || ev.Action == "reopened":
+			err = a.moved(ctx, ev)
 		}
 	}
 
@@ -438,8 +442,8 @@ func (a *App) handle(ctx context.Context, cred Credential, ev Event) {
 }
 
 // ciEnded reads again the checks of a pull request someone waits for, after a check suite or workflow run on it
-// completed: one read of GitHub's with the installation's token, which says whether every check ended.
-func (a *App) ciEnded(ctx context.Context, cred Credential, ev Event, number int) error {
+// completed: one read of GitHub's with the repository's token, which says whether every check of its head ended.
+func (a *App) ciEnded(ctx context.Context, ev Event, number int) error {
 	repo := ev.Repo()
 
 	ci, ok, err := a.store().CIOf(ctx, repo, number)
@@ -447,8 +451,8 @@ func (a *App) ciEnded(ctx context.Context, cred Credential, ev Event, number int
 		return err
 	}
 
-	token, err := a.tokens.Of(ctx, cred, ev.Installation.ID)
-	if err != nil {
+	token, ok, err := a.TokenFor(ctx, Host, repo)
+	if err != nil || !ok {
 		return err
 	}
 
@@ -486,6 +490,32 @@ func (a *App) closed(ctx context.Context, ev Event) error {
 	}, st)
 
 	return err
+}
+
+// moved resets the CI of a pull request someone waits for when its head moves (synchronize) or it reopens: the CI
+// kept was the old head's, so the next wait reads the new head's checks instead of answering the old head's
+// (review round 1). Nothing is read here: a wait reads when it asks.
+func (a *App) moved(ctx context.Context, ev Event) error {
+	pr := ev.PullRequest
+	repo := ev.Repo()
+
+	ci, ok, err := a.store().CIOf(ctx, repo, pr.Number)
+	if err != nil || !ok || (ev.Action == "synchronize" && strings.EqualFold(ci.Head, pr.Head.SHA)) {
+		return err
+	}
+
+	kept, err := a.store().SetCI(ctx, githubstore.CI{
+		Repository: repo, Number: pr.Number, Head: pr.Head.SHA, State: githubstore.CIPending,
+	}, false)
+	if err != nil {
+		return err
+	}
+
+	if kept {
+		a.wake(repo, pr.Number)
+	}
+
+	return nil
 }
 
 // readCI reads a pull request's checks with token and keeps what they say, then wakes its waits.
@@ -600,17 +630,7 @@ func (a *App) WaitCI(ctx context.Context, ref string, hold time.Duration) (ciwai
 
 	link := "https://github.com/" + r.Repo.Path + "/pull/" + fmt.Sprint(r.Number)
 
-	installation, ok, err := a.store().InstallationOf(ctx, repo)
-	if err != nil {
-		return ciwait.State{}, err
-	}
-
-	cred, registered, err := a.credential(ctx)
-	if err != nil {
-		return ciwait.State{}, err
-	}
-
-	if !ok || !registered {
+	if !a.Covers(ctx, Host, repo) {
 		return ciwait.State{}, errNotCovered
 	}
 
@@ -625,8 +645,14 @@ func (a *App) WaitCI(ctx context.Context, ref string, hold time.Duration) (ciwai
 	for {
 		woken, stop := a.listen(repo, r.Number)
 
-		if !ci.State.Done() && a.now().Sub(ci.ReadAt) >= ciReadEvery {
-			token, err := a.tokens.Of(ctx, cred, installation)
+		// A state is read again when it is ciReadEvery old, a passed or failed one too: its head may have moved
+		// without an event saying so (review round 1). A merge or a close is final until a reopen resets it.
+		if !final(ci.State) && a.now().Sub(ci.ReadAt) >= ciReadEvery {
+			token, covered, err := a.TokenFor(ctx, Host, repo)
+			if err == nil && !covered {
+				err = errNotCovered
+			}
+
 			if err == nil {
 				ci, err = a.readCI(ctx, repo, r.Number, token.Value)
 			}
@@ -671,6 +697,9 @@ func (a *App) WaitCI(ctx context.Context, ref string, hold time.Duration) (ciwai
 	}
 }
 
+// final says a pull request's CI is over for good: it merged or closed.
+func final(s githubstore.CIState) bool { return s == githubstore.CIMerged || s == githubstore.CIClosed }
+
 func stateOf(link string, ci githubstore.CI) ciwait.State {
 	return ciwait.State{PullRequest: link, Head: ci.Head, State: string(ci.State), Failed: ci.Failed}
 }
@@ -701,19 +730,21 @@ func (a *App) TokenOfDispatch(ctx context.Context, dispatchID string) (agenttool
 	return agenttool.GitHubToken{Token: token.Value, ExpiresAt: token.ExpiresAt}, true, nil
 }
 
-// OfferToken is the App's token an offer on a repository carries, for the node API; false when the App does not
-// cover it or no token can be made, and the offer goes with the owner's token.
-func (a *App) OfferToken(ctx context.Context, host, path string) (string, bool) {
-	token, ok, err := a.TokenFor(ctx, host, path)
+// CoversOffer says whether an offer on a repository goes as the App's, for the node API: the App covers it and a
+// token of it can be made now (kept in the cache for the worker's first asks). The offer then carries no token: the
+// node asks for one at each use. False, and the offer goes with the owner's token, when it does not or none can be
+// made.
+func (a *App) CoversOffer(ctx context.Context, host, path string) bool {
+	_, ok, err := a.TokenFor(ctx, host, path)
 	if err != nil {
 		a.logger.WarnContext(ctx, "an offer goes with the owner's token: the GitHub App's could not be made",
 			slog.String("event", "githubapp.token_failed"), slog.String("repository", path),
 			slog.String("error", err.Error()))
 
-		return "", false
+		return false
 	}
 
-	return token.Value, ok
+	return ok
 }
 
 // FindRequest finds and reads a followed pull request (githost.FindRequest) with the App's token, when the App covers

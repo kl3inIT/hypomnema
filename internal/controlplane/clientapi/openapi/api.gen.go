@@ -11373,7 +11373,7 @@ type ClientInterface interface {
 	// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
 	SyncGitHubAppInstallations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
 	//
 	// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
 	TestGitHubAppDelivery(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -16562,7 +16562,7 @@ func (c *Client) SyncGitHubAppInstallations(ctx context.Context, reqEditors ...R
 	return c.Client.Do(req)
 }
 
-// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
 //
 // Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
 func (c *Client) TestGitHubAppDelivery(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -35912,7 +35912,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
 	SyncGitHubAppInstallationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*SyncGitHubAppInstallationsResponse, error)
 
-	// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+	// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -54879,7 +54879,7 @@ func (c *ClientWithResponses) SyncGitHubAppInstallationsWithResponse(ctx context
 	return ParseSyncGitHubAppInstallationsResponse(rsp)
 }
 
-// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -68057,7 +68057,7 @@ type ServerInterface interface {
 	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
 	// (POST /integrations/github/app/installations)
 	SyncGitHubAppInstallations(w http.ResponseWriter, r *http.Request)
-	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
 	// (POST /integrations/github/app/test-delivery)
 	TestGitHubAppDelivery(w http.ResponseWriter, r *http.Request)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
@@ -91068,7 +91068,7 @@ type StrictServerInterface interface {
 	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
 	// (POST /integrations/github/app/installations)
 	SyncGitHubAppInstallations(ctx context.Context, request SyncGitHubAppInstallationsRequestObject) (SyncGitHubAppInstallationsResponseObject, error)
-	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
 	// (POST /integrations/github/app/test-delivery)
 	TestGitHubAppDelivery(ctx context.Context, request TestGitHubAppDeliveryRequestObject) (TestGitHubAppDeliveryResponseObject, error)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged

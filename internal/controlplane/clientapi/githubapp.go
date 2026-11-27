@@ -213,8 +213,9 @@ func pageHeaders(w http.ResponseWriter) {
 var gitHubAppMessages = map[string]string{
 	"registered": "The App is registered and its credential is in the vault. Install it on the repositories " +
 		"Runs use.",
-	"installed":     "The App's installations were read again.",
-	"tested":        "GitHub was asked to send the App's latest delivery again; reload to see it arrive.",
+	"installed": "The App's installations were read again.",
+	"tested": "GitHub was asked to send the App's latest delivery again. It keeps its id, so it is answered as " +
+		"handled before and Last below stays; the App's Recent Deliveries on GitHub shows the answer.",
 	"failed":        "That did not work; the control plane's log says why.",
 	"expired":       "That registration is not one this control plane started, or it is over an hour old. Start again.",
 	"no_code":       "GitHub sent no code back: the App was not registered. Start again.",

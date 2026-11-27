@@ -1374,7 +1374,7 @@ export const syncGitHubAppInstallationsMutation = (options?: Partial<Options<Syn
 };
 
 /**
- * Ask GitHub to send the App's latest delivery again, as a test: it arrives as a new delivery, which the App's last_delivery then shows; only the owner
+ * Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
  */
 export const testGitHubAppDeliveryMutation = (options?: Partial<Options<TestGitHubAppDeliveryData>>): UseMutationOptions<TestGitHubAppDeliveryResponse, TestGitHubAppDeliveryError, Options<TestGitHubAppDeliveryData>> => {
   const mutationOptions: UseMutationOptions<TestGitHubAppDeliveryResponse, TestGitHubAppDeliveryError, Options<TestGitHubAppDeliveryData>> = {

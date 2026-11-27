@@ -24,6 +24,7 @@ type Tokens struct {
 type tokenKey struct {
 	app          int64
 	installation int64
+	repository   int64
 }
 
 type tokenEntry struct {
@@ -31,9 +32,10 @@ type tokenEntry struct {
 	token Token
 }
 
-// Of is a token of the installation, from the cache or made now.
-func (t *Tokens) Of(ctx context.Context, cred Credential, installation int64) (Token, error) {
-	key := tokenKey{app: cred.AppID, installation: installation}
+// Of is a token of the installation for one repository, by GitHub's id of it, from the cache or made now: a token
+// reaches that repository alone, as Omnara's cache keeps a token a repository (installationTokenKey).
+func (t *Tokens) Of(ctx context.Context, cred Credential, installation, repository int64) (Token, error) {
+	key := tokenKey{app: cred.AppID, installation: installation, repository: repository}
 
 	t.mu.Lock()
 	if t.entries == nil {
@@ -58,7 +60,7 @@ func (t *Tokens) Of(ctx context.Context, cred Credential, installation int64) (T
 		return e.token, nil
 	}
 
-	fresh, err := t.Client.mint(ctx, cred, installation)
+	fresh, err := t.Client.mint(ctx, cred, installation, []int64{repository})
 	if err != nil {
 		return Token{}, err
 	}

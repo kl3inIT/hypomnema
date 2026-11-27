@@ -112,7 +112,7 @@ func worker(t *testing.T, apiURL, script string) []string {
 }
 
 // sayToken is a gh that says which token it was run with.
-const sayToken = "#!/bin/sh\necho \"GH_TOKEN=$GH_TOKEN args=$*\"\n"
+const sayToken = "#!/bin/sh\necho \"GH_TOKEN=$GH_TOKEN args=$*\"\n" //nolint:gosec // G101: a script, no credential
 
 func run(t *testing.T, env []string, stdin string, name string, args ...string) string {
 	t.Helper()
@@ -157,8 +157,8 @@ func TestAWorkersGhAndGitCarryTheAppsFreshTokenNotTheOwners(t *testing.T) {
 }
 
 // Scenario (issue #1262, a skew): the node reconnected to a control plane of an earlier release, which has no route
-// for a fresh token. The worker's gh says so and does not run: there is no token to run it with, since none is kept
-// on the node for the worker (review round 1).
+// for a fresh token. No token is kept on the node to fall back on (review round 1): the worker's gh says so and runs
+// with the machine's own login, as a worker without a token always has.
 func TestAControlPlaneWithoutTheRouteGivesNoToken(t *testing.T) {
 	t.Parallel()
 
@@ -168,10 +168,12 @@ func TestAControlPlaneWithoutTheRouteGivesNoToken(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), "sh", "-c", "gh api user")
 	cmd.Env = worker(t, old.URL, sayToken)
 
-	out, err := cmd.CombinedOutput()
-	require.Error(t, err)
-	assert.Contains(t, string(out), "the control plane has no such route")
-	assert.NotContains(t, string(out), "GH_TOKEN=", "gh did not run")
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	require.NoError(t, cmd.Run(), stderr.String())
+
+	assert.Equal(t, "GH_TOKEN= args=api user\n", stdout.String(), "no token of the App's")
+	assert.Contains(t, stderr.String(), "the control plane has no such route; gh runs with this machine's own login")
 }
 
 // Scenario (issue #1262, review round 1): the App does not cover the pull request's repository, so the worker's

@@ -38,19 +38,16 @@ const (
 	CLISubcommand        = "hypomnema"
 )
 
-// EnvOfferToken holds the token the offer carried, which the helpers use only when the control plane has no route
-// for a fresh one: a control plane of an earlier release the node reconnected to.
-const EnvOfferToken = "HYPOMNEMA_GITHUB_OFFER_TOKEN" //nolint:gosec // the name of a variable, not a credential
-
 // binDir is the directory, in a Dispatch's directory, that holds the scripts the worker's PATH starts with.
 const binDir = "github-bin"
 
 // Prepare writes the scripts `gh` and `hypomnema` into the Dispatch's directory dir and returns what the worker's
 // environment gains: PATH with their directory first, git's credential helper for github.com, and the agent API's
-// address and key the helpers ask with. offerToken is the token the offer carried. path is the worker's PATH.
-func Prepare(dir, exe, apiURL, key, offerToken, path string) ([]string, error) {
+// address and key the helpers ask with. path is the worker's PATH. It holds no token: none is kept for the worker,
+// in its environment or in the shim's spec, which keeps the environment (review round 1).
+func Prepare(dir, exe, apiURL, key, path string) ([]string, error) {
 	if apiURL == "" || key == "" {
-		return nil, errors.New("the offer's token is the GitHub App's, but the node has no key or control plane " +
+		return nil, errors.New("the offer is the GitHub App's, but the node has no key or control plane " +
 			"address to ask for a fresh one with")
 	}
 
@@ -86,7 +83,7 @@ func Prepare(dir, exe, apiURL, key, offerToken, path string) ([]string, error) {
 		"GIT_CONFIG_COUNT=2",
 		"GIT_CONFIG_KEY_0=credential.https://" + githost.GitHubHost + ".helper", "GIT_CONFIG_VALUE_0=",
 		"GIT_CONFIG_KEY_1=credential.https://" + githost.GitHubHost + ".helper", "GIT_CONFIG_VALUE_1=" + helper,
-		agenttool.EnvURL + "=" + apiURL, agenttool.EnvKey + "=" + key, EnvOfferToken + "=" + offerToken,
+		agenttool.EnvURL + "=" + apiURL, agenttool.EnvKey + "=" + key,
 	}, nil
 }
 
@@ -184,19 +181,13 @@ func (c Client) get(ctx context.Context, method, path string, query url.Values, 
 	return nil
 }
 
-// Token is a fresh token of the App's installation on the Dispatch's repository; the offer's token when the control
-// plane has no route for one.
+// Token is a fresh token of the App's installation on the Dispatch's repository. A control plane without the route
+// (one of an earlier release the node reconnected to) gives none: the call fails, saying so, since no token is kept
+// on the node to fall back on (review round 1).
 func (c Client) Token(ctx context.Context) (string, error) {
 	var t agenttool.GitHubToken
 
-	err := c.get(ctx, http.MethodPost, agenttool.PathGitHubToken, nil, &t)
-	if errors.Is(err, errNoRoute) {
-		if offered := os.Getenv(EnvOfferToken); offered != "" {
-			return offered, nil
-		}
-	}
-
-	if err != nil {
+	if err := c.get(ctx, http.MethodPost, agenttool.PathGitHubToken, nil, &t); err != nil {
 		return "", fmt.Errorf("asking the control plane for the GitHub App's token: %w", err)
 	}
 
@@ -221,7 +212,10 @@ func pathWithout(bin string) string {
 }
 
 // MainGH runs the real gh with a fresh token as GH_TOKEN: `hypomnema-node gh <bin> <gh's arguments>`. A GH_TOKEN or
-// GITHUB_TOKEN the worker set itself is kept, as Omnara's RunGitHubCLI keeps it.
+// GITHUB_TOKEN the worker set itself is kept, as Omnara's RunGitHubCLI keeps it. When the control plane gives no
+// token of the App's (the App is no longer installed on the repository, or the control plane is of an earlier
+// release), gh runs with the node user's own login, as a worker without a token always has: no token is kept on the
+// node to fall back on (review round 1).
 func MainGH(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: hypomnema-node gh <dir> [gh arguments]")
@@ -238,12 +232,16 @@ func MainGH(ctx context.Context, args []string) error {
 
 	if os.Getenv("GH_TOKEN") == "" && os.Getenv("GITHUB_TOKEN") == "" {
 		token, err := FromEnv().Token(ctx)
-		if err != nil {
-			return err
-		}
 
-		if err := os.Setenv("GH_TOKEN", token); err != nil {
+		switch {
+		case errors.Is(err, errNoRoute) || errors.Is(err, errNotCovered):
+			_, _ = fmt.Fprintf(os.Stderr, "hypomnema: %v; gh runs with this machine's own login\n", err)
+		case err != nil:
 			return err
+		default:
+			if err := os.Setenv("GH_TOKEN", token); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -350,33 +348,9 @@ func MainCLI(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return st, err
 	}
 
-	st, err := ciwait.Wait(ctx, ask, timeout, out)
-	if errors.Is(err, errNoRoute) || errors.Is(err, errNotCovered) {
-		_, _ = fmt.Fprintf(errOut, "hypomnema: %v; waiting with gh instead\n", err)
-
-		//nolint:gosec // G204: gh, with the pull request the worker named as one argument, never through a shell
-		gh := exec.CommandContext(ctx, "gh", "pr", "checks", pr, "--required", "--watch")
-		gh.Stdout, gh.Stderr = out, errOut
-
-		var exit *exec.ExitError
-		if err := gh.Run(); errors.As(err, &exit) {
-			return &agenttool.ExitError{Code: exit.ExitCode()}
-		} else if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	if err != nil {
-		return err
-	}
-
-	if code := st.Code(); code != 0 {
-		return &agenttool.ExitError{Code: code}
-	}
-
-	return nil
+	return ciwait.Run(ctx, pr, ask, timeout, func(err error) bool {
+		return errors.Is(err, errNoRoute) || errors.Is(err, errNotCovered)
+	}, out, errOut)
 }
 
 // waitArgs reads `ci wait`'s arguments: the pull request, and --timeout.

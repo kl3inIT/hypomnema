@@ -10,8 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // State is the CI of a pull request as the control plane answers it.
@@ -156,4 +159,69 @@ func timedOut(ctx context.Context, last State) error {
 	}
 
 	return ctx.Err()
+}
+
+// Interval is how often the gh fallback reads the checks, in seconds: once a minute, since GitHub's REST limit is
+// shared with every other call of the account (issue #1262, owner, 2026-11-27).
+const Interval = "60"
+
+// GH waits for the required checks with `gh pr checks <pr> --required --watch --interval 60`, for a repository the
+// GitHub App does not cover or a control plane without the route. ctx bounds it: gh is stopped when it ends, and
+// the wait is then still pending (review round 1).
+func GH(ctx context.Context, pr string, out, errOut io.Writer) error {
+	//nolint:gosec // G204: gh, with the pull request the caller named as one argument, never through a shell
+	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", pr, "--required", "--watch", "--interval", Interval)
+	cmd.Stdout, cmd.Stderr = out, errOut
+	// A child gh started that holds its output open does not keep the wait past its end.
+	cmd.WaitDelay = 2 * time.Second
+
+	err := cmd.Run()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		_, _ = fmt.Fprintf(errOut, "hypomnema: %v: %s\n", ErrTimeout, pr)
+
+		return &agenttool.ExitError{Code: ExitPending}
+	}
+
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return &agenttool.ExitError{Code: exit.ExitCode()}
+	}
+
+	return err
+}
+
+// Run is `hypomnema ci wait <pr> [--timeout]`: it asks until the CI is done, or waits with gh (GH) when an ask's error
+// says to (fallback), all within timeout (none when zero). It ends nil when the checks passed or the pull request
+// merged, and with gh's exit codes otherwise (agenttool.ExitError): 1 failed or closed, 8 still pending at the
+// timeout.
+func Run(ctx context.Context, pr string, ask Ask, timeout time.Duration, fallback func(error) bool,
+	out, errOut io.Writer,
+) error {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	st, err := Wait(ctx, ask, 0, out)
+
+	switch {
+	case err != nil && fallback(err):
+		_, _ = fmt.Fprintf(errOut, "hypomnema: %v; waiting with gh instead\n", err)
+
+		return GH(ctx, pr, out, errOut)
+	case errors.Is(err, ErrTimeout):
+		_, _ = fmt.Fprintf(errOut, "hypomnema: %v\n", err)
+
+		return &agenttool.ExitError{Code: ExitPending}
+	case err != nil:
+		return err
+	}
+
+	if code := st.Code(); code != ExitPassed {
+		return &agenttool.ExitError{Code: code}
+	}
+
+	return nil
 }

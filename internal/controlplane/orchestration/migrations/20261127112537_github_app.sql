@@ -2,11 +2,13 @@
 -- named github-app; these tables hold what is not secret.
 
 -- +goose Up
--- The repositories the App is installed on, each with its installation, read from GitHub after the owner installs it
--- and on each installation event: a worker on one of them gets the installation's token instead of the owner's.
+-- The repositories the App is installed on, each with its installation and GitHub's id of it, read from GitHub after
+-- the owner installs it and on each installation event: a worker on one of them gets a token of the installation for
+-- that repository alone (repository_ids) instead of the owner's.
 CREATE TABLE github_app_installations (
     repository      TEXT    NOT NULL PRIMARY KEY
         CHECK (repository = lower(repository) AND instr(repository, '/') > 1),
+    repository_id   INTEGER NOT NULL CHECK (repository_id > 0),
     installation_id INTEGER NOT NULL CHECK (installation_id > 0),
     account         TEXT    NOT NULL,
     updated_at      INTEGER NOT NULL

@@ -711,10 +711,11 @@ type Offer struct {
 	// the node then lets the worker ask them. A control plane of an earlier
 	// release does not say it, and its workers ask one question as before.
 	QuestionParts bool `json:"question_parts,omitempty"`
-	// GitHubApp says RepoToken is a token of the owner's GitHub App's installation on Repo (issue #1262), good for
-	// an hour: the node gives the worker's gh and git a fresh one at each call, asked of the agent API
-	// (agenttool.PathGitHubToken) with AgentKey, and the worker waits for its pull request's CI with `hypomnema ci
-	// wait`, which the App's events end. Sent only to a node that said GitHubApp at hello.
+	// GitHubApp says the owner's GitHub App is installed on Repo (issue #1262): the offer carries no RepoToken, and
+	// the node asks the agent API (agenttool.PathGitHubToken) with AgentKey for a token of the App's, good for an
+	// hour and for Repo alone, at each use: its own clone and push, and the worker's gh and git. The worker waits
+	// for its pull request's CI with `hypomnema ci wait`, which the App's events end. Sent only to a node that said
+	// GitHubApp at hello.
 	GitHubApp bool `json:"github_app,omitempty"`
 }
 

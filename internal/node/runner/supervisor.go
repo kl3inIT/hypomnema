@@ -293,7 +293,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	var hostEnv []string
 
 	if o.Repo != "" {
-		src, err := s.repoSource(o)
+		// The node's own clone and fetch use a fresh token of the owner's GitHub App when the offer is the App's,
+		// which carries none (issue #1262).
+		src, err := s.freshSource(ctx, o)
 		if err != nil {
 			return err
 		}
@@ -302,10 +304,10 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		// account it belongs to (issue #991).
 		hostEnv = src.WorkerEnv()
 
-		// A token of the owner's GitHub App ends after an hour: the worker's gh and git ask for a fresh one at each
-		// call instead (issue #1262).
+		// With the App, no token goes into the worker's environment, nor into its spec, which keeps it: its gh and
+		// git ask for a fresh one at each call instead (issue #1262, review round 1).
 		if o.GitHubApp {
-			app, err := githubapp.Prepare(dir, s.Exe, s.URL, o.AgentKey, o.RepoToken, Path())
+			app, err := githubapp.Prepare(dir, s.Exe, s.URL, o.AgentKey, Path())
 			if err != nil {
 				return err
 			}

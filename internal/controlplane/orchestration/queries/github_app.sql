@@ -2,13 +2,14 @@
 DELETE FROM github_app_installations;
 
 -- name: PutGitHubAppInstallation :exec
-INSERT INTO github_app_installations (repository, installation_id, account, updated_at)
-VALUES (@repository, @installation_id, @account, @now)
+INSERT INTO github_app_installations (repository, repository_id, installation_id, account, updated_at)
+VALUES (@repository, @repository_id, @installation_id, @account, @now)
 ON CONFLICT (repository) DO UPDATE
-SET installation_id = excluded.installation_id, account = excluded.account, updated_at = excluded.updated_at;
+SET repository_id = excluded.repository_id, installation_id = excluded.installation_id, account = excluded.account,
+    updated_at = excluded.updated_at;
 
 -- name: GitHubAppInstallationOf :one
-SELECT installation_id FROM github_app_installations WHERE repository = @repository;
+SELECT installation_id, repository_id FROM github_app_installations WHERE repository = @repository;
 
 -- name: ListGitHubAppInstallations :many
 SELECT * FROM github_app_installations ORDER BY repository;

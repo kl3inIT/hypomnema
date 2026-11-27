@@ -2557,23 +2557,29 @@ flowchart LR
       minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
       back from installing it, on each `installation` and `installation_repositories` event, and on
       `POST /integrations/github/app/installations` (`hosts app sync`), and kept by repository
-      (`github_app_installations`: `owner/name` in lower case, installation id, account). `POST
-      /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the App's
-      latest delivery again (`POST /app/hook/deliveries/{id}/attempts`).
-    - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): an installation's token is made
-      with the App's JWT (`POST /app/installations/{id}/access_tokens`, every permission the installation has) and
-      reused until 15 minutes before its end (Omnara's git credentials margin). A Dispatch on a repository the App
-      covers is offered the installation's token instead of the owner's, with `github_app` set, only by a node that
-      said `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole
-      Dispatch, is given the owner's, since the App's ends after an hour. The commits still name the owner's
-      account (issue #991). Such a node puts `github-bin/` of the Dispatch's directory first on the worker's PATH,
+      (`github_app_installations`: `owner/name` in lower case, GitHub's repository id, installation id, account).
+      `POST /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the
+      App's latest delivery again (`POST /app/hook/deliveries/{id}/attempts`); GitHub keeps its id, so it is answered
+      200 as handled before, which GitHub's Recent Deliveries shows.
+    - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): a token is made with the App's
+      JWT for one repository (`POST /app/installations/{id}/access_tokens` with `repository_ids`, as Omnara's
+      `auth.go:138-162`; every permission the installation has), so it reaches that repository alone, and reused
+      until 15 minutes before its end (Omnara's git credentials margin); only the listing of an installation's
+      repositories asks for one of the whole installation, which no one is given. A Dispatch on a repository the
+      App covers is offered as the App's (`github_app` set) with no token at all, only by a node that said
+      `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole Dispatch, is
+      given the owner's, as before. So no token of the App's is kept with the offer in the node's state, in the
+      worker's environment or in the shim's spec. The commits still name the owner's account (issue #991). Such a
+      node asks for a fresh token for its own clone, fetch and push (`publish_branch`), and puts `github-bin/` of the
+      Dispatch's directory first on the worker's PATH,
       holding `gh` and `hypomnema` scripts, sets git's credential helper for github.com (an empty helper first,
       which drops the user's own) to `hypomnema-node git-credential`, and leaves out `GH_TOKEN` and the token's
       header; `hypomnema-node gh` sets `GH_TOKEN` and runs the real gh, and the helper answers git with
       `x-access-token`, each with a fresh token asked of `POST /agent/v1/github/token` with the Dispatch's key, as
-      Omnara's agents ask their daemon (`internal/machinedaemon/git_credential_helper.go`). A control plane without
-      that route (one of an earlier release the node reconnected to) leaves the offer's token. The node's own push
-      (`publish_branch`) asks for a fresh one too. A Bot's gh through the service proxy goes with the App's token
+      Omnara's agents ask their daemon (`internal/machinedaemon/git_credential_helper.go`). When the control plane
+      gives none (the App no longer covers the repository, or the node reconnected to a control plane of an earlier
+      release, without the route), gh runs with the machine's own login, as a worker without a token always has.
+      A Bot's gh through the service proxy goes with the App's token
       when its request names a repository the App covers (a REST path under `/repos/{owner}/{repo}`, or GraphQL
       variables `owner` with `repo` or `name`, as gh sends them); the control plane's own reads of a followed pull
       request (#1053) use it too.
@@ -2584,18 +2590,21 @@ flowchart LR
       whose id was recorded is answered 200 and not handled again. The body of `issue_comment`,
       `pull_request_review` and `pull_request_review_comment` is kept for #1232, which answers them; nothing else is
       done with them yet. `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
-      for reads its checks once with the installation's token; `pull_request` `closed` marks that wait merged or
-      closed and settles a followed pull request (#1053) without reading GitHub
-      (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
+      for reads its checks once with the repository's token; `pull_request` `synchronize` (a new head) or
+      `reopened` resets that wait to pending at the new head, unread, so the next ask reads the new head's checks;
+      `pull_request` `closed` marks it merged or closed and settles a followed pull request (#1053) without reading
+      GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
     - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks
       `GET /pull-requests/ci` (client API, for the coordinator) or `GET /agent/v1/ci/wait` (a worker, through its
       `hypomnema` script) again and again, each ask held up to 50 s, under a reverse proxy's minute. The first wait
       for a pull request reads its checks (`pull_request_ci`: head, state, failed checks, when read); after that
-      only the App's events change it, and a read when none came for five minutes. The checks waited for are the
+      only the App's events change it, and a read when none came for five minutes, of a passed or failed state too,
+      whose head may have moved; a merge or a close is final until a reopen. The checks waited for are the
       required ones, or every one when none is required, as `gh pr checks --watch` waits for all of them; pending
       while one runs or before any is reported, else failed when one failed, else passed. It exits as gh does: 0
       passed or merged, 1 failed or closed, 8 still pending at the timeout. A repository the App does not cover,
-      or a control plane without the route, is waited for with `gh pr checks <pr> --required --watch`.
+      or a control plane without the route, is waited for with `gh pr checks <pr> --required --watch --interval
+      60` (once a minute, for GitHub's shared limit) within the same timeout, gh being stopped at its end.
   - An Integration that is not a git host signs in with OAuth (`internal/controlplane/integration`, step 2 of
     [issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Google is the only one: Gmail, Calendar, Drive,
     Docs, Sheets and Search Console (`searchconsole`, `webmasters` scopes; issue

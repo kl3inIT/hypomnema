@@ -466,7 +466,7 @@ func TestPromptOfAStackedTask(t *testing.T) {
 	assert.Contains(t, Prompt(d), "`gh pr create --base main --head hyp/tsk_1`", "or the Run's base")
 }
 
-// Scenario (issue #1262): the offer's token is the owner's GitHub App's. The worker waits for its pull request's CI
+// Scenario (issue #1262): the offer is the owner's GitHub App's. The worker waits for its pull request's CI
 // with `hypomnema ci wait <url>`, which the App's events end, instead of polling GitHub with gh; without the App it
 // waits with gh, as before.
 func TestPromptWaitsForCIOnTheAppsEventsWhenItsTokenIsTheApps(t *testing.T) {

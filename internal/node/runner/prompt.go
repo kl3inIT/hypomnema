@@ -489,7 +489,8 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 			"commit your work and %s, which updates that pull request. Do not open a new one. Find it with `%s`; "+
 			"if none is open, open one with `%s`.\n",
 			push, publish, listCommand(o.RepoKind, push), openCommand(o.RepoKind, base, push))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push, o.RepoToken != "", o.GitHubApp))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push, o.RepoToken != "" || o.GitHubApp,
+			o.GitHubApp))
 	default:
 		publish := "push the branch"
 		if canPublish(o) {
@@ -498,7 +499,8 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 
 		fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
 			publish, openCommand(o.RepoKind, base, own))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own, o.RepoToken != "", o.GitHubApp))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own, o.RepoToken != "" || o.GitHubApp,
+			o.GitHubApp))
 	}
 
 	return b.String()

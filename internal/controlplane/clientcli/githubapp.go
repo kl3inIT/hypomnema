@@ -6,11 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
-	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/ciwait"
 )
 
@@ -80,13 +78,15 @@ func hostsAppTest(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	d := resp.JSON200
 
 	return e.print(fs, d, func() {
-		e.printf("GitHub sends %s delivery %s again; `hypomnema hosts app` shows it once it arrives\n", d.Event, d.Guid)
+		e.printf("GitHub sends %s delivery %s again, with its id: it is answered as handled before; the App's "+
+			"Recent Deliveries on GitHub shows the answer\n", d.Event, d.Guid)
 	})
 }
 
 // ciWait waits for a pull request's CI on the App's events (`hypomnema ci wait <pr>`), asking the client API again
 // and again, each ask held there a while (ciwait). It calls no GitHub; a repository the App does not cover is waited
-// for with gh, as before. Its exit code is gh pr checks': 0 passed, 1 failed, 8 still pending at --timeout.
+// for with gh every 60 s, as before, within the same --timeout. Its exit code is gh pr checks': 0 passed, 1 failed,
+// 8 still pending at --timeout.
 func ciWait(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	pr := fs.Arg(0)
 
@@ -124,35 +124,11 @@ func ciWait(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return st, nil
 	}
 
-	st, err := ciwait.Wait(ctx, ask, timeout, e.out)
+	return ciwait.Run(ctx, pr, ask, timeout, func(err error) bool {
+		var nc *notCoveredError
 
-	var nc *notCoveredError
-	if errors.As(err, &nc) && nc.code != http.StatusBadRequest {
-		e.printf("hypomnema: %v; waiting with gh instead\n", nc.err)
-
-		//nolint:gosec // G204: gh, with the pull request the caller named as one argument, never through a shell
-		gh := exec.CommandContext(ctx, "gh", "pr", "checks", pr, "--required", "--watch")
-		gh.Stdout, gh.Stderr = e.out, e.out
-
-		var exit *exec.ExitError
-		if err := gh.Run(); errors.As(err, &exit) {
-			return &agenttool.ExitError{Code: exit.ExitCode()}
-		} else if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	if err != nil {
-		return err
-	}
-
-	if code := st.Code(); code != 0 {
-		return &agenttool.ExitError{Code: code}
-	}
-
-	return nil
+		return errors.As(err, &nc) && nc.code != http.StatusBadRequest
+	}, e.out, e.out)
 }
 
 // notCoveredError is the client API's answer that it cannot wait for this pull request: the App does not cover its
