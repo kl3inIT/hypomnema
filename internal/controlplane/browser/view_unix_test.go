@@ -9,9 +9,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -485,4 +487,85 @@ func TestATabFillsThePaneItIsWatchedIn(t *testing.T) {
 	assert.Contains(t, sizes[0], `{"height":900,"width":1600}`)
 	assert.Contains(t, sizes[1], `{"height":2297,"width":1280}`, "a phone's pane gives a desktop's width")
 	assert.Contains(t, sizes[2], `{"height":720,"width":1280}`, "nobody watches")
+}
+
+// Scenario (issue #1113): the owner opens a Bot's chat, signs in to a site in his own tab and takes control there,
+// then looks at the Bot's tab. Only the tab taken is held: the Bot's calls in its own tab go on, and its tab's view
+// says the Bot drives it, while the owner's tab's view says he does; taking the Bot's tab holds that one too.
+func TestTakingControlHoldsOnlyTheTabTaken(t *testing.T) {
+	r := newRig(t, Config{})
+
+	_, err := r.Call(t.Context(), "b-cht_1", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+
+	r.stream(t, OwnerTab)
+	r.stream(t, sessionName("b-cht_1"))
+
+	mine := r.watch(t, OwnerTab)
+	assert.Equal(t, ControllerAgent, next(t, mine).Controller)
+
+	do(t, mine, `{"type":"takeControl"}`)
+	assert.Equal(t, ControllerYou, next(t, mine).Controller)
+
+	bots := r.watch(t, "b-cht_1")
+	assert.Equal(t, ControllerAgent, next(t, bots).Controller, "the Bot's tab is not the one held")
+
+	result, err := r.Call(t.Context(), "b-cht_1", "agent_browser_get_text", nil)
+	require.NoError(t, err)
+	assert.False(t, isRefusal(t, result), "the Bot's tools go on in its own tab")
+
+	do(t, bots, `{"type":"takeControl"}`)
+	assert.Equal(t, ControllerYou, next(t, bots).Controller)
+
+	result, err = r.Call(t.Context(), "b-cht_1", "agent_browser_get_text", nil)
+	require.NoError(t, err)
+	assert.True(t, isRefusal(t, result), "the Bot's tab is held once it is taken")
+
+	do(t, mine, `{"type":"releaseControl"}`)
+	assert.Equal(t, ControllerAgent, next(t, mine).Controller)
+
+	result, err = r.Call(t.Context(), "b-cht_1", "agent_browser_get_text", nil)
+	require.NoError(t, err)
+	assert.True(t, isRefusal(t, result), "handing back the owner's tab leaves the Bot's held")
+}
+
+// Chrome paints only the tab in front of its window, and every tab is in one window: a view brings its tab to the
+// front as it opens, as agent-browser's own tab switch does (Page.bringToFront), or the tab's stream sends no frame
+// once another tab came in front, the owner's made for his view say (issue #1113).
+func TestAViewBringsItsTabToTheFront(t *testing.T) {
+	r := newRig(t, Config{})
+
+	chrome := &fakeChrome{answer: func(string, string) (string, []string) { return `{}`, nil }}
+	address, err := url.Parse(chrome.serve(t))
+	require.NoError(t, err)
+	r.touch(t, "devtools", address.Port())
+
+	_, err = r.Call(t.Context(), "b-cht_1", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+
+	r.stream(t, OwnerTab)
+	r.stream(t, sessionName("b-cht_1"))
+
+	r.watch(t, OwnerTab)
+	r.watch(t, "b-cht_1")
+
+	activated := func() []string {
+		chrome.mu.Lock()
+		defer chrome.mu.Unlock()
+
+		var got []string
+
+		for _, command := range chrome.got {
+			if strings.HasPrefix(command, "Target.activateTarget") {
+				got = append(got, command)
+			}
+		}
+
+		return got
+	}
+
+	assert.Equal(t, []string{
+		`Target.activateTarget {"targetId":"T-` + sessionName(OwnerTab) + `"}`,
+		`Target.activateTarget {"targetId":"T-` + sessionName("b-cht_1") + `"}`,
+	}, activated())
 }
