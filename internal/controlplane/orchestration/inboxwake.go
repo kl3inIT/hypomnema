@@ -267,7 +267,7 @@ func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 	if w.Kind == inboxstore.WakeComment {
 		fmt.Fprintf(&b, "\nAnswer him with inbox_comment on the item, and go on with the work it asks for. When his "+
 			"comment says he did it himself, record it done for him: inbox_done with for_owner and this comment as "+
-			"evidence, {\"kind\":\"comment\",\"ref\":\"%d\"}, never as your own.", t.Revision)
+			"evidence, {\"kind\":\"comment\",\"ref\":\"%d\"}, never as your own.", w.Comment)
 
 		return b.String()
 	}
