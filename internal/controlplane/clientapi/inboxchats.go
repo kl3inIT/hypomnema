@@ -33,7 +33,8 @@ func (s *Server) WithInboxChats(c InboxChats) *Server {
 	return s
 }
 
-var errNoInboxChats = fmt.Errorf("%w: this control plane lists no chats for the secretary", orchestration.ErrUnavailable)
+var errNoInboxChats = fmt.Errorf("%w: this control plane lists no chats for the secretary",
+	orchestration.ErrUnavailable)
 
 // secretaryIntegrations are the services whose chats the triage reads: his messaging accounts and his own Lark
 // sign-ins (deploy/thu-ky/new-messages.mjs sources). Telegram joins when it lands (#1184).

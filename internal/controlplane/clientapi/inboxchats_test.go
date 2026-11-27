@@ -79,10 +79,10 @@ func newSecretaryChatsWorld(t *testing.T, files botFolder) *inboxWorld {
 	w := newInboxWorld(t)
 
 	for _, c := range []orchestration.Connection{
-		{Integration: "zalo", Label: "main", Account: "Đạt", Secret: "conn-zalo-main"},
-		{Integration: "whatsapp", Label: "me", Account: "+84 90 000 0000", Secret: "conn-whatsapp-me"},
-		{Integration: "lark", Label: "me", Secret: "conn-lark-me", AppLabel: "work"},
-		{Integration: "lark", Label: "helper", Secret: "conn-lark-helper"},
+		{Integration: "zalo", Label: "main", Account: "Đạt", Secret: "test-zalo"},
+		{Integration: "whatsapp", Label: "me", Account: "+84 90 000 0000", Secret: "test-whatsapp"},
+		{Integration: "lark", Label: "me", Secret: "test-lark", AppLabel: "work"},
+		{Integration: "lark", Label: "helper", Secret: "test-lark-helper"},
 	} {
 		_, err := w.svc.SaveServiceConnection(ctx, c)
 		require.NoError(t, err)
