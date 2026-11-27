@@ -105,6 +105,10 @@ type Store interface {
 	Inbox() *inboxstore.Store
 	InboxWorkOf(ctx context.Context, chatID string) (inboxstore.Work, error)
 	InboxAttempt(ctx context.Context, todoID, bot, chatID string) (string, error)
+	// SearchChats and ChatAround serve chat_search (issue #805): the Bot's own earlier chats, by words and around a
+	// message.
+	SearchChats(ctx context.Context, chatID, query string, limit int) ([]orchestration.ChatHit, error)
+	ChatAround(ctx context.Context, chatID, chat string, around int64, window int) (orchestration.ChatWindow, error)
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
 	// (issue #625).
 	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)

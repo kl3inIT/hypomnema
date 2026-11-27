@@ -264,6 +264,9 @@ type ChatMessage struct {
 	// Sender is who wrote a person's message when it was not the owner (issue #468); nil for the owner's and for
 	// every message that is not a person's.
 	Sender *ChatSender
+	// Recall is the owner's words a wake-up carries, which the turn it starts is recalled by (issue #805): his
+	// comment on an Inbox item, or its title and his prompt when he handed it over; empty for other messages.
+	Recall string
 	// DeliveredAt is when pi got an owner message or a wake-up.
 	DeliveredAt *time.Time
 	CreatedAt   time.Time
@@ -1068,6 +1071,7 @@ func chatMessage(r store.ChatMessage) ChatMessage {
 		EventSeq:    r.EventSeq.Int64,
 		ApprovalID:  r.ApprovalID.String,
 		Sender:      senderOf(r.SenderID, r.SenderName),
+		Recall:      r.Recall.String,
 		DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
 	}
 }

@@ -266,6 +266,11 @@ type ChatMessage struct {
 	SenderName    sql.NullString
 	Kind          string
 	ReadRun       int64
+	Recall        sql.NullString
+}
+
+type ChatMessagesFt struct {
+	Text string
 }
 
 type ChatQueue struct {

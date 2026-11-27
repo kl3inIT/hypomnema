@@ -36,6 +36,7 @@ import (
 //   - request_connection (connectionrequests.go, issue #471, part D): a Bot's
 //     pi in its Bot's main chat only, while there is a Connection to ask for;
 //   - inbox_* (inbox.go, issue #1004): a Bot's pi only, as routines;
+//   - chat_search (chats.go, issue #805): a Bot's pi only, outside a Routine's read run;
 //   - meeting_list, meeting_get (meetings.go, issue #1023): a Bot's pi, and the check script of its read Routine;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
 //     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's);
@@ -78,6 +79,10 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	}
 
 	if t, ok := routineTool(a); ok {
+		out = append(out, t)
+	}
+
+	if t, ok := chatSearchTool(a); ok {
 		out = append(out, t)
 	}
 
@@ -227,6 +232,11 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		s.artifactCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolRoutines && makesRoutines(a):
 		s.routineCall(w, r, a, asked)
+	case asked.Tool == agenttool.ToolChatSearch && searchesChats(a):
+		s.chatSearchCall(w, r, a, asked)
+	case asked.Tool == agenttool.ToolChatSearch:
+		// Not the browser's: an agent that is no Bot's pi has none.
+		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
 	case asked.Tool == agenttool.ToolRequestConnection && asksConnections(a):
 		s.requestConnectionCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolRequestConnection:

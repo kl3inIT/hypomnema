@@ -348,7 +348,13 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 		seqs = append(seqs, m.Seq)
 	}
 
-	read, err := p.send(ctx, promptText(msgs), seqs)
+	// A steer joins a turn that runs; only a turn that starts recalls (recall.go).
+	text := promptText(msgs)
+	if !working {
+		text = s.withRecall(ctx, chatID, msgs, text)
+	}
+
+	read, err := p.send(ctx, text, seqs)
 	if err != nil || !read {
 		return err
 	}

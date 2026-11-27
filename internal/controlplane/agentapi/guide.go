@@ -67,7 +67,8 @@ func (s *Server) BotTools(ctx context.Context, bot orchestration.Bot) []string {
 func (s *Server) standingTools(ctx context.Context, a agent) []string {
 	var names []string
 
-	for _, t := range []func(agent) (agenttool.BrowserTool, bool){memoryTool, artifactTool, routineTool} {
+	for _, t := range []func(agent) (agenttool.BrowserTool, bool){memoryTool, artifactTool, routineTool,
+		chatSearchTool} {
 		if tool, ok := t(a); ok {
 			names = append(names, tool.Name)
 		}
