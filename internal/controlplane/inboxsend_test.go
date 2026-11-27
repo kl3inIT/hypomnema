@@ -264,12 +264,29 @@ func TestLarkSendsWithoutAQuoteWhenTheMessageCannotBeRepliedTo(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name      string
-		quoteChat string
-		wantReply bool
+		name       string
+		quoteChat  string
+		replyError string
+		plainError string
 	}{
 		{name: "another chat", quoteChat: "oc_other"},
-		{name: "recalled after lookup", quoteChat: "oc_source", wantReply: true},
+		{
+			name: "recalled after lookup", quoteChat: "oc_source",
+			replyError: `{"code":230011,"msg":"The message is recalled."}`,
+		},
+		{
+			name: "invisible after lookup", quoteChat: "oc_source",
+			replyError: `{"code":230050,"msg":"The message is invisible to the operator."}`,
+		},
+		{
+			name: "scheduled for deletion", quoteChat: "oc_source",
+			replyError: `{"code":230111,"msg":"Action unavailable as the message will self-destruct soon."}`,
+		},
+		{
+			name: "plain send reports its own error", quoteChat: "oc_source",
+			replyError: `{"code":230011,"msg":"The message is recalled."}`,
+			plainError: `{"code":230110,"msg":"Action unavailable as the message has been deleted."}`,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -286,9 +303,9 @@ func TestLarkSendsWithoutAQuoteWhenTheMessageCannotBeRepliedTo(t *testing.T) {
 				case "POST " + messages + "/om_quote/reply":
 					posts = append(posts, "reply")
 
-					if test.wantReply {
+					if test.replyError != "" {
 						w.WriteHeader(http.StatusBadRequest)
-						_, _ = w.Write([]byte(`{"code":230011,"msg":"The message is recalled."}`))
+						_, _ = w.Write([]byte(test.replyError))
 
 						return
 					}
@@ -303,6 +320,14 @@ func TestLarkSendsWithoutAQuoteWhenTheMessageCannotBeRepliedTo(t *testing.T) {
 					assert.Equal(t, map[string]string{
 						"receive_id": "oc_source", "msg_type": "text", "content": `{"text":"Dạ em gửi ạ"}`,
 					}, body)
+
+					if test.plainError != "" {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = w.Write([]byte(test.plainError))
+
+						return
+					}
+
 					_, _ = w.Write([]byte(`{"code":0,"data":{"message_id":"om_plain"}}`))
 				default:
 					http.NotFound(w, r)
@@ -320,13 +345,22 @@ func TestLarkSendsWithoutAQuoteWhenTheMessageCannotBeRepliedTo(t *testing.T) {
 			}}, "Dạ em gửi ạ")
 			api.Close()
 
-			require.NoError(t, err)
 			wantPosts := []string{"plain"}
-			if test.wantReply {
+			if test.replyError != "" {
 				wantPosts = []string{"reply", "plain"}
 			}
 
 			assert.Equal(t, wantPosts, posts)
+
+			if test.plainError != "" {
+				require.EqualError(t, err,
+					"lark: sending to oc_source: answered 400, code 230110: Action unavailable as the message has been deleted.")
+				assert.Empty(t, link)
+
+				return
+			}
+
+			require.NoError(t, err)
 			assert.Equal(t, inboxstore.Link{Kind: inboxstore.LinkLarkSent, Ref: "om_plain", Account: inboxLarkMe,
 				Chat: "oc_source", Label: sentLabel}, link)
 		})
