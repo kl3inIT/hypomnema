@@ -66,3 +66,12 @@ func databaseAt(t *testing.T, version int64) (*sql.DB, *goose.Provider) {
 
 	return db, p
 }
+
+// BeforeInboxConnectionRepair opens the last schema before the repair for the owner API upgrade test.
+func BeforeInboxConnectionRepair(t *testing.T) *sql.DB {
+	t.Helper()
+
+	db, _ := databaseAt(t, migrationVersion(t, "_drop_dispatch_resources.sql"))
+
+	return db
+}

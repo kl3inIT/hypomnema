@@ -73,6 +73,11 @@ func TestTheOwnerSendsADraftToTheItemsOwnChatAndItCloses(t *testing.T) {
 	sender := &fakeSender{}
 	w.srv.WithInboxSender(sender)
 
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+
 	td := w.kaiAsks(t)
 	send := openapi.TodoSend{Revision: td.Revision, Text: "Hi Kai, Monday works. See you then!"}
 

@@ -4908,7 +4908,9 @@ its client API, its CLI and the Bots' tools.
   as a `meeting_line` reference `<meeting>/<line>` (issue #1105); for `zalo`, `whatsapp` and `gmail` the owner's
   account (its Connection's label) the chat or thread is in (`source_account`, optional for `lark`, never for a
   meeting), as their stores key a message by account, chat and id and a thread opens in its account; a quote ≤ 2,000
-  and a typed reference); who created it; the Bot's attempt
+  and a typed reference; a named account is checked against the integration's Connection labels on create, source
+  edit and Send, with the labels given on refusal, issue #1252; `inbox_source_connection_labels` repairs old account
+  IDs with a unique matching Connection); who created it; the Bot's attempt
   while doing or review (`work_attempt`, its own id given by `Start`; `work_kind` `chat` or `run` and `work_id`,
   where it works, which may hold attempts at other items too; `work_bot`, the Bot that started it, and
   `work_started_at`); `approval_id` while review, the Approval linked, which was pending and asked by the item's

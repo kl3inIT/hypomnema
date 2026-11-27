@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -45,6 +46,11 @@ func TestTheBriefSeesWhatTheBotClosedForAPerson(t *testing.T) {
 	sw := newSecretaryWorld(t)
 	ctx := t.Context()
 	pi := sw.wake()
+
+	_, err := sw.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "zalo", Label: "main", Secret: "fixture",
+	})
+	require.NoError(t, err)
 
 	item, err := sw.svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: sw.bot.ID}, inboxstore.NewTodo{
 		Title: "Sửa key Luma", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly,

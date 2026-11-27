@@ -608,6 +608,7 @@ func TestASourceNamedByTheAccountsIDKeepsItsLabel(t *testing.T) {
 	for name, src := range map[string]struct{ kind, chat, account string }{
 		"zalo by its id":               {inboxstore.FromZalo, "g_laura", "2223515701293677881"},
 		"zalo by its label":            {inboxstore.FromZalo, "g_laura", "main"},
+		"whatsapp by its label":        {inboxstore.FromWhatsApp, "8491@s.whatsapp.net", "main"},
 		"whatsapp by its number":       {inboxstore.FromWhatsApp, "8491@s.whatsapp.net", "84369230426"},
 		"whatsapp by its number and +": {inboxstore.FromWhatsApp, "8491@s.whatsapp.net", "+84369230426"},
 	} {
