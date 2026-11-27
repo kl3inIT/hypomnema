@@ -387,6 +387,15 @@ func TestAnUnreadableDocumentIsRefusedWithTheSameText(t *testing.T) {
 			"line 4: field flavor not found in type orchestration.profileSource",
 		},
 		"profile kind": {profile("- a\n"), "line 1: cannot unmarshal !!seq into orchestration.profileSource"},
+		// What the document says is echoed as written, even a field named as one of the types (review round 2).
+		"profile field named as a type": {
+			profile("name: x\ndescription: d\nruntime: claude\nprofilestore.Source: red\n"),
+			"line 4: field profilestore.Source not found in type orchestration.profileSource",
+		},
+		"profile field with the decoder's words": {
+			profile("name: x\ndescription: d\nruntime: claude\na into profilestore.RoleEntry: red\n"),
+			"line 4: field a into profilestore.RoleEntry not found in type orchestration.profileSource",
+		},
 		"requests field": {
 			profile("name: x\ndescription: d\nruntime: claude\nrequests: {gpu: 1}\n"),
 			"line 4: field gpu not found in type orchestration.requestsSource",
