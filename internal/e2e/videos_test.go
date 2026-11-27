@@ -510,7 +510,7 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 // Scenario: an agent reads the templates and makes its take into a video with app-ad (issue #1230, rows 3-5):
 // video_templates lists the five, with their sections' words; video_make with template app-ad answers what it was
 // made with, and the owner reads a 9:16 revision with the template's look, the saved default's sections and an end
-// card titled with the take's title. The owner reads the templates through the API; no agent does. A template that
+// card with its call to action over the take's title. The owner reads the templates through the API; no agent does. A template that
 // is not one is refused with the list.
 func TestAnAgentMakesAVideoFromATemplate(t *testing.T) {
 	t.Parallel()
@@ -572,6 +572,7 @@ func TestAnAgentMakesAVideoFromATemplate(t *testing.T) {
 					Title  *json.RawMessage `json:"title"`
 					End    *struct {
 						Title      string `json:"title"`
+						Subtitle   string `json:"subtitle"`
 						DurationMs int64  `json:"duration_ms"`
 					} `json:"end"`
 				} `json:"cards"`
@@ -590,7 +591,8 @@ func TestAnAgentMakesAVideoFromATemplate(t *testing.T) {
 	assert.Equal(t, "#6c8cff", rev.Look.Cards.Accent)
 	assert.Nil(t, rev.Look.Cards.Title, "app-ad has no title card")
 	require.NotNil(t, rev.Look.Cards.End)
-	assert.Equal(t, "Đăng nhập", rev.Look.Cards.End.Title)
+	assert.Equal(t, "Tải ứng dụng ngay", rev.Look.Cards.End.Title, "the call to action, as aidemo's outro's title")
+	assert.Equal(t, "Đăng nhập", rev.Look.Cards.End.Subtitle, "the video's name under it")
 	assert.Equal(t, int64(3000), rev.Look.Cards.End.DurationMs)
 
 	status, _, body = r.api(r.owner, http.MethodGet, "/videos/templates", "", nil)

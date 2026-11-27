@@ -132,9 +132,9 @@ func TestAMakeWithATemplate(t *testing.T) {
 	assert.Equal(t, before.Captions, rev.Look.Captions)
 	assert.Equal(t, before.Frame, rev.Look.Frame)
 	assert.Equal(t, before.Background, rev.Look.Background)
-	assert.Equal(t, &compose.Cards{
-		Accent: compose.DefaultAccent, End: &compose.Card{Title: "Đăng nhập", DurationMs: compose.DefaultEndMs},
-	}, rev.Look.Cards, "the end card, titled with the take's title")
+	assert.Equal(t, &compose.Cards{Accent: compose.DefaultAccent, End: &compose.Card{
+		Title: "Tải ứng dụng ngay", Subtitle: "Đăng nhập", DurationMs: compose.DefaultEndMs,
+	}}, rev.Look.Cards, "the end card: the call to action over the take's title, as aidemo's outro")
 	assert.Equal(t, before, r.savedDefault(t), "a template changes no default")
 
 	// The same request answers the same revision; the same key without the template is another request.
@@ -176,7 +176,8 @@ func TestWhatAMakeSendsWinsOverItsTemplate(t *testing.T) {
 	require.NotNil(t, rev.Look.Cards)
 	assert.Equal(t, "SecondBite", rev.Look.Cards.Title.Title, "the video's title")
 	assert.Equal(t, int64(compose.DefaultTitleMs), rev.Look.Cards.Title.DurationMs)
-	assert.Equal(t, "SecondBite", rev.Look.Cards.End.Title)
+	assert.Equal(t, "Dùng thử ngay", rev.Look.Cards.End.Title, "the call to action")
+	assert.Equal(t, "SecondBite", rev.Look.Cards.End.Subtitle)
 
 	saved := r.savedDefault(t)
 	assert.Equal(t, "ocean", saved.Background.Preset, "the owner's sent section is saved")
@@ -264,7 +265,9 @@ func TestTheTemplatesListStartsFromTheDefault(t *testing.T) {
 	assert.Equal(t, compose.ChromeIPhone, ad.Look.Frame.Chrome)
 	assert.Equal(t, "ocean", ad.Look.Background.Preset)
 	assert.Nil(t, ad.Look.Cards)
-	assert.Equal(t, &compose.Cards{Accent: compose.DefaultAccent, End: &compose.Card{DurationMs: 3000}}, ad.Cards())
+	assert.Equal(t, &compose.Cards{Accent: compose.DefaultAccent, End: &compose.Card{
+		Title: "Tải ứng dụng ngay", Subtitle: "{title}", DurationMs: 3000,
+	}}, ad.Cards(), "its words as stored, {title} for the video's")
 
 	assert.Equal(t, compose.ChromeFull, store.Look.Frame.Chrome)
 	assert.Nil(t, store.Cards())
@@ -280,7 +283,7 @@ func TestTheLookSampleOfATemplate(t *testing.T) {
 	p, err := r.svc.planPreview(t.Context(), PreviewRequest{Take: takeID, Template: "product-walkthrough", Card: CardEnd})
 	require.NoError(t, err)
 	assert.Equal(t, "16:9", p.aspect)
-	assert.Equal(t, &compose.Card{Title: "Đăng nhập", DurationMs: compose.DefaultEndMs}, p.card)
+	assert.Equal(t, &compose.Card{Title: "Dùng thử ngay", Subtitle: "Đăng nhập", DurationMs: compose.DefaultEndMs}, p.card)
 
 	p, err = r.svc.planPreview(t.Context(), PreviewRequest{Take: takeID, Template: "app-store-preview"})
 	require.NoError(t, err)
