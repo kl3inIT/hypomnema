@@ -4523,7 +4523,7 @@ type GatewayRequestList struct {
 	HasMore bool `json:"has_more"`
 }
 
-// GatewayTool A tool Settings → Connect a tool writes a file for.
+// GatewayTool A tool that can be configured from the Connect a tool button on Gateway keys.
 type GatewayTool string
 
 // GatewayToolConfig defines model for GatewayToolConfig.
@@ -4539,7 +4539,7 @@ type GatewayToolConfig struct {
 	// Models The models the key may use from the tool, by name.
 	Models []string `json:"models"`
 
-	// Tool A tool Settings → Connect a tool writes a file for.
+	// Tool A tool that can be configured from the Connect a tool button on Gateway keys.
 	Tool GatewayTool `json:"tool"`
 }
 
@@ -10693,7 +10693,7 @@ type ClientInterface interface {
 
 	// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 	GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -15205,7 +15205,7 @@ func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body Update
 
 // GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 func (c *Client) GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -35126,7 +35126,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -53586,7 +53586,7 @@ func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, 
 
 // GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Returns a wrapper object for the known response body format(s).
 //

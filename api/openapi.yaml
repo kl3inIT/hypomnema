@@ -2447,8 +2447,8 @@ paths:
       operationId: GetGatewayToolConfig
       summary: The file that points a tool at the gateway with an owner-made key; only the owner
       description: >-
-        Settings → Connect a tool (issue #907). The file names one of the
-        models the key may use from the tool (Codex: those /v1/responses
+        The Connect a tool button on Gateway keys opens the page that requests this file.
+        The file names one of the models the key may use from the tool (Codex: those /v1/responses
         serves), the one asked for or else the first, and holds the key's
         value when it is stored; else a placeholder, and `key_stored` is
         false. Not cached: it may hold the key.
@@ -8973,7 +8973,7 @@ components:
             The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
     GatewayTool:
       type: string
-      description: A tool Settings → Connect a tool writes a file for.
+      description: A tool that can be configured from the Connect a tool button on Gateway keys.
       enum: [claude_code, codex, omp, opencode]
     GatewayToolFile:
       type: object
