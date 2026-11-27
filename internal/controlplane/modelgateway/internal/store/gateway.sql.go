@@ -929,7 +929,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayAudioProviders = `-- name: ListGatewayAudioProviders :many
-SELECT provider, off, stt_position, tts_position, updated_at, voice, tts_model FROM gateway_audio_providers ORDER BY provider
+SELECT provider, off, stt_position, tts_position, updated_at, voice, tts_model, stt_model FROM gateway_audio_providers ORDER BY provider
 `
 
 // What the owner set on Settings, Gateway, Audio (issue #694).
@@ -950,6 +950,7 @@ func (q *Queries) ListGatewayAudioProviders(ctx context.Context) ([]GatewayAudio
 			&i.UpdatedAt,
 			&i.Voice,
 			&i.TtsModel,
+			&i.SttModel,
 		); err != nil {
 			return nil, err
 		}
@@ -1770,6 +1771,23 @@ type SetGatewayAudioOffParams struct {
 
 func (q *Queries) SetGatewayAudioOff(ctx context.Context, arg SetGatewayAudioOffParams) error {
 	_, err := q.db.ExecContext(ctx, setGatewayAudioOff, arg.Provider, arg.Off, arg.Now)
+	return err
+}
+
+const setGatewayAudioSTTModel = `-- name: SetGatewayAudioSTTModel :exec
+INSERT INTO gateway_audio_providers (provider, stt_model, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET stt_model = excluded.stt_model, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioSTTModelParams struct {
+	Provider string
+	Model    string
+	Now      int64
+}
+
+// The transcription model a provider hears with (issue #1285, row 1); empty: its newest.
+func (q *Queries) SetGatewayAudioSTTModel(ctx context.Context, arg SetGatewayAudioSTTModelParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioSTTModel, arg.Provider, arg.Model, arg.Now)
 	return err
 }
 

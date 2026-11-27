@@ -1165,6 +1165,70 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/IntegrationList" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/github/app:
+    get:
+      operationId: GetGitHubApp
+      summary: >-
+        The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the
+        last delivery it was sent; never its key or secret. Only the owner
+      responses:
+        "200":
+          description: The App.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubApp" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/github/app/installations:
+    post:
+      operationId: SyncGitHubAppInstallations
+      summary: Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+      responses:
+        "200":
+          description: The App, with its installations as GitHub says them now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubApp" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/github/app/test-delivery:
+    post:
+      operationId: TestGitHubAppDelivery
+      summary: >-
+        Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane
+        answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the
+        answer. Only the owner
+      responses:
+        "200":
+          description: The delivery GitHub was asked to send again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubAppRedelivery" }
+        default: { $ref: "#/components/responses/Error" }
+  /pull-requests/ci:
+    get:
+      operationId: WaitPullRequestCI
+      summary: >-
+        Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262,
+        `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads
+        the checks when the first wait asks and once every five minutes without an event. Conflict when the App is
+        not installed on the repository
+      parameters:
+        - name: pull_request
+          in: query
+          required: true
+          description: The pull request's URL, or owner/name#number.
+          schema: { type: string, minLength: 3, maxLength: 512 }
+        - name: wait
+          in: query
+          required: false
+          description: How many seconds the answer may wait for a change, at most 50.
+          schema: { type: integer, minimum: 0, maximum: 50 }
+      responses:
+        "200":
+          description: The pull request's CI.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullRequestCI" }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/client:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -2936,10 +3000,11 @@ paths:
         schema: { $ref: "#/components/schemas/AudioProvider" }
     put:
       operationId: SetAudioModel
-      summary: Set the model a provider speaks with; only the owner
+      summary: Set the model a provider is asked with for a kind; only the owner
       description: >-
-        One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for
-        ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+        One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back
+        to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears
+        with Scribe alone. It counts from the next request.
       requestBody:
         required: true
         content:
@@ -2955,10 +3020,11 @@ paths:
   /gateway/audio/models:
     get:
       operationId: ListAudioModels
-      summary: The text-to-speech models the owner may choose from, with the languages each covers
+      summary: The models the owner may choose from, each with its kind and the languages it covers
       description: >-
-        ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first
-        key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+        ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and
+        transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its
+        first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
       responses:
         "200":
           description: The models.
@@ -2971,8 +3037,9 @@ paths:
       operationId: ListAudioVoices
       summary: The voices of the text-to-speech providers that are on and have a key, by name and id
       description: >-
-        ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day;
-        Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+        ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are
+        the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it
+        (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
       responses:
         "200":
           description: The voices.
@@ -7004,8 +7071,8 @@ components:
         model:
           type: string
           description: >-
-            The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of
-            ElevenLabs's speech model, else the default.
+            The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else
+            the default.
         usage: { $ref: "#/components/schemas/AudioUsage" }
     AudioUsage:
       type: object
@@ -7039,6 +7106,7 @@ components:
       required: [model]
       properties:
         model: { type: string, maxLength: 100 }
+        kind: { $ref: "#/components/schemas/AudioKind" }
     AudioModels:
       type: object
       required: [models]
@@ -7052,9 +7120,10 @@ components:
           items: { $ref: "#/components/schemas/WebSearchError" }
     AudioModelInfo:
       type: object
-      required: [provider, id, name, languages]
+      required: [provider, kind, id, name, languages]
       properties:
         provider: { $ref: "#/components/schemas/AudioProvider" }
+        kind: { $ref: "#/components/schemas/AudioKind" }
         id: { type: string }
         name: { type: string }
         languages:
@@ -7174,7 +7243,17 @@ components:
           type: string
           enum: [mp3, wav, pcm, opus]
           description: mp3 when left out.
-        speed: { type: number, minimum: 0.25, maximum: 4, description: "ElevenLabs's voice speed." }
+        speed:
+          type: number
+          format: double
+          minimum: 0.25
+          maximum: 4
+          description: >-
+            The voice's speed: Soniox takes 0.7 to 1.3; ElevenLabs is sent it within 0.7 to 1.2, and none for a
+            model that does not apply it, such as eleven_v4.
+        reduce_silence:
+          type: boolean
+          description: Shorten the pauses between words; sent to Soniox only for a model that supports it.
         language:
           type: string
           maxLength: 20
@@ -7393,13 +7472,15 @@ components:
           description: The browser the control plane runs, by name and pinned version.
         held:
           type: boolean
-          description: Whether the owner holds the browser; agents' calls are refused meanwhile.
+          description: >-
+            Whether the owner holds any tab. Each tab says whether it is held: taking control holds only the tab
+            taken, and only that tab's agent's calls are refused meanwhile.
         tabs:
           type: array
           items: { $ref: "#/components/schemas/BrowserTab" }
     BrowserTab:
       type: object
-      required: [id, kind, url, title, views]
+      required: [id, kind, url, title, views, held]
       properties:
         id: { type: string }
         kind:
@@ -7427,6 +7508,9 @@ components:
             Its page's icon, as a data: address of an image, once the control plane has read it from the page.
             Absent until then, and for a page that names none it can give.
         views: { type: integer, description: How many views of it are open. }
+        held:
+          type: boolean
+          description: Whether the owner holds this tab; its agent's browser calls are refused meanwhile.
     BrowserViewTicket:
       type: object
       required: [ticket, expires_at]
@@ -7624,6 +7708,61 @@ components:
     GitHostKind:
       type: string
       enum: [github, gitlab]
+    GitHubApp:
+      type: object
+      description: The owner's GitHub App, without its private key or webhook secret.
+      required: [registered, setup_url, installations]
+      properties:
+        registered: { type: boolean }
+        app_id: { type: integer, format: int64 }
+        slug: { type: string }
+        owner: { type: string }
+        html_url: { type: string }
+        install_url:
+          type: string
+          description: GitHub's page that installs the App on repositories.
+        setup_url:
+          type: string
+          description: The control plane's page the owner registers the App from, in his signed-in browser.
+        installations:
+          type: array
+          items: { $ref: "#/components/schemas/GitHubAppInstallation" }
+        last_delivery: { $ref: "#/components/schemas/GitHubDelivery" }
+    GitHubAppInstallation:
+      type: object
+      required: [repository, installation_id, account]
+      properties:
+        repository: { type: string, description: "owner/name, in lower case" }
+        installation_id: { type: integer, format: int64 }
+        account: { type: string }
+    GitHubDelivery:
+      type: object
+      required: [id, event, received_at]
+      properties:
+        id: { type: string }
+        event: { type: string }
+        action: { type: string }
+        repository: { type: string }
+        received_at: { type: string, format: date-time }
+    GitHubAppRedelivery:
+      type: object
+      required: [guid, event]
+      properties:
+        guid: { type: string, description: "The id of the delivery sent again." }
+        event: { type: string }
+    PullRequestCI:
+      type: object
+      required: [pull_request, state]
+      properties:
+        pull_request: { type: string }
+        head: { type: string }
+        state:
+          type: string
+          enum: [pending, passed, failed, merged, closed]
+        failed:
+          type: array
+          items: { type: string }
+          description: The checks that failed, when the state is failed.
     GitHost:
       type: object
       required: [host, kind, known, has_token, connections]
@@ -8713,6 +8852,10 @@ components:
           description: What each scene's voice says, a scene a step of the take (steps said at once are one).
           items: { type: string }
         voice: { type: string, description: The voice asked for; absent, each provider's set on Settings → Audio. }
+        speed:
+          type: number
+          format: double
+          description: "The speed its voice was asked at; absent, the provider's own."
         captions: { type: boolean }
         aspect: { $ref: "#/components/schemas/VideoAspect" }
         provider: { type: string, description: The provider that spoke every scene. }
@@ -8785,6 +8928,14 @@ components:
           description: "One of the template's; absent: the template's first, else 9:16."
         captions: { type: boolean, description: "Absent: the template's, else true." }
         voice: { type: string, maxLength: 100, description: "Absent: each provider's set on Settings → Audio." }
+        speed:
+          type: number
+          format: double
+          minimum: 0.7
+          maximum: 1.3
+          description: >-
+            The speed every line is spoken at, Soniox's range; absent: the provider's own. ElevenLabs is sent it
+            within its 0.7 to 1.2, and none for a model that does not apply it. A revision made from this one keeps it.
         look: { $ref: "#/components/schemas/VideoLookInput" }
         template:
           type: string
@@ -11943,10 +12094,11 @@ components:
         zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account,
         named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message,
         zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot
-        gives that they did the item.
+        gives that they did the item. comment is the owner's comment on the item itself, by the revision it made:
+        the evidence a Bot gives that he did it.
       enum:
         [url, chat_message, mail, run, pull_request, meeting_line, lark_message, zalo_message, whatsapp_message,
-         zalo_sent, whatsapp_sent, lark_sent]
+         zalo_sent, whatsapp_sent, lark_sent, comment]
     TodoLink:
       type: object
       required: [kind, ref]
@@ -11957,7 +12109,9 @@ components:
           type: string
           minLength: 1
           maxLength: 2000
-          description: The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+          description: >-
+            The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq; a
+            comment's revision.
         label: { type: string, maxLength: 300 }
         account:
           type: string

@@ -238,7 +238,7 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 		})
 	}
 
-	said, err := s.speak(ctx, source, rev.Lines, rev.Voice, rev.pin, stage, chosen)
+	said, err := s.speak(ctx, source, rev.Lines, rev.Voice, rev.Speed, rev.pin, stage, chosen)
 	if err != nil {
 		return nil, 0, at(Voicing, err)
 	}

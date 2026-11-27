@@ -1,9 +1,9 @@
 // Ported from aidemo (https://github.com/tandryukha/aidemo) at commit b67235a, src/voice.ts: voiceHash (line 234)
 // and the reuse of a scene's clip when its hash is unchanged (lines 320-372). Issue #818, row 5.
 //
-// What differs, and why: a clip is kept by the hash of its text, provider, model, voice and language in one cache
-// beside the videos, so that any later revision, of this video or another, reuses it, where aidemo compares each
-// scene with the project's previous voice.json; the provider is the first in the owner's order that answers, which
+// What differs, and why: a clip is kept by the hash of its text, provider, model, voice, language and speed in one
+// cache beside the videos, so that any later revision, of this video or another, reuses it, where aidemo compares
+// each scene with the project's previous voice.json; the provider is the first in the owner's order that answers, which
 // then speaks every scene of the revision (row 5), where aidemo's provider is set before the run.
 //
 // MIT License
@@ -42,6 +42,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
@@ -62,11 +63,15 @@ type spoken struct {
 	voice    string
 }
 
-// voiceHash is a clip's identity: its text, provider, model, voice and language.
-func voiceHash(text, provider, model, voice, lang string) string {
-	raw, _ := json.Marshal(map[string]string{ //nolint:errchkjson // Strings.
-		"text": text, "provider": provider, "model": model, "voice": voice, "lang": lang,
-	})
+// voiceHash is a clip's identity: its text, provider, model, voice, language and speed. A clip at the provider's own
+// speed (0) is named as it was before speeds, so it is still found.
+func voiceHash(text, provider, model, voice, lang string, speed float64) string {
+	parts := map[string]string{"text": text, "provider": provider, "model": model, "voice": voice, "lang": lang}
+	if speed != 0 {
+		parts["speed"] = strconv.FormatFloat(speed, 'f', -1, 64)
+	}
+
+	raw, _ := json.Marshal(parts) //nolint:errchkjson // Strings.
 	sum := sha256.Sum256(raw)
 
 	return hex.EncodeToString(sum[:])
@@ -78,8 +83,8 @@ func voiceHash(text, provider, model, voice, lang string) string {
 // is spoken only by its pin's provider, with exactly its voice, and the
 // owner's settings are not read (issue #908, row 4). done is told how many
 // lines are voiced, after each; chosen is told who speaks once the first line is spoken.
-func (s *Service) speak(ctx context.Context, source AudioSource, lines []string, asked string, pin *voicePin,
-	done func(n int), chosen func(spoken) error,
+func (s *Service) speak(ctx context.Context, source AudioSource, lines []string, asked string, speed float64,
+	pin *voicePin, done func(n int), chosen func(spoken) error,
 ) (spoken, error) {
 	if pin != nil {
 		out := spoken{
@@ -91,7 +96,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 		}
 
 		for k, line := range lines {
-			clip, err := s.clip(ctx, source, line, pin.provider, out.model, pin.voice, true)
+			clip, err := s.clip(ctx, source, line, pin.provider, out.model, pin.voice, speed, true)
 			if err != nil {
 				return spoken{}, fmt.Errorf("scene %d, %s: %w", k+1, pin.provider, err)
 			}
@@ -126,7 +131,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 			continue
 		}
 
-		clip, err := s.clip(ctx, source, lines[0], p, set.Model(p, speech.KindTTS), voiceOf(p), false)
+		clip, err := s.clip(ctx, source, lines[0], p, set.Model(p, speech.KindTTS), voiceOf(p), speed, false)
 		if err != nil {
 			if ctx.Err() != nil {
 				return spoken{}, ctx.Err()
@@ -157,7 +162,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 	done(1)
 
 	for k, line := range lines[1:] {
-		clip, err := s.clip(ctx, source, line, out.provider, out.model, out.voice, false)
+		clip, err := s.clip(ctx, source, line, out.provider, out.model, out.voice, speed, false)
 		if err != nil {
 			return spoken{}, fmt.Errorf("scene %d, %s: %w", k+2, out.provider, err)
 		}
@@ -179,11 +184,13 @@ func (s *Service) settings(ctx context.Context) (speech.Settings, error) {
 
 // clip is a line spoken by a provider and model: from the cache, or asked and kept there. A pinned clip asks its
 // provider alone, without the owner's settings (issue #908, row 4). The line is asked with its words' times: when
-// the provider sends them (ElevenLabs's alignment, issue #1283, row 3), they are kept beside the clip, so that its
+// the provider sends them (ElevenLabs's alignment, issue #1283, row 3; Soniox's WebSocket timestamps, issue #1285,
+// row 2), they are kept beside the clip, so that its
 // captions need no transcription; else clipWords hears the clip, as before.
-func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, model, voice string, pinned bool,
+func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, model, voice string, speed float64,
+	pinned bool,
 ) (string, error) {
-	hash := voiceHash(text, provider, model, voice, Language)
+	hash := voiceHash(text, provider, model, voice, Language, speed)
 	path := filepath.Join(s.cfg.Dir, voiceDir, hash+"."+clipFormat)
 
 	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
@@ -192,7 +199,7 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 
 	out, err := s.cfg.Speech.Speak(ctx, source, speech.SpeakRequest{
 		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider, Model: model,
-		Pinned: pinned, Timings: true,
+		Pinned: pinned, Speed: speed, Timings: true,
 	})
 	if err != nil {
 		return "", err

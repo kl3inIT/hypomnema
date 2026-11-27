@@ -481,3 +481,43 @@ func requestURL(kind githost.Kind, r githost.Request) string {
 
 	return adapter.RequestURL(r.Repo, r.Number)
 }
+
+// SettleClosedPullRequest settles, without reading the host, the followed pull request a pull_request event of the
+// GitHub App said merged or closed (issue #1262): the one found on a succeeded Task's branch, as the minute's pass
+// would settle it on its next read. It says how many it settled; one not found yet is left to that pass.
+func (s *Service) SettleClosedPullRequest(ctx context.Context, r githost.Request, st githost.RequestState,
+) (int, error) {
+	if st.Status != githost.RequestMerged && st.Status != githost.RequestClosed {
+		return 0, nil
+	}
+
+	follow, err := s.PullRequestsToFollow(ctx, true)
+	if err != nil {
+		return 0, err
+	}
+
+	settled := 0
+
+	for _, f := range follow {
+		if !f.Found || f.Hint == nil || f.Hint.Number != r.Number || !strings.EqualFold(f.Repo.Host, r.Repo.Host) ||
+			!strings.EqualFold(f.Repo.Path, r.Repo.Path) {
+			continue
+		}
+
+		f.Request, f.URL = *f.Hint, requestURL(f.Kind, *f.Hint)
+		if st.Head != "" {
+			f.Head = strings.ToLower(st.Head)
+		}
+
+		outcome, err := s.SettlePullRequest(ctx, f, st)
+		if err != nil {
+			return settled, err
+		}
+
+		if outcome != PullRequestGone {
+			settled++
+		}
+	}
+
+	return settled, nil
+}

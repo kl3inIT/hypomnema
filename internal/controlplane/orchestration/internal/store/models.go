@@ -454,6 +454,7 @@ type GatewayAudioProvider struct {
 	UpdatedAt   int64
 	Voice       string
 	TtsModel    string
+	SttModel    string
 }
 
 type GatewayImageProvider struct {
@@ -602,6 +603,23 @@ type GitHost struct {
 	Host      string
 	Kind      string
 	CreatedAt int64
+}
+
+type GithubAppInstallation struct {
+	Repository     string
+	RepositoryID   int64
+	InstallationID int64
+	Account        string
+	UpdatedAt      int64
+}
+
+type GithubDelivery struct {
+	ID         string
+	Event      string
+	Action     string
+	Repository string
+	Payload    sql.NullString
+	ReceivedAt int64
 }
 
 type InboxChatRead struct {
@@ -836,6 +854,18 @@ type Provider struct {
 	Source    string
 	CreatedAt int64
 	UpdatedAt int64
+}
+
+type PullRequestCi struct {
+	Repository string
+	Number     int64
+	Head       string
+	State      string
+	Failed     string
+	ReadAt     int64
+	Version    int64
+	Completed  string
+	UpdatedAt  int64
 }
 
 type PullRequestLookup struct {
@@ -1169,6 +1199,15 @@ type Todo struct {
 	ProjectID       sql.NullString
 }
 
+type TodoChatDepartment struct {
+	SourceKind    string
+	SourceAccount string
+	SourceID      string
+	DepartmentID  string
+	TodoID        string
+	UpdatedAt     int64
+}
+
 type TodoEvent struct {
 	ID        int64
 	TodoID    string
@@ -1234,6 +1273,7 @@ type VideoRevision struct {
 	PinProvider string
 	PinVoice    string
 	PinModel    string
+	Speed       float64
 }
 
 type VideoSetting struct {

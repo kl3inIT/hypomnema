@@ -59,15 +59,31 @@ describe("the model and voice pickers", () => {
     const models = [
       {
         provider: "elevenlabs" as const,
+        kind: "tts" as const,
         id: "eleven_v4",
         name: "Eleven v4",
         languages: ["en", "vi"],
       },
       {
         provider: "elevenlabs" as const,
+        kind: "tts" as const,
         id: "eleven_flash_v2_5",
         name: "Flash v2.5",
         languages: [],
+      },
+      {
+        provider: "soniox" as const,
+        kind: "tts" as const,
+        id: "tts-rt-v2",
+        name: "TTS v2",
+        languages: [],
+      },
+      {
+        provider: "soniox" as const,
+        kind: "stt" as const,
+        id: "stt-async-v6",
+        name: "Async v6",
+        languages: ["vi"],
       },
     ]
 
@@ -75,6 +91,11 @@ describe("the model and voice pickers", () => {
       { value: "eleven_v4", label: "Eleven v4", detail: "2 languages" },
       { value: "eleven_flash_v2_5", label: "Flash v2.5", detail: undefined },
     ])
+    // Soniox's transcription models are apart from its speech models (issue #1285, row 1).
+    expect(modelChoices(models, "soniox", "stt-async-v6", "stt")).toEqual([
+      { value: "stt-async-v6", label: "Async v6", detail: "1 language" },
+    ])
+    expect(modelChoices(models, "soniox", "tts-rt-v2").map((c) => c.value)).toEqual(["tts-rt-v2"])
     expect(modelChoices([], "elevenlabs", "eleven_v3")).toEqual([
       { value: "eleven_v3", label: "eleven_v3" },
     ])

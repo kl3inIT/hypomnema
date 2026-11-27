@@ -40,7 +40,7 @@ type AudioSettings interface {
 	SetAudioProvider(ctx context.Context, provider string, on bool) error
 	SetAudioOrder(ctx context.Context, kind string, providers []string) error
 	SetAudioVoice(ctx context.Context, provider, voice string) error
-	SetAudioModel(ctx context.Context, provider, model string) error
+	SetAudioModel(ctx context.Context, provider, kind, model string) error
 	// Models and Voices are the providers' own lists, for the model and voice pickers (issue #1283, rows 1 and 5).
 	Models(ctx context.Context) ([]speech.ModelInfo, []speech.Failure, error)
 	Voices(ctx context.Context) ([]speech.Voice, []speech.Failure, error)
@@ -131,7 +131,9 @@ func (s *Server) SpeakAudio(ctx context.Context, req openapi.SpeakAudioRequestOb
 	}
 
 	b := req.Body
-	in := speech.SpeakRequest{Input: b.Input, Voice: val(b.Voice), Language: val(b.Language)}
+	in := speech.SpeakRequest{
+		Input: b.Input, Voice: val(b.Voice), Language: val(b.Language), ReduceSilence: val(b.ReduceSilence),
+	}
 
 	if b.Format != nil {
 		in.Format = string(*b.Format)
@@ -242,14 +244,20 @@ func (s *Server) SetAudioVoice(ctx context.Context, req openapi.SetAudioVoiceReq
 	return openapi.SetAudioVoice200JSONResponse(out), nil
 }
 
-// SetAudioModel keeps the model a provider speaks with and answers the providers.
+// SetAudioModel keeps the model a provider is asked with for a kind, tts when none is named, and answers the
+// providers.
 func (s *Server) SetAudioModel(ctx context.Context, req openapi.SetAudioModelRequestObject,
 ) (openapi.SetAudioModelResponseObject, error) {
 	if s.audioSettings == nil {
 		return nil, errNoAudio
 	}
 
-	if err := s.audioSettings.SetAudioModel(ctx, string(req.Provider), req.Body.Model); err != nil {
+	kind := speech.KindTTS
+	if req.Body.Kind != nil {
+		kind = string(*req.Body.Kind)
+	}
+
+	if err := s.audioSettings.SetAudioModel(ctx, string(req.Provider), kind, req.Body.Model); err != nil {
 		return nil, gatewayKeyError(err)
 	}
 
@@ -261,7 +269,7 @@ func (s *Server) SetAudioModel(ctx context.Context, req openapi.SetAudioModelReq
 	return openapi.SetAudioModel200JSONResponse(out), nil
 }
 
-// ListAudioModels answers the speech models the owner may choose from.
+// ListAudioModels answers the models the owner may choose from, each with its kind.
 func (s *Server) ListAudioModels(ctx context.Context, _ openapi.ListAudioModelsRequestObject,
 ) (openapi.ListAudioModelsResponseObject, error) {
 	if s.audioSettings == nil {
@@ -278,7 +286,8 @@ func (s *Server) ListAudioModels(ctx context.Context, _ openapi.ListAudioModelsR
 	}
 	for _, m := range models {
 		out.Models = append(out.Models, openapi.AudioModelInfo{
-			Provider: openapi.AudioProvider(m.Provider), Id: m.ID, Name: m.Name, Languages: m.Languages,
+			Provider: openapi.AudioProvider(m.Provider), Kind: openapi.AudioKind(m.Kind), Id: m.ID, Name: m.Name,
+			Languages: m.Languages,
 		})
 	}
 

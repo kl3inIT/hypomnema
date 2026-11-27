@@ -806,7 +806,7 @@ export type AudioKindLink = {
    */
   on: boolean;
   /**
-   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of ElevenLabs's speech model, else the default.
+   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else the default.
    */
   model: string;
   usage: AudioUsage;
@@ -839,6 +839,7 @@ export type AudioVoice = {
 
 export type AudioModelChoice = {
   model: string;
+  kind?: AudioKind;
 };
 
 export type AudioModels = {
@@ -851,6 +852,7 @@ export type AudioModels = {
 
 export type AudioModelInfo = {
   provider: AudioProvider;
+  kind: AudioKind;
   id: string;
   name: string;
   /**
@@ -978,9 +980,13 @@ export type SpeakRequest = {
    */
   format?: 'mp3' | 'wav' | 'pcm' | 'opus';
   /**
-   * ElevenLabs's voice speed.
+   * The voice's speed: Soniox takes 0.7 to 1.3; ElevenLabs is sent it within 0.7 to 1.2, and none for a model that does not apply it, such as eleven_v4.
    */
   speed?: number;
+  /**
+   * Shorten the pauses between words; sent to Soniox only for a model that supports it.
+   */
+  reduce_silence?: boolean;
   /**
    * The text's language as an ISO-639-1 code, such as vi. Soniox speaks it, en when left out; ElevenLabs is sent it when its model covers it, and left to find it otherwise.
    */
@@ -1222,7 +1228,7 @@ export type Browser = {
    */
   chrome: string;
   /**
-   * Whether the owner holds the browser; agents' calls are refused meanwhile.
+   * Whether the owner holds any tab. Each tab says whether it is held: taking control holds only the tab taken, and only that tab's agent's calls are refused meanwhile.
    */
   held: boolean;
   tabs: Array<BrowserTab>;
@@ -1258,6 +1264,10 @@ export type BrowserTab = {
    * How many views of it are open.
    */
   views: number;
+  /**
+   * Whether the owner holds this tab; its agent's browser calls are refused meanwhile.
+   */
+  held: boolean;
 };
 
 export type BrowserViewTicket = {
@@ -1447,6 +1457,62 @@ export type NodeGpu = {
 };
 
 export type GitHostKind = 'github' | 'gitlab';
+
+/**
+ * The owner's GitHub App, without its private key or webhook secret.
+ */
+export type GitHubApp = {
+  registered: boolean;
+  app_id?: number;
+  slug?: string;
+  owner?: string;
+  html_url?: string;
+  /**
+   * GitHub's page that installs the App on repositories.
+   */
+  install_url?: string;
+  /**
+   * The control plane's page the owner registers the App from, in his signed-in browser.
+   */
+  setup_url: string;
+  installations: Array<GitHubAppInstallation>;
+  last_delivery?: GitHubDelivery;
+};
+
+export type GitHubAppInstallation = {
+  /**
+   * owner/name, in lower case
+   */
+  repository: string;
+  installation_id: number;
+  account: string;
+};
+
+export type GitHubDelivery = {
+  id: string;
+  event: string;
+  action?: string;
+  repository?: string;
+  received_at: string;
+};
+
+export type GitHubAppRedelivery = {
+  /**
+   * The id of the delivery sent again.
+   */
+  guid: string;
+  event: string;
+};
+
+export type PullRequestCi = {
+  pull_request: string;
+  head?: string;
+  state: 'pending' | 'passed' | 'failed' | 'merged' | 'closed';
+  /**
+   * The checks that failed, when the state is failed.
+   */
+  failed?: Array<string>;
+};
 
 export type GitHost = {
   host: string;
@@ -2449,6 +2515,10 @@ export type VideoRevision = {
    * The voice asked for; absent
    */
   voice?: string;
+  /**
+   * The speed its voice was asked at; absent, the provider's own.
+   */
+  speed?: number;
   captions: boolean;
   aspect: VideoAspect;
   /**
@@ -2546,6 +2616,10 @@ export type VideoMake = {
    * Absent: each provider's set on Settings → Audio.
    */
   voice?: string;
+  /**
+   * The speed every line is spoken at, Soniox's range; absent: the provider's own. ElevenLabs is sent it within its 0.7 to 1.2, and none for a model that does not apply it. A revision made from this one keeps it.
+   */
+  speed?: number;
   look?: VideoLookInput;
   /**
    * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
@@ -5499,9 +5573,9 @@ export type TodoDue = {
 };
 
 /**
- * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
+ * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item. comment is the owner's comment on the item itself, by the revision it made: the evidence a Bot gives that he did it.
  */
-export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent';
+export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent' | 'comment';
 
 /**
  * A typed reference, to where an item came from or to what shows it is done.
@@ -5509,7 +5583,7 @@ export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_reque
 export type TodoLink = {
   kind: TodoLinkKind;
   /**
-   * The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+   * The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq; a comment's revision.
    */
   ref: string;
   label?: string;
@@ -8035,6 +8109,115 @@ export type ListIntegrationsResponses = {
 };
 
 export type ListIntegrationsResponse = ListIntegrationsResponses[keyof ListIntegrationsResponses];
+
+export type GetGitHubAppData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app';
+};
+
+export type GetGitHubAppErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGitHubAppError = GetGitHubAppErrors[keyof GetGitHubAppErrors];
+
+export type GetGitHubAppResponses = {
+  /**
+   * The App.
+   */
+  200: GitHubApp;
+};
+
+export type GetGitHubAppResponse = GetGitHubAppResponses[keyof GetGitHubAppResponses];
+
+export type SyncGitHubAppInstallationsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app/installations';
+};
+
+export type SyncGitHubAppInstallationsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SyncGitHubAppInstallationsError = SyncGitHubAppInstallationsErrors[keyof SyncGitHubAppInstallationsErrors];
+
+export type SyncGitHubAppInstallationsResponses = {
+  /**
+   * The App, with its installations as GitHub says them now.
+   */
+  200: GitHubApp;
+};
+
+export type SyncGitHubAppInstallationsResponse = SyncGitHubAppInstallationsResponses[keyof SyncGitHubAppInstallationsResponses];
+
+export type TestGitHubAppDeliveryData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app/test-delivery';
+};
+
+export type TestGitHubAppDeliveryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type TestGitHubAppDeliveryError = TestGitHubAppDeliveryErrors[keyof TestGitHubAppDeliveryErrors];
+
+export type TestGitHubAppDeliveryResponses = {
+  /**
+   * The delivery GitHub was asked to send again.
+   */
+  200: GitHubAppRedelivery;
+};
+
+export type TestGitHubAppDeliveryResponse = TestGitHubAppDeliveryResponses[keyof TestGitHubAppDeliveryResponses];
+
+export type WaitPullRequestCiData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * The pull request's URL, or owner/name#number.
+     */
+    pull_request: string;
+    /**
+     * How many seconds the answer may wait for a change, at most 50.
+     */
+    wait?: number;
+  };
+  url: '/pull-requests/ci';
+};
+
+export type WaitPullRequestCiErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type WaitPullRequestCiError = WaitPullRequestCiErrors[keyof WaitPullRequestCiErrors];
+
+export type WaitPullRequestCiResponses = {
+  /**
+   * The pull request's CI.
+   */
+  200: PullRequestCi;
+};
+
+export type WaitPullRequestCiResponse = WaitPullRequestCiResponses[keyof WaitPullRequestCiResponses];
 
 export type PutIntegrationClientData = {
   body: NewIntegrationClientWritable;

@@ -21,6 +21,28 @@ func (s *Server) partsSaid(nodeID string, parts bool) {
 	s.questionParts[nodeID] = true
 }
 
+// appSaid records whether a node gives its workers fresh tokens of the owner's GitHub App (issue #1262).
+func (s *Server) appSaid(nodeID string, app bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !app {
+		delete(s.githubApp, nodeID)
+
+		return
+	}
+
+	s.githubApp[nodeID] = true
+}
+
+// takesAppTokens says whether a node said at its last hello that it gives its workers fresh App tokens.
+func (s *Server) takesAppTokens(nodeID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.githubApp[nodeID]
+}
+
 // acceptedFor is an accept or reattach's answer as the node is sent it: its resolved Gate as questionFor gives it.
 func (s *Server) acceptedFor(nodeID string, acc orchestration.Accepted) orchestration.Accepted {
 	if acc.Gate != nil {

@@ -120,6 +120,7 @@ export function PaneView({
       url: "",
       title: "",
       views: 0,
+      held: false,
     }
   const label = (tab: BrowserTab) => (tab.id === ownerTab ? "My browser" : tabName(tab))
 

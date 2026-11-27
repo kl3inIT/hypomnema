@@ -556,7 +556,7 @@ func TestAPinnedRevisionSpeaksALostClipWithItsProvider(t *testing.T) {
 	require.Equal(t, speech.ProviderSoniox, r.revision(t, v.ID, 1).Provider)
 
 	clip := filepath.Join(r.dir, voiceDir,
-		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language)+"."+clipFormat)
+		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language, 0)+"."+clipFormat)
 	require.NoError(t, os.Remove(clip))
 
 	r.mu.Lock()

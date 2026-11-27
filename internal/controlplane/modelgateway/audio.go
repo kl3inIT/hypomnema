@@ -338,6 +338,7 @@ type speechBody struct {
 	Model          string  `json:"model"`
 	ResponseFormat string  `json:"response_format"`
 	Speed          float64 `json:"speed"`
+	ReduceSilence  bool    `json:"reduce_silence"`
 	Language       string  `json:"language"`
 	Provider       string  `json:"provider"`
 }
@@ -366,7 +367,7 @@ func (s *Server) audioSpeech(w http.ResponseWriter, r *http.Request) {
 	start := s.svc.clock.Now()
 	out, err := s.speech.Speak(r.Context(), speech.SpeakRequest{
 		Input: in.Input, Voice: in.Voice, Format: in.ResponseFormat, Speed: in.Speed, Language: in.Language,
-		Provider: cmpOr(in.Provider, audioProviderOf(in.Model)),
+		ReduceSilence: in.ReduceSilence, Provider: cmpOr(in.Provider, audioProviderOf(in.Model)),
 	})
 	s.recordAudio(r.Context(), AudioCall{
 		KeyID: k.ID, Kind: speech.KindTTS, Provider: out.Provider, Model: out.Model, Failures: out.Errors, Err: err,

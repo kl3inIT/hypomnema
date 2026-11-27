@@ -5,7 +5,8 @@ people as he addresses them there.
 Write him one short message in Vietnamese, numbered across its parts in this order:
 
 1. What waits on him (`inbox_list` `needs_you`): each with its draft in full, ready to paste.
-2. Replies owed today: the "Reply to …" items due today.
+2. Replies owed today: the open items someone asked him that he has not answered (`why_open` `asked_directly`), due
+   today.
 3. People to chase: items given to someone else that are past their due date.
 4. Accounts to log in again: the "Log in again: <account>" items, which the server keeps.
 5. Đã tự đóng: what a Bot closed or dropped without him since the previous brief (at 17:00 the day before for the

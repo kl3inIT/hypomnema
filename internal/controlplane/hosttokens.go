@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/githubapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -31,6 +32,9 @@ type connections struct {
 	vault *vault.Service
 	// identities reads the account each token belongs to (issue #991); nil reads none, and offers carry none.
 	identities *gitIdentities
+	// app is the owner's GitHub App (issue #1262), whose installation's token reads a followed pull request of a
+	// repository it covers in place of the owner's; nil: none.
+	app *githubapp.App
 }
 
 // maxTokenBytes bounds a token; GitHub's and GitLab's are far shorter.

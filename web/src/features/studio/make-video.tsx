@@ -25,6 +25,13 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -45,6 +52,14 @@ import {
 import { useVideoLooks, useVideoTemplates } from "./use-look"
 
 type Aspect = NonNullable<VideoMake["aspect"]>
+
+// The speeds a video is spoken at: Soniox's range, 0.7 to 1.3 (docs.soniox.com /api-reference/tts/generate_tts),
+// by tenths; normal sends none, the provider's own.
+const normalSpeed = "normal"
+const speeds = [
+  { value: normalSpeed, label: "Normal (the provider's)" },
+  ...["0.7", "0.8", "0.9", "1.1", "1.2", "1.3"].map((v) => ({ value: v, label: `${v}×` })),
+]
 
 // MakeVideo is a take's "Make video" button and its dialog (issue #818, rows 5, 6 and 8): the voice, captions on or
 // off, and 9:16 or 16:9, as POST /videos takes them; the voice left empty is each provider's set on Settings →
@@ -78,6 +93,8 @@ export function MakeVideo({
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [voice, setVoice] = useState("")
+  // speed: the speed every line is spoken at, "normal" for the provider's own (issue #1285, row 3).
+  const [speed, setSpeed] = useState(normalSpeed)
   const [captions, setCaptions] = useState(true)
   const [aspect, setAspect] = useState<Aspect>("9:16")
   // template: the template's id, empty for none.
@@ -113,6 +130,7 @@ export function MakeVideo({
       setKey(crypto.randomUUID())
       setEdits({})
       setTemplate("")
+      setSpeed(normalSpeed)
       make.reset()
     }
   }
@@ -166,6 +184,7 @@ export function MakeVideo({
                   aspect,
                   ...named,
                   ...(voice.trim() ? { voice: voice.trim() } : {}),
+                  ...(speed !== normalSpeed ? { speed: Number(speed) } : {}),
                   ...(sent ? { look: sent } : {}),
                 },
               })
@@ -190,6 +209,26 @@ export function MakeVideo({
               <FieldDescription>
                 A voice of the provider that speaks. Leave empty for the voice set for each
                 provider.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${formId}-speed`}>Speed</FieldLabel>
+              <Select value={speed} onValueChange={(next) => next && setSpeed(next)}>
+                <SelectTrigger id={`${formId}-speed`} width="full">
+                  <SelectValue>
+                    {(v: string) => speeds.find((s) => s.value === v)?.label ?? v}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {speeds.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                How fast every line is spoken, from 0.7× to 1.3×. A look change or a retry keeps it.
               </FieldDescription>
             </Field>
             <Field orientation="horizontal">

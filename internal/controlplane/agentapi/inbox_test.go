@@ -285,8 +285,19 @@ func TestASendForAnItemCarriesItsAttempt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Doing, still.State)
 
+	// A link is no work of the Bot's; the message its send recorded on the item is (issue #1206).
+	_, text, isError = w.use(pi, agenttool.ToolInboxDone,
+		`{"id":"`+td.ID+`","evidence":[{"kind":"url","ref":"https://example.com/sent"}]}`)
+	assert.True(t, isError, text)
+
+	w.judge.approved = true
+	_, text, isError = w.use(pi, agenttool.ToolWhatsAppSend,
+		`{"chat":"120363@g.us","text":"Báo giá đã sẵn sàng","todo":"`+td.ID+`"}`)
+	require.False(t, isError, text)
+
 	done := w.inbox(pi, agenttool.ToolInboxDone, map[string]any{
-		"id": td.ID, "evidence": []map[string]string{{"kind": "url", "ref": "https://example.com/sent"}},
+		"id": td.ID, "evidence": []map[string]string{{"kind": "whatsapp_message", "ref": "sent-1", "account": "me",
+			"chat": "120363@g.us"}},
 	})
 	assert.Equal(t, inboxstore.Done, done.State)
 }

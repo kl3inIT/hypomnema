@@ -123,7 +123,7 @@ func (rt *ClaudeRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.
 			argv = append(argv, "--plugin-dir", plugin)
 		}
 
-		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey, runner.Path())
+		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey, runner.PathOf(hostEnv))
 		if err != nil {
 			return shim.Spec{}, err
 		}

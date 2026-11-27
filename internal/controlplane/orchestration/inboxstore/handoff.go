@@ -54,6 +54,9 @@ type Wake struct {
 	Attachments []chatfile.Attachment
 	// Text is the owner's prompt (WakeGiven, optional) or his comment (WakeComment).
 	Text string
+	// Comment is the revision his comment makes (WakeComment), by which it is evidence that he did the item
+	// (issue #1206): the wake-up is written in the comment's transaction, before the comment itself.
+	Comment int
 	// From is the chat with the owner the Bot that passed the item acts in (Change.Chat), taken from its session;
 	// empty in a Routine's run. Whether that chat's turn answers the owner's line decides whether the hand-off
 	// carries his mark (issue #1229).
@@ -238,6 +241,7 @@ func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, a
 		if actor.Kind == Owner && chatBot != "" {
 			chat, err := s.wakeTx(ctx, q, now, id, Wake{
 				By: actor, Kind: WakeComment, Bot: chatBot, Text: text, Attachments: att.Uploads,
+				Comment: int(cur.Revision) + 1,
 			})
 			if err != nil {
 				return err

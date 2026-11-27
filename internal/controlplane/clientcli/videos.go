@@ -90,6 +90,10 @@ func (e *env) printVideo(v *openapi.Video) {
 			by = "  " + *r.Provider + " " + val(r.UsedVoice)
 		}
 
+		if r.Speed != nil {
+			by += " at " + strconv.FormatFloat(*r.Speed, 'f', -1, 64) + "x"
+		}
+
 		captions := "captions"
 		if !r.Captions {
 			captions = "no captions"
@@ -126,6 +130,14 @@ func videosMake(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		off := false
 		body.Captions = &off
 	}
+
+	// A video is spoken at Soniox's 0.7-1.3, as POST /videos takes it.
+	speed, err := flagSpeed(fs, 0.7, 1.3)
+	if err != nil {
+		return err
+	}
+
+	body.Speed = speed
 
 	look, err := lookArg(fs)
 	if err != nil {

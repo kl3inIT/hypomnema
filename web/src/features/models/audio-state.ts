@@ -129,15 +129,17 @@ export type AudioChoice = { value: string; label: string; detail?: string }
 // defaultVoice is the value of "its own default voice", which is saved as no voice.
 export const defaultVoice = "@default"
 
-// modelChoices are a provider's speech models, the one in use kept first when the list does not have it (a list
-// that could not be read, or a model the provider no longer offers).
+// modelChoices are a provider's models of a kind (Soniox's transcription models too, issue #1285), the one in use
+// kept first when the list does not have it (a list that could not be read, or a model the provider no longer
+// offers).
 export function modelChoices(
   models: AudioModelInfo[],
   provider: AudioProvider,
   current: string,
+  kind: AudioKind = "tts",
 ): AudioChoice[] {
   const out: AudioChoice[] = models
-    .filter((m) => m.provider === provider)
+    .filter((m) => m.provider === provider && m.kind === kind)
     .map((m) => ({ value: m.id, label: m.name || m.id, detail: languagesText(m.languages) }))
   if (current && !out.some((c) => c.value === current))
     out.unshift({ value: current, label: current })

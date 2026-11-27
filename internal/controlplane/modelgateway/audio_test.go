@@ -194,7 +194,7 @@ func (g chatGateway) transcription(t *testing.T, key string, fields map[string]s
 // asked first: the recording is uploaded, the job made with speakers on,
 // polled until done, its transcript read, and the job and the file deleted.
 // The answer is verbose_json, cut into one segment a speaker with the words
-// and their speakers; the call is recorded on the key as audio/stt-async-v5
+// and their speakers; the call is recorded on the key as audio/stt-async-v6
 // with the seconds heard.
 func TestARecordingIsTranscribedWithItsSpeakers(t *testing.T) {
 	t.Parallel()
@@ -207,7 +207,7 @@ func TestARecordingIsTranscribedWithItsSpeakers(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, status, body)
 	assert.JSONEq(t, `{"task":"transcribe","text":"Hello there. Hi.","language":"en","duration":4.2,
-		"provider":"soniox","model":"stt-async-v5",
+		"provider":"soniox","model":"stt-async-v6",
 		"segments":[{"id":0,"start":0,"end":0.9,"text":"Hello there.","speaker":"1"},
 			{"id":1,"start":1,"end":1.4,"text":"Hi.","speaker":"2"}],
 		"words":[{"word":"Hel","start":0,"end":0.2,"speaker":"1"},{"word":"lo","start":0.2,"end":0.4,"speaker":"1"},
@@ -217,14 +217,14 @@ func TestARecordingIsTranscribedWithItsSpeakers(t *testing.T) {
 	soniox.mu.Lock()
 	assert.Equal(t, "Bearer sx-key", soniox.auth)
 	assert.Equal(t, map[string]any{
-		"model": "stt-async-v5", "file_id": "file-1", "enable_speaker_diarization": true,
+		"model": "stt-async-v6", "file_id": "file-1", "enable_speaker_diarization": true,
 		"enable_language_identification": true,
 	}, soniox.job)
 	assert.Equal(t, []string{"/transcriptions/job-1", "/files/file-1"}, soniox.deleted)
 	soniox.mu.Unlock()
 
 	u := g.lastUsage(t)
-	assert.Equal(t, "audio/stt-async-v5", u.Model)
+	assert.Equal(t, "audio/stt-async-v6", u.Model)
 	assert.Equal(t, "soniox", u.Provider)
 	assert.Equal(t, modelgateway.OutcomeOK, u.Outcome)
 	assert.Equal(t, 4200*time.Millisecond, u.Audio)
@@ -385,8 +385,9 @@ func TestEachKindHasItsOwnOrderAndCounts(t *testing.T) {
 }
 
 // Scenario: the owner chooses ElevenLabs's speech model (issue #1283, row 1); it is in the settings each request
-// reads, empty sets back the default, and Soniox, which has one model, takes no choice. The speech spoken with the
-// model chosen before and with the one chosen now are both counted as speech.
+// reads, empty sets back the default, and ElevenLabs, which hears with Scribe alone, takes no transcription model
+// (Soniox's are chosen too: issue #1285, row 1). The speech spoken with the model chosen before and with the one
+// chosen now are both counted as speech.
 func TestTheOwnerChoosesElevenLabssSpeechModel(t *testing.T) {
 	t.Parallel()
 
@@ -397,16 +398,17 @@ func TestTheOwnerChoosesElevenLabssSpeechModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "eleven_v4", set.Model(speech.ProviderElevenLabs, speech.KindTTS), "the default")
 
-	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", " eleven_v3 "))
+	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", "tts", " eleven_v3 "))
 
 	set, err = g.svc.AudioSettings(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"elevenlabs": "eleven_v3"}, set.Models)
 	assert.Equal(t, "eleven_v3", set.Model(speech.ProviderElevenLabs, speech.KindTTS))
 
-	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "soniox", "tts-rt-v3"), modelgateway.ErrInvalid)
-	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "eleven v3"), modelgateway.ErrInvalid)
-	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "google", "x"), modelgateway.ErrNotFound)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "stt", "scribe_v3"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "tts", "eleven v3"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "both", "x"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "google", "tts", "x"), modelgateway.ErrNotFound)
 
 	speak := func(want string) {
 		t.Helper()
@@ -418,7 +420,7 @@ func TestTheOwnerChoosesElevenLabssSpeechModel(t *testing.T) {
 
 	speak("eleven_v3")
 
-	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", ""))
+	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", "tts", ""))
 
 	set, err = g.svc.AudioSettings(ctx)
 	require.NoError(t, err)
@@ -430,4 +432,39 @@ func TestTheOwnerChoosesElevenLabssSpeechModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, modelgateway.AudioTally{Answered: 2, Characters: 16}, counts["elevenlabs"][speech.KindTTS].Today)
 	assert.Zero(t, counts["elevenlabs"][speech.KindSTT].Today)
+}
+
+// Soniox's transcription and speech models are the owner's to choose too (issue #1285, row 1), each kept apart; the
+// requests heard with the model before an upgrade, stt-async-v5, and after it, stt-async-v6, are one tally.
+func TestTheOwnerChoosesSonioxsModelsAndTheTallyKeepsAcrossAnUpgrade(t *testing.T) {
+	t.Parallel()
+
+	g := audioGateway(t, &fakeSoniox{})
+	ctx := t.Context()
+
+	set, err := g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "stt-async-v6", set.Model(speech.ProviderSoniox, speech.KindSTT), "the newest")
+	assert.Equal(t, "tts-rt-v2", set.Model(speech.ProviderSoniox, speech.KindTTS))
+
+	require.NoError(t, g.svc.SetAudioModel(ctx, "soniox", "stt", "stt-async-v7"))
+	require.NoError(t, g.svc.SetAudioModel(ctx, "soniox", "tts", "tts-rt-v3"))
+
+	set, err = g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "stt-async-v7", set.Model(speech.ProviderSoniox, speech.KindSTT))
+	assert.Equal(t, "tts-rt-v3", set.Model(speech.ProviderSoniox, speech.KindTTS))
+
+	for _, model := range []string{"stt-async-v5", ""} {
+		require.NoError(t, g.svc.SetAudioModel(ctx, "soniox", "stt", model))
+
+		status, _, body := g.transcription(t, g.key, nil)
+		require.Equal(t, http.StatusOK, status, body)
+	}
+
+	counts, err := g.svc.AudioCounts(ctx, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, 2, counts[speech.ProviderSoniox][speech.KindSTT].Today.Answered)
+	assert.Equal(t, 2, counts[speech.ProviderSoniox][speech.KindSTT].Month.Answered)
+	assert.Zero(t, counts[speech.ProviderSoniox][speech.KindTTS].Month.Answered)
 }

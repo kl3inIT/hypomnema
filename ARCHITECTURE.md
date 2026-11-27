@@ -51,8 +51,8 @@ flowchart TB
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
-| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
+| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key`, `ci` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
+| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `run`, `service`, `tool`, `shim`, `mcp`, `gitssh`, `gh`, `git-credential`, `hypomnema`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
@@ -681,15 +681,18 @@ sequenceDiagram
     back as it is.
     A control plane that cannot be reached leaves the worker `ask` and `finish`. The tab is not closed when the Dispatch settles: the idle
     rules close it.
-  - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
-    agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
-    browser: every agent's call is then answered, as a tool's result, that the browser is paused, a read included,
-    and nothing reaches agent-browser. Taking control holds at once and lets an agent's running call end for up
-    to 15 seconds; that call is answered as refused too. Control goes back to the agents at once when the owner
-    hands it back (`releaseControl`), 2 minutes after the owner's last view went, however it went (the page
-    closing it, as switching to another tab of the pane does, or a socket that dropped; a view opened meanwhile
-    carries the hold on; issue #603, after OpenMausBot's phone, `server/routes/phone-screen.ts`), and 5 minutes
-    after the owner's last input (OpenMausBot's limits).
+  - Who drives each tab (issues #219, #1113; `control.go`, after T3 Code's per-tab
+    `apps/server/src/preview/SessionControl.ts`): its agent, or the owner who took control of it. Taking control
+    holds only the tab taken: that tab's agent's calls (and a take's film, still and box of it, and
+    `EvaluateOwnerTab` for the owner's own tab) are then answered, as a tool's result, that its tab is paused, a
+    read included, and nothing reaches agent-browser; the other agents go on in their own tabs, and the owner may
+    hold several tabs. Taking control holds at once and lets the tab's agent's running call end for up to 15
+    seconds; that call is answered as refused too. A tab goes back to its agent at once when the owner hands it
+    back (`releaseControl`), 2 minutes after the owner's last view of it went, however it went (the page closing
+    it, as switching to another tab of the pane does, or a socket that dropped; a view opened meanwhile carries
+    the hold on; issue #603, after OpenMausBot's phone, `server/routes/phone-screen.ts`), and 5 minutes after the
+    owner's last input in it (OpenMausBot's limits). Until issue #1113 one hold covered the whole browser, as
+    OpenMausBot's `ProfileControl`; it paused a Bot in its own tab while the owner signed in in his.
   - The owner watches a tab (issue #219; `view.go`, `clientapi/browser.go`): an agent's, or the owner's own tab
     `owner`, which is made when it is first watched and is where a sign-in is made. `POST
     /api/v1/browser/tabs/{tab}/views` gives a ticket (owner only, once, 30 seconds), which opens the WebSocket
@@ -706,11 +709,23 @@ sequenceDiagram
     change wins, and a tab nobody watches goes back to agent-browser's 1280×720. Mouse, wheel and keys go to the stream as agent-browser's
     `input_mouse` and `input_keyboard`, navigation runs as the session's own command, and all of them need
     control: without it they are dropped and the page is told again who controls. At most 4 views are open; a
-    tab that is watched is not closed as idle. Each view and each take-over is logged
+    tab that is watched is not closed as idle. Every tab is in one window of Chrome, which paints only the tab in
+    front (`front.go`): a view brings its tab there as it opens (`Target.activateTarget`, as agent-browser's tab
+    switch brings a tab to the front), so the tab watched last streams, and when that view closes the view opened
+    before it brings its own tab back; before issue #1113 a Bot's tab behind the owner's sent no frame. Moving the
+    focus is the owner's action queued behind the agents' calls running in the browser, as OpenMausBot's viewer
+    brings a tab to the front through its control (`server/browser/viewers/core.ts:845`): it waits for them, at
+    most 15 seconds, and a call asked for meanwhile waits for it, since a page may fail a call that needs the
+    focus when it moves mid-way. Moves asked for while one waits replace it and share its wait, and only the
+    newest view's tab is brought forward. Views are ordered when requested. Making the owner's tab the first
+    time it is watched shares the focus deadline with moves requested while it is being made, since a new tab
+    comes in front by itself. A call's tab hold is entered after that wait and checked
+    again as the call is about to run, so a tab the owner took meanwhile runs nothing of its agent's. Each view and each take-over is logged
     (`clientapi.browser_view_opened`, `_closed`, `browser.taken`, `browser.released`) with who, which tab, from
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
-    say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
+    say whether it is installed and running, whether the owner holds any tab, and list the tabs: whether the owner
+    holds each (`held`), whose each is (a worker's with its Dispatch, Task and
     Run), the chat it belongs to (`chat_id`, issue #557), its address and title as Chrome's own DevTools port lists them,
     and its page's icon (`favicon`, issue #703): a `data:` address of an image of 64 KiB at most, which the
     engine has the page read in a world of the engine's own beside the page's (`browser/favicon.go`, OpenClaw's
@@ -723,15 +738,14 @@ sequenceDiagram
     `disposeOnDetach: false`, as www222fff/muse2api's driver), sets its cookies (`Storage.setCookies`) and a tab
     in it (`Target.createTarget` with the context, attached flat on a DevTools connection of the engine's own), and
     gives its steps: navigate, evaluate (awaiting a promise, by value), insert text, click, Enter, and the
-    context's cookies. Every step enters and leaves the owner's hold as an agent's call does: while he holds the
-    browser none runs, and one running when he takes it answers `ErrHeld`, its result dropped. A tab that went
+    context's cookies. Such a tab is no tab the owner takes, and no hold pauses its steps (issue #1113). A tab that went
     away is made again in its context; a Chrome started again has none of the contexts, and the next `Page` makes
     a new one from the cookies given (`ErrPageGone` meanwhile). `DisposeContext` closes one. The owner's own path
-    runs while he holds the browser, as his input does: `OpenOwnerTab` loads an address in his tab,
+    runs while he holds his tab, as his input does: `OpenOwnerTab` loads an address in his tab,
     `ProfileCookies` reads the shared profile's cookies of a domain and `ClearProfileCookies` removes them (set
     again expired). `EvaluateOwnerTab` runs a script in the owner's tab, in the page's own world, attached to it
     on a DevTools connection of its own (issue #798): it is the control plane's step there, refused with `ErrHeld`
-    under the hold as a context's are, and `ErrNoSuchTab` with no owner's tab. The Muse pool is their one caller;
+    while the owner holds his tab, and `ErrNoSuchTab` with no owner's tab. The Muse pool is their one caller;
     no agent reaches a context, and none is listed as a tab.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
@@ -751,8 +765,9 @@ sequenceDiagram
     tabs its strip lists (`chat`), so that the owner's tab shown in place of a Bot's still lists the chat's. Panes
     of the grid that open a tab beside them in one update each build on the grid as kept now (`latestBench`), so
     that one does not undo the other's. The tab is shown as `BrowserView`, one piece that holds the address
-    row, the control button and the picture. While the owner holds the browser the sidebar says so on every
-    page, since every agent's browser tools wait meanwhile. It
+    row, the control button and the picture. While the owner holds a tab the sidebar names the tabs he holds on
+    every page, and whether their agents wait; the view of a tab he does not hold names the ones he does and says
+    its agent goes on (issue #1113). It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
     paints on a canvas the size of the frame, fitted with `object-contain`, one decode at a time; and maps the
     pointer through the letterbox to the tab's own pixels. Moves and wheel steps are merged, one message a
@@ -761,7 +776,7 @@ sequenceDiagram
     Control is taken only with the button; without it the page takes no input and the address row is off. A
     dropped view is tried again after half a second, doubled each time up to ten; a tab that is gone, and a
     control plane with no browser, say so. The stream stops while the page is hidden, unless the owner holds the
-    browser. Adapted from T3 Code and OpenMausBot (`web/THIRD_PARTY_NOTICES.md`). On a phone a tap is a click and
+    tab. Adapted from T3 Code and OpenMausBot (`web/THIRD_PARTY_NOTICES.md`). On a phone a tap is a click and
     a drag scrolls; typing there is not done yet.
   - Others on the control plane's machine: agent-browser serves each session's stream, and a route that runs
     commands in it, on `127.0.0.1` with no key, and Chrome's DevTools port is on `127.0.0.1` too, as in T3 Code
@@ -1177,15 +1192,18 @@ sequenceDiagram
     update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
     failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
     10 revisions wait; one has 20 minutes and does not start with less than 400 MB free. Voicing goes through
-    `speech.Service` in Vietnamese (`vi`), one clip per scene: the first text-to-speech provider of the owner's
+    `speech.Service` in Vietnamese (`vi`), one clip per scene, at the revision's speed (`speed`, 0.7-1.3 or 0 for the
+    provider's own, chosen in the make dialog or `hypomnema videos make --speed`, which refuses one out of range, and
+    kept by a look change, a retry and a revision of changed lines; issue #1285, the owner 2026-11-27): the first
+    text-to-speech provider of the owner's
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the model is the
-    owner's choice for that provider (ElevenLabs's speech model, issue #1283). Each line is asked with its words'
-    times: ElevenLabs answers its alignment (`/with-timestamps`), and the words built from it are kept beside the
-    clip (`<clip>.words.json`) as they are, each with its own times, so its captions need no transcription; a provider without one (Soniox, or an
-    ElevenLabs answer without alignment) has its clip transcribed at captioning, as before. The word times are
+    model, voice, language and speed (none at the provider's own) (aidemo's voiceHash, ported) and reused by any later
+    revision; the model is the owner's choice for that provider (issues #1283, #1285). Each line is asked with its
+    words' times: ElevenLabs answers its alignment (`/with-timestamps`), Soniox its WebSocket's timestamps (issue
+    #1285), and the words built from them are kept beside the clip (`<clip>.words.json`), so its captions need no
+    transcription; an answer without them has its clip transcribed at captioning, as before. The word times are
     removed before the clip is spoken again. A revision made from another (a look change, a retry) is **pinned**
     (`pin_provider`, `pin_voice`, `pin_model`, migration of #1283): only that provider is asked, with exactly that
     voice, even an empty one, and that model (empty, as for a pin made before: the model the revision was spoken
@@ -2572,6 +2590,85 @@ flowchart LR
   - Work on a repository uses the Connection its registered repository names (`repos add --connection`), else
     the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
     A Connection a registered repository names cannot be removed.
+  - **The owner's GitHub App** ([issue #1262](https://github.com/kl3inIT/hypomnema/issues/1262); migration
+    00188; `internal/controlplane/githubapp`, its tables in `orchestration/githubstore`; owner's steps in
+    [docs/github-app.md](docs/github-app.md)). Workers and the coordinator act on the repositories it is installed
+    on with its installations' tokens, which count against the App's own rate limit, not the owner's token's
+    (GitHub's "Rate limits for GitHub Apps"); GitHub's events end the waits for CI. The owner's token stays for his
+    own actions and for the repositories the App does not cover, so nothing changes before the App exists.
+    - **Registering it** from a manifest (GitHub's "Registering a GitHub App from a manifest"; Omnara's guided
+      setup, `docs/integrations/github.mdx:20-75`, `internal/httpapi/github_app_setup_routes.go:88-107`): the page
+      `/api/v1/integrations/github/app/setup`, which only the owner's session or token opens, posts the manifest to
+      `https://github.com/settings/apps/new?state=…`: a private App on his account with Pull requests, Issues and
+      Contents read and write and Actions, Checks and Commit statuses read; events `check_suite`, `workflow_run`,
+      `pull_request`, `issue_comment`, `pull_request_review` and `pull_request_review_comment`; its webhook at
+      `<HYPOMNEMA_PUBLIC_URL>/api/v1/integrations/github/events`, its redirect at `…/app/callback` and its setup
+      URL at `…/app/installed`. The page needs the public URL to be HTTPS. The state is random, kept in memory for
+      an hour (GitHub's code is good for one) and good once, so a restart loses a registration not completed. The
+      callback exchanges the code (`POST /app-manifests/{code}/conversions`) and keeps the App's id, name, private
+      key and webhook secret as one value in the vault secret `github-app` (`githubapp.Credential`, as Omnara keeps
+      them as one credential); the key and the secret are never answered, logged or written anywhere else. A new
+      registration replaces the App. `GET /integrations/github/app` (`hypomnema hosts app`) shows it without them.
+    - **Its installations** are read from GitHub (`GET /app/installations` with the App's JWT, RS256 and nine
+      minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
+      back from installing it, on each `installation` and `installation_repositories` event, and on
+      `POST /integrations/github/app/installations` (`hosts app sync`), and kept by repository
+      (`github_app_installations`: `owner/name` in lower case, GitHub's repository id, installation id, account).
+      `POST /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the
+      App's latest delivery again (`POST /app/hook/deliveries/{id}/attempts`); GitHub keeps its id, so it is answered
+      200 as handled before, which GitHub's Recent Deliveries shows.
+    - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): a token is made with the App's
+      JWT for one repository (`POST /app/installations/{id}/access_tokens` with `repository_ids`, as Omnara's
+      `auth.go:138-162`; every permission the installation has), so it reaches that repository alone, and reused
+      until 15 minutes before its end (Omnara's git credentials margin); only the listing of an installation's
+      repositories asks for one of the whole installation, which no one is given. A Dispatch on a repository the
+      App covers is offered as the App's (`github_app` set) with no token at all, only by a node that said
+      `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole Dispatch, is
+      given the owner's, as before. So no token of the App's is kept with the offer in the node's state, in the
+      worker's environment or in the shim's spec. The commits still name the owner's account (issue #991). Such a
+      node asks for a fresh token for its own clone, fetch and push (`publish_branch`), and puts `github-bin/` of the
+      Dispatch's directory first on the worker's PATH,
+      holding `gh` and `hypomnema` scripts, sets git's credential helper for github.com (an empty helper first,
+      which drops the user's own) to `hypomnema-node git-credential`, and leaves out `GH_TOKEN` and the token's
+      header; `hypomnema-node gh` sets `GH_TOKEN` and runs the real gh, and the helper answers git with
+      `x-access-token`, each with a fresh token asked of `POST /agent/v1/github/token` with the Dispatch's key, as
+      Omnara's agents ask their daemon (`internal/machinedaemon/git_credential_helper.go`). When the control plane
+      gives none (the App no longer covers the repository, or the node reconnected to a control plane of an earlier
+      release, without the route), gh and git fail closed, saying why, as Omnara's `RunGitHubCLI` returns its
+      credential error: no token is kept on the node, and the machine's own login may reach more than the owner's.
+      A Bot's gh through the service proxy goes with the App's token
+      when its request names a repository the App covers (a REST path under `/repos/{owner}/{repo}`, or GraphQL
+      variables `owner` with `repo` or `name`, as gh sends them); the control plane's own reads of a followed pull
+      request (#1053) use it too.
+    - **Its deliveries** (`POST /api/v1/integrations/github/events`, outside the client API's contract, after
+      Omnara's `webhooks.go:21-120`): a body over 2 MiB, or one whose `X-Hub-Signature-256` is not the HMAC-SHA256
+      of the body with the webhook secret (compared in constant time), is refused (401 for a signature) and changes
+      nothing. Each delivery is recorded by its `X-GitHub-Delivery` id (`github_deliveries`, kept 30 days): one
+      whose id was recorded is answered 200 and not handled again. The body of `issue_comment`,
+      `pull_request_review` and `pull_request_review_comment` is kept for #1232, which answers them; nothing else is
+      done with them yet. `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
+      for reads its checks once with the repository's token; `pull_request` `synchronize` (a new head) or
+      `reopened` resets that wait to pending at the new head, unread, so the next ask reads the new head's checks;
+      each change of the row grows its `version`, and a read of GitHub's keeps what it found only when the row is
+      still at the version the read began from, so a read of the old head that ends after the reset never
+      overwrites it, and the wait answers from the row as kept; a read that found the row's own head passed or
+      failed is kept even when another write came first, if the row says pending or ended earlier by the checks'
+      `completedAt` (a rerun of the head: the later end wins, compared only when both have a time; one without a
+      time never loses to one with a time), but a read that found the pull request merged or
+      closed never wins so, and a reopen's pending stands;
+      `pull_request` `closed` marks it merged or closed and settles a followed pull request (#1053) without reading
+      GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
+    - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks
+      `GET /pull-requests/ci` (client API, for the coordinator) or `GET /agent/v1/ci/wait` (a worker, through its
+      `hypomnema` script) again and again, each ask held up to 50 s, under a reverse proxy's minute. The first wait
+      for a pull request reads its checks (`pull_request_ci`: head, state, failed checks, when read); after that
+      only the App's events change it, and a read when none came for five minutes, of a passed or failed state too,
+      whose head may have moved; a merge or a close is final until a reopen. The checks waited for are the
+      required ones, or every one when none is required, as `gh pr checks --watch` waits for all of them; pending
+      while one runs or before any is reported, else failed when one failed, else passed. It exits as gh does: 0
+      passed or merged, 1 failed or closed, 8 still pending at the timeout. A repository the App does not cover,
+      or a control plane without the route, is waited for with `gh pr checks <pr> --required --watch --interval
+      60` (once a minute, for GitHub's shared limit) within the same timeout, gh being stopped at its end.
   - An Integration that is not a git host signs in with OAuth (`internal/controlplane/integration`, step 2 of
     [issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Google is the only one: Gmail, Calendar, Drive,
     Docs, Sheets and Search Console (`searchconsole`, `webmasters` scopes; issue
@@ -4845,35 +4942,54 @@ not checked against the live site in the change that wrote them.
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
-[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
+[research](docs/research/2026-11-17-meetings-and-gateway-audio.md); Soniox's update, issue #1285,
+[research](docs/research/2026-11-27-soniox-v6-and-tts-timestamps.md)): speech to text and text to speech with the
 owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
 (`hypomnema audio`, see the client API).
-- Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with one model a kind: Soniox `stt-async-v5`
-  and `tts-rt-v2`, ElevenLabs `scribe_v2` and, for speech, the model the owner chose from ElevenLabs's `GET
-  /v1/models`, `eleven_v4` by default (issue #1283, [research](docs/research/2026-11-27-elevenlabs-integration.md);
-  `speech.Settings.Model`). Speech to text and text to speech each ask
+- Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with the model the owner chose for a kind,
+  else its default (`speech.Settings.Model`): Soniox's transcription and speech models, chosen from its `GET
+  /v1/models` (async ones) and `GET /v1/tts-models`, `stt-async-v6` and `tts-rt-v2` by default (issue #1285); ElevenLabs
+  `scribe_v2` and, for speech, the model the owner chose from ElevenLabs's `GET /v1/models`, `eleven_v4` by default
+  (issue #1283, [research](docs/research/2026-11-27-elevenlabs-integration.md)). `PUT
+  /gateway/audio/providers/{provider}/model` `{model, kind?}` sets one (tts when no kind); `GET /gateway/audio/models`
+  lists both providers' models with their kind. A row's kind is told by its model (`speech.KindOf`: Soniox's
+  `stt-…`, ElevenLabs's Scribe), so the Audio page's tally keeps across a model upgrade. Speech to text and text to speech each ask
   the providers that are on in the owner's order for that kind; the first that answers wins and the answer says why
   those before it did not.
 - Keys: each provider takes several, vault secrets `speech-<provider>` and `speech-<provider>-<n>` (the lowest free
   number), read at each call, asked least recently used first; a key that is rate limited (429: its `Retry-After`,
   else 2 s doubling to 5 minutes), out of credits (402 or the words, 5 minutes doubling to an hour) or refused
   (401, 403: 2 minutes) rests on its own and the provider's next key is asked, as web search's keys; any other
-  failure goes to the next provider. In memory. Every key resting is 429; no provider on with a key, 503.
+  failure goes to the next provider. In memory. Every key resting is 429; no provider on with a key, 503. Soniox's
+  402 reads "Soniox balance is empty".
 - Soniox (MemoryOS `voice/SonioxApi.java`, `SonioxAsync.java`; LiteLLM `llms/soniox/`), bearer key, base
   `https://api.soniox.com/v1`: `POST /files` (the recording, multipart `file`, streamed), `POST /transcriptions`
   `{model, file_id, enable_speaker_diarization?, language_hints + language_hints_strict, or
-  enable_language_identification}`, `GET /transcriptions/{id}` each second until `completed` (or `error`) up to 30
-  minutes, `GET /transcriptions/{id}/transcript` (`{text, tokens: [{text, start_ms, end_ms, speaker, language,
+  enable_language_identification}`, `GET /transcriptions/{id}` every 5 s (soniox-python's `wait`) until `completed`
+  (or `error`) up to 30 minutes, `GET /transcriptions/{id}/transcript` (`{text, tokens: [{text, start_ms, end_ms, speaker, language,
   is_audio_event}]}`), then `DELETE` the transcription and the file, best effort, even after the caller left. The
   length is `audio_duration_ms`. Its speech is OmniRoute's: `POST https://tts-rt.soniox.com/tts` `{text, model,
-  language (en), voice (Adrian, also for OpenAI's voice names), audio_format (pcm as pcm_s16le)}`; its one voice
-  listed is Adrian, OmniRoute's default (no reference lists more).
+  language (en), voice (Adrian, also for OpenAI's voice names), audio_format (pcm as pcm_s16le), speed? (0.7-1.3,
+  else 400 when Soniox is named), reduce_silence? (only for a model whose `/v1/tts-models` entry has
+  `supports_silence_reduction`), client_reference_id (the request's `Reference`, else a new `hypomnema-<hex>`)}`; a
+  line over 5,000 characters is refused before the call. A line asked with `Timings` (Studio's) goes over
+  `wss://tts-rt.soniox.com/tts-websocket` instead, as pipecat speaks it: the key as a bearer header, one stream with
+  the same config and `return_timestamps: true`, the line with `text_end`, the base64 audio and the `timestamps`
+  arrays appended until `terminated`, an `error_code` read as that status's refusal (a model the catalog says gives
+  no timestamps goes over REST). Its words are the shared splitter's (`alignmentWords`, below) matched back to the
+  line's own words (`speech.AlignedWords`: a longest common subsequence of their letters and digits, NFC; a run
+  between two matches, such as "59%" spoken as words, shares their time), so a caption shows the line's spelling.
+  Speech, either way, is asked again like ElevenLabs's (`speech/retry.go`, 408 too), each attempt waiting for a
+  place of its key's limiter, at most 3 at once and 100 a minute (`speech/limit.go`, Soniox's REST limits). Its
+  voices are the built-in voices of its speech model (`GET /v1/shared-voices?model=`, each page) and the account's
+  cloned voices `ready` for it (`GET /v1/voices`), kept a day a key and model.
 - ElevenLabs (9router-go `internal/handlers/media/elevenlabs_stt.go`, `voices.go`; Bifrost
   `core/providers/elevenlabs/`; LiteLLM `llms/elevenlabs/text_to_speech/`), `xi-api-key`, base
   `https://api.elevenlabs.io`: `POST /v1/speech-to-text` multipart `{model_id, file, timestamps_granularity word,
   language_code?, diarize?}`, its words' `speaker_id` the speakers, a spacing no word, an audio event no speech, the
   length the last word's end; `POST /v1/text-to-speech/{voice_id}?output_format=` (LiteLLM's mp3_44100_128,
-  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, language_code?, voice_settings: {speed}?}`, OpenAI's voice
+  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, language_code?, voice_settings: {speed}?}` (the speed moved
+  into ElevenLabs's 0.7-1.2, and none for `eleven_v4`, which does not apply it; issue #1285), OpenAI's voice
   names mapped to LiteLLM's voices, none Rachel; `language_code` is the caller's language (a video's `vi`,
   `audio_speak`'s `language`), cut to its ISO 639-1 code (`en-US` is `en`), when the model's languages in `GET
   /v1/models` cover it, else left out with a warning (pipecat's guard); a model older than v2.5
@@ -4881,7 +4997,7 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   or does not name the model, it is sent. A video's line
   goes to `/with-timestamps` (`{audio_base64, alignment}`): `alignment` (not `normalized_alignment`) is split into
   words on whitespace, each from its first character's start to its last's end, a bracketed audio tag (`[laughs]`)
-  no word (`speech.Speech.Words`). A 429 or 5xx (not one out of credits) is asked again twice, after its
+  no word (`speech.Speech.Words`). A 408, 429 or 5xx (not one out of credits) is asked again twice, after its
   `Retry-After` (at most 60 s) or 1 s doubling, before the key rests (the SDK's retry; `speech/retry.go`, for
   speech and the lists, not Scribe); each attempt has its own 2-minute budget and the waits are apart from it, as
   the SDK's timeout is a request's. `GET /v1/voices` (the account's own and saved library voices) and `GET
@@ -4898,7 +5014,8 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   provider again when both are present. A clip voiced before its word times were cached is transcribed on its
   first use with captions.
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
-  `tts_position`, then `voice` (00126) and `tts_model` (issue #1283); read and written only by the gateway): one
+  `tts_position`, then `voice` (00126), `tts_model` (issue #1283) and `stt_model` (issue #1285); read and written
+  only by the gateway): one
   switch a provider for both kinds, each kind's order, a provider's voice for videos and ElevenLabs's speech model.
   A usage row's kind is told by its model (`speech.KindOf`: the provider's one transcription model, else speech),
   and a kind's count sums every model it was asked with.
@@ -4979,7 +5096,7 @@ gateway chat model writes its summary, decisions and actions.
   WebSocket `/api/v1/meetings/{id}/stream/{ticket}?track=&offset=` (outside the contract, as a terminal's, both
   server deadlines lifted): PCM16 24 kHz mono frames of at most 64 KiB and one `{"type":"end"}` in; `ready`,
   `preview`, `line` (kept), `finished`, `error {code}` out; a ping every 20 s; a track with no audio for 60 s
-  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v5`, the key as a
+  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v6`, the key as a
   bearer header, endpoint detection, diarization except an online microphone, which is the owner, shown "You" and
   not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
   frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
@@ -5072,7 +5189,8 @@ its client API, its CLI and the Bots' tools.
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
   `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`, as a
-  `lark_message`, `zalo_message` or `whatsapp_message` given as a person's message does (issue #1204);
+  `lark_message`, `zalo_message` or `whatsapp_message` given as a person's message does (issue #1204), and
+  `comment`, the owner's comment on the item itself by the revision it made (issue #1206);
   `closed_at`); `duplicate_of`; `chat_id`, the item's own chat with the Bot it was given to (migration 00165, issue
   #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
   is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
@@ -5086,7 +5204,13 @@ its client API, its CLI and the Bots' tools.
   NULL`, so a department removed in the sidebar leaves its items without one (`inboxstore/projects.go`): the owner
   and a Bot set them as the item's other fields (a Bot on the items it added or was given), each change an `edited`
   event; an item without a project that is added for, given or passed to a Bot in a department takes that
-  department in the same write (`botsDepartment`); a create's idempotency key,
+  department in the same write (`botsDepartment`); an item read in one of the owner's chats (Lark, Zalo, WhatsApp,
+  Gmail) without a project, added or updated by a Bot that names none (moved to Waiting on others too), takes,
+  first, the department the owner last
+  moved an item of that chat to
+  (`todo_chat_departments`, by source kind, account label and chat id, migration `inbox_chat_departments`; the
+  owner's `Edit` of an item's project records it, taking it out of any forgets it, a Bot's teaches nothing; issue
+  #1206, as Linear's Asks map a Slack channel to a team); a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed`, `linked_approval` or `commented` (its text in `after.text`), the revision it made, JSON of the fields before and after, and the
@@ -5101,15 +5225,33 @@ its client API, its CLI and the Bots' tools.
   (`asked_directly`: someone tagged or messaged the owner and he has not answered; `promised`: the owner promised
   it; `waiting`, from one of `FoundKinds` only, with `NewTodo.WaitingOn`, see Waiting on others below), a quote and
   a reference to the message, and `why_open` is kept in the item and its created event; only the owner accepts a
-  proposal (`Accept`), and a Bot opens one only by `WaitOn`;
+  proposal (`Accept`), and a Bot opens one only by `WaitOn`; one ask is one item from the ask to the work to done
+  (issue #1206): an `Edit` with `WhyOpen` makes an `asked_directly` item still given to the owner his promise
+  (`promised`, and nothing else; a Bot only on an item it added), an `edited` event, as inbox-zero sets a thread's
+  status again on each message (`outbound.ts:123-139`);
   the Bot assigned starts an open item, and only an open one, in a chat or Run, in a new attempt with its own id,
   as Hermes binds a worker's session to its task, run and claim (`gateway/session_kanban.py`), so several items
   may be worked on in one chat or Run (`Start`); the system puts a doing item in review with one pending Approval
   its current attempt asked, whatever chat or Run it came from (`LinkApproval`) and back
   to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
+  Bot closes as its own (`done_by` itself) only work it did on the item in this attempt, whatever its `why_open`
+  (issue #1206; owner, 2026-11-27, `botsWork`), and every piece of its evidence is that work as the control plane
+  recorded it: a `run` that is the attempt's own Run or one of that Bot made from the item's own chat since the
+  attempt began (`CountAttemptRun`), a `pull_request` a non-review task of such a Run gave as its finish's evidence
+  or was looked up for (`CountAttemptPullRequest`; a `reviewer` task names the pull request it reviewed, as
+  `pullrequests.go` leaves it out), its own `comment` in this attempt carrying an Artifact or files the agent API
+  read in its folder at the path the comment keeps, every one of them (`Attached.Read`, `FolderPath`,
+  `files_checked`, through `agentapi.WithBotFiles`, the Files panel's
+  reader), or a `*_message` naming the account and chat that its send recorded on the item in this attempt
+  (`RecordSent`, an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the
+  store cannot tell the Bot's message from the owner's on his account); a close whose evidence holds a link, a mail,
+  his comment, a message he sent, his message in a chat, a person's message or a meeting's line is refused, even
+  beside its own work, so his answer stays his and work he handed to the Bot closes as the Bot's with what it made,
+  as GitHub records the person who merged and the pull request; the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
-  as evidence (a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
+  as evidence (his `comment` on the item, an event `commented` of his at that revision, which the wake-up of his
+  comment names; a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
   chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session; or, to close
   it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account (an item without
   its account, which `lark` allows, is never closed so), which the store
@@ -5305,7 +5447,8 @@ its client API, its CLI and the Bots' tools.
   given to that person unless it names whom; issue #1142), `inbox_update` (fields, `draft`, `hand_back`, `source`,
   and `pass_to` a Bot's id, issue #1118; not with `hand_back`; or `waiting_on` `{name, quote, message, due_date or
   due_at, timezone}` with only `id` and `revision` beside it, which calls `WaitOn` with the due given, else
-  `inboxDefaultChase`), `inbox_start`,
+  `inboxDefaultChase`; `why_open` `promised`, issue #1206; `due_date` `none` clears the due, as the CLI's `--due
+  none`), `inbox_start`,
   `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, `inbox_comment` (a comment in the
   item's thread, issue #1111, with `files` and `artifacts`, issue #1207), for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
@@ -5340,8 +5483,10 @@ its client API, its CLI and the Bots' tools.
   cannot send one as him (owner, 2026-11-17 and 2026-11-21 on #838). A Bot in a chat with the owner, or in a
   Routine's run with full access, with WhatsApp or Zalo on, still sends: on his turn, or with his Approval of that
   message. The family's line of
-  the "Tools" block carries the Bots' rules (two items per ask, draft and hand back, never send to a client or a
-  boss, close with evidence, the owner's item only with his message). An Approval names the item a Bot works on:
+  the "Tools" block carries the Bots' rules (one item per ask, made his promise when he takes it, draft and hand
+  back, never send to a client or a boss, close as its own only its work, an ask to him only with his message); the
+  block names the Inbox and the meetings for every Bot (`standingTools`, issue #1206). `inbox_get`'s history gives
+  each event's `revision`, by which the owner's comment is evidence. An Approval names the item a Bot works on:
   `whatsapp_send` and `zalo_send` take `todo`, and a command run with `HYPOMNEMA_TODO=<id>` sends it on its
   tunnel's opening (`agenttool.HeaderTodo`); the agent API or the proxy turn it into the item's current attempt
   (`orchestration.InboxAttempt`, refused unless the Bot is doing the item in that chat or run), which
@@ -5380,7 +5525,11 @@ its client API, its CLI and the Bots' tools.
   stopped in (Lark, whose cap is checked at each page); issue #1071. The check counts the owner's own new messages
   (Zalo, WhatsApp, Lark, his sent Gmail) apart from others' and wakes the Bot on them too, so that his short yes to a
   request for work is read; `triage.md` reads a reply against the ask it answers, an accepted or promised job being
-  an open `promised` item (issue #1182). A run gets at most 15 conversations (`perRun`), direct chats and those that
+  an open `promised` item (issue #1182). It keeps one item per ask, from the ask to the work to done (issue #1206,
+  the owner's choice of 2026-11-27): each ask has a status again at each message (To answer, To deliver, Waiting,
+  Asked the group, Nothing owed, Done), and the ask he accepts becomes his promise on the same item
+  (`inbox_update` `why_open` `promised`), as inbox-zero keeps one status per thread; `brief.md`'s replies owed today
+  are the `asked_directly` items due today. A run gets at most 15 conversations (`perRun`), direct chats and those that
   tag or name the owner first, then groups, chats with only his own new messages, mail and meetings; the rest is
   carried in the check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
   Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
@@ -5395,7 +5544,11 @@ its client API, its CLI and the Bots' tools.
   posted on the item with `inbox_comment`'s `files` and `artifacts` (issue #1207). `deploy/thu-ky/triage.test.mjs` runs the prompt with
   a real Claude Code against `triage-world.mjs`, the Bot's tools as an MCP server, only when
   `HYPOMNEMA_TEST_CLAUDE` names it; `triage.eval.mjs` runs the cases of `triage-cases.json` so, only with
-  `THU_KY_EVAL=1` (issue #1182). The Routine's
+  `THU_KY_EVAL=1` (issue #1182). The MCP server serves the server's own tools and the Bot's Tools block from
+  `triage-tools.json`, which `agentapi`'s `TestTheTriageEvalHasTheBotsTools` writes with `-update` and checks, over
+  `triage-fake.mjs`, a world of Zalo, WhatsApp, Lark (`account_read`), meetings and an Inbox the calls change, with
+  the store's rules of who closes what; a case checks the Inbox the run left (issue #1206). The repository's cases
+  are made up; the real ones stay in the main Bot's folder on zm (`thu-ky/triage-cases.real.json`, `THU_KY_CASES`). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
   - **Which chats the secretary reads** ([issue #1270](https://github.com/kl3inIT/hypomnema/issues/1270),
     [research](docs/research/2026-11-27-chats-the-secretary-reads.md)): a flag per chat of each of the owner's
@@ -5792,7 +5945,9 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 - Served at `/api/v1`. The spec is written by hand; oapi-codegen generates the types, a strict server, a Go client and
   the embedded spec into `clientapi/openapi`.
 - Every request is checked against the spec first (`validation_failed`), and bodies are limited to 1 MiB. Errors are
-  `{code, message}`.
+  `{code, message}`; an `internal_error` is logged (`clientapi.internal_error`) without its details shown. A
+  request the page abandoned (its context canceled) is answered with nothing and not logged, as the model gateway
+  leaves a client that left (issue #1113).
 - Every request carries a web session's cookie or a client token (`Authorization: Bearer`); the cookie is looked
   at first, and without a valid one of the two the answer is 401. Signing in is the one operation that needs neither.
 - `POST /session` takes a user's name and password and sets the session as a cookie: HttpOnly, `SameSite=Lax`,
@@ -6338,7 +6493,8 @@ Node (`internal/node`):
          required checks (`gh pr checks <url> --required --watch --interval 60`, `glab ci status --live`) only when
          the Task needs their result; without the token (the node's own login, which the control plane cannot read the
          request with), waiting for the required checks with that command, fixing the red ones its diff causes and
-         rerunning a flake once, then `finish`, as before #1053;
+         rerunning a flake once, then `finish`, as before #1053. With the owner's GitHub App's token (`github_app`,
+         issue #1262) the command is `hypomnema ci wait <url>`, which the App's events end;
     - `Task (<profile>):` and the Task's spec;
     - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
       replaces the answer to any question you asked at `finish`): …", then to
@@ -7294,6 +7450,7 @@ internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvf
 internal/node/workertools the worker's MCP server: ask, finish and memory, and the tools the control plane lists (the shared browser's, the gateway's, the phone's), on toolsmcp
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
+internal/node/githubapp   a worker's gh, git credential helper and `hypomnema ci wait` with fresh tokens of the owner's GitHub App
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions, a meeting recorded live (its tracks, their audio mixed into one WAV, its end)
@@ -7307,6 +7464,8 @@ internal/controlplane/orchestration/channelstore  the Channels (tables channels 
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/profilestore  the profiles and their versions, the role routing, and the providers and models they name: applying, checking, deleting and restoring a version, a profile's requests, reached through orchestration's Profiles(); a profile changed from the main Bot's chat, a profile's availability and what a Dispatch runs with stay in orchestration
 internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
+internal/controlplane/orchestration/githubstore  the owner's GitHub App's installations, deliveries and the CI waited for, reached through orchestration's GitHub()
+internal/controlplane/githubapp  the owner's GitHub App: its manifest and registration, its JWT and installation tokens, its signed deliveries, and the wait for CI
 internal/controlplane/orchestration/inboxstore  the Inbox's to-dos, their state machine and history, reached through orchestration's Inbox()
 internal/controlplane/inbox  the owner's own chats as the Inbox reads and answers them: a message given as evidence, who asked and who is in a chat, his reply sent from an item
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, every memory's notes and the memory tool's commands (issue #589), and the entry rules a Bot's memory follows, reached through orchestration's Memories()
@@ -7319,6 +7478,7 @@ internal/controlplane/websearch  the web's search and a page's reading: the prov
 internal/shared/agenttool the integrations' tools: the catalog, their setup, and the launcher that asks the control plane for a token
 internal/shared/contextwindow  whether an error's text says a prompt did not fit its model's context window, for the node's runtimes and the gateway
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
+internal/shared/ciwait    `hypomnema ci wait`: asking the control plane until a pull request's CI ends
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
 internal/shared/skillpack a skill in the Agent Skills format: reading an archive, checking it, its digest, the archive kept

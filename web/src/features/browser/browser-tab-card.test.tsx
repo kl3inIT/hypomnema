@@ -41,6 +41,7 @@ test("the card shows the chat's tab and opens it", async () => {
           url: "https://w.example/",
           title: "W",
           views: 0,
+          held: false,
         },
         {
           id: "b-c1",
@@ -50,6 +51,7 @@ test("the card shows the chat's tab and opens it", async () => {
           url: "https://maps.example/login",
           title: "Sign in to Maps",
           views: 0,
+          held: false,
         },
       ],
     },
