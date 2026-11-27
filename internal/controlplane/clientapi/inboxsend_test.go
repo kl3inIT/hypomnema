@@ -2,7 +2,9 @@ package clientapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 
@@ -162,4 +164,51 @@ func TestTheOwnerHandsAnItemToTheMainBotAndTheBotComments(t *testing.T) {
 	none, err := w.coordinator.CommentTodoWithResponse(ctx, td.Id, openapi.TodoComment{Text: "hi"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, none.StatusCode(), string(none.Body))
+}
+
+// The first Hand opens the chat reserved for its upload. A file-only comment is
+// also owner input, and both the thread and the Bot's pending turn keep the file.
+func TestInboxFilesReachTheOwnersTurn(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newInboxWorld(t)
+	item := w.add(ctx, t, "Review the screenshot", toOwner)
+	const chat = "cht_abcdefghijklmnopqrstuvwxyz"
+	file := func(name, media string) string {
+		return fmt.Sprintf(`[{"name":%q,"path":%q,"type":%q,"size":32}]`, name, "attachments/"+chat+"/"+name, media)
+	}
+	hand, err := w.owner.HandTodoWithBodyWithResponse(ctx, item.Id, "application/json", strings.NewReader(
+		fmt.Sprintf(`{"revision":%d,"chat_id":%q,"attachments":%s}`, item.Revision, chat, file("brief.pdf", "application/pdf"))))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, hand.StatusCode(), string(hand.Body))
+	require.Equal(t, ptr(chat), hand.JSON200.ChatId)
+
+	owner, err := w.svc.OwnerTurn(ctx, chat)
+	require.NoError(t, err)
+	require.True(t, owner, "the Hand with only files is the owner's own turn")
+
+	resp, err := w.owner.CommentTodoWithBodyWithResponse(ctx, item.Id, "application/json", strings.NewReader(
+		`{"text":"","attachments":`+file("screenshot.png", "image/png")+`}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode(), string(resp.Body))
+
+	owner, err = w.svc.OwnerTurn(ctx, chat)
+	require.NoError(t, err)
+	assert.True(t, owner, "the comment with only files is the owner's own turn")
+
+	wakes, err := w.svc.Undelivered(ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, wakes, 2)
+	for i, name := range []string{"brief.pdf", "screenshot.png"} {
+		assert.Equal(t, orchestration.ChatWake, wakes[i].Kind)
+		require.Len(t, wakes[i].Attachments, 1)
+		assert.Equal(t, "attachments/"+chat+"/"+name, wakes[i].Attachments[0].Path)
+	}
+	got := w.get(t, item.Id)
+	require.NotNil(t, got.Events)
+	last := (*got.Events)[len(*got.Events)-1]
+	assert.Equal(t, "commented", last.Kind)
+	assert.Contains(t, fmt.Sprint(last.After), "attachments/"+chat+"/screenshot.png")
+	assert.Contains(t, fmt.Sprint(last.After), chat)
 }
