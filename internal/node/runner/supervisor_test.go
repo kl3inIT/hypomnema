@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,10 @@ func fakeCLI(mode string) int {
 			}
 			say(line{Type: "started", Session: "ses_fake"})
 
+			if mode == "hog" {
+				hog()
+			}
+
 			notes++
 			say(line{Type: "note", N: notes})
 
@@ -103,6 +108,16 @@ func fakeCLI(mode string) int {
 	}
 
 	return 0
+}
+
+// hog takes 2 GiB, a page at a time, as a test binary that leaks does; the kernel kills it at its slice's limit.
+func hog() {
+	const page = 4096
+
+	b := make([]byte, 2<<30)
+	for i := 0; i < len(b); i += page {
+		b[i] = 1
+	}
 }
 
 // commitInWorktree commits in the worker's directory, its worktree, as a worker's git does, with the environment
@@ -1021,4 +1036,58 @@ func TestAWorkerRunsInItsScopeInTheWorkersSlice(t *testing.T) {
 	g.sup.Stop("dsp_1")
 	report.wait(t)
 	assert.Equal(t, 1, report.stopped)
+}
+
+// Scenario: on a real node whose user manager delegates memory, the workers' slice is given a ceiling of 512 MiB and
+// a worker takes 2 GiB (issue #1313's acceptance). The kernel kills it inside the slice, this process, outside it as
+// the daemon is, goes on, and the worker ends oom_killed. It sets hypomnema-workers.slice itself, and reverts it after,
+// so it runs only when HYPOMNEMA_TEST_WORKER_SLICE is set, on a node whose own workers do not use that slice.
+func TestALiveWorkerOverTheSliceEndsOOMKilled(t *testing.T) {
+	if os.Getenv("HYPOMNEMA_TEST_WORKER_SLICE") == "" {
+		t.Skip("set HYPOMNEMA_TEST_WORKER_SLICE=1 on a node with no workers in hypomnema-workers.slice")
+	}
+
+	limit := memlimit.Probe(t.Context())
+	require.True(t, limit.On(), limit.Reason)
+
+	ceiling := &memlimit.Ceiling{Limit: limit, Logger: slog.Default()}
+	ceiling.Apply(t.Context(), 512<<20)
+	t.Cleanup(func() {
+		revert := exec.Command(limit.Systemctl, "--user", "revert", nodeproto.WorkerSlice) //nolint:noctx,gosec // cleanup
+		out, err := revert.CombinedOutput()
+		t.Logf("reverted %s: %s %v", nodeproto.WorkerSlice, out, err)
+	})
+
+	props := []string{
+		"--user", "show", nodeproto.WorkerSlice, "-p", "MemoryMax", "-p", "MemoryHigh", "-p", "MemorySwapMax",
+	}
+	show := exec.CommandContext(t.Context(), limit.Systemctl, props...) //nolint:gosec // systemd's own tool
+	out, err := show.CombinedOutput()
+	require.NoError(t, err, string(out))
+	t.Logf("%s:\n%s", nodeproto.WorkerSlice, out)
+
+	g := newRig(t, "hog")
+	g.sup.Memory = limit
+
+	report := newReporter()
+	started := time.Now()
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(), report))
+
+	cgroup, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(g.sup.get("dsp_1").shimPID()), "cgroup"))
+	require.NoError(t, err)
+	t.Logf("the shim's cgroup: %s", cgroup)
+	assert.Contains(t, string(cgroup), "/hypomnema-workers.slice/hypomnema-worker-dsp_1.scope")
+
+	select {
+	case <-report.done:
+	case <-time.After(15 * time.Minute):
+		t.Fatal("the worker was not killed")
+	}
+
+	require.Len(t, report.finished, 1)
+	f := report.finished[0]
+	t.Logf("after %s: %+v", time.Since(started).Round(time.Second), f)
+	assert.Equal(t, "worker_error", f.Class)
+	assert.Equal(t, nodeproto.ExitOOMKilled, f.Exit.Reason)
+	assert.True(t, strings.HasPrefix(f.Summary, "oom_killed: "), f.Summary)
 }
