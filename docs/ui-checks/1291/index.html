@@ -18,26 +18,26 @@
 <body>
   <main>
     <h1>Settings → Gateway → Social listening: signed-in sources (issue #1291)</h1>
-    <p>Taken by <code>web/tests/listening-accounts.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Account names and cookies are made up.</p>
+    <p>Taken by <code>web/tests/listening-accounts.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Account names and cookies are made up. Review round 1 of PR #1359 gave the consent cards their full wording, added LinkedIn's, and moved LinkedIn's stop to the site.</p>
 
     <section>
-      <h2>X before its consent; LinkedIn signed in, stopped after a rate-limit page</h2>
+      <h2>X before its consent; LinkedIn stopped a day after a rate-limit answer, no sign-in offered meanwhile</h2>
       <div class="screens">
         <figure>
           <figcaption>Desktop, light</figcaption>
-          <img src="light/listening-signed-sources-desktop.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, desktop, light">
+          <img src="light/listening-signed-sources-desktop.png" alt="X before its consent; LinkedIn stopped a day after a rate-limit answer, no sign-in offered meanwhile, desktop, light">
         </figure>
         <figure>
           <figcaption>Phone, light</figcaption>
-          <img src="light/listening-signed-sources-phone.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, phone, light">
+          <img src="light/listening-signed-sources-phone.png" alt="X before its consent; LinkedIn stopped a day after a rate-limit answer, no sign-in offered meanwhile, phone, light">
         </figure>
         <figure>
           <figcaption>Desktop, dark</figcaption>
-          <img src="dark/listening-signed-sources-desktop.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, desktop, dark">
+          <img src="dark/listening-signed-sources-desktop.png" alt="X before its consent; LinkedIn stopped a day after a rate-limit answer, no sign-in offered meanwhile, desktop, dark">
         </figure>
         <figure>
           <figcaption>Phone, dark</figcaption>
-          <img src="dark/listening-signed-sources-phone.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, phone, dark">
+          <img src="dark/listening-signed-sources-phone.png" alt="X before its consent; LinkedIn stopped a day after a rate-limit answer, no sign-in offered meanwhile, phone, dark">
         </figure>
       </div>
     </section>
@@ -60,6 +60,28 @@
         <figure>
           <figcaption>Phone, dark</figcaption>
           <img src="dark/listening-consent-phone.png" alt="X's consent card, its fixed wording, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>LinkedIn's consent card, its own words</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-consent-linkedin-desktop.png" alt="LinkedIn's consent card, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-consent-linkedin-phone.png" alt="LinkedIn's consent card, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-consent-linkedin-desktop.png" alt="LinkedIn's consent card, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-consent-linkedin-phone.png" alt="LinkedIn's consent card, phone, dark">
         </figure>
       </div>
     </section>
