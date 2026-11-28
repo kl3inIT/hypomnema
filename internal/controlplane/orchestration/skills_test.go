@@ -485,6 +485,33 @@ func TestAGuideGoesOnlyToAnAgentThatMayUseItsIntegration(t *testing.T) {
 	assert.Equal(t, []string{"pdf"}, names(given), "superset:vmaps is not on its list and phone is off")
 }
 
+func TestSocialListeningSkillFollowsTheBotsToolAccess(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	skill := requiringSkill(t, "social-listening", "tool", "listen_search")
+	_, err := w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{skill}, "builtin:v1")
+	require.NoError(t, err)
+
+	bot, err := w.s.PutBot(ctx, Bot{Name: "listening"})
+	require.NoError(t, err)
+
+	given, err := w.s.BotSkills(ctx, bot.ID)
+	require.NoError(t, err)
+	require.Len(t, given, 1)
+	assert.Equal(t, skill.Name, given[0].Name)
+
+	bot.ToolsOff = []string{"listening"}
+	bot.Skills = []string{skill.Name}
+	_, err = w.s.PutBot(ctx, bot)
+	require.NoError(t, err)
+
+	given, err = w.s.BotSkills(ctx, bot.ID)
+	require.NoError(t, err)
+	assert.Empty(t, given, "explicitly adding the skill does not give the Bot its tool")
+}
+
 // Scenario: the gitlab guide requires the kind gitlab, not a host (issue #740): a Bot gets it while it may use a
 // Connection of any GitLab host, gitlab.com or a server the owner declared as gitlab, and not for a host of another
 // kind.

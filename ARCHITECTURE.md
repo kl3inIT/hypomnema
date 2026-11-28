@@ -2041,8 +2041,8 @@ flowchart LR
     ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
     PR["a profile's YAML<br/>skills, skills_off"]
     BL["a Bot's lists<br/>skills, skills_off"]
-    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, the phone"}
-    RB{"requires (metadata.hypomnema):<br/>what the Bot may use now, the phone"}
+    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, devices and tools"}
+    RB{"requires (metadata.hypomnema):<br/>the Bot's Connections, devices and tools"}
     DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
     NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
@@ -2119,7 +2119,7 @@ flowchart LR
     `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
     (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
     tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
-    `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
+    `metadata.hypomnema.requires` (`integration: superset`, `device: android`, `tool: listen_search`), as OpenClaw's skills declare
     `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
     and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
     frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
@@ -5008,8 +5008,14 @@ writes no prose (last30days SKILL.md LAW 7).
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
   search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
   with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
+- The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
+  `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
+  agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
+  leads once and caps web supplements. Both web phases use the `web` source of `listen_search` for keyless
+  search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
+  risks and next focus, then reviews it once.
 - Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1288 to #1295).
+  (issues #1289 to #1295).
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
