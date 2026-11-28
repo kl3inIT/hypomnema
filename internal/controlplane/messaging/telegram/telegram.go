@@ -424,7 +424,9 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 
 			return err
 		},
-		OnFrozen:          func(_ context.Context, st telegram.FreezeState) { a.froze(st) },
+		OnFrozen: func(_ context.Context, st telegram.FreezeState) { a.froze(st) },
+		// gotd gives this callback no context: a listing it resumes runs on the connection's.
+		//nolint:contextcheck // As above.
 		OnConnectionState: func(st telegram.ConnectionState) { a.connectionChanged(jobs, st) },
 	})
 
