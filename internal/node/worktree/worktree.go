@@ -60,16 +60,20 @@ type Source struct {
 	// Env lets git and the host's CLI act with the host's token; empty when
 	// the offer carried none, and the node user's own logins are used.
 	Env []string
-	// Identity is the account the host's token belongs to (issue #991): the
-	// worker and the repository's setup script commit as it, whatever the
-	// node user's ~/.gitconfig says. Not known when the offer named none; git
-	// then keeps what the machine says.
-	Identity githost.Identity
+	// Identity is the commit author. Committer is set for App-backed commits.
+	Identity  githost.Identity
+	Committer githost.Identity
 }
 
 // WorkerEnv is the environment of the worker's git and host CLI: the token's,
-// then the identity its commits are written with.
-func (src Source) WorkerEnv() []string { return slices.Concat(src.Env, src.Identity.Env()) }
+// then the identities its commits are written with.
+func (src Source) WorkerEnv() []string {
+	return slices.Concat(src.Env, src.commitEnv())
+}
+
+func (src Source) commitEnv() []string {
+	return src.Identity.EnvWithCommitter(src.Committer)
+}
 
 // SourceOf is the repository an offer names. It refuses a host, a kind or a
 // path that cannot be one, so nothing an offer carries reaches git unchecked.
@@ -158,7 +162,7 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 	if err := os.Remove(pending); err != nil {
 		return err
 	}
-	m.setup(ctx, path, lock, src.Identity)
+	m.setup(ctx, path, lock, src.commitEnv())
 	return ctx.Err()
 }
 

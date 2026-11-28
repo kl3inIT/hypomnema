@@ -404,7 +404,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithServedLimits(gatewayServedLimits(subscriptions)).WithServedWire(gatewayServedWire(subscriptions))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
-	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Credential).WithGitHubApp(app.CoversOffer).
+	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Credential).WithGitHubApp(app.OfferIdentity).
 		WithModelKeys(workerKeys.Key).
 		WithModelSizes(workerKeys.Sizes).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithRuntimeTools(agenttool.RuntimeTools).
