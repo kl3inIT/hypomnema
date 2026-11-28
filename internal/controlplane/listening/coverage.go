@@ -49,7 +49,8 @@ type Stream struct {
 	Items    int    `json:"items"`
 	// Unverified counts the stream's unverified items (Answer.Unverified).
 	Unverified int `json:"unverified,omitempty"`
-	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served.
+	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served in full,
+	// and the failure's code beside its items when it was served in part (Result.Failed).
 	Code    Code      `json:"code,omitempty"`
 	Tried   []Attempt `json:"tried"`
 	dropped Drops

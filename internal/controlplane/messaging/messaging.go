@@ -97,7 +97,7 @@ const MaxPage = 500
 type Chat struct {
 	// ID is the service's own id of the chat: for WhatsApp its JID.
 	ID string
-	// Kind is dm, group or broadcast.
+	// Kind is dm, group or broadcast, or bot for a bot's or an official account's chat (Telegram, issue #1184).
 	Kind string
 	Name string
 	// LastMessageAt is when its latest kept message was sent.

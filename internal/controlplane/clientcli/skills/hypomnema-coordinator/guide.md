@@ -80,11 +80,14 @@ availability: these depend on the kind and the accounts. Do not dispatch a retir
 - `reviewer` checks from another vendor. `quick` needs green CI and no worker review. For `narrow` and `broad`,
   load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec. The
   control plane posts the commit status `review` on the head a verdict covers (`review` reference).
-- For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
-  a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
-  the owner approves like any other. Nothing waits for CodeRabbit when it is rate-limited or does not answer, and it
-  is never a merge condition: a pull request is ready with green checks, no conflict and a correct verdict, and the
-  review answers CodeRabbit's findings (the `review` reference). Workers and reviewers do not ask it.
+- Ask CodeRabbit only on important GitHub pull requests. An important pull request adds a migration, changes
+  security or permissions, changes merging or auto-merge, or is a large change. When its author Task succeeds,
+  ask with the owner's GitHub Connection without asking for approval. Ask at most once an hour across the owner's
+  repositories. Only a CodeRabbit Rate limited check or the coordinator's hourly limit skips the CodeRabbit
+  review. Create the reviewer Task only after the head's CodeRabbit check has completed with a review, except on
+  those rate limits. Wait while the check is missing, queued or in progress. Ask once more on Failed or Cancelled,
+  within the hourly limit. Request a fix round's new head only when a Critical or Major finding was fixed, within
+  the same hourly limit. CodeRabbit is never a merge condition. The `review` reference has the commands.
 - Never name a `runtime` or `model` unless the owner asks. Report an unavailable entry instead of substituting
   another yourself. While accounts cool, the scheduler walks the remaining chain. A Task with the owner's
   explicit runtime or model waits instead. Report fallbacks from the Dispatch's model and `chain_entry`.

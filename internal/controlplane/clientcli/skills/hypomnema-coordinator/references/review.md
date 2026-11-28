@@ -26,11 +26,30 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    test, the test is quarantined with an issue and a note visible to the owner (issue #1281).
    When a review or fix Task investigates a flaky test or asks for repeated test runs, load the `recovery`
    reference and copy its [test repeat rules](recovery.md#flaky-tests-and-repeat-runs) into the Task's spec.
-   For an important pull request you may first ask CodeRabbit to review it: `gh pr comment <url> --body
-   "@coderabbitai review"`, a write the owner approves like any other. Important means it adds a migration,
-   changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
-   does not answer, nothing waits for it: go on with the review. Workers and reviewers never ask it (owner,
-   2026-11-17, issue #766).
+   Ask CodeRabbit only for an important GitHub pull request after its author Task succeeds. An important pull
+   request adds a migration, changes security or permissions, changes merging or auto-merge, or is a large
+   change. For other pull requests, follow the usual review path. If you already requested this head, resume
+   the check wait below. Before each new request, check the time of the last request across the owner's
+   repositories, including other Runs. Use the owner's trigger comments and their GitHub `created_at` timestamps
+   as the record. Skip the request if you already asked within the past hour. Otherwise send:
+   ```sh
+   gh api --method POST repos/<repo>/issues/<number>/comments -f body='@coderabbitai review'
+   ```
+   Use the Hypomnema GitHub launcher with the owner's Connection. This comment needs no approval. Keep the
+   comment and head in the Run's review report so a wake or handoff can resume the same wait.
+
+   Read the `CodeRabbit` check on the exact head:
+   ```sh
+   gh api --method GET repos/<repo>/commits/<sha>/check-runs -f check_name=CodeRabbit
+   ```
+   Read the check's status, conclusion and title. Only Rate limited or the coordinator's hourly limit lets an
+   eligible review proceed without CodeRabbit. After sending the comment, watch the check. Wait while the check
+   is missing, queued or in progress, reading no more often than once a minute. Create the reviewer Task only once the check has completed with a review
+   on that head, unless one of the rate limits applies. Check that the PR still has that head before dispatch.
+   For Failed or Cancelled, ask once more within the same hourly limit. Count the retry as a request and wait
+   for its result on the same head. If the hourly limit prevents the retry, proceed under that exception.
+   A Skipped check, a failed comment, or another failure after the retry leaves the review waiting. Report the
+   blocker and keep the Run open.
 2. Set `profile: reviewer`, `kind` to the work's kind and `review_of` to the succeeded author Task's id. Use
    the same Run so the scheduler excludes the vendor that actually did the work. Never specify a model yourself.
 3. Create the review as a Task in the same Run:
@@ -94,8 +113,10 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    with the same spec and `## Blocked review (Task <review_task_id>)`, that review's summary word for word. When
    the cause needs the owner (an account, a login), or the new review is blocked too, tell the owner in one line
    what stops it and leave the Run and pull request open with auto-merge off.
-7. Have the updated pull request reviewed by a new review Task. Unlike the first round, its spec carries what the
-   rounds before found, so it can tell what was fixed: the pull request's URL, `Head:` set to the updated head, and
+7. Request CodeRabbit on a fix round's new head only when a Critical or Major finding was fixed on an important
+   pull request. Use the same hourly limit and wait in step 1. The `review` command requests an incremental
+   review. Have the updated pull request reviewed by a new review Task. Unlike the first round, its spec carries
+   what the rounds before found, so it can tell what was fixed: the pull request's URL, `Head:` set to the updated head, and
    the spec as before, then
    - `## Earlier review (Task <review_task_id>)`: that review's verdict, its `Head:` and its findings, pasted word
      for word;

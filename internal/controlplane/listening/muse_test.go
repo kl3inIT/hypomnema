@@ -167,7 +167,7 @@ func (p *postPages) opened() []string {
 func (p *postPages) client() *http.Client {
 	target, _ := url.Parse(p.server.URL)
 
-	return &http.Client{Transport: roundTrip(func(asked *http.Request) (*http.Response, error) {
+	return &http.Client{Transport: museRoundTrip(func(asked *http.Request) (*http.Response, error) {
 		r := asked.Clone(asked.Context())
 		r.Header.Set("X-Host", r.URL.Host)
 		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
@@ -182,9 +182,9 @@ func (p *postPages) client() *http.Client {
 	})}
 }
 
-type roundTrip func(*http.Request) (*http.Response, error)
+type museRoundTrip func(*http.Request) (*http.Response, error)
 
-func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f museRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func museService(c *clock, m listening.Muse, p *postPages) *listening.Service {
 	return listening.New(listening.Config{
