@@ -85,7 +85,7 @@ func TestTheOwnerSeesAndChangesTheListeningSources(t *testing.T) {
 
 	_, err = svc.Search(ctx, listening.Plan{
 		Sources: []string{"web", "reddit"}, Subqueries: []listening.Subquery{{Query: "python"}},
-	}, nil)
+	}, listening.Caller{})
 	require.NoError(t, err)
 
 	owner, _ := w.token("web", bearertoken.Owner)

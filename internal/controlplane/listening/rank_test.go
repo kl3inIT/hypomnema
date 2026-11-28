@@ -102,7 +102,7 @@ func TestStreamsAreFusedByWeightedReciprocalRank(t *testing.T) {
 		return out
 	}
 
-	a, err := s.Search(t.Context(), plan([]string{"forum"}, "VETC alpha", "VETC beta"), nil)
+	a, err := s.Search(t.Context(), plan([]string{"forum"}, "VETC alpha", "VETC beta"), listening.Caller{})
 	require.NoError(t, err)
 	base := a
 	assert.Equal(t, "both", ids(a)[0], "found by two subqueries")
@@ -110,13 +110,13 @@ func TestStreamsAreFusedByWeightedReciprocalRank(t *testing.T) {
 
 	p := plan([]string{"forum"}, "VETC alpha", "VETC beta")
 	p.Subqueries[1].Weight = 3
-	a, err = s.Search(t.Context(), p, nil)
+	a, err = s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"both", "other", "alone"}, ids(a))
 
 	p = plan([]string{"forum"}, "VETC alpha", "VETC beta")
 	p.SourceWeights = map[string]float64{"forum": 2}
-	weighted, err := s.Search(t.Context(), p, nil)
+	weighted, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 	assert.Greater(t, weighted.Items[0].Score, base.Items[0].Score, "a source's weight lifts its streams")
 }
@@ -162,7 +162,7 @@ func TestEngagementIsOnItsSourcesOwnLogScale(t *testing.T) {
 		},
 	}}})
 
-	a, err := s.Search(t.Context(), plan([]string{"reddit"}, "VETC lỗi app"), nil)
+	a, err := s.Search(t.Context(), plan([]string{"reddit"}, "VETC lỗi app"), listening.Caller{})
 	require.NoError(t, err)
 	require.Len(t, a.Items, 2)
 	assert.Equal(t, "busy", a.Items[0].NativeID)
@@ -196,7 +196,7 @@ func TestTheAnswerListsTheBestPool(t *testing.T) {
 
 	p := plan([]string{"forum"}, "one", "two", "three")
 	p.MaxResults = 25
-	a, err := s.Search(t.Context(), p, nil)
+	a, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 	assert.Len(t, a.Items, listening.PoolSize)
 	assert.Equal(t, 3*25-listening.PoolSize, a.Omitted)

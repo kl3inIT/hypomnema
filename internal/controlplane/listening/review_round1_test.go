@@ -92,7 +92,7 @@ func TestReviewTimeoutNotification(t *testing.T) {
 	tell := &told{}
 	s := kept(t, newClock(), tell, webOnly())
 
-	a, err := s.Search(t.Context(), plan([]string{"web"}, "VETC"), web.search)
+	a, err := s.Search(t.Context(), plan([]string{"web"}, "VETC"), listening.Caller{Web: web.search})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, a, "web")
@@ -165,7 +165,7 @@ func TestReviewDefaultWebContinuesAfterOwnerSwitchesOff(t *testing.T) {
 	)
 
 	wg.Go(func() {
-		answer, err = s.Search(t.Context(), plan([]string{"web"}, "VETC", "VETC trừ tiền"), nil)
+		answer, err = s.Search(t.Context(), plan([]string{"web"}, "VETC", "VETC trừ tiền"), listening.Caller{})
 	})
 
 	<-started

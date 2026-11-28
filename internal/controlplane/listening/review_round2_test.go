@@ -47,9 +47,9 @@ func TestReviewerMixedTimeoutStillTellsOwner(t *testing.T) {
 			s := kept(t, newClock(), tell, webOnly())
 
 			_, err := s.Search(t.Context(), plan([]string{"web"}, "VETC"),
-				func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+				listening.Caller{Web: func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
 					return web.Search(ctx, query, limit, "")
-				})
+				}})
 			require.NoError(t, err)
 			assert.Equal(t, 0, tell.Count(), "one provider's %d comes back by itself", transient)
 		})
@@ -80,7 +80,7 @@ func TestReviewerOffDuringSingleWebRequest(t *testing.T) {
 		err    error
 	)
 
-	wg.Go(func() { answer, err = s.Search(t.Context(), plan([]string{"web"}, "VETC"), nil) })
+	wg.Go(func() { answer, err = s.Search(t.Context(), plan([]string{"web"}, "VETC"), listening.Caller{}) })
 
 	<-started
 	require.NoError(t, s.SetSource(t.Context(), "web", false))
@@ -121,7 +121,7 @@ func TestReviewerItemsFromPartialReadRearmAlert(t *testing.T) {
 
 	c.Advance(time.Hour)
 	failing = false
-	_, err := s.Search(t.Context(), plan([]string{"forum"}, "VETC", "ETC"), nil)
+	_, err := s.Search(t.Context(), plan([]string{"forum"}, "VETC", "ETC"), listening.Caller{})
 	require.NoError(t, err)
 	require.Equal(t, listening.GroupUnverified, stateOf(t, s, "forum").Group, "read in part, with an item")
 

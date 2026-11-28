@@ -5820,6 +5820,10 @@ export type Todo = {
    */
   chat_id?: string;
   /**
+   * An owner comment on this review report goes to the Run's coordinator chat.
+   */
+  reply_to_coordinator?: boolean;
+  /**
    * The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
    */
   passed_by?: string;

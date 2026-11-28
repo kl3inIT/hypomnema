@@ -58,7 +58,7 @@ func (f *fakeListening) Search(ctx context.Context, who agentapi.Who, plan liste
 	f.who = append(f.who, who)
 	f.mu.Unlock()
 
-	return f.svc.Search(ctx, plan, nil)
+	return f.svc.Search(ctx, plan, listening.Caller{})
 }
 
 func (f *fakeListening) SourceNames(context.Context) []string {
@@ -178,6 +178,8 @@ func TestListenSearchAnswersItemsClustersAndCoverage(t *testing.T) {
 	assert.Contains(t, def.Description, "Use it")
 	assert.Contains(t, def.Description, "web_search and web_fetch instead")
 	assert.Contains(t, string(def.InputSchema), `"enum":["web","reddit"]`)
+	assert.Contains(t, string(def.InputSchema), `"depth":{"type":"string","enum":["quick","standard","deep"]`)
+	assert.Contains(t, def.Description, "`pass`")
 
 	call := func(key, arguments string) (string, bool) {
 		status, body := w.call(http.MethodPost, agenttool.PathToolsCall, key,
@@ -227,7 +229,22 @@ func TestListenSearchAnswersItemsClustersAndCoverage(t *testing.T) {
 	assert.True(t, isError)
 	assert.Contains(t, text, "the sources are web, reddit")
 
-	text, isError = call(keys["d_codex"], `{"subqueries":[{"query":"x"}],"sources":["web"],"depth":"deep"}`)
+	text, isError = call(keys["d_codex"], `{"subqueries":[{"query":"x"}],"sources":["web"],"mode":"deep"}`)
 	assert.True(t, isError)
-	assert.Contains(t, text, `unknown field "depth"`)
+	assert.Contains(t, text, `unknown field "mode"`)
+
+	// The depth bounds the pool, the model's shortlist and the full reads; the answer says which it used and what
+	// each step of the semantic pass did (issue #1306).
+	text, isError = call(pi, `{"subqueries":[{"query":"VETC"}],"sources":["web"],"depth":"quick","read":2}`)
+	require.False(t, isError, text)
+
+	var bounded struct {
+		Limits listening.Limits `json:"limits"`
+		Pass   listening.Pass   `json:"pass"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(text), &bounded))
+	assert.Equal(t, listening.Limits{Depth: listening.DepthQuick, Pool: 15, Shortlist: 15, Read: 2}, bounded.Limits)
+	assert.Equal(t, listening.StepFallback, bounded.Pass.Rerank.State, "this test's service has no model")
+	assert.NotEmpty(t, bounded.Pass.Rerank.Reason)
 }

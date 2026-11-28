@@ -88,7 +88,7 @@ func stateOf(t *testing.T, s *listening.Service, source string) listening.Source
 func search(t *testing.T, s *listening.Service, sources ...string) listening.Answer {
 	t.Helper()
 
-	a, err := s.Search(t.Context(), plan(sources, "VETC"), nil)
+	a, err := s.Search(t.Context(), plan(sources, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	return a
@@ -133,7 +133,7 @@ func TestEachSourceIsInOneOfFourGroups(t *testing.T) {
 	search(t, s, "ok", "empty", "down", "off")
 	_, err := s.Search(t.Context(), listening.Plan{
 		Sources: []string{"half"}, Subqueries: []listening.Subquery{{Query: "VETC"}, {Query: "ETC"}},
-	}, nil)
+	}, listening.Caller{})
 	require.NoError(t, err)
 	require.NoError(t, s.SetSource(t.Context(), "off", false))
 
@@ -176,7 +176,7 @@ func TestASourceSwitchedOffIsNeverBroken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, on, "a source that is off is not offered")
 
-	_, err = s.Search(t.Context(), plan([]string{"forum"}, "VETC"), nil)
+	_, err = s.Search(t.Context(), plan([]string{"forum"}, "VETC"), listening.Caller{})
 	require.ErrorIs(t, err, listening.ErrInvalid, "a plan may not name a source that is off")
 	assert.Contains(t, err.Error(), "switched off")
 	assert.Equal(t, 1, down.Calls())

@@ -56,7 +56,7 @@ func TestReviewerMixedFailureMustNotAlertWhileResting(t *testing.T) {
 			tell := &told{}
 			s := kept(t, c, tell, webOnly())
 
-			_, err := s.Search(t.Context(), plan([]string{"web"}, "VETC"), ask)
+			_, err := s.Search(t.Context(), plan([]string{"web"}, "VETC"), listening.Caller{Web: ask})
 			require.NoError(t, err)
 			require.Equal(t, 0, tell.Count(), "the first search is not told")
 
@@ -64,7 +64,7 @@ func TestReviewerMixedFailureMustNotAlertWhileResting(t *testing.T) {
 
 			c.Advance(time.Second)
 
-			a, err := s.Search(t.Context(), plan([]string{"web"}, "VETC trừ tiền"), ask)
+			a, err := s.Search(t.Context(), plan([]string{"web"}, "VETC trừ tiền"), listening.Caller{Web: ask})
 			require.NoError(t, err)
 			require.True(t, coverageOf(t, a, "web").Streams[0].Tried[0].Skipped, "the web backend rests")
 			assert.Equal(t, asked, calls.Load(), "no provider was asked again")
@@ -94,7 +94,7 @@ func TestReviewerRefusedWebIsToldOnce(t *testing.T) {
 	s := kept(t, c, tell, webOnly())
 
 	for range 2 {
-		_, err := s.Search(t.Context(), plan([]string{"web"}, "VETC"), ask)
+		_, err := s.Search(t.Context(), plan([]string{"web"}, "VETC"), listening.Caller{Web: ask})
 		require.NoError(t, err)
 		c.Advance(time.Second)
 	}

@@ -1,6 +1,7 @@
 package listening
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -83,14 +84,157 @@ func Sources(e Endpoints, client *http.Client) []Platform {
 
 	return []Platform{
 		{
-			Name: SourceWeb, Backends: []Backend{webBackend()},
+			Name: SourceWeb, Backends: []Backend{webBackend()}, Read: readPage,
 			Adds: "Forum threads, news, reviews and blog posts the web search's keyless providers find, each with its " +
 				"link, snippet and date when the page gives one.",
 		},
 		{
 			Name: SourceReddit, Backends: []Backend{redditJSONBackend(e, client), webArcticBackend(e, client)},
+			Read: redditRead(e, client),
 			Adds: "Reddit threads with their subreddit, author, date, score and number of comments.",
 		},
+	}
+}
+
+// readPage reads a web item's page through the web fetch, one page at a time per site, webGap apart (pace.go), with
+// the date its metadata gives.
+func readPage(ctx context.Context, r Request, it Item) (Document, error) {
+	if r.Fetch == nil {
+		return Document{}, Fail(CodeBroken, "this control plane has no web fetch")
+	}
+
+	if r.Pace != nil {
+		done, err := r.Pace(ctx, "page:"+hostOf(it.URL), webGap)
+		if err != nil {
+			return Document{}, AsFailure(err)
+		}
+
+		defer done()
+	}
+
+	page, err := r.Fetch(ctx, it.URL)
+	if err != nil {
+		return Document{}, Fail(CodeBroken, "%s", err.Error())
+	}
+
+	return Document{Text: page.Content, Published: page.Published}, nil
+}
+
+// arcticComment is a comment of Arctic Shift's comment tree, its replies beneath it (last30days
+// reddit_arctic._tree_rows, lib/reddit_arctic.py:825-842).
+type arcticComment struct {
+	Kind string `json:"kind"`
+	Data struct {
+		Author  string          `json:"author"`
+		Body    string          `json:"body"`
+		Score   float64         `json:"score"`
+		Replies json.RawMessage `json:"replies"`
+	} `json:"data"`
+}
+
+// redditRead reads a thread in full: its post as the source gave it, or, for a thread only a search showed, as Arctic
+// Shift's /api/posts/ids has it, with its date; then its top comments by score from Arctic Shift's keyless
+// /api/comments/tree, deleted ones left out, each cut at maxQuote (last30days reddit_arctic.fetch_post_comments,
+// lib/reddit_arctic.py:941-1000, and snippet.cut_quote). When the comments cannot be read, the post is read alone and
+// the error says so.
+func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Request, it Item) (Document, error) {
+	host := hostOf(e.ArcticURL)
+	path := host + "/api/comments/tree"
+	postsPath := host + "/api/posts/ids"
+
+	return func(ctx context.Context, r Request, it Item) (Document, error) {
+		var doc Document
+
+		title, body := it.Title, it.body
+
+		if !it.Direct {
+			var archived struct {
+				Data []redditPost `json:"data"`
+			}
+
+			err := getJSON(ctx, client, r, host, arcticGap, true, postsPath,
+				e.ArcticURL+"/api/posts/ids?ids="+url.QueryEscape(it.NativeID), &archived)
+			// The post itself was not read: no text, so the item stays the search's card (radar's search_card).
+			if err != nil {
+				return Document{}, err
+			}
+
+			if len(archived.Data) == 0 {
+				return Document{}, Fail(CodeNotFound, "arctic-shift has no post %s", it.NativeID)
+			}
+
+			// The post as the archive has it, its own title included: the search's title is not the post's.
+			p := archived.Data[0].item(r.now(), true)
+			title, body, doc.Published = p.Title, p.Text, p.PublishedAt
+			doc.Title = title
+		}
+
+		post := strings.TrimSpace(title + "\n\n" + body)
+
+		var tree struct {
+			Data  []arcticComment `json:"data"`
+			Error string          `json:"error"`
+		}
+
+		query := url.Values{"link_id": {"t3_" + it.NativeID}, "limit": {strconv.Itoa(arcticCommentRows)}}
+
+		err := getJSON(ctx, client, r, host, arcticGap, true, path, e.ArcticURL+"/api/comments/tree?"+query.Encode(),
+			&tree)
+		if err != nil {
+			doc.Text = post
+
+			return doc, err
+		}
+
+		if tree.Data == nil {
+			doc.Text = post
+
+			return doc, Fail(CodeBroken, "arctic-shift gave no comments: %s", oneLine(tree.Error))
+		}
+
+		var rows []arcticComment
+
+		stack := slices.Clone(tree.Data)
+		for len(stack) > 0 {
+			n := stack[0]
+			stack = stack[1:]
+
+			if n.Kind != "t1" {
+				continue
+			}
+
+			rows = append(rows, n)
+
+			var replies struct {
+				Data struct {
+					Children []arcticComment `json:"children"`
+				} `json:"data"`
+			}
+
+			if json.Unmarshal(n.Data.Replies, &replies) == nil {
+				stack = append(stack, replies.Data.Children...)
+			}
+		}
+
+		rows = slices.DeleteFunc(rows, func(c arcticComment) bool {
+			gone := func(s string) bool { return s == "[deleted]" || s == "[removed]" }
+
+			return gone(c.Data.Author) || gone(c.Data.Body) || strings.TrimSpace(c.Data.Body) == ""
+		})
+		slices.SortStableFunc(rows, func(a, b arcticComment) int { return cmp.Compare(b.Data.Score, a.Data.Score) })
+
+		var b strings.Builder
+
+		b.WriteString(post)
+
+		for _, c := range rows[:min(len(rows), readComments)] {
+			fmt.Fprintf(&b, "\n\n[comment by u/%s, score %d]\n%s", c.Data.Author, int(c.Data.Score),
+				cut(c.Data.Body, maxQuote))
+		}
+
+		doc.Text = b.String()
+
+		return doc, nil
 	}
 }
 
@@ -292,7 +436,9 @@ func (p redditPost) item(now time.Time, archived bool) Item {
 		link = "https://www.reddit.com/comments/" + id + "/"
 	}
 
-	it := Item{NativeID: id, URL: link, Title: p.Title, Text: p.Selftext, Engagement: map[string]float64{}}
+	it := Item{
+		NativeID: id, URL: link, Title: p.Title, Text: p.Selftext, Engagement: map[string]float64{}, Direct: true,
+	}
 
 	if p.Author != "" && p.Author != "[deleted]" && p.Author != "[removed]" {
 		it.Author = "u/" + p.Author

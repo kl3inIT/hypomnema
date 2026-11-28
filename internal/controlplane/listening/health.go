@@ -125,8 +125,8 @@ type Broken struct {
 	Fix    string
 }
 
-// reading is how a source read once: a real search's or a live test's.
-type reading struct {
+// sourceRead is how a source read once: a real search's or a live test's.
+type sourceRead struct {
 	source string
 	result string
 	code   Code
@@ -146,7 +146,7 @@ type reading struct {
 // it tried failed with one that rests and comes back by itself, as a fallback that is throttled serves again once
 // its wait ends (review round 1 of PR #1322; Agent-Reach reports a channel whose failures are rate limits as a
 // "cooldown", manage.py:236-238, and falls back on a retryable error, runtime/dispatch.py:276-322).
-func (r reading) tells() bool {
+func (r sourceRead) tells() bool {
 	if r.result != resultFailed || !tells(r.code) {
 		return false
 	}
@@ -161,8 +161,8 @@ func (r reading) tells() bool {
 }
 
 // coverageReading is what a real search's coverage of a source says of it.
-func coverageReading(c Coverage) reading {
-	r := reading{source: c.Source, code: c.Code, items: c.Items}
+func coverageReading(c Coverage) sourceRead {
+	r := sourceRead{source: c.Source, code: c.Code, items: c.Items}
 
 	switch c.State {
 	case StateOK, StateNoResults:
@@ -202,7 +202,7 @@ func failureOf(tried []Attempt, code Code) (detail, backend string) {
 
 // record keeps a reading and tells the owner when it is the one that broke the source. It never fails the search
 // it is of: a write that fails is logged.
-func (s *Service) record(ctx context.Context, r reading) {
+func (s *Service) record(ctx context.Context, r sourceRead) {
 	if s.db == nil || r.off {
 		return
 	}
@@ -341,7 +341,7 @@ func (s *Service) States(ctx context.Context) ([]SourceState, error) {
 		}
 
 		st.CheckedAt = at(src.LastReadAt)
-		st.Group, st.Code, st.Regressed = group(st.On, src, now)
+		st.Group, st.Code, st.Regressed = groupOf(st.On, src, now)
 
 		for _, b := range p.Backends {
 			bs := BackendState{Name: b.Name, OptIn: b.OptIn, Resting: s.restOf(p.Name + "/" + b.Name)}
@@ -366,9 +366,9 @@ func (s *Service) States(ctx context.Context) ([]SourceState, error) {
 	return out, nil
 }
 
-// group is a source's group from its last reading, with that reading's code when it did not pass, and whether it
+// groupOf is a source's group from its last reading, with that reading's code when it did not pass, and whether it
 // regressed: it fails and the reading right before it passed (Agent-Reach regressed(), manage.py:211-216).
-func group(on bool, src store.ListeningSource, now time.Time) (string, Code, bool) {
+func groupOf(on bool, src store.ListeningSource, now time.Time) (string, Code, bool) {
 	if !on {
 		return GroupCouldBeOn, "", false
 	}
@@ -487,12 +487,12 @@ func (s *Service) Test(ctx context.Context, source string, web WebSearch, again 
 
 // test asks each of a source's backends the live test's search, as Agent-Reach checks each backend of an action
 // (only_backend, runtime/manage.py:165-167). An opt-in backend, never asked unless pinned, is not tested.
-func (s *Service) test(ctx context.Context, p Platform, web WebSearch) reading {
+func (s *Service) test(ctx context.Context, p Platform, web WebSearch) sourceRead {
 	// A live test reads the source now, never the web search's cached answer (websearch.Fresh).
 	ctx = websearch.Fresh(s.searchContext(ctx))
 	now := s.now().UTC()
 	sq := Subquery{Label: "test", Query: testQuery, Weight: 1}
-	r := reading{source: p.Name, test: true, result: resultFailed}
+	r := sourceRead{source: p.Name, test: true, result: resultFailed}
 
 	var failed []Code
 
@@ -504,7 +504,8 @@ func (s *Service) test(ctx context.Context, p Platform, web WebSearch) reading {
 		// No window: the test asks whether the backend reads, not whether people spoke lately, and Agent-Reach's
 		// live tests name none (channels/reddit.py:50). Read on 2026-11-28, 30 days and then 365 left the
 		// archive's route with no Python thread in the window although it filled 15 of 15.
-		req := s.request(p, sq, testQuery, testLimit, time.Time{}, now, web)
+		req := s.owned(s.request(Plan{Topic: testQuery}, Caller{Web: web}), p.Name)
+		req.Query, req.Limit, req.To = testQuery, testLimit, now
 		st := s.runStream(ctx, p, b.Name, sq, req)
 		r.tried = append(r.tried, st.report.Tried...)
 
