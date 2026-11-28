@@ -335,6 +335,13 @@ var policies = map[string]policy{
 	"SetListeningSource":  {scope: scopeOwner},
 	"SetListeningOrder":   {scope: scopeOwner},
 	"TestListeningSource": {scope: scopeOwner, long: true},
+	// Its signed-in sources (issue #1291): a sign-in's check and a pasted cookie header each make one real search
+	// with the account, paced at its site, and may first read X's bundles.
+	"ConsentListeningSource":  {scope: scopeOwner},
+	"StartListeningSignIn":    {scope: scopeOwner},
+	"CheckListeningSignIn":    {scope: scopeOwner, long: true},
+	"PasteListeningCookies":   {scope: scopeOwner, long: true},
+	"SignOutListeningAccount": {scope: scopeOwner},
 	// Muse (issue #782): only the owner sees and changes the pool; agents ask it through their tools.
 	"GetMuse":           {scope: scopeOwner},
 	"SetMuseTools":      {scope: scopeOwner},

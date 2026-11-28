@@ -22,14 +22,15 @@ import (
 // ErrNotFound is the error of a source that does not exist.
 var ErrNotFound = errors.New("not found")
 
-// settings are the owner's switches and orders, as kept.
+// settings are the owner's switches and orders, as kept, and the signed-in sources whose consent he gave.
 type settings struct {
-	off   map[string]bool
-	order map[string][]string
+	off       map[string]bool
+	order     map[string][]string
+	consented map[string]bool
 }
 
 func (s *Service) settings(ctx context.Context) (settings, error) {
-	out := settings{off: map[string]bool{}, order: map[string][]string{}}
+	out := settings{off: map[string]bool{}, order: map[string][]string{}, consented: map[string]bool{}}
 	if s.db == nil {
 		return out, nil
 	}
@@ -43,6 +44,7 @@ func (s *Service) settings(ctx context.Context) (settings, error) {
 
 	for _, r := range sources {
 		out.off[r.Source] = r.Off != 0
+		out.consented[r.Source] = r.ConsentedAt.Valid
 	}
 
 	backends, err := q.ListListeningBackends(ctx)
@@ -93,7 +95,8 @@ func (p Platform) ordered(order []string) Platform {
 	return out
 }
 
-// live is the sources as the owner set them: each in the registry's order, its backends in his, and whether it is on.
+// live is the sources as the owner set them: each in the registry's order, its backends in his, and whether it is on;
+// a signed-in source is off until he agreed to its consent card (accounts.go).
 func (s *Service) live(ctx context.Context) ([]Platform, map[string]bool, error) {
 	set, err := s.settings(ctx)
 	if err != nil {
@@ -105,7 +108,7 @@ func (s *Service) live(ctx context.Context) ([]Platform, map[string]bool, error)
 
 	for _, p := range s.platforms {
 		out = append(out, p.ordered(set.order[p.Name]))
-		on[p.Name] = !set.off[p.Name]
+		on[p.Name] = !set.off[p.Name] && (p.Signed == nil || set.consented[p.Name])
 	}
 
 	return out, on, nil
@@ -129,14 +132,22 @@ func (s *Service) On(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// SetSource switches a source on or off.
+// SetSource switches a source on or off; a signed-in source is switched on only once the owner agreed to its consent
+// card (Consent).
 func (s *Service) SetSource(ctx context.Context, source string, on bool) error {
-	if s.platform(source).Name == "" {
+	p := s.platform(source)
+	if p.Name == "" {
 		return fmt.Errorf("%w: no listening source %q", ErrNotFound, source)
 	}
 
 	if s.db == nil {
 		return fmt.Errorf("%w: this control plane keeps no listening settings", ErrInvalid)
+	}
+
+	if on && p.Signed != nil {
+		if err := s.needConsent(ctx, p); err != nil {
+			return err
+		}
 	}
 
 	off := int64(1)

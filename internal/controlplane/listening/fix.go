@@ -21,6 +21,18 @@ func Fix(source string, code Code, until time.Time) string {
 		at = " at " + until.UTC().Format("15:04 UTC, Jan 2")
 	}
 
+	signed := source == SourceX || source == SourceLinkedIn
+
+	switch {
+	case signed && code == CodeNeedLogin:
+		return name + "'s account is not signed in, or its session ended: sign it in again on the Social listening " +
+			"page. Its other backends serve meanwhile."
+	case signed && code == CodeRefused:
+		return name + " refused its signed-in account or asked it for a security check, so it is not read until you " +
+			"sign in again: clear what " + name + " asks in your own browser, then sign in again on the Social " +
+			"listening page. Its other backends serve meanwhile."
+	}
+
 	switch code {
 	case CodeNeedLogin:
 		return name + " answers only a signed-in account, and none is set up for it: its other backends serve " +
@@ -67,6 +79,8 @@ func Label(source string) string {
 		return "The web"
 	case SourceReddit:
 		return "Reddit"
+	case SourceLinkedIn:
+		return "LinkedIn"
 	}
 
 	if source == "" {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { Listening, ListeningSource } from "@/api/generated/types.gen"
 
 import {
+  accountState,
   backendState,
   codeLabel,
   failureShown,
@@ -13,6 +14,7 @@ import {
   needsYou,
   readLine,
   shownSources,
+  signedStep,
 } from "./listening-state"
 
 const now = Date.parse("2026-11-28T09:00:00Z")
@@ -114,5 +116,42 @@ describe("a card", () => {
     expect(moved(["a", "b", "c"], "b", "up")).toEqual(["b", "a", "c"])
     expect(moved(["a", "b", "c"], "b", "down")).toEqual(["a", "c", "b"])
     expect(moved(["a", "b"], "a", "up")).toEqual(["a", "b"])
+  })
+})
+
+describe("a signed-in source (issue #1291)", () => {
+  const signed = (over: Partial<NonNullable<ListeningSource["signed"]>> = {}) =>
+    source({ name: "x", label: "X", group: "could_be_on", on: false, signed: { consent: "Risks.", ...over } })
+  const account = (state: "signed_in" | "need_login" | "refused", stopped_until?: string) => ({
+    label: "secondary",
+    state,
+    cause: state === "signed_in" ? "" : "X answered 401",
+    signed_in_at: "2026-11-27T09:00:00Z",
+    stopped_until,
+  })
+
+  it("asks for its consent first, then a sign-in, then shows its account", () => {
+    expect(signedStep(source())).toBeNull()
+    expect(signedStep(signed())).toBe("consent")
+    expect(signedStep(signed({ consented_at: "2026-11-28T08:00:00Z" }))).toBe("sign_in")
+    expect(
+      signedStep(signed({ consented_at: "2026-11-28T08:00:00Z", account: account("signed_in") })),
+    ).toBe("account")
+  })
+
+  it(`wears the "!" when its account must be signed in again or was refused, while the web serves it`, () => {
+    const working = { group: "working" as const, on: true }
+    expect(needsYou({ ...signed({ account: account("need_login") }), ...working })).toBe(true)
+    expect(needsYou({ ...signed({ account: account("refused") }), ...working })).toBe(true)
+    expect(needsYou({ ...signed({ account: account("signed_in") }), ...working })).toBe(false)
+  })
+
+  it("says a stopped account's end, and a signed-in one's state", () => {
+    expect(accountState(signed({ account: account("signed_in") }), now)?.label).toBe("Signed in")
+    expect(accountState(signed({ account: account("refused") }), now)?.why).toContain("security check")
+    const stopped = accountState(signed({ account: account("signed_in", "2026-11-29T09:00:00Z") }), now)
+    expect(stopped?.tone).toBe("warning")
+    expect(stopped?.label).toMatch(/^Stopped until /)
+    expect(accountState(signed(), now)).toBeNull()
   })
 })

@@ -1168,6 +1168,7 @@ export type ListeningSource = {
    * Its backends, in the order a search tries them.
    */
   backends: Array<ListeningBackend>;
+  signed?: ListeningSigned;
 };
 
 export type ListeningBackend = {
@@ -1203,6 +1204,72 @@ export type ListeningSwitch = {
 
 export type ListeningOrder = {
   backends: Array<string>;
+};
+
+/**
+ * A source read as one of the owner's accounts (issue
+ */
+export type ListeningSigned = {
+  /**
+   * The consent card's fixed wording.
+   */
+  consent: string;
+  /**
+   * When the owner agreed to it; absent before.
+   */
+  consented_at?: string;
+  /**
+   * Where the owner signs in, in his tab; absent when the shared browser is off (paste cookies then).
+   */
+  sign_in_url?: string;
+  account?: ListeningAccount;
+};
+
+/**
+ * The source's one account; its cookies are never shown.
+ */
+export type ListeningAccount = {
+  label: string;
+  /**
+   * signed_in; need_login, a real call asked for a sign-in again; refused, the site refused the account or asked for a security check, and it is not read until a new sign-in.
+   */
+  state: 'signed_in' | 'need_login' | 'refused';
+  /**
+   * What the last real call that failed met.
+   */
+  cause: string;
+  signed_in_at: string;
+  /**
+   * The last real call made with it.
+   */
+  checked_at?: string;
+  /**
+   * Not read until then, after a rate-limit page (LinkedIn's 24 hours).
+   */
+  stopped_until?: string;
+};
+
+export type ListeningSignInCheck = {
+  /**
+   * The account's name; the site's when left out.
+   */
+  label?: string;
+};
+
+export type ListeningSignIn = {
+  done: boolean;
+  /**
+   * What is waited for.
+   */
+  waiting?: string;
+};
+
+export type ListeningCookies = {
+  /**
+   * A Cookie header copied from a browser signed in to the site, "name=value; name=value".
+   */
+  cookies: string;
+  label?: string;
 };
 
 export type Muse = {
@@ -10583,6 +10650,141 @@ export type TestListeningSourceResponses = {
 };
 
 export type TestListeningSourceResponse = TestListeningSourceResponses[keyof TestListeningSourceResponses];
+
+export type ConsentListeningSourceData = {
+  body?: never;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}/consent';
+};
+
+export type ConsentListeningSourceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ConsentListeningSourceError = ConsentListeningSourceErrors[keyof ConsentListeningSourceErrors];
+
+export type ConsentListeningSourceResponses = {
+  /**
+   * The sources, this one on.
+   */
+  200: Listening;
+};
+
+export type ConsentListeningSourceResponse = ConsentListeningSourceResponses[keyof ConsentListeningSourceResponses];
+
+export type StartListeningSignInData = {
+  body?: never;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}/sign-in';
+};
+
+export type StartListeningSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartListeningSignInError = StartListeningSignInErrors[keyof StartListeningSignInErrors];
+
+export type StartListeningSignInResponses = {
+  /**
+   * The sign-in page is open in the owner's tab.
+   */
+  204: void;
+};
+
+export type StartListeningSignInResponse = StartListeningSignInResponses[keyof StartListeningSignInResponses];
+
+export type CheckListeningSignInData = {
+  body: ListeningSignInCheck;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}/sign-in/check';
+};
+
+export type CheckListeningSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CheckListeningSignInError = CheckListeningSignInErrors[keyof CheckListeningSignInErrors];
+
+export type CheckListeningSignInResponses = {
+  /**
+   * How the sign-in stands.
+   */
+  200: ListeningSignIn;
+};
+
+export type CheckListeningSignInResponse = CheckListeningSignInResponses[keyof CheckListeningSignInResponses];
+
+export type SignOutListeningAccountData = {
+  body?: never;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}/account';
+};
+
+export type SignOutListeningAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SignOutListeningAccountError = SignOutListeningAccountErrors[keyof SignOutListeningAccountErrors];
+
+export type SignOutListeningAccountResponses = {
+  /**
+   * The sources, without the account.
+   */
+  200: Listening;
+};
+
+export type SignOutListeningAccountResponse = SignOutListeningAccountResponses[keyof SignOutListeningAccountResponses];
+
+export type PasteListeningCookiesData = {
+  body: ListeningCookies;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}/account';
+};
+
+export type PasteListeningCookiesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PasteListeningCookiesError = PasteListeningCookiesErrors[keyof PasteListeningCookiesErrors];
+
+export type PasteListeningCookiesResponses = {
+  /**
+   * The sources, with the account signed in.
+   */
+  200: Listening;
+};
+
+export type PasteListeningCookiesResponse = PasteListeningCookiesResponses[keyof PasteListeningCookiesResponses];
 
 export type GetMuseData = {
   body?: never;

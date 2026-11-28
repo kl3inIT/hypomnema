@@ -64,6 +64,9 @@ const backends: Record<string, string> = {
   web_search: "Web search, keyless",
   reddit_json: "Reddit's public JSON",
   web_arctic: "Web search + Arctic Shift archive",
+  graphql: "X's search, as your account",
+  rendered_page: "LinkedIn's Posts search, as your account",
+  site_search: "Web search on its site, keyless",
 }
 
 export function backendName(name: string) {
@@ -87,9 +90,62 @@ export function backendState(b: ListeningBackend): { label: string; tone: Tone; 
   return { label: "Ready", tone: "outline", why: "Asked in its turn." }
 }
 
-// needsYou says the card shows the "!" badge and a press on it tests the source again (postiz's refreshNeeded).
+// needsYou says the card shows the "!" badge (postiz's refreshNeeded): the source broke, or its account must be
+// signed in again (issue #1291).
 export function needsYou(source: ListeningSource) {
-  return source.group === "broken"
+  return source.group === "broken" || accountNeedsYou(source)
+}
+
+// accountNeedsYou says a signed-in source's account asked for a sign-in again or was refused.
+export function accountNeedsYou(source: ListeningSource) {
+  const state = source.signed?.account?.state
+
+  return state === "need_login" || state === "refused"
+}
+
+type SignedStep = "consent" | "sign_in" | "account"
+
+// signedStep is where a signed-in source stands (issue #1291): its consent card to agree to, an account to sign in,
+// or its account; null for a source read without one.
+export function signedStep(source: ListeningSource): SignedStep | null {
+  if (!source.signed) return null
+  if (!source.signed.consented_at) return "consent"
+
+  return source.signed.account ? "account" : "sign_in"
+}
+
+// accountState is a signed-in account's badge.
+export function accountState(
+  source: ListeningSource,
+  now = Date.now(),
+): { label: string; tone: Tone; why: string } | null {
+  const account = source.signed?.account
+  if (!account) return null
+
+  switch (account.state) {
+    case "need_login":
+      return {
+        label: "Sign in again",
+        tone: "destructive",
+        why: "A real search asked this account to sign in again; its other backends serve meanwhile.",
+      }
+    case "refused":
+      return {
+        label: "Refused",
+        tone: "destructive",
+        why: "The site refused this account or asked for a security check: it is not read until you sign in again.",
+      }
+  }
+
+  if (account.stopped_until && Date.parse(account.stopped_until) > now) {
+    return {
+      label: `Stopped until ${clock.format(new Date(account.stopped_until))}`,
+      tone: "warning",
+      why: "After a rate-limit page it is not read for 24 hours.",
+    }
+  }
+
+  return { label: "Signed in", tone: "success", why: "Searches read as this account." }
 }
 
 // readLine says when the source was last read and whether that worked, for the card's head.

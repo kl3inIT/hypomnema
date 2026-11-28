@@ -638,6 +638,18 @@ type IntegrationClient struct {
 	UpdatedAt   int64
 }
 
+type ListeningAccount struct {
+	Source       string
+	Label        string
+	Secret       string
+	State        string
+	Cause        string
+	StoppedUntil sql.NullInt64
+	SignedInAt   int64
+	CheckedAt    sql.NullInt64
+	UpdatedAt    int64
+}
+
 type ListeningBackend struct {
 	Source      string
 	Backend     string
@@ -669,6 +681,7 @@ type ListeningSource struct {
 	LastErrorDetail  string
 	LastErrorBackend string
 	UpdatedAt        int64
+	ConsentedAt      sql.NullInt64
 }
 
 type MachineProvider struct {

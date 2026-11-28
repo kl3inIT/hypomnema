@@ -20,10 +20,20 @@ type Pacer struct {
 	hosts map[string]*hostTurn
 }
 
-// hostTurn is a host's turn: a slot of one, and when its last call ended.
+// hostTurn is a host's turn: a slot of one, when its last call ended, and how many reads at a cadence it made.
 type hostTurn struct {
-	slot chan struct{}
-	last time.Time
+	slot  chan struct{}
+	last  time.Time
+	reads int
+}
+
+// Cadence is a signed-in account's pace at its site: at least Gap between two reads, and Cooldown more before every
+// read that follows Every of them, whoever reads (trend-opportunity-radar collection-pacing-contract.md:5-9: one read
+// at a time, X 10 seconds apart, "after every five completed read requests, add a 30-second cooldown").
+type Cadence struct {
+	Gap      time.Duration
+	Every    int
+	Cooldown time.Duration
 }
 
 // NewPacer returns a Pacer on a clock and a sleep; nil: the wall clock and a timer.
@@ -54,6 +64,23 @@ func timerSleep(ctx context.Context, d time.Duration) error {
 // Wait waits for host's turn and for gap after its last call, and gives the function that ends the turn. An empty
 // host is not paced.
 func (p *Pacer) Wait(ctx context.Context, host string, gap time.Duration) (func(), error) {
+	return p.wait(ctx, host, func(*hostTurn) time.Duration { return gap })
+}
+
+// Read waits for host's turn at a cadence, and gives the function that ends the turn.
+func (p *Pacer) Read(ctx context.Context, host string, c Cadence) (func(), error) {
+	return p.wait(ctx, host, func(turn *hostTurn) time.Duration {
+		turn.reads++
+		if c.Every > 0 && turn.reads > 1 && (turn.reads-1)%c.Every == 0 {
+			return c.Gap + c.Cooldown
+		}
+
+		return c.Gap
+	})
+}
+
+// wait takes host's turn, then waits the gap gapOf gives (asked once the turn is taken) after its last call.
+func (p *Pacer) wait(ctx context.Context, host string, gapOf func(*hostTurn) time.Duration) (func(), error) {
 	if host == "" {
 		return func() {}, nil
 	}
@@ -72,6 +99,8 @@ func (p *Pacer) Wait(ctx context.Context, host string, gap time.Duration) (func(
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+
+	gap := gapOf(turn)
 
 	if !turn.last.IsZero() {
 		if wait := turn.last.Add(gap).Sub(p.now()); wait > 0 {

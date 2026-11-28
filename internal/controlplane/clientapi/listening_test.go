@@ -13,6 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
@@ -34,6 +35,95 @@ func (l listeningOver) SetOrder(ctx context.Context, source string, backends []s
 
 func (l listeningOver) Test(ctx context.Context, source string) error {
 	return l.svc.Test(ctx, source, nil, true)
+}
+
+func (l listeningOver) Consent(ctx context.Context, source string) error {
+	return l.svc.Consent(ctx, source)
+}
+
+func (l listeningOver) SignInStart(ctx context.Context, source string) error {
+	return l.svc.SignInStart(ctx, source)
+}
+
+func (l listeningOver) SignInCheck(ctx context.Context, source, label string) (listening.SignIn, error) {
+	return l.svc.SignInCheck(ctx, source, label)
+}
+
+func (l listeningOver) PasteCookies(ctx context.Context, source, header, label string) error {
+	return l.svc.PasteCookies(ctx, source, header, label)
+}
+
+func (l listeningOver) SignOut(ctx context.Context, source string) error {
+	return l.svc.SignOut(ctx, source)
+}
+
+// noListeningSecrets is a vault that keeps nothing: these calls never reach it.
+type noListeningSecrets struct{}
+
+func (noListeningSecrets) Create(context.Context, vault.NewSecret) (vault.Secret, error) {
+	return vault.Secret{}, vault.ErrConflict
+}
+
+func (noListeningSecrets) Open(context.Context, string) (vault.Opened, error) {
+	return vault.Opened{}, vault.ErrNotFound
+}
+
+func (noListeningSecrets) Rotate(context.Context, string, vault.Payload) (vault.Secret, error) {
+	return vault.Secret{}, vault.ErrNotFound
+}
+
+func (noListeningSecrets) Delete(context.Context, string) error { return vault.ErrNotFound }
+
+// The signed-in sources' API (issue #1291): only the owner agrees to a consent card, which switches the source on and
+// shows when; a pasted cookie header without the login cookies is refused naming what is missing, never a value.
+func TestTheOwnerConsentsToASignedInSourceAndPastedCookiesAreChecked(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	svc := listening.New(listening.Config{
+		DB: db, Platforms: listening.SignedSources(listening.Endpoints{}, nil), Secrets: noListeningSecrets{},
+	})
+	w.srv.WithListening(listeningOver{svc: svc})
+
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+
+	denied, err := pi.ConsentListeningSourceWithResponse(ctx, "x")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, denied.StatusCode(), "only the owner")
+
+	before, err := owner.GetListeningWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, before.StatusCode(), string(before.Body))
+	x := before.JSON200.Sources[0]
+	require.NotNil(t, x.Signed)
+	assert.False(t, x.On)
+	assert.Nil(t, x.Signed.ConsentedAt)
+	assert.Nil(t, x.Signed.SignInUrl, "no shared browser here: only a pasted cookie header signs in")
+
+	consented, err := owner.ConsentListeningSourceWithResponse(ctx, "x")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, consented.StatusCode(), string(consented.Body))
+	assert.True(t, consented.JSON200.Sources[0].On)
+	assert.NotNil(t, consented.JSON200.Sources[0].Signed.ConsentedAt)
+	assert.False(t, consented.JSON200.Sources[1].On, "LinkedIn needs its own yes")
+
+	pasted, err := owner.PasteListeningCookiesWithResponse(ctx, "x",
+		openapi.ListeningCookies{Cookies: "auth_token=do-not-echo"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, pasted.StatusCode())
+	assert.Contains(t, string(pasted.Body), "ct0")
+	assert.NotContains(t, string(pasted.Body), "do-not-echo")
+
+	started, err := owner.StartListeningSignInWithResponse(ctx, "linkedin")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, started.StatusCode(), "no sign-in before LinkedIn's consent")
 }
 
 // The Social listening page's API (issue #1290): the owner reads the sources with their counted groups, switches one

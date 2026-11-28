@@ -650,10 +650,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// the Channels below exist.
 	var tellListening func(ctx context.Context, b listening.Broken)
 
+	// Facebook, Instagram and Threads through the Muse pool (issue #1292), then X and LinkedIn as the owner's signed-in
+	// accounts (issue #1291), their cookies in the vault and LinkedIn read in the shared browser.
+	listenPlatforms := listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient)
+	listenPlatforms = append(listenPlatforms, listening.MuseSources(listeningMuse(musePool), http.DefaultClient)...)
+	listenPlatforms = append(listenPlatforms, listening.SignedSources(listening.Endpoints{}, http.DefaultClient)...)
+	listenBrowser, listenSecrets := listeningAccounts(cfg, secrets, shared)
+
 	listen := listening.New(listening.Config{
-		Platforms: listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient),
+		Platforms: listenPlatforms,
 		Logger:    logger, DB: db, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
-		Muse: listeningMuse(musePool),
+		Browser: listenBrowser, Secrets: listenSecrets, SecretName: listeningSecretName,
 		Tell: func(ctx context.Context, b listening.Broken) {
 			if tellListening != nil {
 				tellListening(ctx, b)
