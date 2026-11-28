@@ -151,10 +151,15 @@ func Sources(e Endpoints, client *http.Client) []Platform {
 	}
 
 	out := []Platform{
-		{Name: SourceWeb, Backends: []Backend{webBackend()}, Read: readWebPage, LiveQuery: "VETC"},
+		{
+			Name: SourceWeb, Backends: []Backend{webBackend()}, Read: readWebPage, LiveQuery: "VETC",
+			Adds: "Forum threads, news, reviews and blog posts the web search's keyless providers find, each with its " +
+				"link, snippet and date when the page gives one.",
+		},
 		{
 			Name: SourceReddit, Backends: []Backend{redditJSONBackend(e, client), webArcticBackend(e, client)},
 			Read: redditRead(e, client), LiveQuery: "VETC Vietnam",
+			Adds: "Reddit threads with their subreddit, author, date, score and number of comments.",
 		},
 		{Name: SourceYouTube, Backends: []Backend{youtubeBackend(e.YtDlp)}, LiveQuery: "VETC"},
 		{Name: SourceGooglePlay, Backends: []Backend{playBackend(e, client)}, LiveQuery: "VETC"},
@@ -337,7 +342,12 @@ func webBackend() Backend {
 	return Backend{
 		Name: BackendWebSearch, Host: BackendWebSearch, Probe: needsWeb,
 		Search: func(ctx context.Context, r Request) (Result, error) {
-			a, err := r.Web(websearch.WithWindow(ctx, r.From, r.To), r.Query, min(r.Limit, websearch.MaxResults))
+			// A request with no start has no window, the live test's (health.go): no provider is asked one.
+			if !r.From.IsZero() {
+				ctx = websearch.WithWindow(ctx, r.From, r.To)
+			}
+
+			a, err := r.Web(ctx, r.Query, min(r.Limit, websearch.MaxResults))
 			if errors.Is(err, websearch.ErrNoResults) {
 				return Result{Detail: "no provider found anything"}, nil
 			}
@@ -381,12 +391,28 @@ func webFailure(err error) error {
 
 	f := &SourceError{Code: CodeBroken, Detail: oneLine(failed.Error())}
 
-	// Providers that answered with nothing are not failures; a failure that did not rest makes it broken.
-	if failed.Others > 0 || len(failed.Rests) == 0 {
+	// Whatever code the failure takes, a provider that timed out or rests for a rate limit or a spent quota comes
+	// back by itself; that is kept up to whether the owner is told (review round 2 of PR #1322: one 504 or 429 among
+	// four 500s is no broken source to report). A refusal is not: it rests for hours and may need a person.
+	f.transient = failed.Timeouts > 0
+	for _, r := range failed.Rests {
+		f.transient = f.transient || r.Why != websearch.RestRefused
+	}
+
+	// Providers that answered with nothing are not failures; a failure that neither rested nor timed out makes it
+	// broken. A provider that did not answer in time is a timeout, which comes back by itself, kept as one through the
+	// chain (issue #1290, review round 1; a network timeout is TIMEOUT in Agent-Reach, runtime/result.py:74-78, and a
+	// 408 or 504 is a timeout by this package's own rule, failure.go:132-133; the most actionable code of several is
+	// reported, last30days lib/health.py:51-59).
+	if failed.Others > failed.Timeouts || len(failed.Rests)+failed.Timeouts == 0 {
 		return f
 	}
 
-	codes := make([]Code, 0, len(failed.Rests))
+	codes := make([]Code, 0, len(failed.Rests)+1)
+	if failed.Timeouts > 0 {
+		codes = append(codes, CodeTimeout)
+	}
+
 	for _, r := range failed.Rests {
 		codes = append(codes, restCode(r.Why))
 

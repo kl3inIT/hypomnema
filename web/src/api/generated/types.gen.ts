@@ -556,6 +556,7 @@ export type Node = {
    */
   kvm?: boolean;
   temp_isolation?: NodeTempIsolation;
+  memory_limit?: NodeMemoryLimit;
   /**
    * Its Dispatches that have not settled.
    */
@@ -1113,6 +1114,103 @@ export type ImageRequest = {
   image_size?: string;
 };
 
+export type Listening = {
+  counts: ListeningCounts;
+  /**
+   * The sources, in the order a plan's coverage lists them.
+   */
+  sources: Array<ListeningSource>;
+};
+
+export type ListeningCounts = {
+  working: number;
+  unverified: number;
+  broken: number;
+  could_be_on: number;
+};
+
+/**
+ * working: its last reading in the last 24 hours passed. unverified: read in part, or not read in the last 24 hours. broken: its last reading failed. could_be_on: the owner switched it off.
+ */
+export type ListeningGroup = 'working' | 'unverified' | 'broken' | 'could_be_on';
+
+/**
+ * Why a source or a backend was not read, as listen_search's coverage names it: need_login, refused, rate_limited, limit_reached, not_found, timeout, broken or no_results. A plain string, since an enum of these would share names with ErrorCode's in the generated code.
+ */
+export type ListeningCode = string;
+
+export type ListeningSource = {
+  /**
+   * The source's name, as a plan names it.
+   */
+  name: string;
+  label: string;
+  /**
+   * What the source brings when it is on.
+   */
+  adds: string;
+  /**
+   * The page of Settings where the source's accounts are, for a source that has them.
+   */
+  page?: string;
+  on: boolean;
+  group: ListeningGroup;
+  code?: ListeningCode;
+  /**
+   * It passed on an earlier day and fails today.
+   */
+  regressed: boolean;
+  /**
+   * Its last reading.
+   */
+  checked_at?: string;
+  last_success_at?: string;
+  /**
+   * Items real searches read in the last 7 UTC days, before duplicates are removed.
+   */
+  items_this_week: number;
+  last_error?: ListeningFailure;
+  /**
+   * Its backends, in the order a search tries them.
+   */
+  backends: Array<ListeningBackend>;
+};
+
+export type ListeningBackend = {
+  name: string;
+  /**
+   * Asked only when a plan pins the source to it.
+   */
+  opt_in: boolean;
+  /**
+   * resting: it is skipped until `resting_until`, after `rest_code`.
+   */
+  state: 'ready' | 'resting';
+  resting_until?: string;
+  rest_code?: ListeningCode;
+  last_ok_at?: string;
+  last_error?: ListeningFailure;
+};
+
+export type ListeningFailure = {
+  code: ListeningCode;
+  detail: string;
+  backend?: string;
+  at: string;
+  /**
+   * The one step that fixes it
+   */
+  fix: string;
+};
+
+export type ListeningSwitch = {
+  on: boolean;
+};
+
+export type ListeningOrder = {
+  backends: Array<string>;
+};
+
 export type Muse = {
   /**
    * Whether workers and Bots' pi get muse_ask, muse_chats and muse_messages.
@@ -1401,6 +1499,17 @@ export type MachineProvider = {
 
 export type MachineProviderList = {
   data: Array<MachineProvider>;
+};
+
+/**
+ * Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version does not say.
+ */
+export type NodeMemoryLimit = {
+  on: boolean;
+  /**
+   * Why it is off, in the node's words.
+   */
+  reason?: string;
 };
 
 /**
@@ -4432,6 +4541,10 @@ export type Profile = {
    * What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
    */
   memory_request_bytes?: number;
+  /**
+   * The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
+   */
+  memory_limit_bytes?: number;
   /**
    * The skills its workers get beside those given to everyone.
    */
@@ -10389,6 +10502,112 @@ export type SetImageOrderResponses = {
 };
 
 export type SetImageOrderResponse = SetImageOrderResponses[keyof SetImageOrderResponses];
+
+export type GetListeningData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/listening';
+};
+
+export type GetListeningErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetListeningError = GetListeningErrors[keyof GetListeningErrors];
+
+export type GetListeningResponses = {
+  /**
+   * The sources.
+   */
+  200: Listening;
+};
+
+export type GetListeningResponse = GetListeningResponses[keyof GetListeningResponses];
+
+export type SetListeningSourceData = {
+  body: ListeningSwitch;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}';
+};
+
+export type SetListeningSourceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetListeningSourceError = SetListeningSourceErrors[keyof SetListeningSourceErrors];
+
+export type SetListeningSourceResponses = {
+  /**
+   * The sources after the switch.
+   */
+  200: Listening;
+};
+
+export type SetListeningSourceResponse = SetListeningSourceResponses[keyof SetListeningSourceResponses];
+
+export type SetListeningOrderData = {
+  body: ListeningOrder;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}/order';
+};
+
+export type SetListeningOrderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetListeningOrderError = SetListeningOrderErrors[keyof SetListeningOrderErrors];
+
+export type SetListeningOrderResponses = {
+  /**
+   * The sources in their new order.
+   */
+  200: Listening;
+};
+
+export type SetListeningOrderResponse = SetListeningOrderResponses[keyof SetListeningOrderResponses];
+
+export type TestListeningSourceData = {
+  body?: never;
+  path: {
+    source: string;
+  };
+  query?: never;
+  url: '/gateway/listening/sources/{source}/test';
+};
+
+export type TestListeningSourceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type TestListeningSourceError = TestListeningSourceErrors[keyof TestListeningSourceErrors];
+
+export type TestListeningSourceResponses = {
+  /**
+   * The sources after the test.
+   */
+  200: Listening;
+};
+
+export type TestListeningSourceResponse = TestListeningSourceResponses[keyof TestListeningSourceResponses];
 
 export type GetMuseData = {
   body?: never;

@@ -20,3 +20,6 @@ func (stop workerStop) kill() (bool, error) {
 }
 
 func reapOrphans(int) func() { return func() {} }
+
+// Tree is the shim alone: this system has no process table the node reads.
+func Tree(pid int) []int { return []int{pid} }

@@ -217,7 +217,21 @@ func toNode(n orchestration.Node) openapi.Node {
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal), Device: ptr(openapi.NodeDevice(n.Device)), Kvm: ptr(n.KVM),
 		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools), TempIsolation: toNodeTempIsolation(n.TempIsolation),
+		MemoryLimit: toNodeMemoryLimit(n.MemoryLimit),
 	}
+}
+
+func toNodeMemoryLimit(m *orchestration.MemoryLimit) *openapi.NodeMemoryLimit {
+	if m == nil {
+		return nil
+	}
+
+	out := &openapi.NodeMemoryLimit{On: m.On}
+	if m.Reason != "" {
+		out.Reason = &m.Reason
+	}
+
+	return out
 }
 
 func toNodeTempIsolation(t *orchestration.TempIsolation) *openapi.NodeTempIsolation {
