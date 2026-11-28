@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/muse"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -50,4 +51,14 @@ func openMuse(
 	}
 
 	return m
+}
+
+// listeningMuse is the Muse pool as listening asks it; nil when this control plane has none, never a nil pool in
+// an interface.
+func listeningMuse(pool *muse.Service) listening.Muse {
+	if pool == nil {
+		return nil
+	}
+
+	return pool
 }

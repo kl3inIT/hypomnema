@@ -183,6 +183,8 @@ type Exit struct {
 	Kind   string `json:"kind"`
 	Code   *int   `json:"code,omitempty"`
 	Signal string `json:"signal,omitempty"`
+	// Reason is oom_killed when the kernel killed a process of the worker for memory (issue #1313).
+	Reason string `json:"reason,omitempty"`
 }
 
 // Usage is what the runtime reports it used, when it reports it.

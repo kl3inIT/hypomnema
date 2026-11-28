@@ -114,6 +114,12 @@ type Config struct {
 	// TempIsolation says whether workers get their temp directory as /tmp, said at hello (issue #895); nil: the
 	// node says nothing.
 	TempIsolation *nodeproto.TempIsolation
+	// MemoryLimit says whether workers run under the node's memory ceiling, said at hello (issue #1313); nil: the
+	// node says nothing.
+	MemoryLimit *nodeproto.MemoryLimit
+	// WorkerMemoryMax is given the ceiling the control plane sends at hello and with each heartbeat's
+	// acknowledgement, 0 for none, when it sends one (issue #1313); nil: the node applies none.
+	WorkerMemoryMax func(ctx context.Context, memoryMax int64)
 	// Phone is the phone the node holds, started and stopped when the control plane asks; nil: none.
 	Phone Phone
 	// WatchPhone opens a view of that phone's screen for the owner (issue #417, step 3); nil: none.
@@ -340,8 +346,16 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 
 	d.hosts.ask(resp.GitHosts)
 	d.tools.ask(resp.Tools)
+	d.workerMemory(ctx, resp.WorkerMemoryMax)
 
 	return d.session(ctx, time.Duration(resp.HeartbeatAfterMs)*time.Millisecond)
+}
+
+// workerMemory passes the control plane's ceiling for the workers on, when it said one (issue #1313).
+func (d *Daemon) workerMemory(ctx context.Context, memoryMax *int64) {
+	if d.cfg.WorkerMemoryMax != nil && memoryMax != nil {
+		d.cfg.WorkerMemoryMax(ctx, *memoryMax)
+	}
 }
 
 // Hello says hello once, claiming nothing, and returns the node's id. It
@@ -365,7 +379,7 @@ func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim, held []str
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),
 		QuestionParts: true, GitHubApp: true, Takes: d.heldTakes(), ListsTakes: d.cfg.Takes != nil && held != nil,
-		TempIsolation: d.cfg.TempIsolation,
+		TempIsolation: d.cfg.TempIsolation, MemoryLimit: d.cfg.MemoryLimit,
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)
@@ -593,6 +607,7 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 
 					d.hosts.ask(ack.GitHosts)
 					d.tools.ask(ack.Tools)
+					d.workerMemory(ctx, ack.WorkerMemoryMax)
 				}
 
 				continue

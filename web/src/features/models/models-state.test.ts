@@ -40,27 +40,41 @@ describe("why an account rests", () => {
   it("says each code in words", () => {
     const at = until(later, now)
     const cases = [
-      ["usage_limit", `Usage limit, resets ${at}`, "warning"],
-      ["rate_limit", `Rate limited until ${at}`, "warning"],
-      ["billing", `Credits spent until ${at}`, "warning"],
-      ["auth", `Key refused until ${at}`, "destructive"],
-      ["overloaded", `Provider overloaded until ${at}`, "warning"],
-      ["unknown", `Resting until ${at}`, "warning"],
+      ["usage_limit", `Usage limit, resets ${at}`, "warning", undefined],
+      ["rate_limit", `Rate limited until ${at}`, "warning", undefined],
+      ["billing", `Credits spent until ${at}`, "warning", "Add credits"],
+      ["auth", `Key refused until ${at}`, "destructive", "Sign in again"],
+      ["overloaded", `Provider overloaded until ${at}`, "warning", undefined],
+      ["unknown", `Resting until ${at}`, "warning", undefined],
     ] as const
 
-    for (const [code, label, tone] of cases) {
+    for (const [code, label, tone, action] of cases) {
       const words = "5-hour usage limit reached. Resets in 2hr 15min."
       expect(
         accountState(
           account("a", { cooling_until: later, cooling_code: code, cooling_reason: words }),
           now,
         ),
-      ).toEqual({ label, tone, why: words })
+      ).toEqual({ label, tone, why: words, action })
     }
   })
 
   it("says only that it rests when the server names no code", () => {
     expect(restLabel(undefined, later, now)).toBe(`Resting until ${until(later, now)}`)
+  })
+
+  // Issue #1335, row 4: a refused sign-in or spent credits rest for the usage wait and do not end by themselves, so
+  // the account says what the owner does; an OpenCode key is replaced, not signed in again (issues #854, #965).
+  it("says what to do when only the owner can end the rest", () => {
+    const resting = (code: Account["cooling_code"], runtime = "claude") =>
+      accountState(account("a", { runtime, cooling_until: later, cooling_code: code }), now)?.action
+
+    expect(resting("auth")).toBe("Sign in again")
+    expect(resting("auth", "opencode_go")).toBe("Add a new key")
+    expect(resting("billing")).toBe("Add credits")
+    for (const code of ["usage_limit", "rate_limit", "overloaded", "unknown"] as const) {
+      expect(resting(code)).toBeUndefined()
+    }
   })
 })
 

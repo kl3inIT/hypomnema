@@ -728,11 +728,12 @@ const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           audio_ms, characters, web_searches, images, ttft_ms, video_id, video_rev, created_at)
+                           audio_ms, characters, web_searches, images, ttft_ms, video_id, video_rev, cooling_code,
+                           created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
         ?10, ?11, ?12, ?13, ?14, ?15,
         ?16, ?17, ?18, ?19, ?20, ?21,
-        ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
+        ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)
 `
 
 type InsertGatewayUsageParams struct {
@@ -764,6 +765,7 @@ type InsertGatewayUsageParams struct {
 	TtftMs             sql.NullInt64
 	VideoID            string
 	VideoRev           int64
+	CoolingCode        string
 	Now                int64
 }
 
@@ -797,6 +799,7 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.TtftMs,
 		arg.VideoID,
 		arg.VideoRev,
+		arg.CoolingCode,
 		arg.Now,
 	)
 	return err
@@ -1276,7 +1279,7 @@ func (q *Queries) ListGatewaySearchUsage(ctx context.Context, since string) ([]G
 }
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, u.video_id, u.video_rev, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, u.video_id, u.video_rev, u.cooling_code, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?1
 `
 
@@ -1310,6 +1313,7 @@ type ListGatewayUsageRow struct {
 	TtftMs             sql.NullInt64
 	VideoID            string
 	VideoRev           int64
+	CoolingCode        string
 	KeyName            string
 }
 
@@ -1352,6 +1356,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 			&i.TtftMs,
 			&i.VideoID,
 			&i.VideoRev,
+			&i.CoolingCode,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -1482,7 +1487,7 @@ func (q *Queries) ListPerformanceSamples(ctx context.Context, since int64) ([]Li
 }
 
 const listUsageRequests = `-- name: ListUsageRequests :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, u.video_id, u.video_rev, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, u.video_id, u.video_rev, u.cooling_code, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= ?1
   AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?4 OFFSET ?3
@@ -1525,6 +1530,7 @@ type ListUsageRequestsRow struct {
 	TtftMs             sql.NullInt64
 	VideoID            string
 	VideoRev           int64
+	CoolingCode        string
 	KeyName            string
 }
 
@@ -1572,6 +1578,7 @@ func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsPa
 			&i.TtftMs,
 			&i.VideoID,
 			&i.VideoRev,
+			&i.CoolingCode,
 			&i.KeyName,
 		); err != nil {
 			return nil, err

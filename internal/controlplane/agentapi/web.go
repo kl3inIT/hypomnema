@@ -156,7 +156,8 @@ func (s *Server) configuredGatewayTools(ctx context.Context, named []string) []s
 				out = append(out, name)
 			}
 		case name == agenttool.ToolListenSearch:
-			if s.listening != nil {
+			// Offered while a source is on (issue #1290), as the Muse tools while the owner keeps them on.
+			if s.listening != nil && len(s.listening.SourceNames(ctx)) > 0 {
 				out = append(out, name)
 			}
 		case s.web != nil:
@@ -182,7 +183,7 @@ func (s *Server) gatewayToolList(ctx context.Context, a agent) []agenttool.Brows
 
 	out = append(out, museToolList(names)...)
 
-	return append(out, s.listeningToolList(names)...)
+	return append(out, s.listeningToolList(ctx, names)...)
 }
 
 // gatewayCall runs one of the gateway's tools for an agent.
