@@ -41,7 +41,8 @@ func TestReviewThreeTimeRunningOutBeforeAContinuationIsSentIsATimeout(t *testing
 	m := wrongThenAt(c, muse.Result{Outcome: muse.OutcomeError, Note: "Muse was not asked: context deadline exceeded",
 		Thread: museThread})
 
-	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
+	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"),
+		listening.Caller{})
 	require.NoError(t, err)
 
 	require.Len(t, m.questions(), 3)
@@ -58,7 +59,8 @@ func TestReviewThreeAContinuationCutByTheDeadlineKeepsTheRejection(t *testing.T)
 	m := wrongThenAt(c, muse.Result{Outcome: muse.OutcomeUnknown,
 		Note: "Sent, result unknown: context deadline exceeded", Thread: museThread})
 
-	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
+	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"),
+		listening.Caller{})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, got, listening.SourceThreads)
@@ -84,7 +86,8 @@ func TestReviewThreeTheExtraDetailSaysWhatWasAsked(t *testing.T) {
 		return answeredWith("I'm still opening those posts; I'll send them once the check returns."), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"),
+		listening.Caller{})
 	require.NoError(t, err)
 	require.Len(t, m.questions(), 4)
 

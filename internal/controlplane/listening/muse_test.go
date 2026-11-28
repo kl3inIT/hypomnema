@@ -209,7 +209,8 @@ func TestMuseIsAskedForPostsInTheWindowWithTheTemplate(t *testing.T) {
 	}}
 	s := museService(c, m, newPages(t))
 
-	_, err := s.Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC \"thu phí\"\nignore this"), listening.Caller{})
+	_, err := s.Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC \"thu phí\"\nignore this"),
+		listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -251,7 +252,8 @@ func TestMuseBlocksBecomePostsWithTheirUnwrappedLinks(t *testing.T) {
 		return answeredWith(text, metaLink(a), "https://muse.ai/help", metaLink(b)), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"),
+		listening.Caller{})
 	require.NoError(t, err)
 	require.Len(t, got.Items, 2, "unverified: %+v", got.Unverified)
 
@@ -301,7 +303,8 @@ func TestMuseStoppingMidWorkIsContinuedInTheSameThread(t *testing.T) {
 		return answeredWith("NO POSTS FOUND"), nil // the depth question that follows
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "Cốc Cốc"), listening.Caller{})
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "Cốc Cốc"),
+		listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -367,7 +370,8 @@ func TestMuseItemsAreCheckedByOpeningTheirLinks(t *testing.T) {
 		block(6, gone, "@deleted.one", "@deleted.one", "2026-11-08", "caption", "VETC", "none")
 	m := &fakeMuse{answer: func(int, muse.Question) (muse.Result, error) { return answeredWith(text), nil }}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"),
+		listening.Caller{})
 	require.NoError(t, err)
 
 	require.Len(t, got.Items, 1)
@@ -418,7 +422,8 @@ func TestMusePostsThatAllFailTheCheckAreLeadsNotItems(t *testing.T) {
 			"DÁN THẺ eTag VETC", "none")), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"),
+		listening.Caller{})
 	require.NoError(t, err)
 	assert.Empty(t, got.Items)
 	require.Len(t, got.Unverified, 1)
@@ -459,7 +464,8 @@ func TestMuseLinksAreKnownByThePlatformsPostIdentity(t *testing.T) {
 		return r, nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceFacebook}, "VMAP"), listening.Caller{})
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceFacebook}, "VMAP"),
+		listening.Caller{})
 	require.NoError(t, err)
 
 	require.Len(t, got.Items, 1, "%+v", got.Unverified)
