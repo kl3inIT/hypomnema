@@ -434,7 +434,7 @@ func TestTheConfiguredModelsAreAskedAndAStaleOneFallsBack(t *testing.T) {
 	require.NotEmpty(t, temps.Calls("rerank"))
 	assert.Nil(t, temps.Calls("rerank")[0].Temperature, "gpt-6 takes only its default temperature")
 
-	_, err = withModel(newClock(), "", listening.ModelOff, forum("forum", items...)).
+	_, err = withModel(newClock(), "opencode-go/deepseek-v4.1-flash", listening.ModelOff, forum("forum", items...)).
 		Search(t.Context(), p, listening.Caller{Model: temps.Model})
 	require.NoError(t, err)
 	last := temps.Calls("rerank")[len(temps.Calls("rerank"))-1]

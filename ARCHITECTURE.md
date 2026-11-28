@@ -5025,7 +5025,8 @@ writes no prose (last30days SKILL.md LAW 7).
   what was read (NFKC, spaces evened), a claim only beside a checked quote. The models are given a bounded,
   sanitized payload (id, source, date, title 220 and text 420 characters without links, inside last30days'
   `<untrusted_content>` fence, its tag defanged in a post). The review's calls have 30 s and 2 attempts, the read
-  60 s and one; the models are `HYPOMNEMA_LISTENING_REVIEW_MODEL` (default `opencode-go/deepseek-v4.1-flash`) and
+  60 s and one; the models are `HYPOMNEMA_LISTENING_REVIEW_MODEL` (default `codex-subscription/gpt-6-luna`, measured against
+  `opencode-go/deepseek-v4.1-flash` on the fixtures) and
   `HYPOMNEMA_LISTENING_READ_MODEL` (default `codex-subscription/gpt-6-luna`), `off` keeping a step deterministic; a
   name the gateway does not serve falls back to the default. Temperature 0 is sent except to OpenAI's reasoning
   models (obsei). On no model, a failed call or an answer that is not what was asked, the code's ranking and

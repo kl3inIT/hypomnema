@@ -45,9 +45,11 @@ type Caller struct {
 const (
 	// ModelOff keeps a step deterministic.
 	ModelOff = "off"
-	// DefaultReviewModel ranks and reviews the shortlist: the owner's two cheap models (2026-11-28) were measured
-	// on the Vietnamese fixtures (semantic_live_test.go), and this one is the pull request's measured choice.
-	DefaultReviewModel = "opencode-go/deepseek-v4.1-flash"
+	// DefaultReviewModel ranks and reviews the shortlist: of the owner's two cheap models (2026-11-28), both from
+	// subscriptions, measured twice on the Vietnamese fixtures (semantic_live_test.go, 2026-11-28), gpt-6-luna and
+	// deepseek-v4.1-flash joined the same pairs when they answered, but deepseek's reasoning spent about three times
+	// the output tokens and its cluster review ran past the 30-second deadline once in two runs (27.7 s the other).
+	DefaultReviewModel = "codex-subscription/gpt-6-luna"
 	// DefaultReadModel reads the final items in full: gpt-6-luna, whose 272k context the Codex subscription serves
 	// (owner, 2026-11-28).
 	DefaultReadModel = "codex-subscription/gpt-6-luna"
