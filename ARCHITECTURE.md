@@ -4988,8 +4988,9 @@ writes no prose (last30days SKILL.md LAW 7).
   other failures): when every provider that failed rests, the web's code is the rest's (`rate_limited`,
   `limit_reached`, `refused`) until the first is free; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
-  anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
-  tried with its result, detail and rest (`until`, `skipped`).
+  anything) or `not_read`, with the most actionable code, `fix` (the one step that fixes it, `listening.Fix`, the
+  same words the Social listening page shows), and per stream the backend that served and each backend tried with
+  its result, detail and rest (`until`, `skipped`).
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
   without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
@@ -5007,9 +5008,34 @@ writes no prose (last30days SKILL.md LAW 7).
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
   search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
-  with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
-- Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1288 to #1295).
+  with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift, and runs the live test of both.
+- Settings → Gateway → Social listening (issue #1290; `listening/settings.go`, `health.go`, `fix.go`,
+  `clientapi/listening.go`, `web/src/features/listening/`), after Muse in the Gateway group: one card a source, as a
+  Grid or a Table (the Machines page's switch, kept in the browser), under four counted groups that filter it,
+  last30days doctor's: `working` (its last reading in the last 24 hours passed: a search read it, items or a clean
+  zero, or its live test read an item), `unverified` (read in part, or not read in 24 hours), `broken` (its last
+  reading failed), `could_be_on` (switched off, never counted as broken; its card says what it would add). A card
+  shows its backends in the order a search tries them, each ready or resting until when and its last answer, moved
+  up or down; its last success, its items this week (real searches, before duplicates are removed), its last error
+  with its fix, "Regressed" when it passed on an earlier day and fails today (Agent-Reach `regressed()`), a link to
+  the Settings page of its accounts for a source that has one, and its switch. A broken card wears postiz's "!" and
+  a press anywhere on it tests the source again; "Test again" does the same on a card read in part or not for a day.
+- The owner's switches and backend orders are kept in `listening_sources.off` and `listening_backends.position`; a
+  source that is off is neither read nor may a plan name it, and `listen_search` lists only the sources that are on
+  (none on: no tool). Each reading, a real search's coverage or a live test's, is kept: the source's last success
+  and last error (`listening_sources`), each backend's last answer (`listening_backends`), and per UTC day its items
+  and how its last reading ended (`listening_readings`, 8 days). API, only the owner's: `GET /gateway/listening`,
+  `PUT /gateway/listening/sources/{source}` (`on`), `PUT …/{source}/order` (each backend once), `POST …/{source}/test`.
+- The live test (Agent-Reach's `check`): each backend that is not opt-in is asked `python`, 2 results, over 365
+  days, in turn; the source passes when one reads an item, and a clean zero fails it (`no_results`). The control
+  plane looks every hour, from its start, for a source that is on and not read in 24 hours and tests it; the owner's
+  test first ends the source's rests, its backends' and the paths its searches rested. Its web searches go through
+  the chain keyless and are recorded on no gateway key.
+- The owner is told once when a source breaks, as a disk alert is: a line in the main Bot's main chat and a card
+  through its Lark Channels, with the code, what happened and the fix. A reading that fails sets
+  `listening_sources.told` only where it was not set, and only that reading tells; a reading that passes clears it.
+  A rate limit, a spent quota or a timeout, which come back by themselves, are not told.
+- Not built: other sources, signed-in accounts and saved topics (issues #1288 to #1295).
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,

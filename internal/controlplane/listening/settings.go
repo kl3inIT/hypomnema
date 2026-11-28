@@ -29,7 +29,7 @@ type settings struct {
 
 func (s *Service) settings(ctx context.Context) (settings, error) {
 	out := settings{off: map[string]bool{}, order: map[string][]string{}}
-	if s.db != nil || s.db == nil { // API only: built in the next commit.
+	if s.db == nil {
 		return out, nil
 	}
 

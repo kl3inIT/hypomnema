@@ -73,10 +73,6 @@ func gib(n int64) string {
 func tellListeningBroken(chats diskAlertChats, owner diskAlertOwner, logger *slog.Logger,
 ) func(ctx context.Context, b listening.Broken) {
 	return func(ctx context.Context, b listening.Broken) {
-		if b.Source != "" { // API only: built in the next commit.
-			return
-		}
-
 		title := listening.Label(b.Source) + " stopped working for social listening"
 		text := fmt.Sprintf("%s could not be read (%s: %s). %s Settings → Gateway → Social listening shows it.",
 			listening.Label(b.Source), b.Code, b.Detail, b.Fix)

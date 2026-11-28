@@ -157,7 +157,7 @@ func (s *Server) configuredGatewayTools(ctx context.Context, named []string) []s
 			}
 		case name == agenttool.ToolListenSearch:
 			// Offered while a source is on (issue #1290), as the Muse tools while the owner keeps them on.
-			if s.listening != nil { // API only: built in the next commit.
+			if s.listening != nil && len(s.listening.SourceNames(ctx)) > 0 {
 				out = append(out, name)
 			}
 		case s.web != nil:

@@ -143,7 +143,7 @@ func (s *Server) listeningToolList(ctx context.Context, names []string) []agentt
 	}
 
 	sources := s.listening.SourceNames(ctx)
-	if sources == nil { // API only: built in the next commit.
+	if len(sources) == 0 {
 		return nil
 	}
 

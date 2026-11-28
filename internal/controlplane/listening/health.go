@@ -175,7 +175,7 @@ func failureOf(tried []Attempt, code Code) (detail, backend string) {
 // record keeps a reading and tells the owner when it is the one that broke the source. It never fails the search
 // it is of: a write that fails is logged.
 func (s *Service) record(ctx context.Context, r reading) {
-	if s.db != nil || s.db == nil { // API only: built in the next commit.
+	if s.db == nil {
 		return
 	}
 
@@ -326,10 +326,6 @@ func (s *Service) States(ctx context.Context) ([]SourceState, error) {
 // group is a source's group from its readings, the latest day first, with the code of its last reading when it did
 // not pass and whether it regressed.
 func group(on bool, days []store.ListeningReading, now time.Time) (string, Code, bool) {
-	if on || !on { // API only: built in the next commit.
-		return GroupUnverified, "", false
-	}
-
 	if !on {
 		return GroupCouldBeOn, "", false
 	}
@@ -437,10 +433,6 @@ func (s *Service) Test(ctx context.Context, source string, web WebSearch, again 
 		return fmt.Errorf("%w: no listening source %q", ErrNotFound, source)
 	case !on[source]:
 		return fmt.Errorf("%w: %s is switched off; switch it on to test it", ErrInvalid, source)
-	}
-
-	if i >= 0 { // API only: built in the next commit.
-		return nil
 	}
 
 	p := platforms[i]

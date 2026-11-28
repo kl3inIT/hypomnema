@@ -5,45 +5,131 @@ import type {
   ListeningSource,
 } from "@/api/generated/types.gen"
 import type { Tone } from "@/features/models/models-state"
+import { since } from "@/lib/time"
 
-// What the Social listening page shows of each source (issue #1290). API only: built in the next commit.
+// What the Social listening page shows of each source (issue #1290), worked out from what the server lists. The four
+// groups are last30days' doctor's (lib/doctor.py:97-117: WORKING, TURNED ON - UNVERIFIED, NOT WORKING, COULD BE ON),
+// in the issue's words; a code is listen_search's, said as a person reads it.
 
 type GroupInfo = { label: string; tone: Tone; why: string }
 
-export const groupOrder: ListeningGroup[] = []
-
-export function groupInfo(_group: ListeningGroup): GroupInfo {
-  return { label: "", tone: "outline", why: "" }
+const groups: Record<ListeningGroup, GroupInfo> = {
+  working: {
+    label: "Working",
+    tone: "success",
+    why: "Its last reading in the last 24 hours passed: a search read it, or its live test found items.",
+  },
+  unverified: {
+    label: "On but unverified",
+    tone: "warning",
+    why: "On, but read only in part, or not read in the last 24 hours. A source not read for a day is tested within the hour.",
+  },
+  broken: {
+    label: "Broken",
+    tone: "destructive",
+    why: "Its last reading failed. Searches report it as not read, never as nobody talking.",
+  },
+  could_be_on: {
+    label: "Could be on",
+    tone: "outline",
+    why: "Switched off: no search reads it, and agents are not offered it.",
+  },
 }
 
+// The groups in the order the page counts them, as doctor prints them.
+export const groupOrder: ListeningGroup[] = ["working", "unverified", "broken", "could_be_on"]
+
+export function groupInfo(group: ListeningGroup): GroupInfo {
+  return groups[group]
+}
+
+const codes: Record<string, string> = {
+  need_login: "Needs a sign-in",
+  refused: "Refused",
+  rate_limited: "Rate limited",
+  limit_reached: "Daily quota spent",
+  not_found: "Not found",
+  timeout: "Timed out",
+  broken: "Broken answer",
+  no_results: "Found nothing",
+}
+
+// codeLabel says a failure's code in words.
 export function codeLabel(code: string) {
-  return code
+  return codes[code] ?? code.replaceAll("_", " ")
 }
 
-export function backendState(_b: ListeningBackend): { label: string; tone: Tone; why?: string } {
-  return { label: "", tone: "outline" }
+// The names of the backends as a person reads them; an unknown one keeps its own.
+const backends: Record<string, string> = {
+  web_search: "Web search, keyless",
+  reddit_json: "Reddit's public JSON",
+  web_arctic: "Web search + Arctic Shift archive",
 }
 
-export function needsYou(_source: ListeningSource) {
-  return false
+export function backendName(name: string) {
+  return backends[name] ?? name.replaceAll("_", " ")
 }
 
-export function readLine(_source: ListeningSource, _now = Date.now()) {
-  return ""
+const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
+
+// backendState is a backend's badge: ready, or resting until when, for what.
+export function backendState(b: ListeningBackend): { label: string; tone: Tone; why?: string } {
+  if (b.state === "resting" && b.resting_until) {
+    const why = b.rest_code ? codeLabel(b.rest_code) : "Resting"
+
+    return {
+      label: `Resting until ${clock.format(new Date(b.resting_until))}`,
+      tone: "warning",
+      why: `${why}: searches skip it until then; the source's other backends serve meanwhile.`,
+    }
+  }
+
+  return { label: "Ready", tone: "outline", why: "Asked in its turn." }
 }
 
-export function itemsLine(_source: ListeningSource) {
-  return ""
+// needsYou says the card shows the "!" badge and a press on it tests the source again (postiz's refreshNeeded).
+export function needsYou(source: ListeningSource) {
+  return source.group === "broken"
 }
 
-export function failureShown(_source: ListeningSource) {
-  return false
+// readLine says when the source was last read and whether that worked, for the card's head.
+export function readLine(source: ListeningSource, now = Date.now()) {
+  if (!source.on) return "Off"
+  if (!source.checked_at) return "Not read yet"
+
+  return `Read ${since(source.checked_at, now)}`
 }
 
-export function moved(order: string[], _name: string, _direction: "up" | "down") {
-  return order
+// itemsLine says how many items searches read this week.
+export function itemsLine(source: ListeningSource) {
+  const n = source.items_this_week
+
+  return n === 1 ? "1 item this week" : `${n} items this week`
 }
 
-export function shownSources(listening: Listening, _group: ListeningGroup | null) {
-  return listening.sources
+// failureShown says whether the card shows the source's last error: while it is not working, or when it is newer than
+// its last success.
+export function failureShown(source: ListeningSource) {
+  if (!source.last_error) return false
+  if (source.group === "broken" || source.group === "unverified") return true
+  if (!source.last_success_at) return true
+
+  return new Date(source.last_error.at) > new Date(source.last_success_at)
+}
+
+// moved is an order with one backend moved one place up or down.
+export function moved(order: string[], name: string, direction: "up" | "down") {
+  const i = order.indexOf(name)
+  const j = direction === "up" ? i - 1 : i + 1
+  if (i < 0 || j < 0 || j >= order.length) return order
+
+  const out = order.filter((n) => n !== name)
+  out.splice(j, 0, name)
+
+  return out
+}
+
+// shownSources are the sources of one group, or all when no group is chosen.
+export function shownSources(listening: Listening, group: ListeningGroup | null) {
+  return group ? listening.sources.filter((s) => s.group === group) : listening.sources
 }

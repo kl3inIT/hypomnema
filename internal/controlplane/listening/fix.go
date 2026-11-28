@@ -14,10 +14,6 @@ import (
 // wall needs an account (Agent-Reach "needs_login", manage.py:233-235), and anything else is tested again, then
 // reported (Agent-Reach docs/troubleshooting.md:18). until is when its rest ends, zero when it does not rest.
 func Fix(source string, code Code, until time.Time) string {
-	if code != "" { // API only: built in the next commit.
-		return ""
-	}
-
 	name := Label(source)
 	at := ""
 
