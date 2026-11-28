@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
 // paraphrases are more posts of vetcPosts' four stories, each told in words the others do not share, and two posts
@@ -125,8 +126,10 @@ func TestLiveSemanticPassOnVietnamesePosts(t *testing.T) {
 					return listening.Result{Items: items}, nil
 				},
 			}},
-			Read: func(_ context.Context, _ listening.Request, it listening.Item) (string, error) {
-				return it.Title + "\n\n[comment by u/khac, score 12]\nMình cũng gặp y như vậy tuần trước.", nil
+			Read: func(_ context.Context, _ listening.Request, it listening.Item) (listening.Document, error) {
+				return listening.Document{
+					Text: it.Title + "\n\n[comment by u/khac, score 12]\nMình cũng gặp y như vậy tuần trước.",
+				}, nil
 			},
 		}
 	}
@@ -235,5 +238,80 @@ func TestLiveSemanticPassOnVietnamesePosts(t *testing.T) {
 
 	for _, m := range models {
 		measure(m, m, m)
+	}
+}
+
+// TestLivePagesSayWhenTheyWerePublished reads real pages about Vmap's 2019 launch, the kind a snippet stamped 2026 on
+// production (issue #1306, the owner's addition), and logs the date each page's own metadata gives, which the full
+// read puts on its item. Set HYPOMNEMA_LISTENING_LIVE=1; never in CI.
+func TestLivePagesSayWhenTheyWerePublished(t *testing.T) {
+	if os.Getenv("HYPOMNEMA_LISTENING_LIVE") == "" {
+		t.Skip("live check: set HYPOMNEMA_LISTENING_LIVE=1 to read the real pages")
+	}
+
+	web := websearch.New(websearch.Config{})
+	addresses := []string{
+		"https://baochinhphu.vn/ra-mat-ban-do-so-cua-nguoi-viet-102262018.htm",
+		"https://vietnampost.vn/vi/hoat-dong-nganh/le-ra-mat-nen-tang-ban-do-so-vmap-va-he-thong-thong-tin-nhan-dao-inhandao",
+		"https://www.vietnamplus.vn/nen-tang-du-lieu-ban-do-so-viet-nam-chinh-thuc-di-vao-hoat-dong-post598145.vnp",
+		"https://itrithuc.vn/duannew/du-an-moi/nen-tang-du-lieu-ban-do-so-viet-nam-vmap-vn-1.html",
+	}
+
+	for _, address := range addresses {
+		page, err := web.Fetch(t.Context(), address)
+		if err != nil {
+			t.Logf("%s: not read: %v", address, err)
+
+			continue
+		}
+
+		published := "none in its metadata"
+		if page.Published != nil {
+			published = page.Published.Format(time.RFC3339)
+		}
+
+		t.Logf("%s: %d characters, published %s", address, len([]rune(page.Content)), published)
+	}
+
+	base, key := os.Getenv("HYPOMNEMA_LISTENING_MODEL_URL"), os.Getenv("HYPOMNEMA_LISTENING_MODEL_KEY")
+	if base == "" || key == "" {
+		return
+	}
+
+	// The same pages as the web search showed them on production: stamped with a recent date. The full read dates
+	// them by their pages and drops those outside a 90-day window.
+	stamped := time.Now().UTC().AddDate(0, 0, -26)
+
+	var items []listening.Item
+	for _, address := range addresses {
+		items = append(items, listening.Item{
+			NativeID: listening.NormalizeURL(address), URL: address, Title: "Vmap " + address, PublishedAt: &stamped,
+		})
+	}
+
+	s := listening.New(listening.Config{
+		Platforms: []listening.Platform{{
+			Name: listening.SourceWeb, Read: listening.Sources(listening.Endpoints{}, http.DefaultClient)[0].Read,
+			Backends: []listening.Backend{{
+				Name: "fixture", Host: "fixture",
+				Search: func(context.Context, listening.Request) (listening.Result, error) {
+					return listening.Result{Items: items}, nil
+				},
+			}},
+		}},
+		ReviewModel: listening.ModelOff,
+	})
+
+	a, err := s.Search(t.Context(), listening.Plan{
+		Topic: "Vmap", Sources: []string{listening.SourceWeb}, WindowDays: 90,
+		Subqueries: []listening.Subquery{{Query: "Vmap bản đồ số"}},
+	}, listening.Caller{Model: gatewayModel(base, key), Fetch: web.Fetch})
+	require.NoError(t, err)
+
+	t.Logf("read: %s %s, outside_window %d, %d calls, %.1f s; %s %s", a.Pass.Read.State, a.Pass.Read.Model,
+		a.Pass.Read.OutsideWindow, a.Pass.Read.Calls, a.Pass.Read.Seconds, a.Pass.Read.Detail, a.Pass.Read.Reason)
+
+	for _, it := range a.Items {
+		t.Logf("kept %s dated %v, %d quotes", it.URL, it.PublishedAt, len(it.Quotes))
 	}
 }

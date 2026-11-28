@@ -219,8 +219,8 @@ func forum(name string, items ...listening.Item) listening.Platform {
 
 	return listening.Platform{
 		Name: name, Backends: []listening.Backend{b.spec("fake", name)},
-		Read: func(_ context.Context, _ listening.Request, it listening.Item) (string, error) {
-			return it.Title + "\n\n" + it.Text, nil
+		Read: func(_ context.Context, _ listening.Request, it listening.Item) (listening.Document, error) {
+			return listening.Document{Text: it.Title + "\n\n" + it.Text}, nil
 		},
 	}
 }
@@ -487,7 +487,9 @@ var vetcStories = []struct{ id, story, title, author string }{
 func vetcItems() []listening.Item {
 	var out []listening.Item
 	for i, s := range vetcStories {
-		out = append(out, authored(s.id, s.title, s.author, i+1))
+		it := authored(s.id, s.title, s.author, i+1)
+		it.Direct = true // as a source's own record, a Reddit post, is
+		out = append(out, it)
 	}
 
 	return out
@@ -561,7 +563,8 @@ func TestTheReviewJoinsOneStoryToldInOtherWordsAndIsAudited(t *testing.T) {
 	assert.Equal(t, "Bị trừ phí hai lần", double.Title, "the model's title is the cluster's")
 	assert.Len(t, double.Items, 3)
 	assert.Equal(t, []string{"board", "forum"}, double.Sources)
-	assert.Equal(t, &listening.Audit{Status: listening.AuditPassed, Members: 3, Authors: 3, Core: 3}, double.Audit)
+	assert.Equal(t, &listening.Audit{Status: listening.AuditPassed, Members: 3, Authors: 3, Direct: 3, Core: 3},
+		double.Audit)
 	assert.Equal(t, "c1", double.ID)
 
 	require.NotNil(t, login.Audit)
@@ -651,7 +654,7 @@ func TestARefusedPlanKeepsTheCodesClusters(t *testing.T) {
 	m := &fakeModel{answer: steps(scoresBy(nil), func(call modelCall) (string, error) {
 		var parts []string
 		for _, c := range candidates(call.User) {
-			parts = append(parts, assign("Chuyện "+c.ID, []string{c.ID}, "core", "alone"))
+			parts = append(parts, assign("Chuyện riêng", []string{c.ID}, "core", "alone"))
 		}
 
 		return `{"clusters":[` + strings.Join(trimPlans(parts), ",") + `]}`, nil
@@ -720,6 +723,7 @@ func TestTheFullReadKeepsOnlyQuotesFoundInThePost(t *testing.T) {
 	reddit := listening.Sources(listening.Endpoints{ArcticURL: arcticURL}, http.DefaultClient)[1]
 	thread := authored("abc123", "VETC trừ tiền hai lần ở trạm Long Thành", "u/an", 1)
 	thread.Text = "Qua trạm Long Thành bị trừ 2 lần, mất 2 lần phí."
+	thread.Direct = true // the source's own record: its post is read as the source gave it
 	page := authored("https://example.com/vetc", "VETC thu phí gấp đôi", "", 2)
 	page.URL = "https://example.com/vetc"
 
@@ -831,8 +835,8 @@ func TestJudgmentsAreKeptForALaterSearch(t *testing.T) {
 	b := &backend{items: items}
 	platform := listening.Platform{
 		Name: "forum", Backends: []listening.Backend{b.spec("fake", "forum")},
-		Read: func(_ context.Context, _ listening.Request, it listening.Item) (string, error) {
-			return it.Title + " nói về VETC", nil
+		Read: func(_ context.Context, _ listening.Request, it listening.Item) (listening.Document, error) {
+			return listening.Document{Text: it.Title + " nói về VETC"}, nil
 		},
 	}
 
