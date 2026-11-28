@@ -482,6 +482,48 @@ func TestInstallWaitsForToolCallsBeforeItStops(t *testing.T) {
 	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns and tool calls to end, 1 tool call")
 }
 
+// The update waits for a render even if there are no turns or tool calls, up to the same deadline.
+func TestInstallWaitsForARender(t *testing.T) {
+	t.Parallel()
+
+	for _, finishes := range []bool{true, false} {
+		t.Run(fmt.Sprintf("finishes=%t", finishes), func(t *testing.T) {
+			t.Parallel()
+
+			log := &events{}
+			o := installWaiting(t, log)
+			o.TurnsWithin = 200 * time.Millisecond
+			from := filepath.Join(o.State, "hypomnema-v0.9.5")
+			write(t, from, "the new control plane")
+
+			var rendering selfupdate.Turns
+			require.NoError(t, json.Unmarshal([]byte(`{"renders":1}`), &rendering))
+			serveTurns(t, o.Home, log, func(n int) selfupdate.Turns {
+				if finishes && n >= 2 {
+					return selfupdate.Turns{}
+				}
+
+				return rendering
+			})
+
+			var out strings.Builder
+			o.Out = &out
+			started := time.Now()
+			require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+			got := log.all()
+			stop := slices.Index(got, "systemctl stop hypomnema-cp.service")
+			assert.Contains(t, out.String(), "1 video render")
+			if finishes {
+				assert.Equal(t, 4, stop, "stop follows the first idle reply")
+			} else {
+				assert.GreaterOrEqual(t, time.Since(started), o.TurnsWithin)
+				assert.Contains(t, out.String(), "still run after 200ms")
+			}
+		})
+	}
+}
+
 // Scenario: the turn does not end. The update waits as long as its bound, then stops the control plane anyway: the
 // turn is cut, and the control plane continues it when it starts.
 func TestInstallStopsWhenTheWaitForTurnsRunsOut(t *testing.T) {

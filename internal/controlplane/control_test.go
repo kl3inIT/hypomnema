@@ -62,7 +62,10 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	}}
 	t.Cleanup(client.CloseIdleConnections)
 
-	var got selfupdate.Turns
+	var got struct {
+		selfupdate.Turns
+		Renders int `json:"renders"`
+	}
 
 	require.Eventually(t, func() bool {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://control"+selfupdate.PathTurns, nil)
@@ -79,7 +82,8 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&got) == nil
 	}, 5*time.Second, 10*time.Millisecond)
 
-	assert.Equal(t, selfupdate.Turns{Chats: []string{"cht_a"}, ToolCalls: 2}, got)
+	assert.Equal(t, selfupdate.Turns{Chats: []string{"cht_a"}, ToolCalls: 2}, got.Turns)
+	assert.Equal(t, 1, got.Renders)
 
 	// The update names itself: the control plane writes the marker, through the coordinator's lock.
 	body := strings.NewReader(fmt.Sprintf(`{"pid":%d,"start":""}`, os.Getpid()))
