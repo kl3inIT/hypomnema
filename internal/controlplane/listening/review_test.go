@@ -471,3 +471,48 @@ func TestRoundTwoListeningUsesKeylessRoutesOnly(t *testing.T) {
 	assert.Zero(t, keyed.Load(), "the owner's Exa key is not used by listening")
 	assert.Equal(t, int32(2), keyless.Load(), "the web and the site:reddit.com search, keyless")
 }
+
+// Review round 3, finding 1: an Arctic Shift 429 rests the archive's path only. The first subquery, whose web result
+// is titled only "Reddit", is not read with the archive's code; the second still runs its web discovery and keeps
+// its thread as the search showed it, the archive resting (last30days reddit_hydrate.py:467-492: a skipped archive
+// leaves the threads their search-result data).
+func TestRoundThreeArcticRestLeavesWebDiscoveryAvailable(t *testing.T) {
+	t.Parallel()
+
+	c := newClock()
+	_, redditURL := startSite(t, blockedPage)
+	archived, arcticURL := startSite(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	s := redditOnly(t, c, redditURL, arcticURL)
+
+	var webCalls atomic.Int32
+
+	web := func(_ context.Context, query string, _ int) (websearch.Answer, error) {
+		webCalls.Add(1)
+
+		title := "Reddit"
+		if strings.Contains(query, "hai") {
+			title = "VETC trừ tiền hai lần"
+		}
+
+		return websearch.Answer{Provider: "exa", Query: query, Results: []websearch.Result{{
+			Title: title, URL: "https://www.reddit.com/r/VietNam/comments/abc123/x/",
+		}}}, nil
+	}
+
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC một", "VETC hai"), web)
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(2), webCalls.Load(), "the second subquery still searches the web")
+	assert.Len(t, archived.Requests(), 1, "the archive rests after its 429")
+	require.Len(t, a.Items, 1)
+	assert.Equal(t, "VETC trừ tiền hai lần", a.Items[0].Title)
+
+	streams := coverageOf(t, a, listening.SourceReddit).Streams
+	require.Len(t, streams, 2)
+	assert.Equal(t, listening.CodeRateLimited, streams[0].Code, "the first subquery was not read: the archive's code")
+	assert.Equal(t, "web_arctic", streams[1].ServedBy)
+	assert.Equal(t, listening.StatePartial, coverageOf(t, a, listening.SourceReddit).State)
+}
