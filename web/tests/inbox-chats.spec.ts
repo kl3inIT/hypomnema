@@ -304,7 +304,10 @@ test("bulk chat actions confirm the shown count and let the owner undo", async (
     path: "/inbox/chat-sources/zalo/main/bulk",
     body: { chat_ids: ["2002", "2003"], reads: false },
   })
-  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await page
+    .getByRole("dialog", { name: "Skipped 1 chat", exact: true })
+    .getByRole("button", { name: "Undo", exact: true })
+    .click()
   await expect(chatRow(page, "Team Alpha")).toContainText("Read · Default")
 
   await page
@@ -314,13 +317,20 @@ test("bulk chat actions confirm the shown count and let the owner undo", async (
   await expect(page.getByTestId("secretary-chat")).toHaveCount(1)
   await page.getByRole("button", { name: "Read all shown" }).click()
   await expect(confirm).toHaveAccessibleName("Read 1 chat?")
+  await page.addStyleTag({
+    content: '[role="alertdialog"][data-closed] { animation-duration: 1000ms !important; }',
+  })
   await confirm.getByRole("button", { name: "Read", exact: true }).click()
+  await expect(page.locator('[role="alertdialog"][data-closed]')).toContainText("Read 1 chat?")
   await expect(page.getByText("No chat matches.")).toBeVisible()
   expect(requests[2]).toEqual({
     path: "/inbox/chat-sources/zalo/main/bulk",
     body: { chat_ids: ["2003"], reads: true },
   })
-  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await page
+    .getByRole("dialog", { name: "Switched on 1 chat", exact: true })
+    .getByRole("button", { name: "Undo", exact: true })
+    .click()
   await expect(chatRow(page, "Gia đình")).toContainText("Skipped · Set by you")
   expect(requests.map((r) => r.path)).toEqual([
     "/inbox/chat-sources/zalo/main/bulk",
