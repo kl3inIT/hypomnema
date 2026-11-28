@@ -222,49 +222,6 @@ func (q *Queries) QueueReviewVerdictStatus(ctx context.Context, arg QueueReviewV
 	return err
 }
 
-const taskLastStartedOn = `-- name: TaskLastStartedOn :one
-SELECT t.id, t.run_id, t.position, t.profile, t.spec, t.runtime, t.model, t.effort, t.status, t.blocked_reason, t.failure_count, t.result, t.created_at, t.updated_at, t.finished_at, t.not_before, t.cancel_requested_at, t.waiting_reason, t.kind, t.author_vendor, t.continues, t.push_branch, t.start_from, t.pr_base FROM tasks t
-    JOIN dispatches d ON d.task_id = t.id
-WHERE (t.push_branch = CAST(?1 AS TEXT) OR (t.push_branch IS NULL AND 'hyp/' || t.id = CAST(?1 AS TEXT)))
-  AND d.started_at IS NOT NULL
-ORDER BY d.started_at DESC, d.id DESC
-LIMIT 1
-`
-
-// The Task pushing to branch, its own hyp/<id> or the branch it continues (issue #690), of any Run, whose Dispatch
-// started last: a Task that never started never pushed.
-func (q *Queries) TaskLastStartedOn(ctx context.Context, branch string) (Task, error) {
-	row := q.db.QueryRowContext(ctx, taskLastStartedOn, branch)
-	var i Task
-	err := row.Scan(
-		&i.ID,
-		&i.RunID,
-		&i.Position,
-		&i.Profile,
-		&i.Spec,
-		&i.Runtime,
-		&i.Model,
-		&i.Effort,
-		&i.Status,
-		&i.BlockedReason,
-		&i.FailureCount,
-		&i.Result,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.FinishedAt,
-		&i.NotBefore,
-		&i.CancelRequestedAt,
-		&i.WaitingReason,
-		&i.Kind,
-		&i.AuthorVendor,
-		&i.Continues,
-		&i.PushBranch,
-		&i.StartFrom,
-		&i.PrBase,
-	)
-	return i, err
-}
-
 const taskThatPushed = `-- name: TaskThatPushed :one
 SELECT t.id, t.run_id, t.position, t.profile, t.spec, t.runtime, t.model, t.effort, t.status, t.blocked_reason, t.failure_count, t.result, t.created_at, t.updated_at, t.finished_at, t.not_before, t.cancel_requested_at, t.waiting_reason, t.kind, t.author_vendor, t.continues, t.push_branch, t.start_from, t.pr_base FROM tasks t
     JOIN dispatches d ON d.task_id = t.id

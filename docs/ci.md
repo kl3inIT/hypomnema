@@ -37,8 +37,10 @@ The control plane posts a commit status named `review` on the heads of the pull 
 repositories it holds a token for (issue #1279; [architecture](../ARCHITECTURE.md)). It is `success` on the exact
 head a reviewer judged `correct`, `failure` on one judged `incorrect` or `blocked`, and `success` with "no review
 needed: quick Task <id>" on each head of a `quick` Task's pull request, found by the Task's branch even after its
-Run is finished, on the heads a quick Task pushed: a head a narrow or broad Task pushed needs its review. A new
-push has none until it is reviewed. A verdict covers only the full head SHA it names.
+Run is finished, on the heads the quick Task itself reported pushing through `publish_branch`: a head a narrow or
+broad Task pushed needs its review. A quick head without that push record (on GitLab, where `publish_branch` does
+not run, or a push the node did not report, such as after a Task that started and was canceled) gets no automatic
+status: post it by hand as below. A new push has none until it is reviewed. A verdict covers only the full head SHA it names.
 The token must be allowed to write commit statuses (a classic token's `repo` scope, or "Commit statuses: write").
 
 When the control plane first runs the change, the migration queues each pull request's latest verdict, and the
@@ -47,12 +49,19 @@ starts the release. Nothing else needs to be run.
 
 A docs-only change needs no review as quick work (or goes straight to `main`), so its Task's `quick` kind is
 what says so. A pull request no Task made and no reviewer judged, such as Dependabot's or one from the owner's
-own branch, gets no status. Once
+own branch, gets no status either. Once
 `review` is a required check, post it by hand on its head (`gh pr view <n> --json headRefOid`):
 
 ```sh
 gh api repos/<owner>/<repo>/statuses/<sha> -f state=success -f context=review \
   -f description='no review needed: Dependabot'
+```
+
+On GitLab, with the project's path URL-encoded:
+
+```sh
+glab api -X POST projects/<group%2Fproject>/statuses/<sha> -f state=success -f name=review \
+  -f description='no review needed: quick Task <id>'
 ```
 
 An admin can also merge past it, as `main` does not enforce its rules on admins.

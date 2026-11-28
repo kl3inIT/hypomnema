@@ -27,8 +27,8 @@ import (
 //     says quick work needs green CI and no worker review. The Task is kept when it succeeds (keepNoReview; the
 //     migration keeps those that succeeded before), whatever becomes of its Run, which the coordinator may finish
 //     at once (review round 1); each pass finds its pull request by the Task's branch, as the follower does, and
-//     queues a head only when a quick Task pushed it (quickHead): a narrow or broad Task that continues it, in any Run,
-//     makes the heads it pushes need their review (review rounds 2 and 3).
+//     queues a head only when that quick Task itself reported pushing it (quickHead): a head another Task pushed,
+//     or one without a push record (GitLab), gets no automatic status (review rounds 2 to 4).
 //
 // Each is queued in the transaction that learns it and posted by the control plane's follower with the token of
 // the repository's Connection, the one its pull requests are read with. Before posting, the pull request is read:
@@ -188,17 +188,14 @@ func (s *Service) findNoReviewPullRequests(ctx context.Context, host ReviewStatu
 	return errors.Join(errs...)
 }
 
-// quickHead reports whether head of branch was pushed by a quick Task: a Task that continues a quick one takes
-// its branch and pull request, and the heads it pushes need what its own kind needs (review rounds 2 and 3). The
-// Task that decides is the one whose Dispatch reported publishing that head; for a head no Dispatch reported (a
-// push without publish_branch, or a node too old to report it), the Task pushing to branch whose Dispatch started
-// last, so a Task created later but never run, such as one canceled before it ran, decides nothing.
-func quickHead(ctx context.Context, q *store.Queries, branch, head string) (bool, error) {
+// quickHead reports whether head of branch was pushed by the quick Task taskID itself: whether it is the Task whose
+// Dispatch last reported publishing that very head (dispatch_effects git_push, published_heads.go). A Task that
+// continues a quick one, or is reopened on its branch, takes its pull request, and the heads it pushes need what
+// its own kind needs (review rounds 2 and 3). A head no Dispatch reported, on GitLab where publish_branch does not run or where the report is
+// missing, is not known to be the quick Task's: it gets no automatic status, fail closed, and the owner posts one
+// by hand (owner, 2026-11-27, review round 4).
+func quickHead(ctx context.Context, q *store.Queries, taskID, branch, head string) (bool, error) {
 	pusher, err := q.TaskThatPushed(ctx, store.TaskThatPushedParams{Branch: branch, Sha: head})
-	if errors.Is(err, sql.ErrNoRows) {
-		pusher, err = q.TaskLastStartedOn(ctx, branch)
-	}
-
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -207,7 +204,7 @@ func quickHead(ctx context.Context, q *store.Queries, branch, head string) (bool
 		return false, fmt.Errorf("reading the task that pushed %s to %s: %w", head, branch, err)
 	}
 
-	return pusher.Kind == "quick", nil
+	return pusher.ID == taskID && pusher.Kind == "quick", nil
 }
 
 // findNoReview finds row's pull request, queues success on its open head, and says whether row is done.
@@ -256,7 +253,7 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 
 	quick := false
 	if st.Status == githost.RequestOpen && fullSHA.MatchString(head) {
-		if quick, err = quickHead(ctx, q, row.Branch, head); err != nil {
+		if quick, err = quickHead(ctx, q, row.TaskID, row.Branch, head); err != nil {
 			return false, err
 		}
 	}
@@ -282,7 +279,7 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 		return false, fmt.Errorf("queueing the review status of %s: %w", url, err)
 	}
 
-	// A head another kind of Task pushed hands the pull request to that Task: its heads need what it needs.
+	// A head that is not the quick Task's own (another Task pushed it, or no push was reported) ends it: fail closed.
 	return st.Status != githost.RequestOpen || (fullSHA.MatchString(head) && !quick), nil
 }
 
@@ -368,7 +365,7 @@ func (s *Service) postReviewStatus(ctx context.Context, q *store.Queries, host R
 	}
 
 	if row.Reason == "quick" {
-		quick, err := quickHead(ctx, q, pushBranchOf(task), head)
+		quick, err := quickHead(ctx, q, task.ID, pushBranchOf(task), head)
 		if err != nil {
 			return "", err
 		}

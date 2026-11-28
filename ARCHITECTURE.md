@@ -6000,11 +6000,13 @@ The owner's commands:
   `success` "no review needed: quick Task <id>" on each of its heads: the Task is kept in `no_review_requests`
   (repository, branch, the pull request its evidence names) when it succeeds, whatever becomes of its Run, and each
   pass finds its pull request by that branch (`githost.FindRequest`, as the follower) and queues its open head,
-  only when a quick Task pushed that head: the Task whose Dispatch reported publishing it (`dispatch_effects`
-  `git_push`), else the Task on that branch, of any Run, whose Dispatch started last, so a narrow or broad Task that
-  continues it, or is reopened on it, makes the heads it pushes need their review and one canceled before it ran
-  changes nothing. A queued status is dropped as `superseded` when its head is another kind's. It is followed until
-  it is merged or closed, another kind of Task pushed it, or a day passed. A branch without a pull request yet is
+  only when the quick Task itself is the Task whose Dispatch last reported publishing that head (`dispatch_effects`
+  `git_push`, from `publish_branch`), so a narrow or broad Task that continues it, or is reopened on it, makes the
+  heads it pushes need their review, and a Task canceled before it pushed changes nothing. A head without that
+  record (on GitLab, where `publish_branch` does not run, or a push the node did not report) gets no automatic
+  status: it fails closed and is posted by hand ([CI runbook](docs/ci.md)). A queued status is dropped as
+  `superseded` when its head is no longer the quick Task's. It is followed until it is merged or closed, its head is
+  not the quick Task's, or a day passed. A branch without a pull request yet is
   looked up every pass for 10 minutes, then every 15 minutes. The migration keeps the quick Tasks that succeeded
   before it, with the pull request the follower found. Each status is queued in `review_statuses` (pull request,
   full head SHA, Task, reason) in the transaction that learns it, a later

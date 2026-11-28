@@ -22,9 +22,9 @@ CREATE INDEX review_statuses_waiting ON review_statuses (queued_at) WHERE done_a
 
 -- The quick Tasks whose pull request needs no worker review, kept when the Task succeeds whatever becomes of its
 -- Run (review round 1): each pass finds the pull request by the Task's branch and queues success on its head when
--- a quick Task pushed that head (the Task that reported the push, else the one that started last on the branch),
--- until it is no longer open, another kind of Task pushed it, the repository has no token, or a day passed. A branch without a pull request yet is looked up every pass for its first minutes, then less
--- often (looked_at).
+-- the quick Task itself reported pushing that head (without the report, as on GitLab, no status), until it is no
+-- longer open, its head is not the quick Task's, the repository has no token, or a day passed. A branch without a
+-- pull request yet is looked up every pass for its first minutes, then less often (looked_at).
 CREATE TABLE no_review_requests (
     task_id      TEXT    NOT NULL PRIMARY KEY REFERENCES tasks (id),
     repo_host    TEXT    NOT NULL CHECK (length(repo_host) > 0),
