@@ -33,6 +33,8 @@ const (
 	SourceTechmeme   = "techmeme"
 	SourceDevTo      = "devto"
 	SourceBluesky    = "bluesky"
+	SourceToutiao    = "toutiao"
+	SourceBilibili   = "bilibili"
 	SourceCareers    = "careers"
 	SourceVoz        = "voz"
 	SourceTinhte     = "tinhte"
@@ -50,6 +52,8 @@ const (
 	BackendTechmeme   = "techmeme_search"
 	BackendForem      = "forem_api"
 	BackendAppView    = "appview"
+	BackendToutiao    = "so_search"
+	BackendBilibili   = "visitor_search"
 	BackendCareers    = "careers_page"
 	BackendWebThread  = "web_thread"
 )
@@ -95,6 +99,10 @@ type Endpoints struct {
 	TechmemeURL string
 	DevToURL    string
 	BlueskyURL  string
+	// ToutiaoURL is Toutiao's search, ToutiaoHotURL its hot board's site, BilibiliURL Bilibili's API.
+	ToutiaoURL    string
+	ToutiaoHotURL string
+	BilibiliURL   string
 	// ForumURLs put a forum source's threads at another address than its site's (tests); the web search still
 	// asks for the site's.
 	ForumURLs map[string]string
@@ -127,6 +135,9 @@ func Sources(e Endpoints, client *http.Client) []Platform {
 	def(&e.TechmemeURL, techmemeURL)
 	def(&e.DevToURL, devtoURL)
 	def(&e.BlueskyURL, blueskyURL)
+	def(&e.ToutiaoURL, toutiaoURL)
+	def(&e.ToutiaoHotURL, toutiaoHotURL)
+	def(&e.BilibiliURL, bilibiliURL)
 
 	pages := e.Pages
 	if pages == nil {
@@ -152,6 +163,8 @@ func Sources(e Endpoints, client *http.Client) []Platform {
 		{Name: SourceTechmeme, Backends: []Backend{techmemeBackend(e, client)}, LiveQuery: "Vietnam"},
 		{Name: SourceDevTo, Backends: []Backend{devToBackend(e, client)}, LiveQuery: "vietnam"},
 		{Name: SourceBluesky, Backends: []Backend{blueskyBackend(e, client)}, LiveQuery: "Vietnam"},
+		{Name: SourceToutiao, Backends: []Backend{toutiaoBackend(e, client)}, LiveQuery: "越南"},
+		{Name: SourceBilibili, Backends: []Backend{bilibiliBackend(e, client)}, LiveQuery: "越南"},
 		{Name: SourceCareers, Backends: []Backend{careersBackend(pages)}, LiveQuery: "Cốc Cốc"},
 	}
 

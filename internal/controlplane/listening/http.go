@@ -40,6 +40,8 @@ type call struct {
 	contentType string
 	accept      string
 	userAgent   string
+	// header is sent as well, after the others (a browser's headers, a cookie).
+	header http.Header
 	// json: a page where JSON was asked is a refusal, a challenge or a sign-in page (last30days reddit_public:
 	// "Anti-bot HTML response").
 	json bool
@@ -161,6 +163,10 @@ func (c call) send(ctx context.Context, client *http.Client, address string) (*h
 
 	if c.contentType != "" {
 		req.Header.Set("Content-Type", c.contentType)
+	}
+
+	for k, vs := range c.header {
+		req.Header[k] = vs
 	}
 
 	resp, err := client.Do(req)
