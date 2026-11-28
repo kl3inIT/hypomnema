@@ -1,6 +1,8 @@
 package listening_test
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,4 +82,83 @@ func TestReviewTikTokNotFoundStillFallsBack(t *testing.T) {
 		assert.Equal(t, listening.BackendSiteSearch, cov.Streams[0].ServedBy)
 		assert.Len(t, a.Items, 1)
 	})
+}
+
+// Review round 2 of PR #1363, P1: a Bot's search passed the registry's check and waits for TikTok's turn while a
+// sign-in's check holds it; the check meets a 429 with Retry-After 120 and keeps TikTok's rest; the search, cancelled
+// while it waits, sent nothing to TikTok and must not replace that rest with its own timeout. The owner's next check,
+// two seconds later, then sends nothing either.
+func TestReviewTikTokCancelledSearchKeepsTheRetryAfter(t *testing.T) {
+	rig := newTikTokRig(t)
+	rig.signIn(t)
+	rig.clock.Advance(time.Hour)
+
+	fetching, release := make(chan struct{}), make(chan struct{})
+	var first sync.Once
+
+	rig.check.answer = func(string) map[string]any {
+		first.Do(func() { close(fetching) })
+		<-release
+
+		return map[string]any{"status": 429, "retry_after": "120", "body": ""}
+	}
+
+	checked := make(chan error, 1)
+	go func() {
+		checked <- rig.svc.PasteCookies(context.Background(), listening.SourceTikTok,
+			"sessionid=made-up-2; msToken=made-up-2", "")
+	}()
+	<-fetching
+
+	// The Bot's search: its tab is opened once the registry let it through, then it waits for TikTok's turn.
+	opened, waiting := make(chan struct{}, 1), make(chan struct{}, 1)
+	rig.onPage = func(key string) {
+		if key == "listening:tiktok" {
+			opened <- struct{}{}
+		}
+	}
+	var once sync.Once
+
+	rig.sleep = func(ctx context.Context, _ time.Duration) error {
+		held := false
+		once.Do(func() { held = true })
+
+		if !held {
+			return nil
+		}
+
+		waiting <- struct{}{}
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	searched := make(chan struct{})
+	go func() {
+		defer close(searched)
+
+		p := plan([]string{listening.SourceTikTok}, "VETC")
+		p.WindowDays = 30
+		_, _ = rig.svc.Search(ctx, p, listening.Caller{Web: rig.web})
+	}()
+	<-opened
+
+	close(release)
+	require.ErrorIs(t, <-checked, listening.ErrInvalid, "the check met TikTok's rate limit")
+
+	asked := len(rig.check.fetched())
+
+	<-waiting
+	cancel()
+	<-searched
+
+	assert.Empty(t, rig.tab.fetched(), "the cancelled search sent TikTok nothing")
+
+	rig.clock.Advance(2 * time.Second)
+
+	err := rig.svc.PasteCookies(t.Context(), listening.SourceTikTok, "sessionid=made-up-2; msToken=made-up-2", "")
+	require.ErrorIs(t, err, listening.ErrInvalid)
+	assert.Contains(t, err.Error(), "slow down")
+	assert.Len(t, rig.check.fetched(), asked, "nothing is sent to TikTok while its Retry-After lasts")
 }

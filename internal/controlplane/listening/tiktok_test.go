@@ -170,6 +170,9 @@ type tiktokRig struct {
 	tab     *tiktokTab
 	check   *tiktokTab
 	clock   *clock
+	// sleep is the pacer's wait, onPage what an account tab's opening tells; nil: none waits, none is told.
+	sleep  func(ctx context.Context, d time.Duration) error
+	onPage func(key string)
 }
 
 func newTikTokRig(t *testing.T) *tiktokRig {
@@ -181,7 +184,7 @@ func newTikTokRig(t *testing.T) *tiktokRig {
 	}
 
 	rig.browser = &browserFake{made: map[string][]browser.Cookie{}, pages: map[string]*pageFake{}}
-	tabs := &tiktokBrowser{browserFake: rig.browser, tabs: map[string]listening.Page{
+	tabs := &tiktokBrowser{browserFake: rig.browser, rig: rig, tabs: map[string]listening.Page{
 		"listening:tiktok": rig.tab, "listening-check:tiktok": rig.check,
 	}}
 
@@ -203,7 +206,13 @@ func newTikTokRig(t *testing.T) *tiktokRig {
 
 	rig.svc = listening.New(listening.Config{
 		Platforms: listening.SignedSources(listening.Endpoints{YtDlp: rig.yt.run}, http.DefaultClient),
-		Now:       rig.clock.Now, Sleep: noSleep, DB: migrated(t), Tell: rig.told.tell, Browser: tabs,
+		Now:       rig.clock.Now, Sleep: func(ctx context.Context, d time.Duration) error {
+			if rig.sleep != nil {
+				return rig.sleep(ctx, d)
+			}
+
+			return nil
+		}, DB: migrated(t), Tell: rig.told.tell, Browser: tabs,
 		Secrets: rig.vault,
 	})
 
@@ -213,12 +222,17 @@ func newTikTokRig(t *testing.T) *tiktokRig {
 // tiktokBrowser is the shared browser whose account tabs are TikTok's.
 type tiktokBrowser struct {
 	*browserFake
+	rig  *tiktokRig
 	tabs map[string]listening.Page
 }
 
 func (b *tiktokBrowser) Page(ctx context.Context, key string, cookies []browser.Cookie) (listening.Page, error) {
 	if _, err := b.browserFake.Page(ctx, key, cookies); err != nil {
 		return nil, err
+	}
+
+	if b.rig.onPage != nil {
+		b.rig.onPage(key)
 	}
 
 	if p, ok := b.tabs[key]; ok {
