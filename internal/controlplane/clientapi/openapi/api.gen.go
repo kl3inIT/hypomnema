@@ -1215,6 +1215,27 @@ func (e LarkChannelMode) Valid() bool {
 	}
 }
 
+// Defines values for ListeningAccountState.
+const (
+	ListeningAccountStateNeedLogin ListeningAccountState = "need_login"
+	ListeningAccountStateRefused   ListeningAccountState = "refused"
+	ListeningAccountStateSignedIn  ListeningAccountState = "signed_in"
+)
+
+// Valid indicates whether the value is a known member of the ListeningAccountState enum.
+func (e ListeningAccountState) Valid() bool {
+	switch e {
+	case ListeningAccountStateNeedLogin:
+		return true
+	case ListeningAccountStateRefused:
+		return true
+	case ListeningAccountStateSignedIn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListeningBackendState.
 const (
 	ListeningBackendStateReady   ListeningBackendState = "ready"
@@ -5660,6 +5681,23 @@ type Listening struct {
 	Sources []ListeningSource `json:"sources"`
 }
 
+// ListeningAccount The source's one account; its cookies are never shown.
+type ListeningAccount struct {
+	// Cause What the last real call that failed met.
+	Cause string `json:"cause"`
+
+	// CheckedAt The last real call made with it.
+	CheckedAt  *time.Time `json:"checked_at,omitempty"`
+	Label      string     `json:"label"`
+	SignedInAt time.Time  `json:"signed_in_at"`
+
+	// State signed_in; need_login, a real call asked for a sign-in again; refused, the site refused the account or asked for a security check, and it is not read until a new sign-in.
+	State ListeningAccountState `json:"state"`
+}
+
+// ListeningAccountState signed_in; need_login, a real call asked for a sign-in again; refused, the site refused the account or asked for a security check, and it is not read until a new sign-in.
+type ListeningAccountState string
+
 // ListeningBackend defines model for ListeningBackend.
 type ListeningBackend struct {
 	LastError *ListeningFailure `json:"last_error,omitempty"`
@@ -5682,6 +5720,13 @@ type ListeningBackendState string
 
 // ListeningCode Why a source or a backend was not read, as listen_search's coverage names it: need_login, refused, rate_limited, limit_reached, not_found, timeout, broken or no_results. A plain string, since an enum of these would share names with ErrorCode's in the generated code.
 type ListeningCode = string
+
+// ListeningCookies defines model for ListeningCookies.
+type ListeningCookies struct {
+	// Cookies A Cookie header copied from a browser signed in to the site, "name=value; name=value".
+	Cookies string  `json:"cookies"`
+	Label   *string `json:"label,omitempty"`
+}
 
 // ListeningCounts defines model for ListeningCounts.
 type ListeningCounts struct {
@@ -5710,6 +5755,41 @@ type ListeningGroup string
 // ListeningOrder defines model for ListeningOrder.
 type ListeningOrder struct {
 	Backends []string `json:"backends"`
+}
+
+// ListeningSignIn defines model for ListeningSignIn.
+type ListeningSignIn struct {
+	Done bool `json:"done"`
+
+	// Waiting What is waited for.
+	Waiting *string `json:"waiting,omitempty"`
+}
+
+// ListeningSignInCheck defines model for ListeningSignInCheck.
+type ListeningSignInCheck struct {
+	// Label The account's name; the site's when left out.
+	Label *string `json:"label,omitempty"`
+}
+
+// ListeningSigned A source read as one of the owner's accounts (issue
+type ListeningSigned struct {
+	// Account The source's one account; its cookies are never shown.
+	Account *ListeningAccount `json:"account,omitempty"`
+
+	// Consent The consent card's fixed wording.
+	Consent string `json:"consent"`
+
+	// ConsentedAt When the owner agreed to it; absent before.
+	ConsentedAt *time.Time `json:"consented_at,omitempty"`
+
+	// SignInUrl Where the owner signs in, in his tab; absent when the shared browser is off (paste cookies then).
+	SignInUrl *string `json:"sign_in_url,omitempty"`
+
+	// StopCause What the stop met.
+	StopCause *string `json:"stop_cause,omitempty"`
+
+	// StoppedUntil The site is not asked until then, after a rate-limit page (LinkedIn's 24 hours), not even to check a sign-in.
+	StoppedUntil *time.Time `json:"stopped_until,omitempty"`
 }
 
 // ListeningSource defines model for ListeningSource.
@@ -5744,6 +5824,9 @@ type ListeningSource struct {
 
 	// Regressed It passed on an earlier day and fails today.
 	Regressed bool `json:"regressed"`
+
+	// Signed A source read as one of the owner's accounts (issue
+	Signed *ListeningSigned `json:"signed,omitempty"`
 }
 
 // ListeningSwitch defines model for ListeningSwitch.
@@ -10221,8 +10304,14 @@ type UpdateGatewayKeyJSONRequestBody = GatewayKeyUpdate
 // SetListeningSourceJSONRequestBody defines body for SetListeningSource for application/json ContentType.
 type SetListeningSourceJSONRequestBody = ListeningSwitch
 
+// PasteListeningCookiesJSONRequestBody defines body for PasteListeningCookies for application/json ContentType.
+type PasteListeningCookiesJSONRequestBody = ListeningCookies
+
 // SetListeningOrderJSONRequestBody defines body for SetListeningOrder for application/json ContentType.
 type SetListeningOrderJSONRequestBody = ListeningOrder
+
+// CheckListeningSignInJSONRequestBody defines body for CheckListeningSignIn for application/json ContentType.
+type CheckListeningSignInJSONRequestBody = ListeningSignInCheck
 
 // SetGatewayModelAttributesJSONRequestBody defines body for SetGatewayModelAttributes for application/json ContentType.
 type SetGatewayModelAttributesJSONRequestBody = GatewayModelSettings
@@ -11926,6 +12015,38 @@ type ClientInterface interface {
 	// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
 	SetListeningSource(ctx context.Context, source string, body SetListeningSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SignOutListeningAccount Sign a source's account out; only the owner
+	//
+	// Removes its cookies from the vault, closes its browser context and clears the site's cookies from the shared browser's profile, no other site's. The source stays on, read by its backends that need no account.
+	//
+	// Corresponds with DELETE /gateway/listening/sources/{source}/account (the `SignOutListeningAccount` operationId).
+	SignOutListeningAccount(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PasteListeningCookiesWithBody Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+	//
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+	PasteListeningCookiesWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PasteListeningCookies Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+	//
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+	PasteListeningCookies(ctx context.Context, source string, body PasteListeningCookiesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConsentListeningSource Agree to a signed-in social listening source's consent card, and switch it on; only the owner
+	//
+	// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/consent (the `ConsentListeningSource` operationId).
+	ConsentListeningSource(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SetListeningOrderWithBody Set the order a social listening source tries its backends in; only the owner
 	//
 	// Each of the source's backends is named once.
@@ -11943,6 +12064,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
 	SetListeningOrder(ctx context.Context, source string, body SetListeningOrderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartListeningSignIn Open a signed-in source's sign-in page in the owner's tab of the shared browser; only the owner
+	//
+	// The owner signs in there himself; nothing fills the form. Refused before the source's consent.
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/sign-in (the `StartListeningSignIn` operationId).
+	StartListeningSignIn(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CheckListeningSignInWithBody Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+	//
+	// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+	CheckListeningSignInWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CheckListeningSignIn Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+	//
+	// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+	CheckListeningSignIn(ctx context.Context, source string, body CheckListeningSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// TestListeningSource Test a social listening source now; only the owner
 	//
@@ -16803,6 +16949,78 @@ func (c *Client) SetListeningSource(ctx context.Context, source string, body Set
 	return c.Client.Do(req)
 }
 
+// SignOutListeningAccount Sign a source's account out; only the owner
+//
+// Removes its cookies from the vault, closes its browser context and clears the site's cookies from the shared browser's profile, no other site's. The source stays on, read by its backends that need no account.
+//
+// Corresponds with DELETE /gateway/listening/sources/{source}/account (the `SignOutListeningAccount` operationId).
+func (c *Client) SignOutListeningAccount(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSignOutListeningAccountRequest(c.Server, source)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PasteListeningCookiesWithBody Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+//
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+func (c *Client) PasteListeningCookiesWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPasteListeningCookiesRequestWithBody(c.Server, source, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PasteListeningCookies Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+//
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+func (c *Client) PasteListeningCookies(ctx context.Context, source string, body PasteListeningCookiesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPasteListeningCookiesRequest(c.Server, source, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ConsentListeningSource Agree to a signed-in social listening source's consent card, and switch it on; only the owner
+//
+// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+//
+// Corresponds with POST /gateway/listening/sources/{source}/consent (the `ConsentListeningSource` operationId).
+func (c *Client) ConsentListeningSource(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConsentListeningSourceRequest(c.Server, source)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // SetListeningOrderWithBody Set the order a social listening source tries its backends in; only the owner
 //
 // Each of the source's backends is named once.
@@ -16831,6 +17049,61 @@ func (c *Client) SetListeningOrderWithBody(ctx context.Context, source string, c
 // Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
 func (c *Client) SetListeningOrder(ctx context.Context, source string, body SetListeningOrderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetListeningOrderRequest(c.Server, source, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartListeningSignIn Open a signed-in source's sign-in page in the owner's tab of the shared browser; only the owner
+//
+// The owner signs in there himself; nothing fills the form. Refused before the source's consent.
+//
+// Corresponds with POST /gateway/listening/sources/{source}/sign-in (the `StartListeningSignIn` operationId).
+func (c *Client) StartListeningSignIn(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartListeningSignInRequest(c.Server, source)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CheckListeningSignInWithBody Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+//
+// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+func (c *Client) CheckListeningSignInWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckListeningSignInRequestWithBody(c.Server, source, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CheckListeningSignIn Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+//
+// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+func (c *Client) CheckListeningSignIn(ctx context.Context, source string, body CheckListeningSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckListeningSignInRequest(c.Server, source, body)
 	if err != nil {
 		return nil, err
 	}
@@ -27156,6 +27429,121 @@ func NewSetListeningSourceRequestWithBody(server string, source string, contentT
 	return req, nil
 }
 
+// NewSignOutListeningAccountRequest constructs an http.Request for the SignOutListeningAccount method
+func NewSignOutListeningAccountRequest(server string, source string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s/account", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPasteListeningCookiesRequest calls the generic PasteListeningCookies builder with application/json body
+func NewPasteListeningCookiesRequest(server string, source string, body PasteListeningCookiesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPasteListeningCookiesRequestWithBody(server, source, "application/json", bodyReader)
+}
+
+// NewPasteListeningCookiesRequestWithBody constructs an http.Request for the PasteListeningCookies method, with any body, and a specified content type
+func NewPasteListeningCookiesRequestWithBody(server string, source string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s/account", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewConsentListeningSourceRequest constructs an http.Request for the ConsentListeningSource method
+func NewConsentListeningSourceRequest(server string, source string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s/consent", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewSetListeningOrderRequest calls the generic SetListeningOrder builder with application/json body
 func NewSetListeningOrderRequest(server string, source string, body SetListeningOrderJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -27194,6 +27582,87 @@ func NewSetListeningOrderRequestWithBody(server string, source string, contentTy
 	}
 
 	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewStartListeningSignInRequest constructs an http.Request for the StartListeningSignIn method
+func NewStartListeningSignInRequest(server string, source string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s/sign-in", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCheckListeningSignInRequest calls the generic CheckListeningSignIn builder with application/json body
+func NewCheckListeningSignInRequest(server string, source string, body CheckListeningSignInJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCheckListeningSignInRequestWithBody(server, source, "application/json", bodyReader)
+}
+
+// NewCheckListeningSignInRequestWithBody constructs an http.Request for the CheckListeningSignIn method, with any body, and a specified content type
+func NewCheckListeningSignInRequestWithBody(server string, source string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s/sign-in/check", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -38058,6 +38527,42 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
 	SetListeningSourceWithResponse(ctx context.Context, source string, body SetListeningSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*SetListeningSourceResponse, error)
 
+	// SignOutListeningAccountWithResponse Sign a source's account out; only the owner
+	//
+	// Removes its cookies from the vault, closes its browser context and clears the site's cookies from the shared browser's profile, no other site's. The source stays on, read by its backends that need no account.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /gateway/listening/sources/{source}/account (the `SignOutListeningAccount` operationId).
+	SignOutListeningAccountWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*SignOutListeningAccountResponse, error)
+
+	// PasteListeningCookiesWithBodyWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+	//
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+	PasteListeningCookiesWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PasteListeningCookiesResponse, error)
+
+	// PasteListeningCookiesWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+	//
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+	PasteListeningCookiesWithResponse(ctx context.Context, source string, body PasteListeningCookiesJSONRequestBody, reqEditors ...RequestEditorFn) (*PasteListeningCookiesResponse, error)
+
+	// ConsentListeningSourceWithResponse Agree to a signed-in social listening source's consent card, and switch it on; only the owner
+	//
+	// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/consent (the `ConsentListeningSource` operationId).
+	ConsentListeningSourceWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*ConsentListeningSourceResponse, error)
+
 	// SetListeningOrderWithBodyWithResponse Set the order a social listening source tries its backends in; only the owner
 	//
 	// Each of the source's backends is named once.
@@ -38075,6 +38580,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
 	SetListeningOrderWithResponse(ctx context.Context, source string, body SetListeningOrderJSONRequestBody, reqEditors ...RequestEditorFn) (*SetListeningOrderResponse, error)
+
+	// StartListeningSignInWithResponse Open a signed-in source's sign-in page in the owner's tab of the shared browser; only the owner
+	//
+	// The owner signs in there himself; nothing fills the form. Refused before the source's consent.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/sign-in (the `StartListeningSignIn` operationId).
+	StartListeningSignInWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*StartListeningSignInResponse, error)
+
+	// CheckListeningSignInWithBodyWithResponse Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+	//
+	// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+	CheckListeningSignInWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckListeningSignInResponse, error)
+
+	// CheckListeningSignInWithResponse Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+	//
+	// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+	CheckListeningSignInWithResponse(ctx context.Context, source string, body CheckListeningSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckListeningSignInResponse, error)
 
 	// TestListeningSourceWithResponse Test a social listening source now; only the owner
 	//
@@ -45801,6 +46333,150 @@ func (r SetListeningSourceResponse) ContentType() string {
 	return ""
 }
 
+type SignOutListeningAccountResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Listening
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SignOutListeningAccountResponse) GetJSON200() *Listening {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SignOutListeningAccountResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SignOutListeningAccountResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SignOutListeningAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SignOutListeningAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SignOutListeningAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PasteListeningCookiesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Listening
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PasteListeningCookiesResponse) GetJSON200() *Listening {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PasteListeningCookiesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PasteListeningCookiesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PasteListeningCookiesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PasteListeningCookiesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PasteListeningCookiesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ConsentListeningSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Listening
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ConsentListeningSourceResponse) GetJSON200() *Listening {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ConsentListeningSourceResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ConsentListeningSourceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ConsentListeningSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConsentListeningSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ConsentListeningSourceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type SetListeningOrderResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -45843,6 +46519,95 @@ func (r SetListeningOrderResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetListeningOrderResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartListeningSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StartListeningSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StartListeningSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartListeningSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartListeningSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartListeningSignInResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CheckListeningSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ListeningSignIn
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CheckListeningSignInResponse) GetJSON200() *ListeningSignIn {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CheckListeningSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CheckListeningSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CheckListeningSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CheckListeningSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CheckListeningSignInResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -57854,6 +58619,66 @@ func (c *ClientWithResponses) SetListeningSourceWithResponse(ctx context.Context
 	return ParseSetListeningSourceResponse(rsp)
 }
 
+// SignOutListeningAccountWithResponse Sign a source's account out; only the owner
+//
+// Removes its cookies from the vault, closes its browser context and clears the site's cookies from the shared browser's profile, no other site's. The source stays on, read by its backends that need no account.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /gateway/listening/sources/{source}/account (the `SignOutListeningAccount` operationId).
+func (c *ClientWithResponses) SignOutListeningAccountWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*SignOutListeningAccountResponse, error) {
+	rsp, err := c.SignOutListeningAccount(ctx, source, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSignOutListeningAccountResponse(rsp)
+}
+
+// PasteListeningCookiesWithBodyWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+//
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+func (c *ClientWithResponses) PasteListeningCookiesWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PasteListeningCookiesResponse, error) {
+	rsp, err := c.PasteListeningCookiesWithBody(ctx, source, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePasteListeningCookiesResponse(rsp)
+}
+
+// PasteListeningCookiesWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+//
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/account (the `PasteListeningCookies` operationId).
+func (c *ClientWithResponses) PasteListeningCookiesWithResponse(ctx context.Context, source string, body PasteListeningCookiesJSONRequestBody, reqEditors ...RequestEditorFn) (*PasteListeningCookiesResponse, error) {
+	rsp, err := c.PasteListeningCookies(ctx, source, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePasteListeningCookiesResponse(rsp)
+}
+
+// ConsentListeningSourceWithResponse Agree to a signed-in social listening source's consent card, and switch it on; only the owner
+//
+// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/listening/sources/{source}/consent (the `ConsentListeningSource` operationId).
+func (c *ClientWithResponses) ConsentListeningSourceWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*ConsentListeningSourceResponse, error) {
+	rsp, err := c.ConsentListeningSource(ctx, source, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConsentListeningSourceResponse(rsp)
+}
+
 // SetListeningOrderWithBodyWithResponse Set the order a social listening source tries its backends in; only the owner
 //
 // Each of the source's backends is named once.
@@ -57882,6 +58707,51 @@ func (c *ClientWithResponses) SetListeningOrderWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseSetListeningOrderResponse(rsp)
+}
+
+// StartListeningSignInWithResponse Open a signed-in source's sign-in page in the owner's tab of the shared browser; only the owner
+//
+// The owner signs in there himself; nothing fills the form. Refused before the source's consent.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/listening/sources/{source}/sign-in (the `StartListeningSignIn` operationId).
+func (c *ClientWithResponses) StartListeningSignInWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*StartListeningSignInResponse, error) {
+	rsp, err := c.StartListeningSignIn(ctx, source, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartListeningSignInResponse(rsp)
+}
+
+// CheckListeningSignInWithBodyWithResponse Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+//
+// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+func (c *ClientWithResponses) CheckListeningSignInWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckListeningSignInResponse, error) {
+	rsp, err := c.CheckListeningSignInWithBody(ctx, source, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckListeningSignInResponse(rsp)
+}
+
+// CheckListeningSignInWithResponse Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+//
+// Once the site's login cookies are in the shared profile, one real search is made with them; when it reads (items or a clean zero) they are kept in the vault as the source's one account, replacing any before it, and cleared from the shared profile. The same cookies found signed out are not searched with again.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/listening/sources/{source}/sign-in/check (the `CheckListeningSignIn` operationId).
+func (c *ClientWithResponses) CheckListeningSignInWithResponse(ctx context.Context, source string, body CheckListeningSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckListeningSignInResponse, error) {
+	rsp, err := c.CheckListeningSignIn(ctx, source, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckListeningSignInResponse(rsp)
 }
 
 // TestListeningSourceWithResponse Test a social listening source now; only the owner
@@ -65644,6 +66514,105 @@ func ParseSetListeningSourceResponse(rsp *http.Response) (*SetListeningSourceRes
 	return response, nil
 }
 
+// ParseSignOutListeningAccountResponse parses an HTTP response from a SignOutListeningAccountWithResponse call
+func ParseSignOutListeningAccountResponse(rsp *http.Response) (*SignOutListeningAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SignOutListeningAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePasteListeningCookiesResponse parses an HTTP response from a PasteListeningCookiesWithResponse call
+func ParsePasteListeningCookiesResponse(rsp *http.Response) (*PasteListeningCookiesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PasteListeningCookiesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseConsentListeningSourceResponse parses an HTTP response from a ConsentListeningSourceWithResponse call
+func ParseConsentListeningSourceResponse(rsp *http.Response) (*ConsentListeningSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConsentListeningSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSetListeningOrderResponse parses an HTTP response from a SetListeningOrderWithResponse call
 func ParseSetListeningOrderResponse(rsp *http.Response) (*SetListeningOrderResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -65660,6 +66629,68 @@ func ParseSetListeningOrderResponse(rsp *http.Response) (*SetListeningOrderRespo
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartListeningSignInResponse parses an HTTP response from a StartListeningSignInWithResponse call
+func ParseStartListeningSignInResponse(rsp *http.Response) (*StartListeningSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartListeningSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCheckListeningSignInResponse parses an HTTP response from a CheckListeningSignInWithResponse call
+func ParseCheckListeningSignInResponse(rsp *http.Response) (*CheckListeningSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CheckListeningSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListeningSignIn
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -72734,9 +73765,24 @@ type ServerInterface interface {
 	// SetListeningSource Switch a social listening source on or off; only the owner
 	// (PUT /gateway/listening/sources/{source})
 	SetListeningSource(w http.ResponseWriter, r *http.Request, source string)
+	// SignOutListeningAccount Sign a source's account out; only the owner
+	// (DELETE /gateway/listening/sources/{source}/account)
+	SignOutListeningAccount(w http.ResponseWriter, r *http.Request, source string)
+	// PasteListeningCookies Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+	// (PUT /gateway/listening/sources/{source}/account)
+	PasteListeningCookies(w http.ResponseWriter, r *http.Request, source string)
+	// ConsentListeningSource Agree to a signed-in social listening source's consent card, and switch it on; only the owner
+	// (POST /gateway/listening/sources/{source}/consent)
+	ConsentListeningSource(w http.ResponseWriter, r *http.Request, source string)
 	// SetListeningOrder Set the order a social listening source tries its backends in; only the owner
 	// (PUT /gateway/listening/sources/{source}/order)
 	SetListeningOrder(w http.ResponseWriter, r *http.Request, source string)
+	// StartListeningSignIn Open a signed-in source's sign-in page in the owner's tab of the shared browser; only the owner
+	// (POST /gateway/listening/sources/{source}/sign-in)
+	StartListeningSignIn(w http.ResponseWriter, r *http.Request, source string)
+	// CheckListeningSignIn Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+	// (POST /gateway/listening/sources/{source}/sign-in/check)
+	CheckListeningSignIn(w http.ResponseWriter, r *http.Request, source string)
 	// TestListeningSource Test a social listening source now; only the owner
 	// (POST /gateway/listening/sources/{source}/test)
 	TestListeningSource(w http.ResponseWriter, r *http.Request, source string)
@@ -76935,6 +77981,84 @@ func (siw *ServerInterfaceWrapper) SetListeningSource(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// SignOutListeningAccount operation middleware
+func (siw *ServerInterfaceWrapper) SignOutListeningAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SignOutListeningAccount(w, r, source)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PasteListeningCookies operation middleware
+func (siw *ServerInterfaceWrapper) PasteListeningCookies(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PasteListeningCookies(w, r, source)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConsentListeningSource operation middleware
+func (siw *ServerInterfaceWrapper) ConsentListeningSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConsentListeningSource(w, r, source)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetListeningOrder operation middleware
 func (siw *ServerInterfaceWrapper) SetListeningOrder(w http.ResponseWriter, r *http.Request) {
 
@@ -76952,6 +78076,58 @@ func (siw *ServerInterfaceWrapper) SetListeningOrder(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetListeningOrder(w, r, source)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartListeningSignIn operation middleware
+func (siw *ServerInterfaceWrapper) StartListeningSignIn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartListeningSignIn(w, r, source)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CheckListeningSignIn operation middleware
+func (siw *ServerInterfaceWrapper) CheckListeningSignIn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckListeningSignIn(w, r, source)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -83776,6 +84952,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/listening/sources/{source}", wrapper.SetListeningSource)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/listening/sources/{source}/order", wrapper.SetListeningOrder)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/listening/sources/{source}/test", wrapper.TestListeningSource)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/listening/sources/{source}/consent", wrapper.ConsentListeningSource)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/listening/sources/{source}/sign-in", wrapper.StartListeningSignIn)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/listening/sources/{source}/sign-in/check", wrapper.CheckListeningSignIn)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/listening/sources/{source}/account", wrapper.SignOutListeningAccount)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/listening/sources/{source}/account", wrapper.PasteListeningCookies)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/muse", wrapper.GetMuse)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/muse/tools", wrapper.SetMuseTools)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/muse/sign-in", wrapper.StartMuseSignIn)
@@ -88557,6 +89738,124 @@ func (response SetListeningSourcedefaultJSONResponse) VisitSetListeningSourceRes
 	return err
 }
 
+type SignOutListeningAccountRequestObject struct {
+	Source string `json:"source"`
+}
+
+type SignOutListeningAccountResponseObject interface {
+	VisitSignOutListeningAccountResponse(w http.ResponseWriter) error
+}
+
+type SignOutListeningAccount200JSONResponse Listening
+
+func (response SignOutListeningAccount200JSONResponse) VisitSignOutListeningAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SignOutListeningAccountdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SignOutListeningAccountdefaultJSONResponse) VisitSignOutListeningAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PasteListeningCookiesRequestObject struct {
+	Source string `json:"source"`
+	Body   *PasteListeningCookiesJSONRequestBody
+}
+
+type PasteListeningCookiesResponseObject interface {
+	VisitPasteListeningCookiesResponse(w http.ResponseWriter) error
+}
+
+type PasteListeningCookies200JSONResponse Listening
+
+func (response PasteListeningCookies200JSONResponse) VisitPasteListeningCookiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PasteListeningCookiesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PasteListeningCookiesdefaultJSONResponse) VisitPasteListeningCookiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConsentListeningSourceRequestObject struct {
+	Source string `json:"source"`
+}
+
+type ConsentListeningSourceResponseObject interface {
+	VisitConsentListeningSourceResponse(w http.ResponseWriter) error
+}
+
+type ConsentListeningSource200JSONResponse Listening
+
+func (response ConsentListeningSource200JSONResponse) VisitConsentListeningSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConsentListeningSourcedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ConsentListeningSourcedefaultJSONResponse) VisitConsentListeningSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetListeningOrderRequestObject struct {
 	Source string `json:"source"`
 	Body   *SetListeningOrderJSONRequestBody
@@ -88586,6 +89885,79 @@ type SetListeningOrderdefaultJSONResponse struct {
 }
 
 func (response SetListeningOrderdefaultJSONResponse) VisitSetListeningOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartListeningSignInRequestObject struct {
+	Source string `json:"source"`
+}
+
+type StartListeningSignInResponseObject interface {
+	VisitStartListeningSignInResponse(w http.ResponseWriter) error
+}
+
+type StartListeningSignIn204Response struct {
+}
+
+func (response StartListeningSignIn204Response) VisitStartListeningSignInResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type StartListeningSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartListeningSignIndefaultJSONResponse) VisitStartListeningSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckListeningSignInRequestObject struct {
+	Source string `json:"source"`
+	Body   *CheckListeningSignInJSONRequestBody
+}
+
+type CheckListeningSignInResponseObject interface {
+	VisitCheckListeningSignInResponse(w http.ResponseWriter) error
+}
+
+type CheckListeningSignIn200JSONResponse ListeningSignIn
+
+func (response CheckListeningSignIn200JSONResponse) VisitCheckListeningSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckListeningSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CheckListeningSignIndefaultJSONResponse) VisitCheckListeningSignInResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -97159,9 +98531,24 @@ type StrictServerInterface interface {
 	// SetListeningSource Switch a social listening source on or off; only the owner
 	// (PUT /gateway/listening/sources/{source})
 	SetListeningSource(ctx context.Context, request SetListeningSourceRequestObject) (SetListeningSourceResponseObject, error)
+	// SignOutListeningAccount Sign a source's account out; only the owner
+	// (DELETE /gateway/listening/sources/{source}/account)
+	SignOutListeningAccount(ctx context.Context, request SignOutListeningAccountRequestObject) (SignOutListeningAccountResponseObject, error)
+	// PasteListeningCookies Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
+	// (PUT /gateway/listening/sources/{source}/account)
+	PasteListeningCookies(ctx context.Context, request PasteListeningCookiesRequestObject) (PasteListeningCookiesResponseObject, error)
+	// ConsentListeningSource Agree to a signed-in social listening source's consent card, and switch it on; only the owner
+	// (POST /gateway/listening/sources/{source}/consent)
+	ConsentListeningSource(ctx context.Context, request ConsentListeningSourceRequestObject) (ConsentListeningSourceResponseObject, error)
 	// SetListeningOrder Set the order a social listening source tries its backends in; only the owner
 	// (PUT /gateway/listening/sources/{source}/order)
 	SetListeningOrder(ctx context.Context, request SetListeningOrderRequestObject) (SetListeningOrderResponseObject, error)
+	// StartListeningSignIn Open a signed-in source's sign-in page in the owner's tab of the shared browser; only the owner
+	// (POST /gateway/listening/sources/{source}/sign-in)
+	StartListeningSignIn(ctx context.Context, request StartListeningSignInRequestObject) (StartListeningSignInResponseObject, error)
+	// CheckListeningSignIn Look for a finished sign-in in the owner's tab; once its session reads, keep it as the source's account; only the owner
+	// (POST /gateway/listening/sources/{source}/sign-in/check)
+	CheckListeningSignIn(ctx context.Context, request CheckListeningSignInRequestObject) (CheckListeningSignInResponseObject, error)
 	// TestListeningSource Test a social listening source now; only the owner
 	// (POST /gateway/listening/sources/{source}/test)
 	TestListeningSource(ctx context.Context, request TestListeningSourceRequestObject) (TestListeningSourceResponseObject, error)
@@ -101098,6 +102485,91 @@ func (sh *strictHandler) SetListeningSource(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// SignOutListeningAccount operation middleware
+func (sh *strictHandler) SignOutListeningAccount(w http.ResponseWriter, r *http.Request, source string) {
+	var request SignOutListeningAccountRequestObject
+
+	request.Source = source
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SignOutListeningAccount(ctx, request.(SignOutListeningAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SignOutListeningAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SignOutListeningAccountResponseObject); ok {
+		if err := validResponse.VisitSignOutListeningAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PasteListeningCookies operation middleware
+func (sh *strictHandler) PasteListeningCookies(w http.ResponseWriter, r *http.Request, source string) {
+	var request PasteListeningCookiesRequestObject
+
+	request.Source = source
+
+	var body PasteListeningCookiesJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PasteListeningCookies(ctx, request.(PasteListeningCookiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PasteListeningCookies")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PasteListeningCookiesResponseObject); ok {
+		if err := validResponse.VisitPasteListeningCookiesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConsentListeningSource operation middleware
+func (sh *strictHandler) ConsentListeningSource(w http.ResponseWriter, r *http.Request, source string) {
+	var request ConsentListeningSourceRequestObject
+
+	request.Source = source
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConsentListeningSource(ctx, request.(ConsentListeningSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConsentListeningSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConsentListeningSourceResponseObject); ok {
+		if err := validResponse.VisitConsentListeningSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // SetListeningOrder operation middleware
 func (sh *strictHandler) SetListeningOrder(w http.ResponseWriter, r *http.Request, source string) {
 	var request SetListeningOrderRequestObject
@@ -101124,6 +102596,65 @@ func (sh *strictHandler) SetListeningOrder(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetListeningOrderResponseObject); ok {
 		if err := validResponse.VisitSetListeningOrderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartListeningSignIn operation middleware
+func (sh *strictHandler) StartListeningSignIn(w http.ResponseWriter, r *http.Request, source string) {
+	var request StartListeningSignInRequestObject
+
+	request.Source = source
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartListeningSignIn(ctx, request.(StartListeningSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartListeningSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartListeningSignInResponseObject); ok {
+		if err := validResponse.VisitStartListeningSignInResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CheckListeningSignIn operation middleware
+func (sh *strictHandler) CheckListeningSignIn(w http.ResponseWriter, r *http.Request, source string) {
+	var request CheckListeningSignInRequestObject
+
+	request.Source = source
+
+	var body CheckListeningSignInJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CheckListeningSignIn(ctx, request.(CheckListeningSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CheckListeningSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CheckListeningSignInResponseObject); ok {
+		if err := validResponse.VisitCheckListeningSignInResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

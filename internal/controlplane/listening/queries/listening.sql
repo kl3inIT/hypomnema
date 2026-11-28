@@ -68,3 +68,51 @@ DELETE FROM listening_readings WHERE day < @before;
 
 -- name: ListListeningReadings :many
 SELECT * FROM listening_readings WHERE day >= @since ORDER BY source, day DESC;
+
+-- A source's consent card agreed to (issue #1291): kept once, the first time, and the source switched on.
+-- name: ConsentListeningSource :exec
+INSERT INTO listening_sources (source, off, consented_at, updated_at) VALUES (@source, 0, CAST(@now AS INTEGER),
+    CAST(@now AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET off = 0,
+    consented_at = COALESCE(listening_sources.consented_at, excluded.consented_at), updated_at = excluded.updated_at;
+
+-- name: ListListeningAccounts :many
+SELECT * FROM listening_accounts ORDER BY source;
+
+-- name: GetListeningAccount :one
+SELECT * FROM listening_accounts WHERE source = @source;
+
+-- A sign-in, new or again, replaces the account and clears what the last one met.
+-- name: PutListeningAccount :exec
+INSERT INTO listening_accounts (source, label, secret, state, cause, signed_in_at, checked_at, updated_at)
+VALUES (@source, @label, @secret, 'signed_in', '', CAST(@now AS INTEGER), CAST(@now AS INTEGER),
+    CAST(@now AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET label = excluded.label, secret = excluded.secret, state = 'signed_in', cause = '',
+    signed_in_at = excluded.signed_in_at, checked_at = excluded.checked_at, updated_at = excluded.updated_at;
+
+-- A real call that asked for a sign-in or refused the account marks it, once: the row changes only when its state
+-- does, so only that call tells the owner (postiz's refreshNeeded, set where it was not, integration.repository.ts:
+-- 603-616). A refusal stays until a new sign-in: a need_login never replaces it.
+-- name: MarkListeningAccount :execrows
+UPDATE listening_accounts SET state = @state, cause = @cause, checked_at = CAST(@now AS INTEGER),
+    updated_at = CAST(@now AS INTEGER)
+WHERE source = @source AND state <> @state AND state <> 'refused';
+
+-- A throttling page stops the source's site until then, a later stop never shortened by an earlier one; nothing but
+-- the time ends it, neither a sign-in nor a search.
+-- name: StopListeningSource :exec
+INSERT INTO listening_sources (source, stopped_until, stop_cause, updated_at)
+VALUES (@source, CAST(@until AS INTEGER), @cause, CAST(@now AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET
+    stopped_until = MAX(COALESCE(listening_sources.stopped_until, 0), excluded.stopped_until),
+    stop_cause = excluded.stop_cause, updated_at = excluded.updated_at;
+
+-- name: ListeningSourceStop :one
+SELECT stopped_until, stop_cause FROM listening_sources WHERE source = @source;
+
+-- name: ConfirmListeningAccount :exec
+UPDATE listening_accounts SET checked_at = CAST(@now AS INTEGER), updated_at = CAST(@now AS INTEGER)
+WHERE source = @source AND state = 'signed_in';
+
+-- name: DeleteListeningAccount :execrows
+DELETE FROM listening_accounts WHERE source = @source;

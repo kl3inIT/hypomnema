@@ -31,7 +31,9 @@ import { said } from "@/lib/said"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
+import { AccountPanel, ConsentDialog } from "./listening-account"
 import {
+  accountState,
   backendName,
   backendState,
   codeLabel,
@@ -43,6 +45,7 @@ import {
   needsYou,
   readLine,
   shownSources,
+  signedStep,
 } from "./listening-state"
 
 type Layout = "grid" | "table"
@@ -242,6 +245,8 @@ function SourceCard({ source }: { source: ListeningSource }) {
   const toggle = useSwitch(source)
   const test = useTest(source)
   const broken = needsYou(source)
+  // A press on the card tests a broken source again; an account that must be signed in again is fixed on its panel.
+  const retest = source.group === "broken"
 
   return (
     <article
@@ -249,7 +254,8 @@ function SourceCard({ source }: { source: ListeningSource }) {
       data-group={source.group}
       className={cn(
         "relative flex w-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card text-card-foreground",
-        broken && "cursor-pointer border-destructive/40 hover:bg-muted/30",
+        broken && "border-destructive/40",
+        retest && "cursor-pointer hover:bg-muted/30",
         !source.on && "opacity-80",
       )}
     >
@@ -284,6 +290,7 @@ function SourceCard({ source }: { source: ListeningSource }) {
           {source.on ? source.adds : `Switch it on to add: ${source.adds}`}
         </p>
         {(source.on || source.checked_at) && <Facts source={source} />}
+        <AccountPanel source={source} />
         {source.page && (
           <Link
             to={source.page}
@@ -297,10 +304,10 @@ function SourceCard({ source }: { source: ListeningSource }) {
           </Link>
         )}
         <LastError source={source} />
-        {source.on && (broken || source.group === "unverified") && (
+        {source.on && (source.group === "broken" || source.group === "unverified") && (
           <div className="relative z-20 flex items-center gap-2">
             <Button
-              variant={broken ? "default" : "outline"}
+              variant={retest ? "default" : "outline"}
               size="sm"
               focusableWhenDisabled={test.isPending}
               disabled={test.isPending}
@@ -320,7 +327,7 @@ function SourceCard({ source }: { source: ListeningSource }) {
       </div>
       {/* The whole card of a broken source tests it again (postiz: "Channel disconnected, click to reconnect"): a
           button laid over the card, under its own controls. */}
-      {broken && (
+      {retest && (
         <button
           type="button"
           aria-label={`Test ${source.label} again`}
@@ -497,6 +504,7 @@ function SourceRow({ source }: { source: ListeningSource }) {
   const toggle = useSwitch(source)
   const test = useTest(source)
   const broken = needsYou(source)
+  const accountBadge = accountState(source)
 
   return (
     <tr aria-label={source.label} className="border-b align-top last:border-b-0">
@@ -525,6 +533,11 @@ function SourceRow({ source }: { source: ListeningSource }) {
             {info.label}
           </Badge>
           {source.regressed && <Badge variant="destructive">Regressed</Badge>}
+          {accountBadge && (
+            <Badge variant={accountBadge.tone} title={accountBadge.why}>
+              {accountBadge.label}
+            </Badge>
+          )}
         </span>
       </td>
       <td className="px-3 py-2.5 text-xs whitespace-nowrap text-muted-foreground">
@@ -558,7 +571,7 @@ function SourceRow({ source }: { source: ListeningSource }) {
               {failureShown(source) === "before" && ", before it worked again"}
             </span>
             <span className="text-muted-foreground">{source.last_error.fix}</span>
-            {source.on && (broken || source.group === "unverified") && (
+            {source.on && (source.group === "broken" || source.group === "unverified") && (
               <span>
                 <Button
                   variant="outline"
@@ -598,6 +611,11 @@ function InUse({
   toggle: ReturnType<typeof useSwitch>
 }) {
   const id = `listen-${source.name}`
+
+  // A signed-in source is turned on through its consent card, never by the switch alone (issue #1291).
+  if (signedStep(source) === "consent") {
+    return <ConsentDialog source={source} trigger="switch" />
+  }
 
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

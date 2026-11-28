@@ -1,0 +1,14 @@
+mcp-server-linkedin (stickerdaniel/linkedin-mcp-server)
+Copyright 2025-2026 Daniel Sticker
+
+Used under the Apache License, Version 2.0, whose text is in LICENSE beside this file. Source:
+https://github.com/stickerdaniel/linkedin-mcp-server at 0e12514ce3ed408e0b5def05bab42361875852c1.
+
+What is adapted from it here, rewritten (internal/controlplane/listening/linkedin.go, issue #1291): the Posts search
+address and its datePosted facet (linkedin_mcp_server/linkedin/search_urls.py), the script that pairs each rendered
+post with its own URN by its boundary (linkedin/feed.py FEED_POST_BOUNDARIES_JS), the post's permalink form and URN
+pattern (linkedin/feed_payload.py), the media player's noise lines (linkedin/text.py), the sign-in, challenge and
+account-restriction routes (core/auth.py) and the throttling statuses 429 and 999 (core/throttle.py). Changed: the
+script runs on the search page and returns the page's address, navigation status and empty state with the posts;
+the recording of each response's status by the call that sent its request (core/throttle.py) is rewritten as a
+browser context's record of its tab's requests (internal/controlplane/browser/contexts.go).

@@ -50,6 +50,9 @@ var engagementWeights = map[string]struct {
 	SourceBluesky: {
 		fields: []weighted{{"likes", 0.40}, {"reposts", 0.30}, {"replies", 0.20}, {"quotes", 0.10}}, reference: 9.2,
 	},
+	SourceX: {
+		fields: []weighted{{"likes", 0.55}, {"reposts", 0.25}, {"replies", 0.15}, {"quotes", 0.05}}, reference: 9.2,
+	},
 }
 
 // commentReference is the log1p of a very high comment's votes on each platform: a comment is scored on it alone
@@ -62,7 +65,7 @@ var commentReference = map[string]float64{
 // default (the web and Reddit, the app stores, GitHub, careers pages and the forums).
 var sourceQualities = map[string]float64{
 	SourceHackerNews: 0.8, SourceDevTo: 0.78, SourceYouTube: 0.85, SourceArxiv: 0.9, SourceTechmeme: 0.85,
-	SourceBluesky: 0.66, SourceCareers: 0.72,
+	SourceBluesky: 0.66, SourceCareers: 0.72, SourceX: 0.68,
 }
 
 func quality(source string) float64 {

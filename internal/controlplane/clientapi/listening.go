@@ -22,6 +22,12 @@ type ListeningSettings interface {
 	SetOrder(ctx context.Context, source string, backends []string) error
 	// Test reads a source with its live test now, its rests cleared.
 	Test(ctx context.Context, source string) error
+	// The signed-in sources' consent and account (issue #1291).
+	Consent(ctx context.Context, source string) error
+	SignInStart(ctx context.Context, source string) error
+	SignInCheck(ctx context.Context, source, label string) (listening.SignIn, error)
+	PasteCookies(ctx context.Context, source, header, label string) error
+	SignOut(ctx context.Context, source string) error
 }
 
 // WithListening gives the API social listening's sources.
@@ -101,6 +107,111 @@ func (s *Server) TestListeningSource(ctx context.Context, req openapi.TestListen
 	return openapi.TestListeningSource200JSONResponse(out), nil
 }
 
+// ConsentListeningSource keeps the owner's yes to a signed-in source's consent card and answers the sources.
+func (s *Server) ConsentListeningSource(ctx context.Context, req openapi.ConsentListeningSourceRequestObject,
+) (openapi.ConsentListeningSourceResponseObject, error) {
+	if s.listening == nil {
+		return nil, errNoListening
+	}
+
+	if err := s.listening.Consent(ctx, req.Source); err != nil {
+		return nil, listeningError(err)
+	}
+
+	out, err := s.listeningSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.ConsentListeningSource200JSONResponse(out), nil
+}
+
+// StartListeningSignIn opens a signed-in source's sign-in page in the owner's tab.
+func (s *Server) StartListeningSignIn(ctx context.Context, req openapi.StartListeningSignInRequestObject,
+) (openapi.StartListeningSignInResponseObject, error) {
+	if s.listening == nil {
+		return nil, errNoListening
+	}
+
+	if err := s.listening.SignInStart(ctx, req.Source); err != nil {
+		return nil, listeningError(err)
+	}
+
+	return openapi.StartListeningSignIn204Response{}, nil
+}
+
+// CheckListeningSignIn looks for a finished sign-in in the owner's tab.
+func (s *Server) CheckListeningSignIn(ctx context.Context, req openapi.CheckListeningSignInRequestObject,
+) (openapi.CheckListeningSignInResponseObject, error) {
+	if s.listening == nil {
+		return nil, errNoListening
+	}
+
+	label := ""
+	if req.Body != nil && req.Body.Label != nil {
+		label = *req.Body.Label
+	}
+
+	got, err := s.listening.SignInCheck(ctx, req.Source, label)
+	if err != nil {
+		return nil, listeningError(err)
+	}
+
+	out := openapi.CheckListeningSignIn200JSONResponse{Done: got.Done}
+	if got.Waiting != "" {
+		out.Waiting = &got.Waiting
+	}
+
+	return out, nil
+}
+
+// PasteListeningCookies signs a source's account in with a pasted cookie header, whose values no error carries.
+func (s *Server) PasteListeningCookies(ctx context.Context, req openapi.PasteListeningCookiesRequestObject,
+) (openapi.PasteListeningCookiesResponseObject, error) {
+	if s.listening == nil {
+		return nil, errNoListening
+	}
+
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: no cookies were sent", orchestration.ErrInvalid)
+	}
+
+	label := ""
+	if req.Body.Label != nil {
+		label = *req.Body.Label
+	}
+
+	if err := s.listening.PasteCookies(ctx, req.Source, req.Body.Cookies, label); err != nil {
+		return nil, listeningError(err)
+	}
+
+	out, err := s.listeningSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.PasteListeningCookies200JSONResponse(out), nil
+}
+
+// SignOutListeningAccount signs a source's account out and answers the sources.
+func (s *Server) SignOutListeningAccount(ctx context.Context, req openapi.SignOutListeningAccountRequestObject,
+) (openapi.SignOutListeningAccountResponseObject, error) {
+	if s.listening == nil {
+		return nil, errNoListening
+	}
+
+	if err := s.listening.SignOut(ctx, req.Source); err != nil {
+		return nil, listeningError(err)
+	}
+
+	out, err := s.listeningSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SignOutListeningAccount200JSONResponse(out), nil
+}
+
 func listeningError(err error) error {
 	switch {
 	case errors.Is(err, listening.ErrInvalid):
@@ -135,6 +246,8 @@ func (s *Server) listeningSources(ctx context.Context) (openapi.Listening, error
 		if st.Page != "" {
 			src.Page = &st.Page
 		}
+
+		src.Signed = toListeningSigned(st.Signed)
 
 		if st.Code != "" {
 			code := string(st.Code)
@@ -182,6 +295,32 @@ func toListeningFailure(f *listening.Failure) *openapi.ListeningFailure {
 	out := &openapi.ListeningFailure{Code: string(f.Code), Detail: f.Detail, At: f.At.UTC(), Fix: f.Fix}
 	if f.Backend != "" {
 		out.Backend = &f.Backend
+	}
+
+	return out
+}
+
+func toListeningSigned(st *listening.SignedState) *openapi.ListeningSigned {
+	if st == nil {
+		return nil
+	}
+
+	out := &openapi.ListeningSigned{
+		Consent: st.Consent, ConsentedAt: timePtr(st.ConsentedAt), StoppedUntil: timePtr(st.StoppedUntil),
+	}
+	if st.StopCause != "" {
+		out.StopCause = &st.StopCause
+	}
+
+	if st.SignInURL != "" {
+		out.SignInUrl = &st.SignInURL
+	}
+
+	if a := st.Account; a != nil {
+		out.Account = &openapi.ListeningAccount{
+			Label: a.Label, State: openapi.ListeningAccountState(a.State), Cause: a.Cause, SignedInAt: a.SignedInAt,
+			CheckedAt: timePtr(a.CheckedAt),
+		}
 	}
 
 	return out

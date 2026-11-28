@@ -34,7 +34,7 @@
 //     semantic.go).
 //
 // The parts adapted from MIT and Apache-2.0 code carry those projects' notices in third_party/: last30days-skill
-// (and last30days-skill-cn), google-play-scraper, agent-reach, harken and obsei.
+// (and last30days-skill-cn), google-play-scraper, agent-reach, harken, obsei, bird and linkedin-mcp-server.
 //
 // What a backend rests for is kept in memory, the control plane being one process that lives across calls
 // (last30days, a process per run, writes it to a file). What the owner sets of the sources and how each last read
@@ -234,6 +234,13 @@ type Config struct {
 	// Muse is the owner's Muse pool, the backend of Facebook, Instagram and Threads (muse.go); nil: those sources
 	// cannot be read. Used only when Platforms is nil.
 	Muse Muse
+	// Browser, Secrets and SecretName are what the signed-in sources keep their accounts with (accounts.go): the shared
+	// browser to sign in through and read in, nil when it is off (only a pasted cookie header signs in, and a source
+	// read in the browser cannot be read); the vault their cookies are kept in, nil when it has no key (no account
+	// can be kept); and the name of a source's account's secret.
+	Browser    AccountBrowser
+	Secrets    Secrets
+	SecretName func(source string) string
 }
 
 // Service searches the sources.
@@ -259,12 +266,20 @@ type Service struct {
 	pathOwner map[string]string
 	// health is each source's state after the last search that read it (health.go).
 	health map[string]*Health
+
+	// acc is what the signed-in sources share (accounts.go).
+	acc accounts
 }
 
 // New returns a Service.
 func New(cfg Config) *Service {
 	if cfg.Platforms == nil {
 		cfg.Platforms = append(Sources(Endpoints{}, http.DefaultClient), MuseSources(cfg.Muse, http.DefaultClient)...)
+		cfg.Platforms = append(cfg.Platforms, SignedSources(Endpoints{}, http.DefaultClient)...)
+	}
+
+	if cfg.SecretName == nil {
+		cfg.SecretName = func(source string) string { return "listening-" + source }
 	}
 
 	if cfg.Now == nil {
@@ -280,6 +295,10 @@ func New(cfg Config) *Service {
 		db: cfg.DB, tell: cfg.Tell, reviewModel: cfg.ReviewModel, readModel: cfg.ReadModel,
 		scores: newMemo[scored](cfg.Now), readings: newMemo[reading](cfg.Now), plans: newMemo[clusterPlan](cfg.Now),
 		resting: map[string]*SourceError{}, pathOwner: map[string]string{}, health: map[string]*Health{},
+		acc: accounts{
+			browser: cfg.Browser, secrets: cfg.Secrets, secretName: cfg.SecretName,
+			checking: map[string]bool{}, checked: map[string]verification{},
+		},
 	}
 }
 
@@ -456,8 +475,11 @@ func (s *Service) searchContext(ctx context.Context) context.Context {
 	})
 }
 
-// owned is a request whose path rests are noted as the source's, so its test clears them.
+// owned is a request whose path rests are noted as the source's, so its test clears them, with the source's account
+// when it is read as one.
 func (s *Service) owned(r Request, source string) Request {
+	r.Session = s.session(source)
+
 	rest := r.Rest
 	r.Rest = func(path string, f *SourceError) time.Time {
 		s.own("path:"+path, source)
@@ -597,7 +619,8 @@ func (s *Service) check(plan Plan, on map[string]bool) (Plan, error) {
 // request is what a backend is asked for this plan and caller, its query and window aside.
 func (s *Service) request(plan Plan, c Caller) Request {
 	return Request{
-		Topic: plan.topic(), Web: c.Web, Fetch: c.Fetch, Pace: s.pacer.Wait, Now: s.now,
+		Topic: plan.topic(), Web: c.Web, Fetch: c.Fetch, Pace: s.pacer.Wait, Read: s.pacer.Read, Wait: s.pacer.sleep,
+		Now:     s.now,
 		Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
 		Rest:    func(path string, f *SourceError) time.Time { return s.rest("path:"+path, f) },
 	}

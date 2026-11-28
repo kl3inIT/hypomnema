@@ -62,3 +62,37 @@ func listeningMuse(pool *muse.Service) listening.Muse {
 
 	return pool
 }
+
+// listeningBrowser gives the signed-in listening sources the shared browser's contexts (issue #1291).
+type listeningBrowser struct{ *browser.Engine }
+
+func (b listeningBrowser) Page(ctx context.Context, key string, cookies []browser.Cookie) (listening.Page, error) {
+	return b.Engine.Page(ctx, key, cookies)
+}
+
+// listeningAccounts are the shared browser and the vault as the signed-in listening sources keep their accounts with
+// them, each nil when this control plane has it off, as Muse is off without them: a vault with no key keeps no
+// cookie, and with the browser off only a pasted cookie header signs in.
+func listeningAccounts(cfg Config, secrets *vault.Service, shared *browser.Engine) (listening.AccountBrowser,
+	listening.Secrets,
+) {
+	var (
+		b listening.AccountBrowser
+		v listening.Secrets
+	)
+
+	if !cfg.BrowserOff && shared != nil {
+		b = listeningBrowser{shared}
+	}
+
+	if cfg.VaultKeys != nil {
+		v = secrets
+	}
+
+	return b, v
+}
+
+// listeningSecretName names the vault secret of a listening source's account.
+func listeningSecretName(source string) string {
+	return "listening-account-" + source
+}

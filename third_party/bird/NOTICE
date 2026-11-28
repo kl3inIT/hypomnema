@@ -1,0 +1,25 @@
+bird (bird-search, the subset vendored in last30days-skill)
+Copyright (c) 2025 Peter Steinberger
+
+Used under the MIT License. Source: @steipete/bird v0.8.0, as vendored in https://github.com/mvanhorn/last30days-skill
+at 5aabbc227096d3474058d808c3d73f90e8abec70, skills/last30days/scripts/lib/vendor/bird-search/.
+
+What is adapted from it here, rewritten in Go (internal/controlplane/listening/x.go, issue #1291): X's web GraphQL
+search, SearchTimeline, as a signed-in account (its variables, features, headers and the account's auth_token and ct0
+cookies, lib/twitter-client-search.js, twitter-client-base.js, twitter-client-features.js), the parsing of its
+timeline's posts and Bottom cursor (twitter-client-utils.js), its fallback query ids, and the reading of the query ids
+from X's own JavaScript bundles (runtime-query-ids.js). The web client's bearer, which bird bakes in, is read from the
+same bundles instead.
+
+The MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including without
+limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

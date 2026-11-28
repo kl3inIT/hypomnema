@@ -5135,6 +5135,9 @@ not checked against the live site in the change that wrote them.
   there is none. While the owner holds the browser the check does not run: the dialog says "Signed in? Give
   control back to finish adding the account." and keeps polling, and nothing is saved until the check says ok.
   The pool reads Usage once in the account's tab after sign-in, before returning the account.
+  Opening the tab, reading the site's cookies from the shared profile, checking its required ones, coding the jar
+  for the vault and clearing the site's cookies are the shared sign-in's (`internal/controlplane/signin`, issue
+  #1291), which the signed-in listening sources use too.
 - States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
   refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
   not `assigned`); page not ready (no ready composer within 30 s); resting (out of
@@ -5210,6 +5213,42 @@ writes no prose (last30days SKILL.md LAW 7).
   `web_arctic`: the next subquery still searches the web and keeps its threads as the search showed them. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
   `web_arctic` was added for that (owner, 2026-11-27). `facebook`, `instagram` and `threads` each have one backend,
   `muse` (`listening/muse.go`, `verify.go`; issue #1292), described below.
+- Signed-in sources (issue #1291; `listening/accounts.go`, `signed.go`, `x.go`, `linkedin.go`, the shared sign-in
+  `internal/controlplane/signin`): `x` (`graphql`, then `site_search`) and `linkedin` (`rendered_page`, then
+  `site_search`), each read first as the owner's one account for it, and by the web search's results on its site
+  (`site:x.com`, `site:linkedin.com/posts`; only a post's address kept, dated by its id) while the account cannot
+  be read. Each is off, and cannot be switched on, until the owner agrees to its consent card, fixed wording of its
+  own (`listening_sources.consented_at`); agreeing switches it on. Sign-in: the owner signs in himself in his tab of
+  the shared browser (the site's login page opened there), or pastes a cookie header; once the site's login cookies
+  are there (X's `auth_token` and `ct0`, LinkedIn's `li_at`), one real search with them must read (items or a
+  clean zero) before they are kept in the vault (`listening-account-<source>`) as the source's account
+  (`listening_accounts`: label, state, cause, stop), replacing any before it, and cleared from the shared profile;
+  the same cookies found signed out are not searched with again. A real call that asks for a sign-in marks the
+  account `need_login`, one that refuses it or shows a security check `refused` (cleared only by a new sign-in,
+  never by a test), both shown as "!" on its card and told to the owner at each session's change into them; that
+  change sets the source's `told` flag, so the same search's broken reading, or a later one whose code is the
+  account's own state, tells nothing more, and a new sign-in clears the flag; a LinkedIn
+  rate-limit answer (429 or 999, to the page or to any request the page sends for its results) stops the site for 24
+  hours (`listening_sources.stopped_until`), kept across restarts, saved before LinkedIn's turn ends and read again
+  once a call gets its turn, a sign-in's check included, and ended by nothing but the time; posts read before such
+  a refusal are kept as a part read. Sign-out deletes the vault secret, closes the account's browser
+  context and clears that site's cookies, no other's, from the shared profile. A cookie goes only to its own site
+  (`signin.Site.Header`) and is never logged or answered. Each account reads one call at a time at its site, 10 s
+  apart and 30 s more after every five (`Pacer.Read`). X: its web client's `SearchTimeline` GraphQL (bird's, MIT,
+  `third_party/bird`) as the account, the window as `since:`/`until:`, the Top tab, pages of 20 up to three, each
+  post dated by its snowflake id (one whose id dates nothing is dropped), the bearer and query ids read from X's own
+  bundles without cookies, kept a day and read again on a 404 or a validation error; 401 or "Could not authenticate
+  you" `need_login`, 403 `refused`, 429 rests until `x-rate-limit-reset`. LinkedIn: its Posts search page
+  (`/search/results/content/`, the window as `datePosted` when a day, week or month holds it) in the account's own
+  browser context, read as rendered (linkedin-mcp-server, Apache-2.0, `third_party/linkedin-mcp-server`): each post
+  paired with its URN by its boundary, its address `/feed/update/<urn>/`, its date from the id's high bits, only a
+  snapshot of this query's search page taken (its keywords and its date filter), the statuses of every request the account's tab sent since it opened
+  the search (`browser.Page.Responses`, from DevTools' Network events) with the document's own, barriers by the path it landed on (login-restriction, checkpoint, challenge
+  `refused`; login, authwall `need_login`), and zero posts a clean zero only beside LinkedIn's empty state. API, only
+  the owner's: `POST /gateway/listening/sources/{source}/consent`, `POST …/sign-in`, `POST …/sign-in/check`
+  `{label?}`, `PUT …/account` `{cookies, label?}`, `DELETE …/account`. The Social listening card shows the consent
+  card, then Sign in (the owner's tab shown in the dialog) or Paste cookies, then the account's state with Sign in
+  again and Sign out. The Chinese platforms behind an account (Zhihu, Weibo, Douyin, Xiaohongshu) are not read yet.
 - The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
   - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
     and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the
@@ -5406,7 +5445,7 @@ writes no prose (last30days SKILL.md LAW 7).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
-  search page has (owner, 2026-11-27: no paid services). Every source is read without an account or a key. `go test
+  search page has (owner, 2026-11-27: no paid services). No source is read with a key; only X and LinkedIn are read with an account, the owner's own (issue #1291). `go test
   ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources, and runs the
   Social listening page's live test of every source.
 - Settings → Gateway → Social listening (issue #1290; `listening/settings.go`, `health.go`, `fix.go`,

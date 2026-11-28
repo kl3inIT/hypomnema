@@ -63,6 +63,9 @@ type Platform struct {
 	Adds string
 	// Page is the page of Settings where its accounts are, for a source that has them; its card links there.
 	Page string
+	// Signed makes it a source read as one of the owner's accounts (accounts.go, issue #1291): off until he agrees to
+	// its consent card; nil: read without one.
+	Signed *Signed
 }
 
 // Document is an item read in full: its text, and when its page says it was published, nil when it says none. Its text
@@ -108,6 +111,20 @@ type Request struct {
 	Now func() time.Time
 	// Run is the search this request is part of, shared by its streams; nil outside a search.
 	Run *Run
+	// Read waits for a signed-in account's turn at its site at its cadence (Pacer.Read); Session is the source's
+	// account, nil for a source read without one (accounts.go).
+	Read    func(ctx context.Context, host string, c Cadence) (func(), error)
+	Session *Session
+	// Wait waits in a read, between two looks at a page; nil: a timer.
+	Wait func(ctx context.Context, d time.Duration) error
+}
+
+func (r Request) wait(ctx context.Context, d time.Duration) error {
+	if r.Wait == nil {
+		return timerSleep(ctx, d)
+	}
+
+	return r.Wait(ctx, d)
 }
 
 func (r Request) now() time.Time {

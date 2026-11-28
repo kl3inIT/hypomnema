@@ -11,18 +11,17 @@ package muse
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/signin"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -39,10 +38,13 @@ const (
 	signInURL = Site + "/"
 )
 
-// requiredCookies make a signed-in session; optionalCookies are kept when
-// there (www's upstream/muse.py:27-31).
-// The optional ones are kept as every other muse.ai cookie is (museCookies).
-var requiredCookies = []string{"hatch_sess", "hatch_native_auth_device"}
+// museSignIn is muse.ai as a site signed in through the shared sign-in (signin, issue #1291): its required cookies
+// make a signed-in session, and its optional ones are kept as every other muse.ai cookie is (www's
+// upstream/muse.py:27-31).
+var museSignIn = signin.Site{
+	Name: "Muse", URL: signInURL, Domains: []string{Domain},
+	Login: [][]string{{"hatch_sess"}, {"hatch_native_auth_device"}},
+}
 
 // Errors of the pool, said to the caller as they are.
 var (
@@ -311,9 +313,9 @@ func (s *Service) openJar(ctx context.Context, id string) (jar, error) {
 		return jar{}, fmt.Errorf("opening the cookies of Muse account %s: %w", id, err)
 	}
 
-	var cookies []browser.Cookie
-	if err := json.Unmarshal([]byte(opened.Payload[vault.KeyValue]), &cookies); err != nil {
-		return jar{}, fmt.Errorf("the cookies of Muse account %s do not decode", id)
+	cookies, err := signin.Decode(opened.Payload[vault.KeyValue])
+	if err != nil {
+		return jar{}, fmt.Errorf("the cookies of Muse account %s: %w", id, err)
 	}
 
 	return jar{cookies: cookies, version: opened.Version}, nil
@@ -330,17 +332,17 @@ func (s *Service) saveJar(ctx context.Context, id string, read jar, page Page) {
 		return
 	}
 
-	kept := museCookies(got)
-	if missingCookies(kept) != "" || sameCookies(kept, read.cookies) {
+	kept := museSignIn.Cookies(got)
+	if museSignIn.Missing(kept) != "" || signin.Same(kept, read.cookies) {
 		return
 	}
 
-	raw, err := json.Marshal(kept)
+	raw, err := signin.Encode(kept)
 	if err != nil {
 		return
 	}
 
-	_, err = s.cfg.Secrets.RotateAt(ctx, s.cfg.SecretName(id), vault.Payload{vault.KeyValue: string(raw)}, read.version)
+	_, err = s.cfg.Secrets.RotateAt(ctx, s.cfg.SecretName(id), vault.Payload{vault.KeyValue: raw}, read.version)
 
 	switch {
 	case errors.Is(err, vault.ErrConflict):
@@ -350,48 +352,6 @@ func (s *Service) saveJar(ctx context.Context, id string, read jar, page Page) {
 		s.cfg.Logger.WarnContext(ctx, "a Muse account's cookies could not be saved",
 			slog.String("event", "muse.cookies_unsaved"), slog.String("account", id), slog.Any("err", err))
 	}
-}
-
-// museCookies are the cookies of muse.ai among cookies.
-func museCookies(cookies []browser.Cookie) []browser.Cookie {
-	var out []browser.Cookie
-
-	for _, c := range cookies {
-		d := strings.TrimPrefix(c.Domain, ".")
-		if d == Domain || strings.HasSuffix(d, "."+Domain) {
-			out = append(out, c)
-		}
-	}
-
-	return out
-}
-
-// missingCookies names the required cookies a jar lacks, empty when none.
-func missingCookies(cookies []browser.Cookie) string {
-	var missing []string
-
-	for _, name := range requiredCookies {
-		if !slices.ContainsFunc(cookies, func(c browser.Cookie) bool { return c.Name == name && c.Value != "" }) {
-			missing = append(missing, name)
-		}
-	}
-
-	return strings.Join(missing, ", ")
-}
-
-func sameCookies(a, b []browser.Cookie) bool {
-	key := func(cs []browser.Cookie) []string {
-		out := make([]string, 0, len(cs))
-		for _, c := range cs {
-			out = append(out, c.Domain+"\x00"+c.Path+"\x00"+c.Name+"\x00"+c.Value)
-		}
-
-		slices.Sort(out)
-
-		return out
-	}
-
-	return slices.Equal(key(a), key(b))
 }
 
 // stateOf is the account's state an error shows, and whether it is one.

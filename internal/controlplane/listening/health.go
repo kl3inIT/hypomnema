@@ -96,6 +96,8 @@ type SourceState struct {
 	// Code is why the last reading did not pass; empty when it passed or there is none.
 	Code     Code
 	Backends []BackendState
+	// Signed is a signed-in source's consent and account (accounts.go); nil for a source read without one.
+	Signed *SignedState
 }
 
 // BackendState is one of a source's backends, in its order.
@@ -289,6 +291,15 @@ func (s *Service) record(ctx context.Context, r sourceRead) {
 			return nil
 		}
 
+		// A signed-in source failing with its account's own state was told when the account came to it (accounts.go
+		// met): the same expired session is not told again, after its fallback served in between too.
+		if r.code == CodeNeedLogin || r.code == CodeRefused {
+			a, err := q.GetListeningAccount(ctx, r.source)
+			if err == nil && a.State == string(r.code) {
+				return nil
+			}
+		}
+
 		n, err := q.FlagListeningTold(ctx, store.FlagListeningToldParams{Source: r.source, Now: now})
 		flagged = n == 1
 
@@ -320,10 +331,17 @@ func (s *Service) States(ctx context.Context) ([]SourceState, error) {
 		return nil, kept.err
 	}
 
+	signed, err := s.signedStates(ctx, kept)
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]SourceState, 0, len(platforms))
 
 	for _, p := range platforms {
-		st := SourceState{Name: p.Name, Label: Label(p.Name), Adds: p.Adds, Page: p.Page, On: on[p.Name]}
+		st := SourceState{
+			Name: p.Name, Label: Label(p.Name), Adds: p.Adds, Page: p.Page, On: on[p.Name], Signed: signed[p.Name],
+		}
 
 		src := kept.sources[p.Name]
 		st.LastSuccess = at(src.LastSuccessAt)

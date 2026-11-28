@@ -149,6 +149,26 @@ func (l listeningSettings) Test(ctx context.Context, source string) error {
 	return l.svc.Test(ctx, source, l.search, true)
 }
 
+func (l listeningSettings) Consent(ctx context.Context, source string) error {
+	return l.svc.Consent(ctx, source)
+}
+
+func (l listeningSettings) SignInStart(ctx context.Context, source string) error {
+	return l.svc.SignInStart(ctx, source)
+}
+
+func (l listeningSettings) SignInCheck(ctx context.Context, source, label string) (listening.SignIn, error) {
+	return l.svc.SignInCheck(ctx, source, label)
+}
+
+func (l listeningSettings) PasteCookies(ctx context.Context, source, header, label string) error {
+	return l.svc.PasteCookies(ctx, source, header, label)
+}
+
+func (l listeningSettings) SignOut(ctx context.Context, source string) error {
+	return l.svc.SignOut(ctx, source)
+}
+
 // agentModels are the gateway's chat models as a tool asks them for a worker or a Bot's pi, on its key.
 type agentModels struct {
 	worker modelgateway.WorkerModels

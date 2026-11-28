@@ -9,11 +9,12 @@ package muse
 // (muse-driver.mjs:162-224): fetched from inside the owner's muse.ai tab, as
 // muse.ai answers 403 to the same request from any other client (issue #798).
 // It is a step of the control plane in that tab, so it waits for the owner to
-// give the browser back; nothing is saved before it answers ok.
+// give the browser back; nothing is saved before it answers ok. Opening the
+// tab, reading and clearing the site's cookies are the shared sign-in's
+// (signin, issue #1291), as the signed-in listening sources use them.
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/signin"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
 
@@ -30,7 +32,7 @@ const maxLabelChars = 80
 
 // SignInStart opens muse.ai in the owner's tab.
 func (s *Service) SignInStart(ctx context.Context) error {
-	return s.cfg.Browser.OpenOwnerTab(ctx, signInURL)
+	return museSignIn.Open(ctx, s.cfg.Browser)
 }
 
 // SignIn is how a sign-in stands.
@@ -61,13 +63,12 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 		again = a
 	}
 
-	profile, err := s.cfg.Browser.ProfileCookies(ctx, Domain)
+	cookies, err := museSignIn.Capture(ctx, s.cfg.Browser)
 	if err != nil {
 		return SignIn{}, err
 	}
 
-	cookies := museCookies(profile)
-	if missing := missingCookies(cookies); missing != "" {
+	if missing := museSignIn.Missing(cookies); missing != "" {
 		return SignIn{Waiting: "Sign in to Muse in the browser; waiting for its session."}, nil
 	}
 
@@ -92,7 +93,7 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 	}
 	defer release()
 
-	raw, err := json.Marshal(cookies)
+	raw, err := signin.Encode(cookies)
 	if err != nil {
 		return SignIn{}, err
 	}
@@ -100,7 +101,7 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 	if again.ID != "" {
 		// A sign-in is the newest jar: it replaces whatever version is there, and the context made from the
 		// old one is closed.
-		_, err := s.cfg.Secrets.Rotate(ctx, s.cfg.SecretName(again.ID), vault.Payload{vault.KeyValue: string(raw)})
+		_, err := s.cfg.Secrets.Rotate(ctx, s.cfg.SecretName(again.ID), vault.Payload{vault.KeyValue: raw})
 		if err != nil {
 			return SignIn{}, err
 		}
@@ -111,7 +112,7 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 			label = "Muse " + shortViewer(viewer)
 		}
 
-		if again, err = s.add(ctx, label, string(raw)); err != nil {
+		if again, err = s.add(ctx, label, raw); err != nil {
 			return SignIn{}, err
 		}
 	}
@@ -123,7 +124,7 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 	_ = s.store.rest(ctx, again.ID, false, "")
 
 	// muse.ai's cookies leave the shared profile: no agent's tab carries the session.
-	if err := s.cfg.Browser.ClearProfileCookies(ctx, cookies); err != nil {
+	if err := museSignIn.Clear(ctx, s.cfg.Browser); err != nil {
 		s.cfg.Logger.WarnContext(ctx, "muse.ai's cookies could not be cleared from the shared browser",
 			slog.String("event", "muse.profile_uncleared"), slog.Any("err", err))
 	}

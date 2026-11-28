@@ -42,6 +42,51 @@ func (q *Queries) ClearListeningTold(ctx context.Context, arg ClearListeningTold
 	return err
 }
 
+const confirmListeningAccount = `-- name: ConfirmListeningAccount :exec
+UPDATE listening_accounts SET checked_at = CAST(?1 AS INTEGER), updated_at = CAST(?1 AS INTEGER)
+WHERE source = ?2 AND state = 'signed_in'
+`
+
+type ConfirmListeningAccountParams struct {
+	Now    int64
+	Source string
+}
+
+func (q *Queries) ConfirmListeningAccount(ctx context.Context, arg ConfirmListeningAccountParams) error {
+	_, err := q.db.ExecContext(ctx, confirmListeningAccount, arg.Now, arg.Source)
+	return err
+}
+
+const consentListeningSource = `-- name: ConsentListeningSource :exec
+INSERT INTO listening_sources (source, off, consented_at, updated_at) VALUES (?1, 0, CAST(?2 AS INTEGER),
+    CAST(?2 AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET off = 0,
+    consented_at = COALESCE(listening_sources.consented_at, excluded.consented_at), updated_at = excluded.updated_at
+`
+
+type ConsentListeningSourceParams struct {
+	Source string
+	Now    int64
+}
+
+// A source's consent card agreed to (issue #1291): kept once, the first time, and the source switched on.
+func (q *Queries) ConsentListeningSource(ctx context.Context, arg ConsentListeningSourceParams) error {
+	_, err := q.db.ExecContext(ctx, consentListeningSource, arg.Source, arg.Now)
+	return err
+}
+
+const deleteListeningAccount = `-- name: DeleteListeningAccount :execrows
+DELETE FROM listening_accounts WHERE source = ?1
+`
+
+func (q *Queries) DeleteListeningAccount(ctx context.Context, source string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteListeningAccount, source)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const flagListeningTold = `-- name: FlagListeningTold :execrows
 UPDATE listening_sources SET told = 1, updated_at = ?1 WHERE source = ?2 AND told = 0
 `
@@ -59,6 +104,62 @@ func (q *Queries) FlagListeningTold(ctx context.Context, arg FlagListeningToldPa
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const getListeningAccount = `-- name: GetListeningAccount :one
+SELECT source, label, secret, state, cause, signed_in_at, checked_at, updated_at FROM listening_accounts WHERE source = ?1
+`
+
+func (q *Queries) GetListeningAccount(ctx context.Context, source string) (ListeningAccount, error) {
+	row := q.db.QueryRowContext(ctx, getListeningAccount, source)
+	var i ListeningAccount
+	err := row.Scan(
+		&i.Source,
+		&i.Label,
+		&i.Secret,
+		&i.State,
+		&i.Cause,
+		&i.SignedInAt,
+		&i.CheckedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listListeningAccounts = `-- name: ListListeningAccounts :many
+SELECT source, label, secret, state, cause, signed_in_at, checked_at, updated_at FROM listening_accounts ORDER BY source
+`
+
+func (q *Queries) ListListeningAccounts(ctx context.Context) ([]ListeningAccount, error) {
+	rows, err := q.db.QueryContext(ctx, listListeningAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListeningAccount{}
+	for rows.Next() {
+		var i ListeningAccount
+		if err := rows.Scan(
+			&i.Source,
+			&i.Label,
+			&i.Secret,
+			&i.State,
+			&i.Cause,
+			&i.SignedInAt,
+			&i.CheckedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listListeningBackends = `-- name: ListListeningBackends :many
@@ -126,7 +227,7 @@ func (q *Queries) ListListeningReadings(ctx context.Context, since string) ([]Li
 
 const listListeningSources = `-- name: ListListeningSources :many
 
-SELECT source, off, told, last_read_at, last_result, last_code, previous_result, last_success_at, last_error_at, last_error_code, last_error_detail, last_error_backend, updated_at FROM listening_sources ORDER BY source
+SELECT source, off, told, last_read_at, last_result, last_code, previous_result, last_success_at, last_error_at, last_error_code, last_error_detail, last_error_backend, updated_at, consented_at, stopped_until, stop_cause FROM listening_sources ORDER BY source
 `
 
 // Social listening's sources as the owner sets them and as they last read (issue #1290).
@@ -153,6 +254,9 @@ func (q *Queries) ListListeningSources(ctx context.Context) ([]ListeningSource, 
 			&i.LastErrorDetail,
 			&i.LastErrorBackend,
 			&i.UpdatedAt,
+			&i.ConsentedAt,
+			&i.StoppedUntil,
+			&i.StopCause,
 		); err != nil {
 			return nil, err
 		}
@@ -178,12 +282,83 @@ func (q *Queries) ListeningSourceIsOff(ctx context.Context, source string) (int6
 	return count, err
 }
 
+const listeningSourceStop = `-- name: ListeningSourceStop :one
+SELECT stopped_until, stop_cause FROM listening_sources WHERE source = ?1
+`
+
+type ListeningSourceStopRow struct {
+	StoppedUntil sql.NullInt64
+	StopCause    string
+}
+
+func (q *Queries) ListeningSourceStop(ctx context.Context, source string) (ListeningSourceStopRow, error) {
+	row := q.db.QueryRowContext(ctx, listeningSourceStop, source)
+	var i ListeningSourceStopRow
+	err := row.Scan(&i.StoppedUntil, &i.StopCause)
+	return i, err
+}
+
+const markListeningAccount = `-- name: MarkListeningAccount :execrows
+UPDATE listening_accounts SET state = ?1, cause = ?2, checked_at = CAST(?3 AS INTEGER),
+    updated_at = CAST(?3 AS INTEGER)
+WHERE source = ?4 AND state <> ?1 AND state <> 'refused'
+`
+
+type MarkListeningAccountParams struct {
+	State  string
+	Cause  string
+	Now    int64
+	Source string
+}
+
+// A real call that asked for a sign-in or refused the account marks it, once: the row changes only when its state
+// does, so only that call tells the owner (postiz's refreshNeeded, set where it was not, integration.repository.ts:
+// 603-616). A refusal stays until a new sign-in: a need_login never replaces it.
+func (q *Queries) MarkListeningAccount(ctx context.Context, arg MarkListeningAccountParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markListeningAccount,
+		arg.State,
+		arg.Cause,
+		arg.Now,
+		arg.Source,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const pruneListeningReadings = `-- name: PruneListeningReadings :exec
 DELETE FROM listening_readings WHERE day < ?1
 `
 
 func (q *Queries) PruneListeningReadings(ctx context.Context, before string) error {
 	_, err := q.db.ExecContext(ctx, pruneListeningReadings, before)
+	return err
+}
+
+const putListeningAccount = `-- name: PutListeningAccount :exec
+INSERT INTO listening_accounts (source, label, secret, state, cause, signed_in_at, checked_at, updated_at)
+VALUES (?1, ?2, ?3, 'signed_in', '', CAST(?4 AS INTEGER), CAST(?4 AS INTEGER),
+    CAST(?4 AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET label = excluded.label, secret = excluded.secret, state = 'signed_in', cause = '',
+    signed_in_at = excluded.signed_in_at, checked_at = excluded.checked_at, updated_at = excluded.updated_at
+`
+
+type PutListeningAccountParams struct {
+	Source string
+	Label  string
+	Secret string
+	Now    int64
+}
+
+// A sign-in, new or again, replaces the account and clears what the last one met.
+func (q *Queries) PutListeningAccount(ctx context.Context, arg PutListeningAccountParams) error {
+	_, err := q.db.ExecContext(ctx, putListeningAccount,
+		arg.Source,
+		arg.Label,
+		arg.Secret,
+		arg.Now,
+	)
 	return err
 }
 
@@ -335,5 +510,32 @@ type SetListeningSourceOffParams struct {
 
 func (q *Queries) SetListeningSourceOff(ctx context.Context, arg SetListeningSourceOffParams) error {
 	_, err := q.db.ExecContext(ctx, setListeningSourceOff, arg.Source, arg.Off, arg.Now)
+	return err
+}
+
+const stopListeningSource = `-- name: StopListeningSource :exec
+INSERT INTO listening_sources (source, stopped_until, stop_cause, updated_at)
+VALUES (?1, CAST(?2 AS INTEGER), ?3, CAST(?4 AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET
+    stopped_until = MAX(COALESCE(listening_sources.stopped_until, 0), excluded.stopped_until),
+    stop_cause = excluded.stop_cause, updated_at = excluded.updated_at
+`
+
+type StopListeningSourceParams struct {
+	Source string
+	Until  int64
+	Cause  string
+	Now    int64
+}
+
+// A throttling page stops the source's site until then, a later stop never shortened by an earlier one; nothing but
+// the time ends it, neither a sign-in nor a search.
+func (q *Queries) StopListeningSource(ctx context.Context, arg StopListeningSourceParams) error {
+	_, err := q.db.ExecContext(ctx, stopListeningSource,
+		arg.Source,
+		arg.Until,
+		arg.Cause,
+		arg.Now,
+	)
 	return err
 }
