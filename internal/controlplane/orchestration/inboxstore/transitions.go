@@ -24,8 +24,7 @@ type move struct{ from, to string }
 
 // transitions lists every change of state and the kinds of Actor that may make it, in one place (issue #845,
 // Transitions; docs/conventions.md, "Transitions are guarded writes"). Each operation below adds its own condition.
-// A change missing here is refused: in particular review to done, dropped or duplicate, since the Approval must be
-// rejected first.
+// Review cannot move to done, dropped or duplicate while its Approval is pending.
 var transitions = map[move][]string{
 	// The owner accepts, drops or marks duplicate a proposal; nothing accepts one by itself (Plane, Omi). A Bot
 	// opens one only through WaitOn, when a message shows the owner waits on a person for it (issue #1142; owner,
@@ -56,6 +55,11 @@ var transitions = map[move][]string{
 // allowed says whether actor may move a to-do from one state to another: a conflict when the move is not one of the
 // transitions, forbidden when it is but not for this actor.
 func allowed(from, to string, actor Actor) error {
+	// A review stall can retire its open report while it belongs to the owner.
+	if actor == reviewStallActor && from == Open && to == Dropped {
+		return nil
+	}
+
 	who, ok := transitions[move{from, to}]
 	if !ok {
 		return fmt.Errorf("%w: a %s to-do cannot become %s", storeerr.ErrConflict, from, to)

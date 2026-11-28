@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	readability "codeberg.org/readeck/go-readability/v2"
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
+	"github.com/itlightning/dateparse"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 )
@@ -140,16 +142,16 @@ func (s *Service) Fetch(ctx context.Context, address string) (Page, error) {
 	case kind == "text/markdown":
 		page.Content = string(body)
 	case kind == "text/html" || kind == "application/xhtml+xml":
-		page.Title, page.Content, err = readable(body, final)
+		page.Title, page.Content, page.Published, err = readable(body, final)
 		if err != nil {
 			// Readability found nothing to read: Jina Reader reads the page as a browser would (omp).
-			text, jinaErr := s.jina(ctx, final)
+			text, published, jinaErr := s.jina(ctx, final)
 			if jinaErr != nil {
 				return Page{}, fmt.Errorf("%w: its readable part could not be found (%w), and Jina Reader "+
 					"could not read it either (%w)", ErrUnreadable, err, jinaErr)
 			}
 
-			page.Title, page.Content = "", text
+			page.Title, page.Content, page.Published = "", text, published
 		}
 	case kind == "application/json" || strings.HasSuffix(kind, "+json"):
 		var indented bytes.Buffer
@@ -183,13 +185,13 @@ func (s *Service) refused(ctx context.Context, page *url.URL, status int) (Page,
 		return Page{}, fmt.Errorf("%w: it answered %d", ErrUnreadable, status)
 	}
 
-	text, err := s.jina(ctx, page)
+	text, published, err := s.jina(ctx, page)
 	if err != nil {
 		return Page{}, fmt.Errorf("%w: it answered %d, and Jina Reader could not read it either (%w)", ErrUnreadable,
 			status, err)
 	}
 
-	out := Page{URL: page.String(), Content: text}
+	out := Page{URL: page.String(), Content: text, Published: published}
 	if runes := []rune(out.Content); len(runes) > MaxContent {
 		out.Content, out.Truncated = string(runes[:MaxContent]), true
 	}
@@ -278,41 +280,64 @@ func looksLikeHTML(body []byte) bool {
 	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html")
 }
 
-// readable is a page's title and its readable part as markdown.
-func readable(body []byte, page *url.URL) (string, string, error) {
+// readable is a page's title, its readable part as markdown and when its metadata says it was published.
+func readable(body []byte, page *url.URL) (string, string, *time.Time, error) {
 	article, err := readability.FromReader(bytes.NewReader(body), page)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 
 	if article.Node == nil {
-		return "", "", errors.New("nothing readable")
+		return "", "", nil, errors.New("nothing readable")
 	}
 
 	markdown, err := htmltomarkdown.ConvertNode(article.Node, converter.WithDomain(page.String()))
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 
 	text := strings.TrimSpace(string(markdown))
 	if text == "" {
-		return "", "", errors.New("nothing readable")
+		return "", "", nil, errors.New("nothing readable")
 	}
 
-	return strings.TrimSpace(article.Title()), text, nil
+	var published *time.Time
+	if t, err := article.PublishedTime(); err == nil && !t.IsZero() {
+		published = new(t.UTC())
+	}
+
+	return strings.TrimSpace(article.Title()), text, published, nil
+}
+
+// jinaPublished is Jina Reader's "Published Time:" line before its content, as Agent-Reach reads it
+// (agent_reach/channels/web.py:141-150), parsed as Readability parses a page's date (dateparse.ParseAny).
+var jinaPublished = regexp.MustCompile(`(?m)^Published Time:\s*(.+)$`)
+
+func publishedIn(head string) *time.Time {
+	m := jinaPublished.FindStringSubmatch(head)
+	if m == nil {
+		return nil
+	}
+
+	t, err := dateparse.ParseAny(strings.TrimSpace(m[1]))
+	if err != nil || t.IsZero() {
+		return nil
+	}
+
+	return new(t.UTC())
 }
 
 // jina reads a page through Jina Reader without a key, as omp does: markdown
 // asked for, the cache skipped, and the text after "Markdown Content:" kept
 // unless Jina's own fetch failed or found too little (parseJinaReaderContent).
-func (s *Service) jina(ctx context.Context, page *url.URL) (string, error) {
+func (s *Service) jina(ctx context.Context, page *url.URL) (string, *time.Time, error) {
 	ctx, cancel := context.WithTimeout(ctx, jinaTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.cfg.JinaURL, "/")+"/"+page.String(),
 		nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	req.Header.Set("Accept", "text/markdown")
@@ -320,7 +345,7 @@ func (s *Service) jina(ctx context.Context, page *url.URL) (string, error) {
 
 	raw, err := s.send(req, maxJinaBytes)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	const marker = "Markdown Content:"
@@ -329,26 +354,26 @@ func (s *Service) jina(ctx context.Context, page *url.URL) (string, error) {
 
 	head, content, ok := strings.Cut(text, marker)
 	if !ok {
-		return "", errors.New("its answer has no content")
+		return "", nil, errors.New("its answer has no content")
 	}
 
 	for line := range strings.SplitSeq(head, "\n") {
 		if strings.HasPrefix(line, "Warning: Target URL returned error") {
-			return "", errors.New(strings.TrimSpace(strings.TrimPrefix(line, "Warning: ")))
+			return "", nil, errors.New(strings.TrimSpace(strings.TrimPrefix(line, "Warning: ")))
 		}
 	}
 
 	content = strings.TrimSpace(content)
 	if len(content) < 100 || strings.HasPrefix(content, "Loading...") ||
 		strings.HasPrefix(content, "Please enable JavaScript") {
-		return "", errors.New("it found too little to read")
+		return "", nil, errors.New("it found too little to read")
 	}
 
 	if blockPage(content) {
-		return "", errors.New("it was served a bot check instead of the page")
+		return "", nil, errors.New("it was served a bot check instead of the page")
 	}
 
-	return content, nil
+	return content, publishedIn(head), nil
 }
 
 // blockPagePhrases and blockPageMaxChars are omp's BLOCK_PAGE_PHRASES and

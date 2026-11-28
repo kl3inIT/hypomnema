@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -70,7 +69,7 @@ func Measure(parent context.Context, tools ffmpeg.Tools, file string, limitSec f
 
 	var stderr bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, tools.FFmpeg, args...) //nolint:gosec // The installed program, by its path.
+	cmd := tools.Command(ctx, args...)
 	cmd.Stderr = &stderr
 	// At the deadline the whole process group is killed, so nothing ffmpeg started outlives it holding its pipes.
 	ownGroup(cmd)

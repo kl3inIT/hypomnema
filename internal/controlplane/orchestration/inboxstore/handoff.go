@@ -35,6 +35,8 @@ const (
 	WakeGiven = "given"
 	// WakeComment: the owner commented on an item whose chat the Bot has.
 	WakeComment = "comment"
+	// WakeReviewReply: the owner replied to a review report in the Inbox.
+	WakeReviewReply = "review_reply"
 )
 
 // Wake is a wake-up of the Bot an item is given to, in the item's own chat.
@@ -222,10 +224,16 @@ func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, a
 			}
 		}
 
+		coordinator, err := reviewStallCoordinator(ctx, q, cur)
+		if err != nil {
+			return err
+		}
+
 		if actor.Kind == Bot {
 			mine := (cur.CreatedByKind == Bot && cur.CreatedBy == actor.ID) ||
 				(cur.AssigneeKind == ABot && cur.Assignee == actor.ID) || chatBot == actor.ID
-			if !mine {
+			inCoordinatorChat := coordinator.ChatID != "" && att.From == coordinator.ChatID && actor.ID == coordinator.BotID
+			if !mine && !inCoordinatorChat {
 				return fmt.Errorf("%w: a Bot comments only on the to-dos it added, is given or has the chat of",
 					storeerr.ErrForbidden)
 			}
@@ -240,7 +248,7 @@ func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, a
 			return fmt.Errorf("%w: hand the item to a Bot to send files to it", storeerr.ErrConflict)
 		}
 
-		if actor.Kind == Owner && chatBot != "" {
+		if actor.Kind == Owner && chatBot != "" && coordinator.ChatID == "" {
 			chat, err := s.wakeTx(ctx, q, now, id, Wake{
 				By: actor, Kind: WakeComment, Bot: chatBot, Text: text, Attachments: att.Uploads,
 				Comment: int(cur.Revision) + 1,
@@ -250,6 +258,18 @@ func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, a
 			}
 
 			keepUploads(after, chat, att.Uploads)
+		}
+
+		if actor.Kind == Owner && coordinator.ChatID != "" && s.waker != nil {
+			todo, err := fromRow(cur, storeutil.Millis(now))
+			if err != nil {
+				return err
+			}
+			if _, err := s.waker.WakeTx(ctx, q, now, Wake{
+				By: actor, Kind: WakeReviewReply, Chat: coordinator.ChatID, Bot: coordinator.BotID, Todo: todo, Text: text,
+			}); err != nil {
+				return err
+			}
 		}
 
 		if err := commentTx(ctx, q, now, actor, id, cur.Revision, after); err != nil {
