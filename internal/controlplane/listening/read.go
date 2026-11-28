@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 
@@ -459,18 +461,43 @@ func (s *Service) askReadings(ctx context.Context, topic string, asked []int, bl
 // The forms a date is written in: day/month/year, as Vietnamese pages write it, year-month-day, the Vietnamese
 // "(ngày) D tháng M (năm) Y" with the month in digits or in words ("tháng mười một"), and the English month's name
 // before or after the day ("November 22, 2019", "Nov. 22, 2019", "22 November 2019"). Every number is read whole:
-// what precedes and follows it is not a digit, so "20190" is no 2019.
+// what precedes and follows a date is not a digit, so "20190" is no 2019 (wholeDates checks it on the match's
+// indexes without taking the character in, Go's RE2 having no lookaround, so two dates may share a separator).
 var (
-	dayMonthYear = regexp.MustCompile(`(?:^|\D)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\D|$)`)
-	yearMonthDay = regexp.MustCompile(`(?:^|\D)(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})(?:\D|$)`)
-	vietnamese   = regexp.MustCompile(`(?i)(?:^|\D)(\d{1,2})\s+tháng\s+(\d{1,2}|` + vietnameseMonth +
-		`)[\s,]+(?:năm\s+)?(\d{4})(?:\D|$)`)
+	dayMonthYear = regexp.MustCompile(`(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})`)
+	yearMonthDay = regexp.MustCompile(`(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})`)
+	vietnamese   = regexp.MustCompile(`(?i)(\d{1,2})\s+tháng\s+(\d{1,2}|` + vietnameseMonth +
+		`)[\s,]+(?:năm\s+)?(\d{4})`)
 	monthName = `(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|` +
 		`oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?`
-	monthDayYear = regexp.MustCompile(`(?i)\b` + monthName + `\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?:\D|$)`)
-	dayMonthName = regexp.MustCompile(`(?i)(?:^|\D)(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthName +
-		`,?\s+(\d{4})(?:\D|$)`)
+	monthDayYear = regexp.MustCompile(`(?i)\b` + monthName + `\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})`)
+	dayMonthName = regexp.MustCompile(`(?i)(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthName + `,?\s+(\d{4})`)
 )
+
+// wholeDates are the matches of a date form in text whose neighbours are not digits, each with its groups.
+func wholeDates(form *regexp.Regexp, text string) [][]string {
+	var out [][]string
+
+	for _, at := range form.FindAllStringSubmatchIndex(text, -1) {
+		before, _ := utf8.DecodeLastRuneInString(text[:at[0]])
+		after, _ := utf8.DecodeRuneInString(text[at[1]:])
+
+		if unicode.IsDigit(before) || unicode.IsDigit(after) {
+			continue
+		}
+
+		groups := make([]string, len(at)/2)
+		for g := range groups {
+			if at[2*g] >= 0 {
+				groups[g] = text[at[2*g]:at[2*g+1]]
+			}
+		}
+
+		out = append(out, groups)
+	}
+
+	return out
+}
 
 // vietnameseMonths are the Vietnamese months in words, by number; the longer names first, so "mười một" is not read
 // as "mười". "Giêng" and "chạp" are the lunar calendar's first and last months, which a page's date does not use.
@@ -535,31 +562,31 @@ func pageDate(date, quote, doc string) *time.Time {
 		return year == at.Year() && month == int(at.Month()) && day == at.Day()
 	}
 
-	for _, f := range dayMonthYear.FindAllStringSubmatch(quote, -1) {
+	for _, f := range wholeDates(dayMonthYear, quote) {
 		if matches(f[3], f[2], f[1]) {
 			return &at
 		}
 	}
 
-	for _, f := range yearMonthDay.FindAllStringSubmatch(quote, -1) {
+	for _, f := range wholeDates(yearMonthDay, quote) {
 		if matches(f[1], f[2], f[3]) {
 			return &at
 		}
 	}
 
-	for _, f := range vietnamese.FindAllStringSubmatch(quote, -1) {
+	for _, f := range wholeDates(vietnamese, quote) {
 		if matches(f[3], monthOf(f[2]), f[1]) {
 			return &at
 		}
 	}
 
-	for _, f := range monthDayYear.FindAllStringSubmatch(quote, -1) {
+	for _, f := range wholeDates(monthDayYear, quote) {
 		if matches(f[3], monthOf(f[1]), f[2]) {
 			return &at
 		}
 	}
 
-	for _, f := range dayMonthName.FindAllStringSubmatch(quote, -1) {
+	for _, f := range wholeDates(dayMonthName, quote) {
 		if matches(f[3], monthOf(f[2]), f[1]) {
 			return &at
 		}
