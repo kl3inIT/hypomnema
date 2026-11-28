@@ -546,7 +546,11 @@ func TestNoPiStartsWhileTheControlPlaneIsUpdated(t *testing.T) {
 
 		require.NoError(t, sup.deliver(ctx, chat.ID))
 		// A settled turn wakes Run for its next pass. Here the test receives that signal.
-		<-sup.kick
+		select {
+		case <-sup.kick:
+		case <-time.After(time.Minute):
+			t.Fatalf("pi did not signal a settled turn for %q\n%s", text, log.String())
+		}
 		require.True(t, sup.Idle(chat.ID), "pi settled its turn and is still running")
 
 		msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
