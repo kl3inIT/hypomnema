@@ -3383,6 +3383,32 @@ flowchart LR
       (types named as zlog's worker_sync names them, a message taken back left out), the phone's ids turned into
       Zalo Web's through `/api/znoise`; a chat Zalo does not know is skipped. The session's `phone_sync` says the
       stage (asking, sending, importing, done, failed) and what was kept; the backup is removed after.
+  - Telegram, the owner's personal account as a user client of MTProto, never a bot
+    ([issue #1184](https://github.com/kl3inIT/hypomnema/issues/1184), part 1; `messaging/telegram`): the package and
+    its store only. It is not wired into the control plane yet: no Integration, link, tools or Inbox tab (part 2).
+    - **The client**: `github.com/gotd/td` in the control plane's process, with `gotd/contrib`'s flood-wait
+      middleware and a rate limit of 10 requests a second (burst 5), as gotd's `examples/userbot`. The owner's
+      `api_id` and `api_hash` are the vault's generic secrets `telegram-api-id` and `telegram-api-hash`; without
+      them `Ready` answers that the `api_id` is missing and a kept account opens `disconnected`, saying so.
+    - **`telegram.db`** beside the control plane's database (private): gotd's session (`tg_sessions`, keyed by the
+      owner's Telegram user id), the update state (`tg_state`, `tg_channel_state`) and access hashes
+      (`tg_access_hashes`) as mautrix/telegram keeps them, the people's names (`tg_users`), and the mirror
+      `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s; `tg_version` 0.
+    - **Every chat kept**: gotd's updates manager recovers gaps itself and hands new, edited and deleted messages to
+      the mirror. A channel gap it cannot recover (`OnChannelGap`) keeps the latest messages it came with and fetches
+      those since the newest kept, at most 500 (mautrix's `max_catchup_messages`); a gap of the account's own updates
+      (`OnTooLong`) or a state not kept (the first start after a link) lists every dialog, 100 a page, keeps each chat
+      with its latest message and catches each up the same way. `Backfill` fetches older messages with
+      `messages.getHistory`, 100 a page, one fetch at a time, waiting 2 s more each page up to 15 s; no takeout.
+      `messages.readHistory` is never called, so nothing is marked read.
+    - **Chats**: ids `user:<id>`, `chat:<id>`, `channel:<id>`. A person is `dm`; a bot or an account Telegram marks
+      verified, support, scam or fake is `bot`; a basic group, a megagroup or a forum (one chat) is `group`; a
+      broadcast channel or a gigagroup is `broadcast`. A deleted account and a chat left or lost are not listed;
+      their messages stay.
+    - **State**: from gotd's `AuthLostKindOf`: banned is `banned`; revoked, unregistered, expired, an invalid key or a
+      deleted account is `logged_out`; `AUTH_KEY_DUPLICATED` is `replaced`, and these end the session. A frozen
+      account is shown as `banned` with its end date and appeal link while it keeps reading. Any other end is
+      `disconnected`, connected again with gotd's backoff.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
