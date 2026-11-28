@@ -21,6 +21,8 @@ func TestAMentionIsTheAppsHandleAsAWord(t *testing.T) {
 		"@acme-bot review PR này":               "review PR này",
 		"Thanks! @Acme-Bot, fix issue này\nok":  "fix issue này",
 		"context\n@acme-bot review\n\nmerge it": "review",
+		"@acme-bot review\rmerge it":            "review",
+		"@acme-bot review\r\nmerge it":          "review",
 		"@acme-bot[bot] review":                 "review",
 		"cc @acme-bot.":                         "",
 		"@acme-bot":                             "",

@@ -300,6 +300,8 @@ func TestTheOwnersReviewCallEndsInAReplyLinkingHyposReview(t *testing.T) {
 	// account of the token it got, and tells the App of it.
 	command := reviewCommand.FindStringSubmatch(w.wakes(items[0].Chat)[0])
 	require.NotNil(t, command, "the wake-up says how to leave the review")
+	assert.Contains(t, w.wakes(items[0].Chat)[0], "retry inbox_done once",
+		"and what to do when the review is not yet its evidence (review round 2 of PR #1323)")
 
 	gh := w.ghIn(items[0].Chat)
 	require.Equal(t, http.StatusOK, gh.post(command[1],
@@ -380,6 +382,77 @@ func TestAReviewTheAppDidNotLeaveIsNoEvidence(t *testing.T) {
 	w.deliverSigned("pull_request_review", githubapptest.ReviewAt(theApp, 1269, 89, "commented", "Old findings.",
 		time.Now().Add(-time.Hour)))
 	require.Error(t, closeWith(githubapptest.ReviewURL(1269, 89)), "a review older than the attempt")
+
+	// Nor one submitted in the attempt's first second but before it began: GitHub's time has no finer precision
+	// (review round 2 of PR #1323), so only the review the App's own POST of this attempt returned counts.
+	w.deliverSigned("pull_request_review", githubapptest.ReviewAt(theApp, 1269, 90, "commented", "Same second.",
+		item.Work.StartedAt.Truncate(time.Second)))
+	require.Error(t, closeWith(githubapptest.ReviewURL(1269, 90)), "a review of the attempt's second, from before it")
+}
+
+// Scenario (review round 2 of PR #1323): the App's review posted through the proxy from a chat that is not the
+// attempt's is not that attempt's work.
+func TestAReviewPostedOutsideTheAttemptIsNoEvidence(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+	ctx := t.Context()
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: ownerOnGitHub, Number: 1269, PullRequest: true, ID: 9611, Body: mention + " review PR này",
+	}))
+
+	items := w.calls()
+	require.Len(t, items, 1)
+
+	hypo := inboxstore.Actor{Kind: inboxstore.Bot, ID: orchestration.DefaultBotID}
+	item, err := w.svc.Inbox().Start(ctx, inboxstore.Change{Actor: hypo, ID: items[0].ID, Revision: items[0].Revision},
+		inboxstore.Work{Kind: inboxstore.WorkChat, ID: items[0].Chat})
+	require.NoError(t, err)
+
+	other, err := w.svc.CreateChat(ctx, orchestration.DefaultBotID, "elsewhere")
+	require.NoError(t, err)
+
+	gh := w.ghIn(other.ID)
+	require.Equal(t, http.StatusOK, gh.post("repos/kl3init/hypomnema/pulls/1269/reviews",
+		[]byte(`{"event":"COMMENT","body":"From another chat."}`)))
+
+	made := w.gh.Reviews()
+	require.Len(t, made, 1)
+
+	item, err = w.svc.Inbox().Get(ctx, item.ID)
+	require.NoError(t, err)
+
+	_, err = w.svc.Inbox().Done(ctx,
+		inboxstore.Change{Actor: hypo, ID: item.ID, Revision: item.Revision, Attempt: item.Work.Attempt},
+		inboxstore.Closing{
+			DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: orchestration.DefaultBotID},
+			How:    inboxstore.ClosedByBot, Reason: "Reviewed.",
+			Evidence: []inboxstore.Link{{Kind: inboxstore.LinkURL, Ref: made[0].URL}},
+		})
+	require.Error(t, err)
+}
+
+// Scenario (review round 2 of PR #1323): a closing reason cut to its length keeps every handle in its code span.
+func TestALongReasonKeepsItsHandlesInCode(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	go w.app.Run(ctx)
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1310, PullRequest: true, ID: 9910, Body: mention + " review",
+	}))
+	w.closeByOwner(w.itemOf(1310).ID, strings.Repeat("x", 1983)+" @acme-someone d")
+
+	require.Eventually(t, func() bool { return len(w.replies()) == 1 }, 10*time.Second, 10*time.Millisecond)
+
+	body, _ := w.replies()[0].Body["body"].(string)
+	assert.Zero(t, strings.Count(body, "`")%2, "every code span is closed: %s", body[len(body)-40:])
+	assert.NotRegexp(t, "(^|[^`])@acme", body, "a handle out of its code span")
 }
 
 // Scenario (issue #1232, rows 4 and 5; review round 1 of PR #1323): the request is the caller's own line, the one that
