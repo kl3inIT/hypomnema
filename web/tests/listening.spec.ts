@@ -416,6 +416,7 @@ test("a recovered source keeps its last error, and the table shows an off source
   const web = card(page, "The web").getByRole("note", { name: "Last error" })
   await expect(web).toContainText("Timed out")
   await expect(web).toContainText("Before it worked again")
+  await shotOf(card(page, "The web"), "listening-recovered-card")
 
   await page.getByRole("button", { name: "table" }).click()
   const muse = page.getByRole("row", { name: "Muse" })
@@ -427,5 +428,4 @@ test("a recovered source keeps its last error, and the table shows an off source
     "/settings/muse",
   )
   await expect(page.getByRole("row", { name: "The web" })).toContainText("Timed out")
-  await shot(page, "listening-table-off")
 })

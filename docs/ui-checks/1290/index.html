@@ -18,11 +18,55 @@
 <body>
   <main>
     <h1>Settings → Gateway → Social listening (issue #1290)</h1>
-    <p>Taken by <code>web/tests/listening.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>).</p>
+    <p>Taken by <code>web/tests/listening.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Review round 1 added the loading, load error, empty group, pending test and recovered card states, and made the broken card's picture the card itself.</p>
 
     <section>
+      <h2>Loading</h2>
+      <p>The sources are being read.</p>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-loading-desktop.png" alt="Loading, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-loading-phone.png" alt="Loading, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-loading-desktop.png" alt="Loading, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-loading-phone.png" alt="Loading, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Load error</h2>
+      <p>The read failed (after the app's retries); the server's words are shown.</p>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-load-error-desktop.png" alt="Load error, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-load-error-phone.png" alt="Load error, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-load-error-desktop.png" alt="Load error, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-load-error-phone.png" alt="Load error, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
       <h2>The four counted groups and the grid</h2>
-      <p>The web works; Reddit is broken and regressed, with the ! badge, its last error and fix, and its JSON backend resting; a made-up YouTube is on but not read for a day; a made-up Muse is off, says what it would add and links to the Muse page (the fake API's sources: this control plane has only the web and Reddit).</p>
+      <p>The web works (its last error, from before it worked again, kept); Reddit is broken and regressed, with the ! badge, its last error and fix, and its JSON backend resting; a made-up YouTube is on but not read for a day; a made-up Muse is off, says what it would add, keeps its last values and links to the Muse page (the fake API's sources: this control plane has only the web and Reddit).</p>
       <div class="screens">
         <figure>
           <figcaption>Desktop, light</figcaption>
@@ -44,7 +88,7 @@
     </section>
     <section>
       <h2>A broken card</h2>
-      <p>The ! badge, the last error with its one fix step, Test again, and the backends in order with their rests and arrows.</p>
+      <p>The card itself: the ! badge, the last error with its one fix step, Test again, and the backends in order with their rests and arrows.</p>
       <div class="screens">
         <figure>
           <figcaption>Desktop, light</figcaption>
@@ -61,6 +105,50 @@
         <figure>
           <figcaption>Phone, dark</figcaption>
           <img src="dark/listening-broken-card-phone.png" alt="A broken card, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>A recovered card</h2>
+      <p>The web works again; its last error stays, marked "Before it worked again".</p>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-recovered-card-desktop.png" alt="A recovered card, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-recovered-card-phone.png" alt="A recovered card, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-recovered-card-desktop.png" alt="A recovered card, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-recovered-card-phone.png" alt="A recovered card, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>A test in progress</h2>
+      <p>Test again spins and cannot be pressed again.</p>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-test-pending-desktop.png" alt="A test in progress, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-test-pending-phone.png" alt="A test in progress, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-test-pending-desktop.png" alt="A test in progress, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-test-pending-phone.png" alt="A test in progress, phone, dark">
         </figure>
       </div>
     </section>
@@ -110,7 +198,7 @@
     </section>
     <section>
       <h2>Switches and order</h2>
-      <p>The web switched off (could be on, what it would add), Muse switched on (unverified), and Reddit's archive route moved first.</p>
+      <p>The web switched off (could be on, what it would add, its last values kept), Muse switched on (unverified), and Reddit's archive route moved first.</p>
       <div class="screens">
         <figure>
           <figcaption>Desktop, light</figcaption>
@@ -153,8 +241,30 @@
       </div>
     </section>
     <section>
+      <h2>An empty group</h2>
+      <p>Muse switched on, then Could be on chosen: no source is in it.</p>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-empty-group-desktop.png" alt="An empty group, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-empty-group-phone.png" alt="An empty group, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-empty-group-desktop.png" alt="An empty group, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-empty-group-phone.png" alt="An empty group, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
       <h2>The table</h2>
-      <p>One row a source; on a phone it scrolls sideways, as the Machines table does.</p>
+      <p>One row a source: an off source's last read, success and items, Muse's accounts link, last errors marked when before a recovery; on a phone it scrolls sideways, as the Machines table does.</p>
       <div class="screens">
         <figure>
           <figcaption>Desktop, light</figcaption>
