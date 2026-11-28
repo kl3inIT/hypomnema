@@ -2,6 +2,15 @@
 
 Act only on what `hypomnema tasks show <task_id> --json` and `hypomnema runs show <run_id> --json` say.
 
+## Flaky tests and repeat runs
+
+Copy these rules into any Task spec about a flaky test or asking for repeated test runs (owner, 2026-11-28,
+issue #1313):
+
+> Run one package's repeats at a time. For Go, set `GOMAXPROCS=4` and pass `-p 2` to `go test`. For Playwright,
+> pass `--workers=2`. Do not start a busy-loop load generator. Run `free -g` between runs. If available memory
+> falls below about 20% of total memory, stop the repeats and report the memory stop in the Task result.
+
 ## A failed Task
 
 The control plane has already retried it. A worker's reported failure, a failed start and a lost worker each count;

@@ -3,6 +3,7 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/ciwait"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -204,6 +206,12 @@ func TestTheManifestCallbackKeepsTheCredentialInTheVaultAndShowsNoSecret(t *test
 	cred, err := githubapp.DecodeCredential(opened.Payload[vault.KeyValue])
 	require.NoError(t, err)
 	assert.Equal(t, int64(githubapptest.AppID), cred.AppID)
+
+	var record struct {
+		BotUserID int64 `json:"bot_user_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(opened.Payload[vault.KeyValue]), &record))
+	assert.Equal(t, int64(githubapptest.BotUserID), record.BotUserID, "the bot user ID is kept beside the App ID")
 	assert.Equal(t, w.gh.PEM, cred.PrivateKey)
 	assert.Equal(t, w.gh.Secret, cred.WebhookSecret)
 
@@ -221,6 +229,38 @@ func TestTheManifestCallbackKeepsTheCredentialInTheVaultAndShowsNoSecret(t *test
 	// A state is good once: the same code sent back again changes nothing.
 	again, _ := w.get(githubapp.CallbackPath + "?code=the-manifest-code&state=" + "not-a-state")
 	assert.Contains(t, again.Header.Get("Location"), "done=expired")
+}
+
+// An existing installation can use the bot without re-registering, and later control planes reuse the ID.
+func TestAnExistingGitHubAppKeepsItsBotUserAfterTheFirstOffer(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	ctx := t.Context()
+	legacy := githubapp.Credential{
+		AppID: githubapptest.AppID, Slug: githubapptest.Slug, Owner: "kl3inIT",
+		PrivateKey: w.gh.PEM, WebhookSecret: w.gh.Secret,
+	}
+	encoded, err := legacy.Encode()
+	require.NoError(t, err)
+	_, err = w.vault.Create(ctx, vault.NewSecret{
+		Name: githubapp.AppSecret, Kind: vault.KindGeneric, Payload: vault.Payload{vault.KeyValue: encoded},
+	})
+	require.NoError(t, err)
+	w.install()
+
+	bot, owner := w.app.OfferIdentity(ctx, githost.GitHubHost, "kl3inIT/hypomnema")
+	assert.Equal(t, githost.Identity{
+		Name: "hypomnema-owner[bot]", Email: "4343+hypomnema-owner[bot]@users.noreply.github.com",
+	}, bot)
+	assert.Equal(t, githost.Identity{Name: "kl3inIT", Email: "164090677+kl3inIT@users.noreply.github.com"}, owner)
+	require.Equal(t, 1, w.gh.BotReads())
+
+	restarted := githubapp.New(w.svc, w.vault, appPublicURL, w.gh.Client(), slog.Default())
+	restartedBot, restartedOwner := restarted.OfferIdentity(ctx, githost.GitHubHost, "kl3inIT/hypomnema")
+	assert.Equal(t, bot, restartedBot)
+	assert.Equal(t, owner, restartedOwner)
+	assert.Equal(t, 1, w.gh.BotReads())
 }
 
 // The owner's form works when a proxy forwards it with a loopback Host (issue #1308).

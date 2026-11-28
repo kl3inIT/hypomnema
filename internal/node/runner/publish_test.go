@@ -1,6 +1,9 @@
 package runner
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -99,33 +103,65 @@ func TestTheWorkersCommitsNameTheTokensAccount(t *testing.T) {
 	gitRun(t, repo, "add", worktree.SetupFile)
 	gitRun(t, repo, "commit", "-q", "-m", "first")
 
-	g := newRig(t, "commit")
-	g.sup.Worktrees = worktree.Maker{Root: t.TempDir(), URL: filepath.ToSlash(origin) + "/%s"}
+	const owner = "octo <1+octo@users.noreply.github.com>"
+	const bot = "hypo-bot[bot] <2+hypo-bot[bot]@users.noreply.github.com>"
 
-	d := g.dispatch()
-	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind, d.Offer.Base = "kl3inIT/second-bite", "github.com", "github",
-		"main"
-	d.Offer.RepoToken, d.Offer.GitName, d.Offer.GitEmail = "ghp_x", "octo", "1+octo@users.noreply.github.com"
+	for _, scenario := range []struct {
+		name  string
+		offer string
+		want  string
+	}{
+		{"owner token", `{"repo_token":"ghp_x","git_name":"octo","git_email":"1+octo@users.noreply.github.com"}`,
+			owner + " / " + owner},
+		{"app token with owner", `{"github_app":true,"git_name":"octo","git_email":"1+octo@users.noreply.github.com",
+			"git_committer_name":"hypo-bot[bot]","git_committer_email":"2+hypo-bot[bot]@users.noreply.github.com"}`,
+			owner + " / " + bot},
+		{"app token without owner", `{"github_app":true,
+			"git_committer_name":"hypo-bot[bot]","git_committer_email":"2+hypo-bot[bot]@users.noreply.github.com"}`,
+			bot + " / " + bot},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			g := newRig(t, "commit")
+			g.sup.Worktrees = worktree.Maker{Root: t.TempDir(), URL: filepath.ToSlash(origin) + "/%s"}
 
-	report := newReporter()
-	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, report))
-	t.Cleanup(func() { _ = shim.KillRecorded(g.sup.dir("dsp_1")) })
-	require.Eventually(t, func() bool { return report.startedCount() == 1 }, 20*time.Second, 20*time.Millisecond)
+			d := g.dispatch()
+			require.NoError(t, json.Unmarshal([]byte(scenario.offer), &d.Offer))
+			d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind, d.Offer.Base = "kl3inIT/second-bite", "github.com", "github",
+				"main"
 
-	failed, err := os.ReadFile(filepath.Join(g.worktree, "commit-failed.txt"))
-	require.ErrorIs(t, err, os.ErrNotExist, "the worker's commit failed: %s", failed)
+			if d.Offer.GitHubApp {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodPost || r.URL.Path != agenttool.PathGitHubToken {
+						http.NotFound(w, r)
 
-	assert.Equal(t, "tinzisreal", gitRun(t, g.worktree, "config", "user.name"),
-		"the node user's configuration names someone else")
+						return
+					}
 
-	const asOcto = "octo <1+octo@users.noreply.github.com> / octo <1+octo@users.noreply.github.com>"
+					_ = json.NewEncoder(w).Encode(agenttool.GitHubToken{
+						Token: "ghs_fixture", ExpiresAt: time.Now().Add(time.Hour),
+					})
+				}))
+				t.Cleanup(server.Close)
+				g.sup.URL, d.Offer.AgentKey = server.URL, "the-dispatch-key"
+			}
 
-	who := func(rev string) string {
-		return gitRun(t, g.worktree, "log", "-1", "--format=%s: %an <%ae> / %cn <%ce>", rev)
+			report := newReporter()
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, d, report))
+			t.Cleanup(func() { _ = shim.KillRecorded(g.sup.dir("dsp_1")) })
+			require.Eventually(t, func() bool { return report.startedCount() == 1 }, 20*time.Second, 20*time.Millisecond)
+
+			failed, err := os.ReadFile(filepath.Join(g.worktree, "commit-failed.txt"))
+			require.ErrorIs(t, err, os.ErrNotExist, "the worker's commit failed: %s", failed)
+
+			assert.Equal(t, "tinzisreal", gitRun(t, g.worktree, "config", "user.name"))
+			who := func(rev string) string {
+				return gitRun(t, g.worktree, "log", "-1", "--format=%s: %an <%ae> / %cn <%ce>", rev)
+			}
+			assert.Equal(t, "worker: "+scenario.want, who("HEAD"))
+			assert.Equal(t, "setup: "+scenario.want, who("HEAD~1"))
+
+			g.sup.Stop("dsp_1")
+			report.wait(t)
+		})
 	}
-	assert.Equal(t, "worker: "+asOcto, who("HEAD"), "the worker's own process commits as the token's account")
-	assert.Equal(t, "setup: "+asOcto, who("HEAD~1"), "so does the repository's setup script")
-
-	g.sup.Stop("dsp_1")
-	report.wait(t)
 }

@@ -303,3 +303,43 @@ Open for the owner:
 - Whether to read Facebook groups through a signed-in account, which no reference does.
 - Which LinkedIn account to sign in.
 - Whether Vietnamese forums are read beyond web search, given voz.vn's reservation.
+
+## 8. Addendum 2026-11-28: dates, and Chinese projects and platforms
+
+A live `listen_search` run on production (VETC, VMAP, Cốc Cốc; 90 days) returned a 2022 article and a 2019 page
+stamped 2026-11-02. The web source sends no window to search providers (`internal/controlplane/listening/sources.go:106`)
+and keeps every undated item (`registry.go:242-278`). Fixed in #1319.
+
+### Chinese 舆情 projects (read in code)
+
+| Project | Licence | Worth taking |
+|---|---|---|
+| [sansan0/TrendRadar](https://github.com/sansan0/TrendRadar) | GPL-3.0 (ideas) | `after:YYYY-MM-DD` in the query (`crawler/search/providers/deepseek.py:193-199`), local date filter with undated kept (`crawler/search/fetcher.py:194-198`); `+required`/`!exclude`/regex word groups (`core/frequency.py`, its global `!` is a bug, `:202`); title clustering Jaccard then `SequenceMatcher` 0.7 (`mcp_server/tools/analytics.py:2211-2290`); hot score `0.6*rank + 0.3*freq + 0.1*hot` (`core/analyzer.py:17-63`); daily/current/incremental push (`config/config.en.yaml:196-201`). Reads hot lists from NewsNow, no platform itself |
+| [SolitudeZY/OpinionLens](https://github.com/SolitudeZY/OpinionLens) | MIT | Undated dropped and counted, with `missing_time`/`outside_window`/`keyword_filtered`/`off_brand_filtered` counters (`app/sidecar/report_dataset.py:233-237, 373-385`); off-topic marked, not deleted (`exporter.py:424-460`); LLM judgments cached by text hash, failures not cached (`report_sentiment.py:1-14`); code owns numbers, model owns words, schema-validated, degraded fallback (`report_pipeline/narrator.py:1-15`, `report_manager.py:8-17`) |
+| [666ghj/BettaFish](https://github.com/666ghj/BettaFish) | GPL-2.0 (ideas) | Tavily time range (`QueryEngine/tools/search.py:152-189`); engagement `likes + 5*comments + 10*shares + 0.1*views` (`InsightEngine/tools/search.py:62-70`); report validator checks structure only |
+| [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) | Apache-2.0 | Xiaohongshu search with `publish_time` (`xiaohongshu/search.go:24-30`); blocks typed by landing path (`page_check.go:13-37`); human-like delays (`humanize/provider.go:57-66`); one web session per account (`README.md:301`) |
+| [xjh1994/opencli-admin](https://github.com/xjh1994/opencli-admin) | Apache-2.0 | Pins a site to the node that holds its login; nothing else |
+| stonedtman/stonedt-yuqing | GPL-3.0 | Client of a closed backend; push each URL once (`quartz/MonitorWarningQuartz.java:197-209`) |
+| iniwap/AIWriteX | Apache-2.0 with a non-commercial header | Hot-list aggregator chain; fragile, not a route |
+| hmmnxkl LLM opinion assistant | MIT | Avoid: KMeans with fixed k, windowing on capture time |
+
+No reference, Western or Chinese, checks a page's date by opening it; that is the owner's request in #1306.
+
+### Chinese platforms as sources
+
+Probed read-only from zm (Malaysia), 2026-11-28, no cookie: Toutiao search and hot board answer; Bilibili search
+answers with visitor cookies (`finger/spi`), a browser UA and the search Referer (412 with a bare UA); Zhihu (401/403),
+Weibo (403, passport redirect), Douyin (empty), Sogou WeChat (empty), Baidu (captcha) and Xiaohongshu (rednote.com
+redirect) do not. A WBI-signed Bilibili search can answer 200 with only a `v_voucher`: a block that no reference
+detects (last30days-skill-cn `bilibili.py:119-126` reports it as empty).
+
+| Platform | Free route (last30days-skill-cn, Agent-Reach, MediaCrawler, xiaohongshu-mcp) | Login | Issue |
+|---|---|---|---|
+| Toutiao | `so.toutiao.com` embedded cards (`toutiao.py`) | No | #1289 |
+| Bilibili | visitor-cookie search, WBI then legacy (`bilibili.py`); bili-cli | No | #1289 |
+| Zhihu | `search_v3` with `z_c0` | Yes | #1291 |
+| Weibo | mobile search with `SUB` | Yes | #1291 |
+| Douyin | the page's search XHR in a signed-in browser | Yes | #1291 |
+| Xiaohongshu | xiaohongshu-mcp with `web_session`; most ban reports (its #930, #877, #728; Agent-Reach #1011) | Yes | #1291, opt-in |
+| WeChat, Baidu | Sogou / HTML with antibot checks | No | weak from zm, left out |
+| Kuaishou, Tieba | MediaCrawler only | Yes | left out |
