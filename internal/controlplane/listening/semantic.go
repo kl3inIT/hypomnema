@@ -17,9 +17,10 @@ import (
 // rerank_candidates falls back to its local score (lib/rerank.py:316-337), jev-social to its deterministic evidence
 // report (src/report.js:133-165).
 
-// The depths a plan asks for, and what each lets through: last30days DEPTH_SETTINGS (pool_limit and rerank_limit,
-// pipeline.py:119-123), whose quick, default and deep runs are trend-opportunity-radar's quick, standard and deep
-// modes (references/sampling-contract.md); the full reads are radar's detail pages per mode, 4-8, 12-18 and 20-40
+// The depths a plan asks for, and what each lets through: last30days DEPTH_SETTINGS (pool_limit, pipeline.py:119-123),
+// whose quick, default and deep runs are trend-opportunity-radar's quick, standard and deep modes
+// (references/sampling-contract.md). The model scores the whole pool, 15, 40 or 60, as issue #1306's design has it;
+// last30days' quick scores 12 of its 15 (rerank_limit), which the issue does not take. The full reads are radar's detail pages per mode, 4-8, 12-18 and 20-40
 // (its upper bounds, deep's lower one: twenty pages of up to websearch.MaxContent characters keep the read inside
 // gpt-6-luna's 272k-token context).
 const (
@@ -34,14 +35,14 @@ type Limits struct {
 	Depth string `json:"depth"`
 	// Pool is how many items the answer lists, the best first.
 	Pool int `json:"pool"`
-	// Shortlist is how many of them the model scores; the rest keep the code's score (last30days rerank_limit).
+	// Shortlist is how many of them the model scores, the pool's best; the rest keep the code's score.
 	Shortlist int `json:"shortlist"`
 	// Read is how many of the clusters' representatives are read in full.
 	Read int `json:"read"`
 }
 
 var depths = map[string]Limits{
-	DepthQuick:    {Depth: DepthQuick, Pool: 15, Shortlist: 12, Read: 8},
+	DepthQuick:    {Depth: DepthQuick, Pool: 15, Shortlist: 15, Read: 8},
 	DepthStandard: {Depth: DepthStandard, Pool: PoolSize, Shortlist: PoolSize, Read: 18},
 	DepthDeep:     {Depth: DepthDeep, Pool: MaxPool, Shortlist: MaxPool, Read: MaxRead},
 }
@@ -172,8 +173,12 @@ func (s *Service) semantic(ctx context.Context, plan Plan, items []Item, c Calle
 
 	byScore(kept)
 
-	clusters = regroup(clusters, kept, topic)
+	clusters, notes := regroup(clusters, kept, topic)
 	pass.Clusters.Detail = joinReason(pass.Clusters.Detail, audited(clusters))
+
+	for _, n := range notes {
+		pass.Clusters.Detail = joinReason(pass.Clusters.Detail, n)
+	}
 
 	return kept, clusters, pass
 }

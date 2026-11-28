@@ -220,6 +220,7 @@ type Service struct {
 	// scores and readings are the model's judgments, kept for a later search of the same items.
 	scores   *memo[scored]
 	readings *memo[reading]
+	plans    *memo[clusterPlan]
 
 	mu sync.Mutex
 	// resting is each backend's rest, by "<platform>/<backend>".
@@ -243,7 +244,7 @@ func New(cfg Config) *Service {
 	return &Service{
 		platforms: cfg.Platforms, now: cfg.Now, pacer: NewPacer(cfg.Now, cfg.Sleep), logger: cfg.Logger,
 		reviewModel: cfg.ReviewModel, readModel: cfg.ReadModel,
-		scores: newMemo[scored](cfg.Now), readings: newMemo[reading](cfg.Now),
+		scores: newMemo[scored](cfg.Now), readings: newMemo[reading](cfg.Now), plans: newMemo[clusterPlan](cfg.Now),
 		resting: map[string]*SourceError{},
 	}
 }
@@ -418,6 +419,9 @@ func (s *Service) check(plan Plan) (Plan, error) {
 	}
 
 	labels := map[string]bool{}
+
+	// The subqueries are filled in on a copy: the caller's plan, which may be shared, is left as it was.
+	plan.Subqueries = slices.Clone(plan.Subqueries)
 
 	for i := range plan.Subqueries {
 		sq := &plan.Subqueries[i]

@@ -330,7 +330,7 @@ func TestAnswersAreCheckedAgainstTheirSchemaAndCodeOwnsTheNumbers(t *testing.T) 
 			rerank: func(call modelCall) (string, error) {
 				return fmt.Sprintf(`{"scores":[{"id":%q,"relevance":150}]}`, candidates(call.User)[0].ID), nil
 			},
-			step: func(p listening.Pass) listening.Step { return p.Rerank }, reason: "is not from 0 to 100",
+			step: func(p listening.Pass) listening.Step { return p.Rerank }, reason: "not from 0 to 100",
 		},
 		"no relevance": {
 			rerank: func(call modelCall) (string, error) {

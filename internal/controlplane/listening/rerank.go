@@ -2,6 +2,7 @@ package listening
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -146,11 +147,15 @@ func (s *Service) rerank(ctx context.Context, plan Plan, items []Item, c Caller,
 
 		st.Cached = len(got)
 
+		var refused refusedRows
+
 		if len(ask) > 0 {
-			fresh, err := s.askScores(ctx, plan, ask, model, c, t)
+			fresh, r, err := s.askScores(ctx, plan, ask, model, c, t)
 			if err != nil {
 				return err
 			}
+
+			refused = r
 
 			for _, it := range ask {
 				if v, ok := fresh[it.ID]; ok {
@@ -168,8 +173,8 @@ func (s *Service) rerank(ctx context.Context, plan Plan, items []Item, c Caller,
 			}
 		}
 
-		st.Detail = fmt.Sprintf("%d of %d shortlisted items scored by the model; the rest keep the local score",
-			len(got), shortlist)
+		st.Detail = joinReason(fmt.Sprintf("%d of %d shortlisted items scored by the model", len(got), shortlist),
+			refused.note()) + "; the rest keep the local score"
 
 		return nil
 	})
@@ -183,48 +188,46 @@ func (s *Service) rerank(ctx context.Context, plan Plan, items []Item, c Caller,
 	return items, st
 }
 
-// scoreAnswer is the scores' schema: each row an id and a relevance from 0 to 100, its reason optional (last30days
-// _build_prompt's JSON, lib/rerank.py:464-473); an answer that does not fit is refused whole.
-type scoreAnswer struct {
-	Scores []struct {
-		ID        string   `json:"id"`
-		Relevance *float64 `json:"relevance"`
-		Reason    string   `json:"reason"`
-	} `json:"scores"`
+// scoreRow is a score's schema: an id and a relevance from 0 to 100, its reason optional (last30days _build_prompt's
+// JSON, lib/rerank.py:464-473).
+type scoreRow struct {
+	ID        string   `json:"id"`
+	Relevance *float64 `json:"relevance"`
+	Reason    string   `json:"reason"`
 }
 
-func (a scoreAnswer) check() error {
-	for n, row := range a.Scores {
-		switch {
-		case strings.TrimSpace(row.ID) == "":
-			return fmt.Errorf("scores[%d] has no id", n)
-		case row.Relevance == nil:
-			return fmt.Errorf("scores[%d] has no relevance", n)
-		case *row.Relevance < 0 || *row.Relevance > 100:
-			return fmt.Errorf("scores[%d]'s relevance %g is not from 0 to 100", n, *row.Relevance)
-		}
+func (r scoreRow) check() error {
+	switch {
+	case strings.TrimSpace(r.ID) == "":
+		return errors.New("has no id")
+	case r.Relevance == nil:
+		return errors.New("has no relevance")
+	case *r.Relevance < 0 || *r.Relevance > 100:
+		return fmt.Errorf("has the relevance %g, not from 0 to 100", *r.Relevance)
 	}
 
 	return nil
 }
 
-// askScores asks the model to score items and reads its scores: an id that is not one of the items is dropped
-// (last30days _apply_llm_scores, lib/rerank.py:497-538; obsei ask.py:151-152).
+// askScores asks the model to score items and reads its scores, each row checked on its own: an id that is not one of
+// the items is dropped (last30days _apply_llm_scores, lib/rerank.py:497-538; obsei ask.py:151-152).
 func (s *Service) askScores(ctx context.Context, plan Plan, items []Item, model string, c Caller, t *tally,
-) (map[string]scored, error) {
+) (map[string]scored, refusedRows, error) {
+	var refused refusedRows
+
 	body, err := chatRequest(model, rerankSystem(plan), fenced("Candidates", candidateBlock(items, false)))
 	if err != nil {
-		return nil, err
+		return nil, refused, err
 	}
 
 	text, err := ask(ctx, c.Model, body, reviewDeadline, reviewAttempts, t)
 	if err != nil {
-		return nil, err
+		return nil, refused, err
 	}
 
-	var answer scoreAnswer
-	if err := decodeAnswer(text, &answer); err != nil {
-		return nil, err
+	rows, err := answerRows(text, "scores")
+	if err != nil {
+		return nil, refused, err
 	}
 
 	known := map[string]bool{}
@@ -234,15 +237,34 @@ func (s *Service) askScores(ctx context.Context, plan Plan, items []Item, model 
 
 	out := map[string]scored{}
 
-	for _, row := range answer.Scores {
+	for n, raw := range rows {
+		var row scoreRow
+
+		if err := decodeRow(raw, &row); err != nil {
+			refused.add("scores", n, err)
+
+			continue
+		}
+
+		if err := row.check(); err != nil {
+			refused.add("scores", n, err)
+
+			continue
+		}
+
 		if id := strings.TrimSpace(row.ID); known[id] {
 			out[id] = scored{relevance: *row.Relevance, reason: clip(row.Reason, 200)}
 		}
 	}
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("the model scored none of the %d items it was given", len(items))
+		why := fmt.Sprintf("it scored none of the %d items it was given", len(items))
+		if refused.n > 0 {
+			why = refused.note()
+		}
+
+		return nil, refused, fmt.Errorf("the model gave no valid score: %s", why)
 	}
 
-	return out, nil
+	return out, refused, nil
 }

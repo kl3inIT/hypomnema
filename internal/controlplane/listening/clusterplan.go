@@ -23,6 +23,9 @@ import (
 // at 54, under thin evidence's 55, and keeps its uncapped score (references/scoring-contract.md:32). The audit is
 // made again after the full read, which can make an item direct and drop one dated outside the window.
 
+// clusterPrompt is the version of the cluster review's prompt: a kept plan is kept for its version only.
+const clusterPrompt = "clusters-1"
+
 // The fits a member has (audit_clusters.py VALID_FITS).
 const (
 	FitCore       = "core"
@@ -109,24 +112,38 @@ func (s *Service) reviewClusters(ctx context.Context, topic string, items []Item
 			return nil
 		}
 
-		body, err := chatRequest(model, clusterSystem(topic), fenced("Items", candidateBlock(items, true)))
-		if err != nil {
-			return err
-		}
+		user := fenced("Items", candidateBlock(items, true))
 
-		text, err := ask(ctx, c.Model, body, reviewDeadline, reviewAttempts, t)
-		if err != nil {
-			return err
-		}
+		// The same set, given the same way, is not reviewed twice: the plan is kept by the hash of what the model
+		// was given (OpinionLens keys a judgment on the text it sends, report_sentiment.py:250-262), and checked again.
+		key := cacheKey("clusters", clusterPrompt, model, topic, user)
 
-		var plan clusterPlan
-		if err := jsonObject(text, &plan); err != nil {
-			return err
+		plan, kept := s.plans.get(key)
+		if !kept {
+			body, err := chatRequest(model, clusterSystem(topic), user)
+			if err != nil {
+				return err
+			}
+
+			text, err := ask(ctx, c.Model, body, reviewDeadline, reviewAttempts, t)
+			if err != nil {
+				return err
+			}
+
+			if err := jsonObject(text, &plan); err != nil {
+				return err
+			}
 		}
 
 		reviewed, err := applyPlan(plan, items, topic)
 		if err != nil {
 			return fmt.Errorf("the model's cluster plan was refused, so the code's clusters stand: %w", err)
+		}
+
+		if kept {
+			st.Cached = len(items)
+		} else {
+			s.plans.put(key, plan)
 		}
 
 		st.Detail = fmt.Sprintf("%d clusters reviewed from %d", len(reviewed), len(lexical))
@@ -229,11 +246,13 @@ func applyPlan(plan clusterPlan, items []Item, topic string) ([]Cluster, error) 
 	return finishClusters(planned, items, topic), nil
 }
 
-// group is a cluster's members, by their index in the items, and its title; reviewed when the model made it.
+// group is a cluster's members, by their index in the items, and its title; reviewed when the model made it, and
+// codeTitle when the model's title no longer holds and the best member's title is the cluster's.
 type group struct {
-	title    string
-	members  []int
-	reviewed bool
+	title     string
+	members   []int
+	reviewed  bool
+	codeTitle bool
 }
 
 // finishClusters makes the groups clusters: a reviewed one with its title and its audit, a failed audit capping its
@@ -249,7 +268,7 @@ func finishClusters(groups []group, items []Item, topic string) []Cluster {
 		cl := makeCluster("", g.members, items, alike)
 
 		cl.Title = g.title
-		if !g.reviewed {
+		if !g.reviewed || g.codeTitle {
 			cl.Title = items[g.members[0]].Title
 			if cl.Title == "" {
 				cl.Title = clip(items[g.members[0]].Text, 120)
@@ -315,26 +334,43 @@ func audited(clusters []Cluster) string {
 }
 
 // regroup makes the clusters again from the items left, as each is marked, after some were dropped or changed: a
-// cluster keeps its title and, when the model made it, is audited again.
-func regroup(clusters []Cluster, items []Item, topic string) []Cluster {
+// cluster keeps its title and, when the model made it, is audited again, and its title checked again on the members
+// left: one holding a number none of them says gives way to the best member's title, with a note.
+func regroup(clusters []Cluster, items []Item, topic string) ([]Cluster, []string) {
 	byCluster := map[string][]int{}
 	for i, it := range items {
 		byCluster[it.Cluster] = append(byCluster[it.Cluster], i)
 	}
 
-	var groups []group
+	var (
+		groups []group
+		notes  []string
+	)
 
 	for _, cl := range clusters {
-		if members := byCluster[cl.ID]; len(members) > 0 {
-			groups = append(groups, group{title: cl.Title, members: members, reviewed: cl.Audit != nil})
+		members := byCluster[cl.ID]
+		if len(members) == 0 {
+			continue
 		}
+
+		g := group{title: cl.Title, members: members, reviewed: cl.Audit != nil}
+		if g.reviewed {
+			if n := foreignNumber(cl.Title, members, items); n != "" {
+				g.codeTitle = true
+				notes = append(notes, fmt.Sprintf("the title %q lost its number %s with the items dropped, so its "+
+					"best item's title stands", clip(cl.Title, 60), n))
+			}
+		}
+
+		groups = append(groups, g)
 	}
 
-	return finishClusters(groups, items, topic)
+	return finishClusters(groups, items, topic), notes
 }
 
-// numbers are the runs of digits in a text.
-var numbers = regexp.MustCompile(`\d+`)
+// numbers are a text's numbers, whole: a run of digits with the digits its thousands or decimal separators join, so
+// "1,5" and "1.000.000" are one number each, never a 1 and a 5.
+var numbers = regexp.MustCompile(`\d+(?:[.,]\d+)*`)
 
 // foreignNumber is a number of the model's words that none of the items' own text has, or empty: code owns the
 // numbers and the model the words (OpinionLens report_pipeline/narrator.py:9-11, every number in the narrative comes

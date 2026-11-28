@@ -42,7 +42,8 @@ type Platform struct {
 	Read func(ctx context.Context, r Request, it Item) (Document, error)
 }
 
-// Document is an item read in full: its text, and when its page says it was published, nil when it says none.
+// Document is an item read in full: its text, and when its page says it was published, nil when it says none. Its text
+// is empty unless the post or the page itself was read: a search's snippet is never a Document's text.
 type Document struct {
 	Text      string
 	Published *time.Time

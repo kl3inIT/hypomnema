@@ -149,14 +149,17 @@ func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Re
 
 			err := getJSON(ctx, client, r, host, arcticGap, true, postsPath,
 				e.ArcticURL+"/api/posts/ids?ids="+url.QueryEscape(it.NativeID), &archived)
+			// The post itself was not read: no text, so the item stays the search's card (radar's search_card).
 			if err != nil {
-				return Document{Text: strings.TrimSpace(it.Title + "\n\n" + body)}, err
+				return Document{}, err
 			}
 
-			if len(archived.Data) > 0 {
-				p := archived.Data[0].item(r.now(), true)
-				body, doc.Published = p.Text, p.PublishedAt
+			if len(archived.Data) == 0 {
+				return Document{}, Fail(CodeNotFound, "arctic-shift has no post %s", it.NativeID)
 			}
+
+			p := archived.Data[0].item(r.now(), true)
+			body, doc.Published = p.Text, p.PublishedAt
 		}
 
 		post := strings.TrimSpace(it.Title + "\n\n" + body)

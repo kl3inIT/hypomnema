@@ -90,9 +90,14 @@ func excerpt(text string, n int) string {
 var reasoningModel = regexp.MustCompile(`^(o\d|gpt-[5-9])`)
 
 // sendsTemperature says a request to the model may set temperature 0, as last30days and obsei ask for (lib/
-// providers.py:439-443, llm/client.py:137-138).
+// providers.py:439-443, llm/client.py:137-138). Claude models get none: Claude Opus 5.5 answers 400 to any sampling
+// parameter ("Omit temperature, top_p, and top_k", Anthropic's Claude Opus 5.5 migration guide; refused live on the
+// gateway, 2026-11-28), and a Claude model's default sampling serves the others as well.
 func sendsTemperature(model string) bool {
 	name := strings.ToLower(model[strings.LastIndex(model, "/")+1:])
+	if strings.HasPrefix(name, "claude") {
+		return false
+	}
 
 	return !reasoningModel.MatchString(name) || strings.Contains(name, "-chat")
 }
@@ -192,22 +197,60 @@ func jsonObject(text string, out any) error {
 	return nil
 }
 
-// schemaChecked is a model's answer that says whether it fits its schema beyond its JSON types.
-type schemaChecked interface {
-	check() error
-}
-
-// decodeAnswer reads a model's answer into its schema: the JSON object, its fields of the types asked, then its
-// required fields and bounds; an answer that does not fit is refused whole, so the step falls back to the code's
-// result with this reason (OpinionLens report_pipeline/schema_validator.py: type, required, minimum and maximum
-// checked; report_manager.py:15-17, an output that fails degrades to the deterministic report).
-func decodeAnswer(text string, out schemaChecked) error {
-	if err := jsonObject(text, out); err != nil {
-		return err
+// answerRows reads a model's answer as the object it was asked for and the rows of its array under key; each row is
+// then checked against its schema on its own, a row that does not fit refused and the others kept, as OpinionLens
+// filters its sentiment rows one by one (app/sidecar/report_sentiment.py:300-345) and last30days keeps the valid
+// scores (lib/rerank.py:497-538). An answer that is not that object, or whose rows all fail, makes the step fall back
+// with the reason (OpinionLens app/sidecar/report_manager.py:15-17).
+func answerRows(text, key string) ([]json.RawMessage, error) {
+	var answer map[string]json.RawMessage
+	if err := jsonObject(text, &answer); err != nil {
+		return nil, err
 	}
 
-	if err := out.check(); err != nil {
-		return fmt.Errorf("the model's answer does not fit its schema: %w", err)
+	raw, ok := answer[key]
+	if !ok {
+		return nil, fmt.Errorf("the model's answer does not fit its schema: it has no %q", key)
+	}
+
+	var rows []json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, fmt.Errorf("the model's answer does not fit its schema: its %q is not an array", key)
+	}
+
+	return rows, nil
+}
+
+// refusedRows counts the rows of an answer that did not fit their schema, keeping the first one's reason.
+type refusedRows struct {
+	n     int
+	first string
+}
+
+func (r *refusedRows) add(key string, row int, err error) {
+	if r.n == 0 {
+		r.first = fmt.Sprintf("%s[%d] %s", key, row, err.Error())
+	}
+
+	r.n++
+}
+
+// note says how many rows were refused and why the first was; empty when none was.
+func (r *refusedRows) note() string {
+	switch r.n {
+	case 0:
+		return ""
+	case 1:
+		return "1 row refused: " + r.first
+	default:
+		return fmt.Sprintf("%d rows refused, the first: %s", r.n, r.first)
+	}
+}
+
+// decodeRow reads one row into its schema's fields; a value of another type than asked fails.
+func decodeRow(raw json.RawMessage, out any) error {
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("is not the JSON asked for: %w", err)
 	}
 
 	return nil

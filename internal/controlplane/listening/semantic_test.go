@@ -183,8 +183,9 @@ func keepClusters(call modelCall) (string, error) {
 	}
 
 	var clusters []string
-	for _, id := range order {
-		clusters = append(clusters, fmt.Sprintf(`{"title":"Story %s","assignments":[%s]}`, id,
+	for n, id := range order {
+		// A letter, not the cluster's number: a title's number must be one its items say.
+		clusters = append(clusters, fmt.Sprintf(`{"title":"Story %c","assignments":[%s]}`, 'A'+n,
 			strings.Join(byCluster[id], ",")))
 	}
 
