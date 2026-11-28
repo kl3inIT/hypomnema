@@ -168,6 +168,7 @@ type tiktokRig struct {
 	webAsks []string
 	tab     *tiktokTab
 	check   *tiktokTab
+	clock   *clock
 }
 
 func newTikTokRig(t *testing.T) *tiktokRig {
@@ -175,7 +176,7 @@ func newTikTokRig(t *testing.T) *tiktokRig {
 
 	rig := &tiktokRig{
 		vault: newVault(), told: &told{}, yt: &ytDlpFake{videos: map[string]map[string]any{}},
-		tab: &tiktokTab{}, check: &tiktokTab{},
+		tab: &tiktokTab{}, check: &tiktokTab{}, clock: newClock(),
 	}
 
 	rig.browser = &browserFake{made: map[string][]browser.Cookie{}, pages: map[string]*pageFake{}}
@@ -201,7 +202,7 @@ func newTikTokRig(t *testing.T) *tiktokRig {
 
 	rig.svc = listening.New(listening.Config{
 		Platforms: listening.SignedSources(listening.Endpoints{YtDlp: rig.yt.run}, http.DefaultClient),
-		Now:       newClock().Now, Sleep: noSleep, DB: migrated(t), Tell: rig.told.tell, Browser: tabs,
+		Now:       rig.clock.Now, Sleep: noSleep, DB: migrated(t), Tell: rig.told.tell, Browser: tabs,
 		Secrets: rig.vault,
 	})
 
