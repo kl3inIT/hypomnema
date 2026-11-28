@@ -5115,15 +5115,17 @@ writes no prose (last30days SKILL.md LAW 7).
   `/search.json` and Arctic Shift's `/api/posts/ids` each rest on their own as paths, checked again once a call has
   its turn, so a search queued behind a 403 or a 429 sends nothing.
 - The web search chain's failure keeps each route's rest (`websearch.FailedError`: rests, providers asked, empty,
-  other failures): when every provider that failed rests, the web's code is the rest's (`rate_limited`,
-  `limit_reached`, `refused`) until the first is free; another failure is `broken`.
+  other failures, timeouts among them): when every provider that failed rests or timed out (no answer in time, 408,
+  504), the web's code is the most actionable of the rests' (`rate_limited`, `limit_reached`, `refused`) and
+  `timeout`; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
-  anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
-  tried with its result, detail and rest (`until`, `skipped`). Each source counts rejected candidates before
-  deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The web source requests the UTC
-  date window from the keyless chain. The answering provider and its `window_basis` (`server_bounds`,
-  `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result through. The
-  answer warns when fewer than 5 returned items or under 30% have dates in the window.
+  anything), `not_read`, or `off` (switched off while the search ran), with the most actionable code, `fix` (the
+  one step that fixes it, `listening.Fix`, the same words the Social listening page shows), and per stream the
+  backend that served and each backend tried with its result, detail and rest (`until`, `skipped`). Each source
+  counts rejected candidates before deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The
+  web source requests the UTC date window from the keyless chain. The answering provider and its `window_basis`
+  (`server_bounds`, `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result
+  through. The answer warns when fewer than 5 returned items or under 30% have dates in the window.
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
   `quote_from` and `check` for a post Muse found,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
@@ -5228,7 +5230,42 @@ writes no prose (last30days SKILL.md LAW 7).
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
   search page has (owner, 2026-11-27: no paid services). Every source is read without an account or a key. `go test
-  ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources.
+  ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources, and runs the
+  Social listening page's live test of every source.
+- Settings → Gateway → Social listening (issue #1290; `listening/settings.go`, `health.go`, `fix.go`,
+  `clientapi/listening.go`, `web/src/features/listening/`), after Muse in the Gateway group: one card a source, as a
+  Grid or a Table (the Machines page's switch, kept in the browser), under four counted groups that filter it,
+  last30days doctor's: `working` (its last reading in the last 24 hours passed: a search read it, items or a clean
+  zero, or its live test read an item), `unverified` (read in part, or not read in 24 hours), `broken` (its last
+  reading failed), `could_be_on` (switched off, never counted as broken; its card says what it would add). A card
+  shows its backends in the order a search tries them, each ready or resting until when and its last answer, moved
+  up or down; its last success, its items this week (real searches, before duplicates are removed), its last error
+  with its fix (kept after it works again, marked as before), "Regressed" when the reading right before the latest
+  passed and the latest fails, whatever the time between (Agent-Reach `regressed()`), a link to the Settings page of
+  its accounts for a source that has one, and its switch. An off source keeps its last values. A broken card wears postiz's "!" and
+  a press anywhere on it tests the source again; "Test again" does the same on a card read in part or not for a day.
+- The owner's switches and backend orders are kept in `listening_sources.off` and `listening_backends.position`; a
+  source that is off is neither read nor may a plan name it, and `listen_search` lists only the sources that are on
+  (none on: no tool). The switch is read again before each read starts and again once each read answered: a search
+  under way starts no read of a source switched off meanwhile, and a source switched off during its last request is
+  answered as coverage `off` with none of its items, and no reading of it is kept.
+  Each reading, a real search's coverage or a live test's, is kept: the source's last and previous results, last
+  success and last error (`listening_sources`), each backend's last answer (`listening_backends`), and per UTC day
+  the items real searches read (`listening_readings`, 7 days). API, only the owner's: `GET /gateway/listening`,
+  `PUT /gateway/listening/sources/{source}` (`on`), `PUT …/{source}/order` (each backend once), `POST …/{source}/test`.
+- The live test (Agent-Reach's `check`): each backend that is not opt-in is asked the source's own `LiveQuery`
+  (issue #1289; `python` for a source that names none), 2 results, with no date window, in turn; a source whose
+  backends are all opt-in is not tested; the source passes when one reads an item, and a clean zero fails it (`no_results`). The control
+  plane looks every hour, from its start, for a source that is on and not read in 24 hours and tests it; the owner's
+  test first ends the source's rests, its backends' and the paths its searches rested. Its web searches go through
+  the chain keyless, fresh (`websearch.Fresh`: never answered from the five-minute cache), and are recorded on no
+  gateway key.
+- The owner is told once when a source breaks, as a disk alert is: a line in the main Bot's main chat and a card
+  through its Lark Channels, with the code, what happened and the fix. A reading that fails sets
+  `listening_sources.told` only where it was not set, and only that reading tells; a reading that read items, passed
+  or read in part, clears it (a clean zero does not). A reading is not told when any backend it tried, or any web
+  search provider behind one, failed with a rate limit, a spent quota or a timeout, which come back by themselves,
+  whatever code the backend's failure takes (one provider's 504 or 429 among four 500s is not told).
 - The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
   `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
   agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
@@ -5236,9 +5273,9 @@ writes no prose (last30days SKILL.md LAW 7).
   search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
   risks and next focus, then reviews it once. It gives the Muse sources one or two subqueries a call and keeps
   `unverified` posts out of the evidence (issue #1292).
-- Not built: the Sources screen and its daily run of the live tests, the keyed and signed-in sources, the hosted job
-  boards' APIs, and saved topics (issues #1290 to #1295). yt-dlp is not on the PATH of zm's control plane user
-  (`command -v yt-dlp`, 2026-11-28): until it is, `youtube` answers `broken`.
+- Not built: the keyed and signed-in sources, the hosted job boards' APIs, and saved topics (issues #1291 to
+  #1295). yt-dlp is not on the PATH of zm's control plane user (`command -v yt-dlp`, 2026-11-28): until it is,
+  `youtube` answers `broken`.
   `site:facebook.com` web search as Facebook's second backend is not built either; nor is opening a post as a
   signed-in reader: a public Facebook group's page answered a sign-in page to one who is not (2026-11-28), so
   its posts are likely to stay unverified (inferred).

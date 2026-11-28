@@ -24,6 +24,8 @@ type fakeListening struct {
 
 	mu  sync.Mutex
 	who []agentapi.Who
+	// on are the sources the owner keeps on; nil: all of them.
+	on []string
 }
 
 func newFakeListening() *fakeListening {
@@ -59,7 +61,71 @@ func (f *fakeListening) Search(ctx context.Context, who agentapi.Who, plan liste
 	return f.svc.Search(ctx, plan, listening.Caller{})
 }
 
-func (f *fakeListening) SourceNames() []string { return f.svc.SourceNames() }
+func (f *fakeListening) SourceNames(context.Context) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.on != nil {
+		return f.on
+	}
+
+	return f.svc.SourceNames()
+}
+
+func (f *fakeListening) keep(on ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.on = append([]string{}, on...)
+}
+
+// Design row "API: switch a source on or off" (issue #1290): listen_search offers only the sources the owner keeps
+// on, and is not offered while none is, as the Muse tools while he keeps them off.
+func TestListenSearchOffersOnlyTheSourcesThatAreOn(t *testing.T) {
+	t.Parallel()
+
+	w, _, _ := gatewayWorld(t, false, nil)
+	l := newFakeListening()
+	w.api.WithListening(l)
+	ctx := t.Context()
+
+	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	definition := func() (agenttool.BrowserTool, bool) {
+		var listed agenttool.BrowserToolList
+
+		status, body := w.call(http.MethodGet, agenttool.PathTools, pi, nil)
+		require.Equal(t, http.StatusOK, status, string(body))
+		require.NoError(t, json.Unmarshal(body, &listed))
+
+		for _, tool := range listed.Data {
+			if tool.Name == agenttool.ToolListenSearch {
+				return tool, true
+			}
+		}
+
+		return agenttool.BrowserTool{}, false
+	}
+
+	l.keep("reddit")
+
+	def, ok := definition()
+	require.True(t, ok)
+	assert.Contains(t, string(def.InputSchema), `"enum":["reddit"]`)
+
+	l.keep()
+
+	_, ok = definition()
+	assert.False(t, ok, "no source is on")
+	assert.NotContains(t, w.allNames(pi), agenttool.ToolListenSearch)
+}
 
 // Design row "Tool": listen_search is every worker runtime's and a Bot's pi's, not a coordinator's; its definition
 // says when to use it and lists the sources; called with a plan it answers JSON with the note that the items are
