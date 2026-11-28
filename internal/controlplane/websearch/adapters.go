@@ -263,11 +263,9 @@ func (s *Service) askYou(ctx context.Context, _ route, query string, limit int) 
 	}
 
 	args := map[string]any{"query": query, "extraction": "none", "count": limit}
-	basis := WindowNone
-
 	if dates := searchWindow(ctx); dates.from != "" {
+		// You.com's Request Controls allow time phrases in the query to widen freshness.
 		args["freshness"] = dates.from + "to" + dates.to
-		basis = WindowServerBounds
 	}
 
 	result, err := s.callMCP(ctx, s.cfg.YouMCPURL, "you-search", args, headers)
@@ -335,7 +333,7 @@ func (s *Service) askYou(ctx context.Context, _ route, query string, limit int) 
 		})
 	}
 
-	return reply{results: out, windowBasis: basis}, nil
+	return reply{results: out, windowBasis: WindowNone}, nil
 }
 
 // openMCP opens a session with an MCP server, as an MCP client connects
