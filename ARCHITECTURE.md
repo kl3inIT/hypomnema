@@ -1946,8 +1946,9 @@ sequenceDiagram
     takes `--agent <name>` or `--owner` beside `--bot`; `hypomnema memory ls|cat|put|rm` the notes. Removing a Bot
     with its chats removes its notes; a Bot with notes is not removed plainly.
   - On the web (`web/src/features/memory/`): an agent's page has Memory beside Configuration and Versions, and
-    Settings has "About you" under Agents, as OpenMausBot's About me; both, and a Bot's memory, are one editor
-    (`memory-editor.tsx`) that follows the server while untouched and says when the memory changed under an edit.
+    Settings has "About you" beside Notifications under Preferences, as OpenClaw's Profile (issue #1296).
+    These pages and a Bot's memory use one editor (`memory-editor.tsx`) that follows the server while untouched
+    and says when the memory changed under an edit.
     Under a Bot's and an agent's memory, Notes (`memory-notes.tsx`) lists the notes with their sizes; the owner
     opens one to read, edit or remove it, and writes a new one.
   - Not built (step 2 is issue #805, a search over a Bot's past chats): entries tagged by repository (OpenClaw;
@@ -7125,7 +7126,7 @@ Node (`internal/node`):
     password field and sends it once; it is never read back. A company's server is added from its product's card
     ("Add server") with its address (a name or a pasted URL) and, if wanted, its token; it runs what the card is.
     Removing a token or a declared server asks first.
-  - `/settings/repositories` (under Agents, after Skills and About you; issue #647, as t3code lists its Projects
+  - `/settings/repositories` (under Agents, after Skills; issue #647, as t3code lists its Projects
     and Orca its repositories in Settings) opens with the control plane's SSH key: the public key with a copy
     button, as Coder's SSH keys page, and the git hosts whose repositories are cloned over SSH, each with a link to
     that host's page for SSH keys. Below, the registered repositories as rows: name, an HTTPS or SSH badge, the

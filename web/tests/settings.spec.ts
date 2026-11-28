@@ -673,9 +673,8 @@ const card = (page: Page, name: string) =>
 const fits = (page: Page) =>
   page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
-// Scenario: the owner opens Settings from the app, lands on Integrations, gives gitlab.com a token and sees it
-// connected; the token is typed into a password field and is nowhere on the page afterwards.
-// Scenario: the owner reads what every agent and Bot knows about him, under Agents, and adds a rule (issue #21).
+// Scenario: the owner opens the About you link directly, reads what every agent and Bot knows about him, and
+// adds a rule (issue #21).
 test("the owner reads and edits what every agent knows about him", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/about-you")
@@ -807,10 +806,10 @@ const several = () => [
   registered("vmap-ai-faq", "git.company.example", { base: "main" }),
 ]
 
-// Scenario: the owner finds Repositories in the Settings menu under Agents, after Skills and About you (issue #647);
-// a phone finds it in the list of sections. The page opens with the SSH key the nodes clone with, whole on a phone
-// too, and the host whose repositories use it with a link to that host's SSH keys page; each repository says
-// whether it is cloned over HTTPS or SSH.
+// Scenario: the owner finds About you beside Notifications in Preferences (issue #1296) and Repositories after
+// Skills in Agents (issue #647), in the desktop Settings sidebar and the phone's list. Repositories opens with the
+// SSH key the nodes clone with, whole on a phone too, and the host whose repositories use it with a link to that
+// host's SSH keys page; each repository says whether it is cloned over HTTPS or SSH.
 test("the owner opens Repositories from the Settings menu and reads the SSH key", async ({
   page,
   isMobile,
@@ -819,11 +818,18 @@ test("the owner opens Repositories from the Settings menu and reads the SSH key"
   await page.goto(isMobile ? "/settings" : "/settings/integrations")
 
   const menu = page.getByRole("navigation", { name: "Settings" })
-  const agents = isMobile
-    ? menu.getByRole("region", { name: "Agents" })
-    : // The group's heading, not the Workers' link of the same name (issue #857).
-      menu.locator("div").filter({ has: page.locator("p").getByText("Agents", { exact: true }) })
-  await expect(agents.getByRole("link")).toHaveText(["Skills", "About you", "Repositories"])
+  const group = (name: string) =>
+    isMobile
+      ? menu.getByRole("region", { name })
+      : menu.locator("div").filter({ has: page.locator("p").getByText(name, { exact: true }) })
+  const preferences = group("Preferences")
+  await expect(preferences.getByRole("link")).toHaveText(["About you", "Notifications"])
+  await expect(preferences.getByRole("link", { name: "About you" })).toHaveAttribute(
+    "href",
+    "/settings/about-you",
+  )
+  const agents = group("Agents")
+  await expect(agents.getByRole("link")).toHaveText(["Skills", "Repositories"])
   if (isMobile) await shot(page, "settings-list")
   await agents.getByRole("link", { name: "Repositories" }).click()
 
