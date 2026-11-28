@@ -163,8 +163,9 @@ func webFailure(err error) error {
 
 	// Providers that answered with nothing are not failures; a failure that neither rested nor timed out makes it
 	// broken. A provider that did not answer in time is a timeout, which comes back by itself, kept as one through the
-	// chain (issue #1290, review round 1; Agent-Reach classifies each backend's timeout as TIMEOUT,
-	// runtime/result.py:68-87, and the most actionable code of several is reported, last30days lib/health.py:51-59).
+	// chain (issue #1290, review round 1; a network timeout is TIMEOUT in Agent-Reach, runtime/result.py:74-78, and a
+	// 408 or 504 is a timeout by this package's own rule, failure.go:132-133; the most actionable code of several is
+	// reported, last30days lib/health.py:51-59).
 	if failed.Others > failed.Timeouts || len(failed.Rests)+failed.Timeouts == 0 {
 		return f
 	}

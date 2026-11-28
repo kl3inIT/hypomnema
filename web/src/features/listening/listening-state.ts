@@ -114,7 +114,8 @@ export function failureShown(source: ListeningSource): "now" | "before" | null {
   // success is still from before it worked again (review round 2 of PR #1322).
   if (!source.last_success_at) return "now"
 
-  return new Date(source.last_error.at) > new Date(source.last_success_at) ? "now" : "before"
+  // Both are kept to the millisecond: an error in the same millisecond as the success came with or after it.
+  return new Date(source.last_error.at) >= new Date(source.last_success_at) ? "now" : "before"
 }
 
 // moved is an order with one backend moved one place up or down.

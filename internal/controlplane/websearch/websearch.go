@@ -593,15 +593,16 @@ type FailedError struct {
 	Rests    []RouteRest
 	// Asked counts the providers asked; Empty those that answered with nothing; Others those that failed without
 	// resting (a 5xx, a timeout, an answer that could not be read); Timeouts those of Others that did not answer in
-	// time, which a caller keeps as a timeout (issue #1290, review round 1; Agent-Reach classifies a timeout as
-	// TIMEOUT, not UPSTREAM_BROKEN, runtime/result.py:68-87).
+	// time, which a caller keeps as a timeout (issue #1290, review round 1; Agent-Reach classifies a network timeout
+	// as TIMEOUT, runtime/result.py:74-78).
 	Asked, Empty, Others, Timeouts int
 }
 
-// timedOut says a provider did not answer in time: its deadline or the network's passed, or it answered 408 or 504,
-// the statuses the listening sources already read as a timeout (listening.HTTPFailure,
-// internal/controlplane/listening/failure.go:129); Agent-Reach reads an HTTP status and a network timeout apart
-// (runtime/result.py:68-79).
+// timedOut says a provider did not answer in time: its deadline or the network's passed, as Agent-Reach classifies a
+// network timeout as TIMEOUT (runtime/result.py:74-78), or it answered 408 or 504. The HTTP statuses are
+// Hypomnema's own rule, the one the listening sources already read (listening.HTTPFailure,
+// internal/controlplane/listening/failure.go:132-133): Agent-Reach puts an HTTP 408 or 504 under UPSTREAM_BROKEN
+// (runtime/result.py:68-73).
 func timedOut(err error) bool {
 	var refused *providerError
 	if errors.As(err, &refused) {

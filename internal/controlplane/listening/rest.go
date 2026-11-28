@@ -57,7 +57,12 @@ func (s *Service) rest(id string, f *SourceError) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.resting[id] = &SourceError{Code: f.Code, Detail: "resting after: " + f.Detail, Until: until}
+	// The rest keeps whether the failure may come back by itself, so a search skipped on it is no more told to the
+	// owner than the failure it rests for (review round 3 of PR #1322; Agent-Reach keeps the code a cooldown was made
+	// from with it, runtime/manage.py:236-238, runtime/dispatch.py:92-114).
+	s.resting[id] = &SourceError{
+		Code: f.Code, Detail: "resting after: " + f.Detail, Until: until, transient: f.transient,
+	}
 
 	return until
 }
