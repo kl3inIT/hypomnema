@@ -45,7 +45,9 @@ type Platform struct {
 // Document is an item read in full: its text, and when its page says it was published, nil when it says none. Its text
 // is empty unless the post or the page itself was read: a search's snippet is never a Document's text.
 type Document struct {
-	Text      string
+	Text string
+	// Title is the post's own title, when the read gave one other than the search's; it is in Text too.
+	Title     string
 	Published *time.Time
 }
 

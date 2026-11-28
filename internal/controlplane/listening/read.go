@@ -110,8 +110,25 @@ func readTargets(clusters []Cluster, items []Item, limit int) []int {
 // readKey is a reading's key in the cache: the item and the text the model is given for it, read again each time,
 // so a page whose text changed is read again (OpinionLens keys its sentiment cache on the hash of the text it sends,
 // app/sidecar/report_sentiment.py:250-262).
-func readKey(topic string, it Item, text, model string) string {
-	return cacheKey("read", it.ID, text, topic, readPrompt, model)
+func readKey(topic, block, model string) string {
+	return cacheKey("read", block, topic, readPrompt, model)
+}
+
+// readBlock is all the model is given for one item, the same text the reading is kept by: its id, source, where,
+// author, date, title (the post's own when the read gave one) and the text read.
+func readBlock(it Item, doc Document) string {
+	date := "unknown"
+	if it.PublishedAt != nil {
+		date = it.PublishedAt.UTC().Format(time.DateOnly)
+	}
+
+	title := it.Title
+	if doc.Title != "" {
+		title = doc.Title
+	}
+
+	return fmt.Sprintf("=== item %s\nsource: %s; where: %s; author: %s; search date: %s\ntitle: %s\n\n%s\n\n", it.ID,
+		it.Source, it.Container, it.Author, date, title, doc.Text)
 }
 
 // readResult is what the read changed beyond the items' quotes: the items its pages date outside the window, and
@@ -156,7 +173,7 @@ func (s *Service) read(ctx context.Context, topic string, items []Item, clusters
 				dated[i] = doc.Published
 			}
 
-			if r, ok := s.readings.get(readKey(topic, items[i], doc.Text, model)); ok {
+			if r, ok := s.readings.get(readKey(topic, readBlock(items[i], doc), model)); ok {
 				got[i] = r
 
 				continue
@@ -186,20 +203,26 @@ func (s *Service) read(ctx context.Context, topic string, items []Item, clusters
 			return fmt.Errorf("no item could be read in full: %s", strings.Join(notes, "; "))
 		}
 
-		var refused refusedRows
+		var (
+			refused refusedRows
+			askErr  error
+		)
 
 		if len(asked) > 0 {
-			fresh, r, err := s.askReadings(ctx, topic, items, asked, docs, model, c, t)
-			if err != nil {
-				return err
+			blocks := map[int]string{}
+			for _, i := range asked {
+				blocks[i] = readBlock(items[i], docs[i])
 			}
 
+			var fresh map[int]reading
+
 			// Only a valid reading is kept; an item the model gave none for falls back to no quotes and is asked
-			// again next time (OpinionLens report_sentiment.py:1-14, a missing result is not cached).
-			refused = r
+			// again next time (OpinionLens report_sentiment.py:1-14, a missing result is not cached). A failed ask
+			// falls back for the items asked only: the kept readings of the others stand.
+			fresh, refused, askErr = s.askReadings(ctx, topic, asked, blocks, docs, items, model, c, t)
 			for i, reading := range fresh {
 				got[i] = reading
-				s.readings.put(readKey(topic, items[i], docs[i].Text, model), reading)
+				s.readings.put(readKey(topic, blocks[i], model), reading)
 			}
 		}
 
@@ -215,7 +238,7 @@ func (s *Service) read(ctx context.Context, topic string, items []Item, clusters
 		st.Detail = joinReason(fmt.Sprintf("%d of %d representatives read in full, %d judged by the model, %d with "+
 			"checked quotes", len(docs), len(targets), len(got), quoted), refused.note())
 
-		return nil
+		return askErr
 	})
 
 	return st, res
@@ -337,8 +360,8 @@ func (r readRow) check() error {
 
 // askReadings asks the model to read the documents and checks its answer, row by row: the readings it validly gave,
 // by item, and the rows refused. No valid reading at all is the step's failure, with its reason.
-func (s *Service) askReadings(ctx context.Context, topic string, items []Item, asked []int, docs map[int]Document,
-	model string, c Caller, t *tally,
+func (s *Service) askReadings(ctx context.Context, topic string, asked []int, blocks map[int]string,
+	docs map[int]Document, items []Item, model string, c Caller, t *tally,
 ) (map[int]reading, refusedRows, error) {
 	var (
 		b       strings.Builder
@@ -346,15 +369,7 @@ func (s *Service) askReadings(ctx context.Context, topic string, items []Item, a
 	)
 
 	for _, i := range asked {
-		it := items[i]
-		date := "unknown"
-
-		if it.PublishedAt != nil {
-			date = it.PublishedAt.UTC().Format(time.DateOnly)
-		}
-
-		fmt.Fprintf(&b, "=== item %s\nsource: %s; where: %s; author: %s; search date: %s\ntitle: %s\n\n%s\n\n", it.ID,
-			it.Source, it.Container, it.Author, date, it.Title, docs[i].Text)
+		b.WriteString(blocks[i])
 	}
 
 	body, err := chatRequest(model, readSystem(topic), fenced("Items", strings.TrimRight(b.String(), "\n")))
@@ -441,13 +456,29 @@ func (s *Service) askReadings(ctx context.Context, topic string, items []Item, a
 	return out, refused, nil
 }
 
-// The forms a date is written in: day/month/year, as Vietnamese pages write it, year-month-day, and the Vietnamese
-// "ngày D tháng M năm Y".
+// The forms a date is written in: day/month/year, as Vietnamese pages write it, year-month-day, the Vietnamese
+// "(ngày) D tháng M (năm) Y", and the English month's name before or after the day ("November 22, 2019", "Nov. 22,
+// 2019", "22 November 2019").
 var (
 	dayMonthYear = regexp.MustCompile(`(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})`)
 	yearMonthDay = regexp.MustCompile(`(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})`)
-	vietnamese   = regexp.MustCompile(`(?i)ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})[\s,]+(?:năm\s+)?(\d{4})`)
+	vietnamese   = regexp.MustCompile(`(?i)(\d{1,2})\s+tháng\s+(\d{1,2})[\s,]+(?:năm\s+)?(\d{4})`)
+	monthName    = `(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|` +
+		`oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?`
+	monthDayYear = regexp.MustCompile(`(?i)\b` + monthName + `\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})`)
+	dayMonthName = regexp.MustCompile(`(?i)\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthName + `,?\s+(\d{4})`)
 )
+
+// monthOf is an English month's number from its name or its first three letters.
+func monthOf(name string) string {
+	for n, m := range []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"} {
+		if strings.HasPrefix(strings.ToLower(name), m) {
+			return strconv.Itoa(n + 1)
+		}
+	}
+
+	return ""
+}
 
 // pageDate is the date the model read on the page: taken only when the words it quotes for it are on the page and
 // write that very date, day, month and year (owner, 2026-11-28; no reference checks a date on the page); nil
@@ -485,6 +516,18 @@ func pageDate(date, quote, doc string) *time.Time {
 
 	for _, f := range vietnamese.FindAllStringSubmatch(quote, -1) {
 		if matches(f[3], f[2], f[1]) {
+			return &at
+		}
+	}
+
+	for _, f := range monthDayYear.FindAllStringSubmatch(quote, -1) {
+		if matches(f[3], monthOf(f[1]), f[2]) {
+			return &at
+		}
+	}
+
+	for _, f := range dayMonthName.FindAllStringSubmatch(quote, -1) {
+		if matches(f[3], monthOf(f[2]), f[1]) {
 			return &at
 		}
 	}

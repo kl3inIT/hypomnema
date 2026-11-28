@@ -5035,13 +5035,13 @@ writes no prose (last30days SKILL.md LAW 7).
   members left (one that lost its number gives way to the best member's title), and none passing is reported as
   "nothing solid". The same set given the same way reuses its kept plan, checked again. (3) The clusters' representatives are read in full, a web page through the caller's web fetch,
   a Reddit thread as the source gave it (one only a search showed, from Arctic Shift's `/api/posts/ids`, with its
-  date; when that fails the thread was not read and stays a search card, never direct and with no quote checked on
+  own title and date; when that fails the thread was not read and stays a search card, never direct and with no quote checked on
   its snippet) with its 10 top comments by score from Arctic Shift's keyless `/api/comments/tree`, each cut at 20,000
   characters; one call to a long-context model extracts up to 5 verbatim `quotes` and 5 `claims` an item; a quote
   counts only when it is in what was read (NFKC, spaces evened), a claim only beside a checked quote and only when
   every number in it is one the post has (code owns the numbers, the model the words). Each read item is dated by
   its page (owner, 2026-11-28): the page's own `Published`, else the date the model read on the page when the words
-  it quotes for it are there and write that very date (day/month/year, year-month-day or "ngày D tháng M năm Y"); that date replaces a disagreeing one, and an item dated
+  it quotes for it are there and write that very date, day, month and year (day/month/year, year-month-day, "ngày D tháng M năm Y", or the English month by name, "November 22, 2019", "22 Nov 2019"); that date replaces a disagreeing one, and an item dated
   outside the window is dropped, counted in `pass.read.outside_window`, and the scores and clusters made again. The
   page's own date stands even when the read's model fails. The models are given a bounded,
   sanitized payload (id, source, date, title 220 and text 420 characters without links, inside last30days'
@@ -5054,8 +5054,9 @@ writes no prose (last30days SKILL.md LAW 7).
   clusters stand. The answer's `pass` says, per step (`rerank`, `clusters`, `read`), `model`, `fallback` with its
   reason or `off`, the model, calls, items from the cache, tokens (absent when a call did not count them) and
   seconds. Scores, readings and cluster plans are kept in memory 24 hours (at most 4096 each): a score by item, a hash of
-  its text, the question, the prompt's version and the model; a reading by the text the model was given, read again
-  each search, so a changed page is read again; a plan by the whole payload. A judgment the model did not validly
+  its text, the question, the prompt's version and the model; a reading by everything the model was given for the item
+  (title and fields with the text read, read again each search), so a changed page or title is read again, and a
+  failed ask falls back for the items asked only, the kept readings of the others standing; a plan by the whole payload. A judgment the model did not validly
   give is not kept, so the next search asks for it again.
   `go test ./internal/controlplane/listening -run LiveSemantic` with `HYPOMNEMA_LISTENING_MODEL_URL` and
   `HYPOMNEMA_LISTENING_MODEL_KEY` measures it on the Vietnamese fixtures.

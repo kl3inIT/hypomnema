@@ -140,7 +140,7 @@ func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Re
 	return func(ctx context.Context, r Request, it Item) (Document, error) {
 		var doc Document
 
-		body := it.body
+		title, body := it.Title, it.body
 
 		if !it.Direct {
 			var archived struct {
@@ -158,11 +158,13 @@ func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Re
 				return Document{}, Fail(CodeNotFound, "arctic-shift has no post %s", it.NativeID)
 			}
 
+			// The post as the archive has it, its own title included: the search's title is not the post's.
 			p := archived.Data[0].item(r.now(), true)
-			body, doc.Published = p.Text, p.PublishedAt
+			title, body, doc.Published = p.Title, p.Text, p.PublishedAt
+			doc.Title = title
 		}
 
-		post := strings.TrimSpace(it.Title + "\n\n" + body)
+		post := strings.TrimSpace(title + "\n\n" + body)
 
 		var tree struct {
 			Data  []arcticComment `json:"data"`
