@@ -97,6 +97,9 @@ func TestReviewOffTopicRedditThreadsAreDropped(t *testing.T) {
 
 	cov := coverageOf(t, a, listening.SourceReddit)
 	assert.Equal(t, 1, cov.Items)
+	coverageJSON, err := json.Marshal(cov)
+	require.NoError(t, err)
+	assert.Contains(t, string(coverageJSON), `"off_topic":2`)
 	assert.Contains(t, cov.Streams[0].Tried[1].Detail, "2 of 3 threads dropped for not naming the topic")
 
 	a, err = s.Search(t.Context(), p, threadsWeb([2]string{"bbb2", "y"}, [2]string{"ccc3", "z"}))

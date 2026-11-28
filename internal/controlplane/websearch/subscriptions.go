@@ -104,7 +104,8 @@ func subscriptionRoute(provider, accounts string) route {
 }
 
 func (s *Service) askSubscription(ctx context.Context, r route, query string, limit int) (reply, error) {
+	query, basis := searchWindow(ctx).hint(query)
 	results, err := s.subs.Search(ctx, r.provider, query, limit)
 
-	return reply{results: results}, err
+	return reply{results: results, windowBasis: basis}, err
 }

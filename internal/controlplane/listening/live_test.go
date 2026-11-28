@@ -27,13 +27,14 @@ func TestLiveRedditAndWeb(t *testing.T) {
 	})})
 
 	plan := listening.Plan{
-		Topic:   "VETC",
+		Topic:   "VETC, VMAP, Cốc Cốc",
 		Sources: []string{listening.SourceWeb, listening.SourceReddit},
 		Subqueries: []listening.Subquery{
-			{Label: "vi", Query: "VETC thu phí không dừng trừ tiền"},
-			{Label: "en", Query: "VETC toll Vietnam"},
+			{Label: "vetc", Query: "VETC thu phí không dừng trừ tiền"},
+			{Label: "vmap", Query: "VMAP bản đồ số Việt Nam ra mắt"},
+			{Label: "coc-coc", Query: "Cốc Cốc trải nghiệm người dùng Việt Nam"},
 		},
-		WindowDays: 365,
+		WindowDays: 90,
 	}
 
 	a, err := s.Search(t.Context(), plan, func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
@@ -41,12 +42,16 @@ func TestLiveRedditAndWeb(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	t.Logf("window %s to %s, %d returned items, warnings %v", a.From, a.To, len(a.Items), a.Warnings)
+
 	for _, c := range a.Coverage {
-		t.Logf("coverage %s: %s %s, %d items", c.Source, c.State, c.Code, c.Items)
+		t.Logf("coverage %s: %s %s, %d items, missing_date=%d outside_window=%d off_topic=%d",
+			c.Source, c.State, c.Code, c.Items, c.Dropped.MissingDate, c.Dropped.OutsideWindow, c.Dropped.OffTopic)
 
 		for _, st := range c.Streams {
 			for _, at := range st.Tried {
-				t.Logf("  %s %s: %s %s %s skipped=%v", st.Subquery, at.Backend, at.Result, at.Detail, at.Until, at.Skipped)
+				t.Logf("  %s %s: %s %s %s skipped=%v provider=%s window_basis=%s",
+					st.Subquery, at.Backend, at.Result, at.Detail, at.Until, at.Skipped, at.Provider, at.WindowBasis)
 			}
 		}
 	}
@@ -57,7 +62,7 @@ func TestLiveRedditAndWeb(t *testing.T) {
 			date = it.PublishedAt.Format(time.DateOnly)
 		}
 
-		t.Logf("item %s %s %s %s %v %q", it.Source, it.Backend, date, it.URL, it.Engagement, it.Title)
+		t.Logf("item %s %s %s %s %s %v %q", it.Source, it.Backend, date, it.DateConfidence, it.URL, it.Engagement, it.Title)
 	}
 
 	for _, c := range a.Clusters {
