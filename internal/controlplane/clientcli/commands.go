@@ -29,9 +29,9 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktree starts from (default main)")
-			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: the main chat "+
-				"of the bot that owns the repository; else, in a bot's chat, that chat when its bot owns nothing; "+
-				"else the main bot's main chat)")
+			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: in a bot's "+
+				"chat, that chat when its bot owns the repository, or owns none and no bot owns it; else the main "+
+				"chat of the bot that owns the repository; else the main bot's main chat)")
 			fs.String("profile", "", "profile of the Task (default implementer)")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model as <provider>/<model>, such as opencode-go/deepseek-v4-pro, instead of "+
@@ -46,9 +46,9 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktrees start from (default main)")
-			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: the main chat "+
-				"of the bot that owns the repository; else, in a bot's chat, that chat when its bot owns nothing; "+
-				"else the main bot's main chat)")
+			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: in a bot's "+
+				"chat, that chat when its bot owns the repository, or owns none and no bot owns it; else the main "+
+				"chat of the bot that owns the repository; else the main bot's main chat)")
 			fs.String("objective-file", "", "read the objective from this file, or - for standard input")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
 			fs.String("use", "", "accounts the workers may use, as integration:label separated by commas, such as google:work")
