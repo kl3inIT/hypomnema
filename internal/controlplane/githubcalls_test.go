@@ -446,7 +446,7 @@ func TestALongReasonKeepsItsHandlesInCode(t *testing.T) {
 	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
 		By: linhOnGitHub, Number: 1310, PullRequest: true, ID: 9910, Body: mention + " review",
 	}))
-	w.closeByOwner(w.itemOf(1310).ID, strings.Repeat("x", 1983)+" @acme-someone d")
+	w.closeByOwner(w.itemOf(1310).ID, strings.Repeat("x", 1985)+" @acme-someone")
 
 	require.Eventually(t, func() bool { return len(w.replies()) == 1 }, 10*time.Second, 10*time.Millisecond)
 
