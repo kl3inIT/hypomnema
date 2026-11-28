@@ -7919,6 +7919,9 @@ type Todo struct {
 	ProjectId  *string    `json:"project_id,omitempty"`
 	RecordedBy *TodoActor `json:"recorded_by,omitempty"`
 
+	// ReplyToCoordinator An owner comment on this review report goes to the Run's coordinator chat.
+	ReplyToCoordinator *bool `json:"reply_to_coordinator,omitempty"`
+
 	// Revision Starts at 1 and grows with every change; a change carries it.
 	Revision     int        `json:"revision"`
 	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`

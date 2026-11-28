@@ -121,7 +121,7 @@ func TestTheFirstUsableBackendServesAndEachTriedIsNamed(t *testing.T) {
 		refused.spec("json", "a.example"), unprobed, served.spec("archive", "c.example"),
 	}})
 
-	a, err := s.Search(t.Context(), plan([]string{"forum"}, "VETC"), nil)
+	a, err := s.Search(t.Context(), plan([]string{"forum"}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, a, "forum")
@@ -152,13 +152,13 @@ func TestAnOptInBackendIsAskedOnlyWhenPinned(t *testing.T) {
 		first.spec("json", "a.example"), spec,
 	}})
 
-	_, err := s.Search(t.Context(), plan([]string{"forum"}, "x"), nil)
+	_, err := s.Search(t.Context(), plan([]string{"forum"}, "x"), listening.Caller{})
 	require.NoError(t, err)
 	assert.Equal(t, 0, optIn.Calls())
 
 	p := plan([]string{"forum"}, "x")
 	p.Backends = map[string]string{"forum": "signed_in"}
-	a, err := s.Search(t.Context(), p, nil)
+	a, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, optIn.Calls())
 	assert.Equal(t, 1, first.Calls(), "a pinned source asks only its pinned backend")
@@ -179,7 +179,7 @@ func TestARefusalStopsTheSameSitesOtherBackendsOnly(t *testing.T) {
 		otherSite.spec("archive", "archive.example"),
 	}})
 
-	a, err := s.Search(t.Context(), plan([]string{"forum"}, "x"), nil)
+	a, err := s.Search(t.Context(), plan([]string{"forum"}, "x"), listening.Caller{})
 	require.NoError(t, err)
 	assert.Equal(t, 0, sameSite.Calls())
 	assert.Equal(t, 1, otherSite.Calls())
@@ -250,7 +250,8 @@ func TestOnlyACleanZeroIsAZero(t *testing.T) {
 		half,
 	)
 
-	a, err := s.Search(t.Context(), plan([]string{"blocked", "quiet", "mixed", "half"}, "first", "second"), nil)
+	a, err := s.Search(t.Context(), plan([]string{"blocked", "quiet", "mixed", "half"}, "first", "second"),
+		listening.Caller{})
 	require.NoError(t, err)
 
 	blocked := coverageOf(t, a, "blocked")
@@ -285,7 +286,7 @@ func TestItemsCarryTheirOriginAndStayInTheWindow(t *testing.T) {
 
 	p := plan([]string{"forum"}, "inside")
 	p.Subqueries[0].Label = "main"
-	a, err := s.Search(t.Context(), p, nil)
+	a, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "2026-10-28", a.From)
@@ -307,7 +308,7 @@ func TestItemsCarryTheirOriginAndStayInTheWindow(t *testing.T) {
 	assert.Equal(t, "low", byID["u1"].DateConfidence)
 	assert.Equal(t, 2, coverageOf(t, a, "forum").Items)
 
-	again, err := s.Search(t.Context(), p, nil)
+	again, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 	assert.Contains(t, slices.Collect(func(yield func(string) bool) {
 		for _, it := range again.Items {
@@ -335,11 +336,11 @@ func TestAPlanThatCannotRunIsRefused(t *testing.T) {
 		"window":          {Sources: []string{"forum"}, WindowDays: 400, Subqueries: []listening.Subquery{{Query: "x"}}},
 		"unknown backend": {Sources: []string{"forum"}, Backends: map[string]string{"forum": "nope"}, Subqueries: []listening.Subquery{{Query: "x"}}},
 	} {
-		_, err := s.Search(t.Context(), p, nil)
+		_, err := s.Search(t.Context(), p, listening.Caller{})
 		require.ErrorIs(t, err, listening.ErrInvalid, name)
 	}
 
-	_, err := s.Search(t.Context(), plan([]string{"tiktok"}, "x"), nil)
+	_, err := s.Search(t.Context(), plan([]string{"tiktok"}, "x"), listening.Caller{})
 	require.ErrorContains(t, err, "the sources are forum")
 	assert.Equal(t, 0, b.Calls())
 }
@@ -367,7 +368,7 @@ func TestTheWebSourceReadsTheWebSearchChain(t *testing.T) {
 		}, Errors: []websearch.Failure{{Provider: "tavily", Reason: "HTTP 429"}}}, nil
 	}
 
-	a, err := s.Search(t.Context(), p, web)
+	a, err := s.Search(t.Context(), p, listening.Caller{Web: web})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"VETC/20"}, asked, "the default 25, cut to the web search's 20")
 	require.Len(t, a.Items, 1)
@@ -378,19 +379,19 @@ func TestTheWebSourceReadsTheWebSearchChain(t *testing.T) {
 	empty := func(context.Context, string, int) (websearch.Answer, error) {
 		return websearch.Answer{}, fmt.Errorf("wrapped: %w", websearch.ErrNoResults)
 	}
-	a, err = s.Search(t.Context(), p, empty)
+	a, err = s.Search(t.Context(), p, listening.Caller{Web: empty})
 	require.NoError(t, err)
 	assert.Equal(t, listening.StateNoResults, coverageOf(t, a, "web").State)
 
 	resting := func(context.Context, string, int) (websearch.Answer, error) {
 		return websearch.Answer{}, &websearch.RestingError{Until: start.Add(time.Minute)}
 	}
-	a, err = s.Search(t.Context(), p, resting)
+	a, err = s.Search(t.Context(), p, listening.Caller{Web: resting})
 	require.NoError(t, err)
 	assert.Equal(t, listening.CodeRateLimited, coverageOf(t, a, "web").Code)
 
 	c.Advance(2 * time.Hour)
-	a, err = s.Search(t.Context(), p, nil)
+	a, err = s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 	assert.Equal(t, listening.StateNotRead, coverageOf(t, a, "web").State, "with no web search the web is not read")
 	assert.Equal(t, listening.CodeBroken, coverageOf(t, a, "web").Code)

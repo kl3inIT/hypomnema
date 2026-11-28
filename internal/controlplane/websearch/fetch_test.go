@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -308,4 +309,47 @@ func TestAPageThatAnswersOutside2xxIsReadByJina(t *testing.T) {
 
 	assert.Equal(t, []string{"/" + srv.URL + "/guide", "/" + srv.URL + "/walled", "/" + srv.URL + "/check"}, asked,
 		"Jina is asked only for the walled pages, never for a missing page or a refused address")
+}
+
+// Scenario (issue #1306): a page says when it was published in its own metadata, which Readability reads
+// (article:published_time here); a page Jina Reader reads says it in its "Published Time:" line, as Agent-Reach reads
+// it (agent_reach/channels/web.py:141-150); a page that says nothing has no date, never the time it was read.
+func TestAPageSaysWhenItWasPublished(t *testing.T) {
+	t.Parallel()
+
+	jinaText := strings.Repeat("Vmap ra mắt bản đồ số cho người Việt. ", 10)
+	jina := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, "Title: Vmap\n\nURL Source: x\n\nPublished Time: 2019-03-02T08:30:00+07:00\n\n"+
+			"Markdown Content:\n%s", jinaText)
+	}))
+	t.Cleanup(jina.Close)
+
+	srv, allow := site(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+
+		switch r.URL.Path {
+		case "/dated":
+			_, _ = io.WriteString(w, strings.Replace(article, "<title>",
+				`<meta property="article:published_time" content="2019-03-02T10:00:00Z"><title>`, 1))
+		case "/app":
+			_, _ = io.WriteString(w, `<html><body><div id="root"></div></body></html>`)
+		default:
+			_, _ = io.WriteString(w, article)
+		}
+	})
+	svc := fetcher(allow, jina.URL)
+
+	page, err := svc.Fetch(t.Context(), srv.URL+"/dated")
+	require.NoError(t, err)
+	require.NotNil(t, page.Published)
+	assert.Equal(t, time.Date(2019, 3, 2, 10, 0, 0, 0, time.UTC), *page.Published)
+
+	page, err = svc.Fetch(t.Context(), srv.URL+"/app")
+	require.NoError(t, err)
+	require.NotNil(t, page.Published, "Jina's Published Time line")
+	assert.Equal(t, time.Date(2019, 3, 2, 1, 30, 0, 0, time.UTC), *page.Published)
+
+	page, err = svc.Fetch(t.Context(), srv.URL+"/undated")
+	require.NoError(t, err)
+	assert.Nil(t, page.Published)
 }

@@ -267,13 +267,19 @@ func (s *Service) settlePullRequest(ctx context.Context, f FollowedRequest, outc
 		if note != "" {
 			fid := s.newID("fup")
 
-			switch err := followUpIn(ctx, q, now, f.TaskID, AddressCoordinator, fid, note); {
+			switch err := s.followUpIn(ctx, q, now, f.TaskID, AddressCoordinator, fid, note); {
 			case err == nil:
 				payload["follow_up"] = fid
 			case errors.Is(err, ErrConflict):
 				// Refused (the worker's conversation closed): the coordinator decides. A refusal writes nothing.
 				payload["follow_up_refused"] = err.Error()
 			default:
+				return err
+			}
+		}
+
+		if outcome == PullRequestMerged {
+			if err := s.inbox.CloseMergedReviewStallsTx(ctx, q, now, f.URL); err != nil {
 				return err
 			}
 		}
@@ -418,6 +424,7 @@ func (s *Service) FollowPullRequests(ctx context.Context, read ReadPullRequest, 
 	}
 
 	var errs []error
+	seen := map[string]bool{}
 
 	for _, f := range follow {
 		r, st, err := read(ctx, f)
@@ -450,10 +457,17 @@ func (s *Service) FollowPullRequests(ctx context.Context, read ReadPullRequest, 
 				}
 			}
 
-			if _, err := s.SettlePullRequest(ctx, f, st); err != nil {
+			outcome, err := s.SettlePullRequest(ctx, f, st)
+			if err != nil {
 				errs = append(errs, err)
+			} else if found && outcome != PullRequestGone {
+				seen[strings.ToLower(f.URL)] = true
 			}
 		}
+	}
+
+	if found {
+		errs = append(errs, s.followReviewStallRequests(ctx, read, seen))
 	}
 
 	return errors.Join(errs...)
@@ -489,6 +503,14 @@ func (s *Service) SettleClosedPullRequest(ctx context.Context, r githost.Request
 ) (int, error) {
 	if st.Status != githost.RequestMerged && st.Status != githost.RequestClosed {
 		return 0, nil
+	}
+
+	if st.Status == githost.RequestMerged {
+		if kind, known := registeredKind(ctx, s.read())(r.Repo.Host); known {
+			if err := s.closeMergedReviewStalls(ctx, requestURL(kind, r)); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	follow, err := s.PullRequestsToFollow(ctx, true)

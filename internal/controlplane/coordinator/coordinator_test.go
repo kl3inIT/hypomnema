@@ -1061,18 +1061,33 @@ func TestStopEndsTheChatsPi(t *testing.T) {
 	t.Parallel()
 
 	keys := &fakeKeys{}
-	svc, sup := newSupervisorWith(t, keys)
+	svc, _ := newStore(t)
+	sup := New(svc, Config{Command: []string{os.Args[0], "fake-pi"}, Keys: keys})
 	ctx := t.Context()
 
 	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
+	t.Cleanup(func() { sup.Stop(chat.ID) })
 
 	sup.Stop(chat.ID)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
 	require.NoError(t, err)
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: hello")
-	require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 10*time.Second, 20*time.Millisecond)
+	require.NoError(t, sup.deliver(ctx, chat.ID))
+
+	// The test drives delivery, so it receives the wake sent after agent_settled.
+	select {
+	case <-sup.kick:
+	case <-time.After(10 * time.Second):
+		t.Fatal("pi did not signal a settled turn")
+	}
+	require.True(t, sup.Idle(chat.ID), "pi settled its turn and is still running")
+
+	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+	require.True(t, slices.ContainsFunc(msgs, func(m orchestration.ChatMessage) bool {
+		return m.Role == orchestration.ChatCoordinator && m.Text == "echo: hello"
+	}), "pi replied before settling")
 
 	sup.Stop(chat.ID)
 
@@ -1080,6 +1095,38 @@ func TestStopEndsTheChatsPi(t *testing.T) {
 	assert.False(t, ok, "pi exited before Stop returned")
 	require.Eventually(t, func() bool { return keys.ended("gwk_1") }, 10*time.Second, 20*time.Millisecond,
 		"the key ends with the pi")
+}
+
+// fastTurnPi lets the RPC reader finish the turn before the sender can resume.
+type fastTurnPi struct{ *scriptedPi }
+
+func (w fastTurnPi) Write(line []byte) (int, error) {
+	before := len(w.prompts)
+	n, err := w.scriptedPi.Write(line)
+	if err == nil && len(w.prompts) > before {
+		w.p.handle(w.t.Context(), []byte(`{"type":"agent_start"}`))
+		w.p.handle(w.t.Context(), []byte(`{"type":"agent_settled","aborted":false}`))
+	}
+
+	return n, err
+}
+
+func TestAFastTurnLeavesTheChatsPiIdle(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newStore(t)
+	ctx := t.Context()
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	sup, p, pi := scriptedSupervisor(t, svc, chat.ID)
+	p.stdin = fastTurnPi{pi}
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
+	require.NoError(t, err)
+	require.NoError(t, sup.deliver(ctx, chat.ID))
+	require.Equal(t, []string{"hello"}, pi.prompts)
+	require.True(t, sup.Idle(chat.ID), "the prompt acknowledgement must not undo an already settled turn")
 }
 
 // answerAndExit plays a pi that answers each command and exits at once: its
