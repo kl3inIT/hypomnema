@@ -1102,6 +1102,20 @@ func TestAnAdoptedWorkerIsMovedIntoItsScope(t *testing.T) {
 		}
 	}
 
+	if !onSystemd {
+		// The stand-in moves nothing: past its bound the adoption fails, and a worker that could not be put under
+		// the ceiling is stopped and fails, saying why, rather than running on outside it (review round 3).
+		second.wait(t)
+		require.Len(t, second.finished, 1)
+		f := second.finished[0]
+		assert.Equal(t, "worker_error", f.Class)
+		assert.True(t, strings.HasPrefix(f.Summary, "the worker could not be moved into hypomnema-workers.slice: "),
+			f.Summary)
+		assert.Zero(t, second.stopped, "not a stop the owner asked for")
+
+		return
+	}
+
 	again.sup.Stop("dsp_1")
 	second.wait(t)
 	assert.Equal(t, 1, second.stopped)

@@ -2,9 +2,12 @@ package memlimit
 
 import (
 	"context"
+	"errors"
+	"os"
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,4 +110,105 @@ func TestAdoptMovesWhatTheWorkerForksDuringTheMove(t *testing.T) {
 	assert.Equal(t, "freeze true", f.calls[1], "the scope is frozen before the stragglers are moved")
 	assert.Equal(t, "freeze false", f.calls[len(f.calls)-1], "and thawed after")
 	assert.False(t, f.frozen[scopeDir])
+}
+
+// Scenario (review round 3's repro): an outside parent forks a child and exits between the listing and the read of
+// its cgroup. Its read fails; that is no "nothing outside": adoption lists again, finds the child the shim reaped
+// under it, and moves it before it reports done (issue #1313 row 1).
+func TestAdoptCountsAProcessItCouldNotReadAsUnsettled(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeCgroups{in: map[int]string{100: daemonDir, 101: daemonDir}, frozen: map[string]bool{}}
+	ops := f.ops()
+	ops.wait = time.Second
+
+	listed := 0
+	tree := func() []int {
+		listed++
+		switch listed {
+		case 1:
+			return []int{100, 101}
+		case 2:
+			// 102 forked 106 after the scope was made, then exited before its cgroup was read.
+			f.in[106] = daemonDir
+
+			return []int{100, 101, 102}
+		default:
+			return []int{100, 101, 106}
+		}
+	}
+
+	read := ops.cgroupOf
+	ops.cgroupOf = func(pid int) (string, error) {
+		if pid == 102 {
+			return "", os.ErrNotExist
+		}
+
+		return read(pid)
+	}
+
+	l := Limit{SystemdRun: "systemd-run", Systemctl: "systemctl", Busctl: "busctl"}
+	dir, err := l.adopt(t.Context(), ops, "dsp_1", 0, tree)
+	require.NoError(t, err)
+	assert.Equal(t, scopeDir, dir)
+	assert.Equal(t, scopeDir, f.in[106], "the child of the process that could not be read is moved")
+	assert.GreaterOrEqual(t, listed, 4, "done only after a listing that read every process inside")
+}
+
+// Scenario (review round 3's repro): every listing finds a process outside that cannot be moved. Past its bound,
+// adoption fails, with the scope thawed, rather than reporting done.
+func TestAdoptFailsPastItsBound(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeCgroups{in: map[int]string{100: daemonDir, 101: daemonDir}, frozen: map[string]bool{}}
+	ops := f.ops()
+	ops.wait = 100 * time.Millisecond
+	ops.moveInto = func(string, int) error { return nil } // the move never takes
+
+	tree := func() []int { return []int{100, 101, 107} }
+	f.in[107] = daemonDir
+
+	l := Limit{SystemdRun: "systemd-run", Systemctl: "systemctl", Busctl: "busctl"}
+	_, err := l.adopt(t.Context(), ops, "dsp_1", 0, tree)
+	require.ErrorContains(t, err, "still outside")
+	assert.False(t, f.frozen[scopeDir], "the scope is thawed")
+}
+
+// Scenario (review round 3's repro): the thaw cannot be written. Adoption fails with it, rather than leaving a frozen
+// worker behind a success.
+func TestAdoptReturnsAThawError(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeCgroups{in: map[int]string{100: daemonDir}, frozen: map[string]bool{}}
+	ops := f.ops()
+	ops.wait = time.Second
+	freeze := ops.freeze
+	ops.freeze = func(dir string, frozen bool) error {
+		if !frozen {
+			return errors.New("permission denied")
+		}
+
+		return freeze(dir, frozen)
+	}
+
+	l := Limit{SystemdRun: "systemd-run", Systemctl: "systemctl", Busctl: "busctl"}
+	_, err := l.adopt(t.Context(), ops, "dsp_1", 0, func() []int { return []int{100} })
+	require.ErrorContains(t, err, "thawing")
+}
+
+// Scenario (review round 3's repro): a daemon froze a worker's scope and died before it thawed it. The next daemon
+// finds the shim already in the slice: it thaws the scope before it returns.
+func TestAdoptThawsAScopeItFindsFrozen(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeCgroups{in: map[int]string{100: scopeDir, 101: scopeDir}, frozen: map[string]bool{scopeDir: true}}
+	ops := f.ops()
+	ops.wait = time.Second
+
+	l := Limit{SystemdRun: "systemd-run", Systemctl: "systemctl", Busctl: "busctl"}
+	dir, err := l.adopt(t.Context(), ops, "dsp_1", 0, func() []int { return []int{100, 101} })
+	require.NoError(t, err)
+	assert.Equal(t, scopeDir, dir)
+	assert.False(t, f.frozen[scopeDir], "the scope found frozen is thawed")
+	assert.NotContains(t, f.calls, "start", "no new scope is made")
 }
