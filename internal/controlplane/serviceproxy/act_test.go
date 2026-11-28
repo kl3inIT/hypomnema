@@ -58,3 +58,31 @@ func TestSendingAsTheOwnerWaitsForHisApproval(t *testing.T) {
 	assert.Contains(t, refused(send("Third")), "never")
 	assert.Len(t, w.approvals(orchestration.ApprovalPending), 1, "never asks nobody: only the second send waits")
 }
+
+// Scenario (issue #1184): sending a Telegram message as the owner is decided as a WhatsApp one is: it waits for his
+// approval, named as a send in his name.
+func TestSendingInTheOwnersTelegramWaitsForHisApproval(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 50*time.Millisecond)
+	ctx := t.Context()
+
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "telegram", Label: "me", Account: "+84 900 000 001", Secret: "conn-telegram-me",
+	})
+	require.NoError(t, err)
+
+	err = w.proxy.Judge(ctx, serviceproxy.Act{
+		Caller:      serviceproxy.Caller{Name: "bot b1 in chat " + w.chat, Coordinator: true, ChatID: w.chat},
+		Integration: serviceproxy.TelegramID, Label: "me", ChatID: w.chat, Action: "telegram.send",
+		Subject: "anh Trung", Fields: []orchestration.Field{{Label: "Text", Value: "Dạ vâng ạ"}}, Hash: "h-1",
+	})
+
+	var refused *serviceproxy.RefusedError
+	require.ErrorAs(t, err, &refused)
+	assert.Contains(t, refused.Message, "Waiting for the owner's approval")
+
+	asked := w.pending()
+	assert.Equal(t, "Send a message as you: anh Trung", asked.Title)
+	assert.Equal(t, "telegram.send", asked.Action)
+}

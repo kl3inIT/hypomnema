@@ -24,6 +24,8 @@ type phone struct {
 	opened  []string
 	// pictures makes its codes pictures, as Zalo gives them.
 	pictures bool
+	// answers are what the owner typed for its questions, field=value.
+	answers chan string
 }
 
 type device struct {
@@ -305,4 +307,190 @@ func TestDisconnectingALabelEndsItsWaitingLink(t *testing.T) {
 	all, err := w.svc.List(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, all[0].Connections)
+}
+
+// telephone is a messaging service that also links by phone number (Telegram, issue #1184): its linking by phone
+// asks for the number first.
+type telephone struct{ *phone }
+
+func (p telephone) LinkByPhone(context.Context) (<-chan messaging.LinkStep, error) {
+	steps := make(chan messaging.LinkStep, 4)
+	steps <- p.question(messaging.AskPhone, "", false)
+
+	p.mu.Lock()
+	p.linking = steps
+	p.mu.Unlock()
+
+	return steps, nil
+}
+
+// question is a step that asks the owner to type field; his answers come to the test on p.answers.
+func (p *phone) question(field, hint string, again bool) messaging.LinkStep {
+	return messaging.LinkStep{Ask: &messaging.Ask{
+		Field: field, Hint: hint, Again: again,
+		Answer: func(ctx context.Context, value string) error {
+			select {
+			case p.answers <- field + "=" + value:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}}
+}
+
+// ask sends the linking a question.
+func (p *phone) ask(field, hint string, again bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.linking <- p.question(field, hint, again)
+}
+
+// answerWorld is deviceWorld whose service links by phone too and hears the owner's answers.
+func answerWorld(t *testing.T) (*world, *phone) {
+	t.Helper()
+
+	w := newWorld(t)
+	p := &phone{devices: map[string]*device{}, answers: make(chan string, 4)}
+	w.svc = integration.New(w.orch, w.vault, w.clock, platform.NewID, integration.Telegram()).
+		WithDevices(integration.TelegramID, telephone{p})
+
+	return w, p
+}
+
+// answer gives the linking the owner's answer while the service plays the next step after it.
+func answer(t *testing.T, w *world, p *phone, id, value string, next func()) (integration.SignIn, string) {
+	t.Helper()
+
+	type got struct {
+		in  integration.SignIn
+		err error
+	}
+
+	done := make(chan got, 1)
+
+	go func() {
+		in, err := w.svc.Answer(t.Context(), integration.TelegramID, id, value)
+		done <- got{in, err}
+	}()
+
+	var heard string
+
+	select {
+	case heard = <-p.answers:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the service never heard the answer")
+	}
+
+	next()
+
+	r := <-done
+	require.NoError(t, r.err)
+
+	return r.in, heard
+}
+
+// Scenario: issue #1184, the owner links his Telegram by QR and his account has a two-step password. The QR code
+// shows first; once his phone accepted it, the link asks for the password instead of a code, and the page answers
+// it; then the Connection is his.
+func TestALinkByQRAsksForThePasswordOfTheAccount(t *testing.T) {
+	t.Parallel()
+
+	w, p := answerWorld(t)
+	ctx := t.Context()
+
+	started, err := w.svc.Begin(ctx, integration.TelegramID, "main", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "code-1", started.Code)
+	assert.Nil(t, started.Ask, "a QR code asks nothing yet")
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := w.svc.Complete(ctx, integration.TelegramID, started.ID, "")
+		done <- err
+	}()
+
+	p.ask(messaging.AskPassword, "my cat", false)
+	require.Eventually(t, func() bool {
+		got, err := w.svc.Code(ctx, integration.TelegramID, started.ID)
+
+		return err == nil && got.Ask != nil && got.Ask.Field == messaging.AskPassword && got.Code == ""
+	}, 5*time.Second, 10*time.Millisecond, "the QR code gives way to the password")
+
+	got, err := w.svc.Code(ctx, integration.TelegramID, started.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "my cat", got.Ask.Hint)
+
+	_, heard := answer(t, w, p, started.ID, " hunter2", func() { p.scan("user:42", "+84912345678") })
+	assert.Equal(t, "password= hunter2", heard, "a password is given as typed")
+	require.NoError(t, <-done)
+
+	all, err := w.svc.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, all[0].Connections, 1)
+	assert.Equal(t, "+84912345678", all[0].Connections[0].Account)
+}
+
+// Scenario: issue #1184, the QR code cannot be scanned, so the owner links by his phone number: the link asks for
+// the number, then for the code Telegram sent; a wrong code asks for it again, and the right one links the account.
+// The answers keep their spaces trimmed, a password's excepted.
+func TestALinkByPhoneAsksTheNumberThenTheCodeAgainWhenWrong(t *testing.T) {
+	t.Parallel()
+
+	w, p := answerWorld(t)
+	ctx := t.Context()
+
+	started, err := w.svc.LinkByPhone(ctx, integration.TelegramID, "main")
+	require.NoError(t, err)
+	assert.Empty(t, started.Code)
+	require.NotNil(t, started.Ask)
+	assert.Equal(t, messaging.AskPhone, started.Ask.Field)
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := w.svc.Complete(ctx, integration.TelegramID, started.ID, "")
+		done <- err
+	}()
+
+	next, heard := answer(t, w, p, started.ID, " +84912345678 ",
+		func() { p.ask(messaging.AskCode, "Telegram app", false) })
+	assert.Equal(t, "phone=+84912345678", heard)
+	require.NotNil(t, next.Ask, "the answer brings the next step")
+	assert.Equal(t, messaging.AskCode, next.Ask.Field)
+	assert.Equal(t, "Telegram app", next.Ask.Hint)
+
+	next, _ = answer(t, w, p, started.ID, "11111", func() { p.ask(messaging.AskCode, "Telegram app", true) })
+	require.NotNil(t, next.Ask)
+	assert.True(t, next.Ask.Again, "a wrong code is asked again")
+
+	answer(t, w, p, started.ID, "22222", func() { p.scan("user:42", "+84912345678") })
+	require.NoError(t, <-done)
+}
+
+// A link that asks nothing now refuses an answer, a blank answer is refused before the service hears it, and a
+// service that has no phone login refuses one.
+func TestAnAnswerNobodyAskedForIsRefused(t *testing.T) {
+	t.Parallel()
+
+	w, _ := answerWorld(t)
+	ctx := t.Context()
+
+	started, err := w.svc.Begin(ctx, integration.TelegramID, "main", nil)
+	require.NoError(t, err)
+
+	_, err = w.svc.Answer(ctx, integration.TelegramID, started.ID, "12345")
+	require.ErrorIs(t, err, integration.ErrInvalid, "a QR code waits for the phone, not for an answer")
+
+	byPhone, err := w.svc.LinkByPhone(ctx, integration.TelegramID, "work")
+	require.NoError(t, err)
+
+	_, err = w.svc.Answer(ctx, integration.TelegramID, byPhone.ID, "  ")
+	require.ErrorIs(t, err, integration.ErrInvalid)
+
+	wa, _ := deviceWorld(t)
+	_, err = wa.svc.LinkByPhone(ctx, integration.WhatsAppID, "main")
+	require.ErrorIs(t, err, integration.ErrInvalid, "WhatsApp links by its QR code only")
 }
