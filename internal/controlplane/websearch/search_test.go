@@ -1015,3 +1015,199 @@ func TestAKeysSecretIsNamedAfterItsProvider(t *testing.T) {
 		assert.False(t, ok, bad)
 	}
 }
+
+// Scenario (issue #1287): when every provider asked answers with nothing, the search fails with ErrNoResults, which is
+// an ErrFailed too, so social listening tells a clean zero from a failure; a provider that failed otherwise makes it a
+// plain failure.
+func TestASearchEveryProviderAnswersEmptyIsNoResults(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{keys: map[string][]string{"exa": {"e"}}})
+	w.exa.set(answers(`{"results":[]}`))
+
+	_, err := w.svc.Search(t.Context(), "nothing anywhere", 0, "exa")
+	require.ErrorIs(t, err, websearch.ErrNoResults)
+	require.ErrorIs(t, err, websearch.ErrFailed)
+	assert.Contains(t, err.Error(), "exa (key web-search-exa: no results)")
+
+	w.exa.set(refuses(http.StatusInternalServerError, ""))
+
+	_, err = w.svc.Search(t.Context(), "something broken", 0, "exa")
+	require.ErrorIs(t, err, websearch.ErrFailed)
+	assert.NotErrorIs(t, err, websearch.ErrNoResults)
+}
+
+// Scenario (issue #1287, review of PR #1303): when every provider asked is rate limited, the failure keeps each
+// route's rest, typed, with its real wait, so social listening reports rate_limited until the first is free, not
+// broken.
+func TestAFailedSearchKeepsEachProvidersRest(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{})
+	for _, p := range []*provider{w.exa, w.exaMCP, w.parallel, w.parallelMCP, w.tavily, w.firecrawl, w.tinyFish, w.you} {
+		p.set(refuses(http.StatusTooManyRequests, "30"))
+	}
+
+	_, err := w.svc.Search(t.Context(), "everyone is busy", 0, "")
+	require.ErrorIs(t, err, websearch.ErrFailed)
+
+	var failed *websearch.FailedError
+	require.ErrorAs(t, err, &failed)
+	assert.Equal(t, 5, failed.Asked)
+	assert.Zero(t, failed.Others)
+	require.Len(t, failed.Rests, 5)
+
+	for _, r := range failed.Rests {
+		assert.Equal(t, websearch.RestRateLimited, r.Why, r.Provider)
+		assert.Equal(t, w.clock.Now().Add(30*time.Second), r.Until, r.Provider)
+	}
+}
+
+// Scenario (issue #1287, review of PR #1303): a caller that paces waits for each route's turn, named by the route,
+// and a route that came to rest while it waited is not asked: the second of two searches queued on one provider
+// does not reach it after the first was rate limited.
+func TestAPacedSearchWaitsForTheRoutesTurnAndChecksItsRestAgain(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{off: keylessOnly("exa")})
+	release := make(chan struct{})
+
+	var once sync.Once
+
+	free := func() { once.Do(func() { close(release) }) }
+	// A failing test still lets the provider answer, so its server can close.
+	t.Cleanup(free)
+	w.exaMCP.set(func(rw http.ResponseWriter, r *http.Request) {
+		<-release
+		refuses(http.StatusTooManyRequests, "60")(rw, r)
+	})
+
+	var (
+		mu     sync.Mutex
+		routes []string
+		turn   = make(chan struct{}, 1)
+	)
+
+	pace := func(ctx context.Context, route string) (func(), error) {
+		mu.Lock()
+		routes = append(routes, route)
+		mu.Unlock()
+
+		select {
+		case turn <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		return func() { <-turn }, nil
+	}
+	ctx := websearch.WithPace(t.Context(), pace)
+
+	first := make(chan error, 1)
+
+	go func() {
+		_, err := w.svc.Search(ctx, "first", 0, "")
+		first <- err
+	}()
+
+	require.Eventually(t, func() bool { return w.exaMCP.calls.Load() == 1 }, 5*time.Second, 5*time.Millisecond)
+
+	second := make(chan error, 1)
+
+	go func() {
+		_, err := w.svc.Search(ctx, "second", 0, "")
+		second <- err
+	}()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return len(routes) == 2
+	}, 5*time.Second, 5*time.Millisecond)
+	free()
+
+	require.ErrorIs(t, <-first, websearch.ErrFailed)
+
+	var resting *websearch.RestingError
+	require.ErrorAs(t, <-second, &resting, "the second found the route resting once it had the turn")
+	assert.Equal(t, int32(1), w.exaMCP.calls.Load())
+	assert.Equal(t, []string{"public:exa", "public:exa"}, routes)
+}
+
+// slowUsage holds up the first search's count, as a slow write of the usage row does.
+type slowUsage struct {
+	once sync.Once
+}
+
+func (u *slowUsage) RecordSearch(context.Context, websearch.Use) error {
+	u.once.Do(func() { time.Sleep(200 * time.Millisecond) })
+
+	return nil
+}
+
+func (u *slowUsage) SearchCounts(context.Context, time.Time) ([]websearch.Count, error) {
+	return nil, nil
+}
+
+// Scenario (review round 2 of PR #1303): two paced searches on the default keyless chain; Exa answers the first with
+// 429 and Retry-After 120 while its usage row is still being written. The rest is stored before the turn ends, so the
+// second search, which had the next turn, finds Exa resting and does not ask it (Agent-Reach records a failure inside
+// its slot, runtime/dispatch.py:247-274).
+func TestRoundTwoWebTurnMustStoreCooldownBeforeRelease(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+
+	exa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(exa.Close)
+
+	svc := websearch.New(websearch.Config{
+		ExaMCPURL: exa.URL, Usage: &slowUsage{},
+		Settings: func(context.Context) (websearch.Settings, error) {
+			return websearch.Settings{Off: []string{"parallel", "firecrawl", "tavily", "you"}}, nil
+		},
+	})
+
+	turn := make(chan struct{}, 1)
+	ctx := websearch.WithPace(t.Context(), func(ctx context.Context, _ string) (func(), error) {
+		select {
+		case turn <- struct{}{}:
+			return func() { <-turn }, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+
+	var wg sync.WaitGroup
+
+	for _, q := range []string{"first", "second"} {
+		wg.Go(func() { _, _ = svc.Search(ctx, q, 0, "") })
+	}
+
+	wg.Wait()
+	assert.Equal(t, int32(1), calls.Load(), "the second search found Exa resting once it had the turn")
+}
+
+// Scenario (review round 2 of PR #1303, the owner's no-paid-services rule): a search asked with KeylessOnly uses the
+// keyless providers only, even when the owner has a key for one: Exa's keyed API is never asked.
+func TestAKeylessOnlySearchNeverAsksAKey(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{keys: map[string][]string{"exa": {"exa-1"}}, off: keylessOnly("exa")})
+
+	a, err := w.svc.Search(websearch.KeylessOnly(t.Context()), "keyless only", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderExa, a.Provider)
+	assert.Zero(t, w.exa.calls.Load(), "the keyed Exa API is not asked")
+	assert.Equal(t, int32(1), w.exaMCP.calls.Load(), "the keyless Exa is")
+
+	_, err = w.svc.Search(t.Context(), "keyless only", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), w.exa.calls.Load(),
+		"without KeylessOnly the key is asked first, and the answer is not shared")
+}
