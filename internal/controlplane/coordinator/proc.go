@@ -148,12 +148,7 @@ func (p *proc) send(ctx context.Context, text string, seqs []int64) (bool, error
 		return false, err
 	}
 
-	disposition := dispositionOf(r.Data)
-	if disposition == "started" {
-		p.setWorking(true)
-	}
-
-	return disposition != "queued", nil
+	return dispositionOf(r.Data) != "queued", nil
 }
 
 // call writes one command and waits for its response.

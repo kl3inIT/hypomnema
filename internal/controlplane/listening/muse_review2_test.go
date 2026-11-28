@@ -33,7 +33,7 @@ func TestReviewTwoInstagramMetadataIsNoCaption(t *testing.T) {
 		return answeredWith("NO POSTS FOUND"), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceInstagram}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceInstagram}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 	assert.Empty(t, got.Items)
 	assert.Empty(t, got.Clusters)
@@ -75,7 +75,7 @@ func TestReviewTwoWrongListsAndANearEmptyAnswerAreAskedAgain(t *testing.T) {
 			}}
 
 			got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "Cốc Cốc"),
-				nil)
+				listening.Caller{})
 			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(m.questions()), len(before)+1)
 			require.Len(t, got.Items, 1)
@@ -95,7 +95,7 @@ func TestReviewTwoWrongListsUntilTheTimeEndsAreNotAZero(t *testing.T) {
 	m := &fakeMuse{clock: c, perAnswer: 2*time.Minute + 30*time.Second,
 		answer: func(int, muse.Question) (muse.Result, error) { return answeredWith(wrong), nil }}
 
-	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, got, listening.SourceThreads)
@@ -130,7 +130,7 @@ func TestReviewTwoContinuationsOfExtraQuestionsCountTowardTheThree(t *testing.T)
 		return answeredWith("I'm still opening those posts; I'll send them once the check returns."), nil
 	}}
 
-	_, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	_, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	extra := 0
@@ -154,7 +154,7 @@ func TestReviewTwoTheContinuationWaitEndsWithTheMuseTime(t *testing.T) {
 			return answeredWith("I'll send the verified list once that check returns."), nil
 		}}
 
-	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, newPages(t)).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	assert.Len(t, m.questions(), 2, "the second continuation would wait past the questions' end")
@@ -184,7 +184,7 @@ func TestReviewTwoAnImpossibleDateIsNoDate(t *testing.T) {
 		return answeredWith("NO POSTS FOUND"), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceFacebook}, "VMAP"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceFacebook}, "VMAP"), listening.Caller{})
 	require.NoError(t, err)
 	assert.Empty(t, got.Items)
 	require.Len(t, got.Unverified, 1)

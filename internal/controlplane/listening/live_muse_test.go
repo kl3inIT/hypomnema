@@ -63,7 +63,7 @@ func TestLiveMuseLinksAgainstThreads(t *testing.T) {
 	got, err := s.Search(t.Context(), listening.Plan{
 		Topic: "Cốc Cốc VETC", Sources: []string{listening.SourceThreads},
 		Subqueries: []listening.Subquery{{Query: "Cốc Cốc VETC VMAP"}},
-	}, nil)
+	}, listening.Caller{})
 	require.NoError(t, err)
 
 	for _, c := range got.Coverage {

@@ -67,7 +67,7 @@ func TestReviewOneAPostNeedsMusesDateAndItsQuoteInOneCaptionField(t *testing.T) 
 		return answeredWith("NO POSTS FOUND"), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	require.Len(t, got.Items, 1, "%+v", got.Unverified)
@@ -108,7 +108,7 @@ func TestReviewOneTheSearchReturnsWhatItCheckedBeforeTheToolsLimit(t *testing.T)
 	m := &fakeMuse{clock: c, perAnswer: 5*time.Minute + 59*time.Second,
 		answer: func(int, muse.Question) (muse.Result, error) { return answeredWith(text), nil }}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -162,7 +162,7 @@ func TestReviewOneADraftIsContinuedNotTakenForTheList(t *testing.T) {
 			}}
 
 			got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "Cốc Cốc"),
-				nil)
+				listening.Caller{})
 			require.NoError(t, err)
 
 			asked := m.questions()
@@ -195,7 +195,7 @@ func TestReviewOneTheAccountForMorePostsIsReadFromThePage(t *testing.T) {
 		return answeredWith("NO POSTS FOUND"), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceInstagram}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceInstagram}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	require.Len(t, got.Items, 1, "%+v", got.Unverified)
@@ -244,7 +244,7 @@ func TestReviewOneEveryStreamGetsItsExtraQuestions(t *testing.T) {
 	}}
 
 	_, err := museService(c, m, p).Search(t.Context(),
-		plan([]string{listening.SourceThreads}, "VETC thu phí", "VETC dán thẻ"), nil)
+		plan([]string{listening.SourceThreads}, "VETC thu phí", "VETC dán thẻ"), listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -286,7 +286,7 @@ func TestReviewOneExtraQuestionsAreCappedForTheWholeSearch(t *testing.T) {
 	}}
 
 	_, err := museService(c, m, p).Search(t.Context(),
-		plan([]string{listening.SourceThreads, listening.SourceInstagram}, "VETC"), nil)
+		plan([]string{listening.SourceThreads, listening.SourceInstagram}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	extra := 0
@@ -318,7 +318,7 @@ func TestReviewOneALinkDatedOutsideTheWindowIsStillOpened(t *testing.T) {
 		return answeredWith("NO POSTS FOUND"), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"www.threads.com/@someone/post/" + codeOld}, p.opened())

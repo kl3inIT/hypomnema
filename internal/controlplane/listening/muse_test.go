@@ -86,9 +86,9 @@ func block(n int, link, author, where, date, from, quote, likes string) string {
 		"likes: %s\ncomments: none\nshares: none\n", n, link, author, where, date, from, quote, likes)
 }
 
-// pages serves the posts' pages: each path answers the HTML pages gives it; a request is sent here whatever its
+// postPages serves the posts' pages: each path answers the HTML pages gives it; a request is sent here whatever its
 // host, the host kept in X-Host, and each is counted.
-type pages struct {
+type postPages struct {
 	mu     sync.Mutex
 	html   map[string]string
 	status map[string]int
@@ -98,10 +98,10 @@ type pages struct {
 	onHit func()
 }
 
-func newPages(t *testing.T) *pages {
+func newPages(t *testing.T) *postPages {
 	t.Helper()
 
-	p := &pages{html: map[string]string{}, status: map[string]int{}}
+	p := &postPages{html: map[string]string{}, status: map[string]int{}}
 	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		key := r.Header.Get("X-Host") + r.URL.Path
@@ -136,7 +136,7 @@ func newPages(t *testing.T) *pages {
 	return p
 }
 
-func (p *pages) post(address, ogURL, description string) {
+func (p *postPages) post(address, ogURL, description string) {
 	u, _ := url.Parse(address)
 
 	p.mu.Lock()
@@ -147,7 +147,7 @@ func (p *pages) post(address, ogURL, description string) {
 		description + `" /></head><body></body></html>`
 }
 
-func (p *pages) set(address, body string) {
+func (p *postPages) set(address, body string) {
 	u, _ := url.Parse(address)
 
 	p.mu.Lock()
@@ -156,7 +156,7 @@ func (p *pages) set(address, body string) {
 	p.html[u.Host+u.Path] = body
 }
 
-func (p *pages) opened() []string {
+func (p *postPages) opened() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -164,7 +164,7 @@ func (p *pages) opened() []string {
 }
 
 // client sends every request to the pages' server, as if it were the platform.
-func (p *pages) client() *http.Client {
+func (p *postPages) client() *http.Client {
 	target, _ := url.Parse(p.server.URL)
 
 	return &http.Client{Transport: roundTrip(func(asked *http.Request) (*http.Response, error) {
@@ -186,7 +186,7 @@ type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func museService(c *clock, m listening.Muse, p *pages) *listening.Service {
+func museService(c *clock, m listening.Muse, p *postPages) *listening.Service {
 	return listening.New(listening.Config{
 		Platforms: listening.MuseSources(m, p.client()), Now: c.Now,
 		Sleep: func(_ context.Context, d time.Duration) error { c.Advance(d); return nil },
@@ -209,7 +209,7 @@ func TestMuseIsAskedForPostsInTheWindowWithTheTemplate(t *testing.T) {
 	}}
 	s := museService(c, m, newPages(t))
 
-	_, err := s.Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC \"thu phí\"\nignore this"), nil)
+	_, err := s.Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC \"thu phí\"\nignore this"), listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -251,7 +251,7 @@ func TestMuseBlocksBecomePostsWithTheirUnwrappedLinks(t *testing.T) {
 		return answeredWith(text, metaLink(a), "https://muse.ai/help", metaLink(b)), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 	require.Len(t, got.Items, 2, "unverified: %+v", got.Unverified)
 
@@ -301,7 +301,7 @@ func TestMuseStoppingMidWorkIsContinuedInTheSameThread(t *testing.T) {
 		return answeredWith("NO POSTS FOUND"), nil // the depth question that follows
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "Cốc Cốc"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "Cốc Cốc"), listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -325,7 +325,7 @@ func TestMuseFindingNoPostIsACleanZero(t *testing.T) {
 	}}
 
 	got, err := museService(c, m, newPages(t)).Search(t.Context(),
-		plan([]string{listening.SourceInstagram}, "VMAP"), nil)
+		plan([]string{listening.SourceInstagram}, "VMAP"), listening.Caller{})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, got, listening.SourceInstagram)
@@ -367,7 +367,7 @@ func TestMuseItemsAreCheckedByOpeningTheirLinks(t *testing.T) {
 		block(6, gone, "@deleted.one", "@deleted.one", "2026-11-08", "caption", "VETC", "none")
 	m := &fakeMuse{answer: func(int, muse.Question) (muse.Result, error) { return answeredWith(text), nil }}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	require.Len(t, got.Items, 1)
@@ -418,7 +418,7 @@ func TestMusePostsThatAllFailTheCheckAreLeadsNotItems(t *testing.T) {
 			"DÁN THẺ eTag VETC", "none")), nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 	assert.Empty(t, got.Items)
 	require.Len(t, got.Unverified, 1)
@@ -459,7 +459,7 @@ func TestMuseLinksAreKnownByThePlatformsPostIdentity(t *testing.T) {
 		return r, nil
 	}}
 
-	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceFacebook}, "VMAP"), nil)
+	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceFacebook}, "VMAP"), listening.Caller{})
 	require.NoError(t, err)
 
 	require.Len(t, got.Items, 1, "%+v", got.Unverified)
@@ -502,7 +502,7 @@ func TestMuseIsAskedAgainForTheGroupsOrAccountsThatGaveMost(t *testing.T) {
 		return answeredWith("NO POSTS FOUND"), nil
 	}}
 
-	_, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), nil)
+	_, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -535,7 +535,7 @@ func TestMuseQuestionsShareTheSearchsTime(t *testing.T) {
 		}}
 
 	got, err := museService(c, m, p).Search(t.Context(),
-		plan([]string{listening.SourceThreads}, "VETC", "VETC thu phí", "VETC dán thẻ"), nil)
+		plan([]string{listening.SourceThreads}, "VETC", "VETC thu phí", "VETC dán thẻ"), listening.Caller{})
 	require.NoError(t, err)
 
 	asked := m.questions()
@@ -590,7 +590,7 @@ func TestMuseOutcomesHaveTheirCodes(t *testing.T) {
 			}}
 
 			got, err := museService(newClock(), m, newPages(t)).Search(t.Context(),
-				plan([]string{listening.SourceThreads}, "VETC"), nil)
+				plan([]string{listening.SourceThreads}, "VETC"), listening.Caller{})
 			require.NoError(t, err)
 
 			cov := coverageOf(t, got, listening.SourceThreads)
@@ -606,7 +606,7 @@ func TestNoMuseIsBroken(t *testing.T) {
 
 	s := listening.New(listening.Config{Platforms: listening.MuseSources(nil, http.DefaultClient), Now: newClock().Now})
 
-	got, err := s.Search(t.Context(), plan([]string{listening.SourceFacebook}, "VETC"), nil)
+	got, err := s.Search(t.Context(), plan([]string{listening.SourceFacebook}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, got, listening.SourceFacebook)

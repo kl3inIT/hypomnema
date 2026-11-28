@@ -28,7 +28,10 @@
 //     lib/fusion.py:850-1039, lib/signals.py:225-582, lib/rerank.py:974-1274 (rank.go);
 //   - items are grouped by greedy clustering, each cluster tagged single-source or thin-evidence: last30days
 //     lib/cluster.py:61-346, with the topic's own words removed before comparing, last30days-cn lib/dedupe.py
-//     strip_query_terms and harken analyze/insights.py (cluster.go).
+//     strip_query_terms and harken analyze/insights.py (cluster.go);
+//   - a cheap model scores the shortlist and reviews the clusters, and a long-context model reads the final items in
+//     full for their quotes, the code's ranking and clusters standing when no model answers as asked (issue #1306;
+//     semantic.go).
 //
 // It stores nothing: what a backend rests for is kept in memory, the control plane being one process that lives
 // across calls (last30days, a process per run, writes it to a file).
@@ -67,7 +70,8 @@ const (
 	// which a plan asks for with max_results. A web search answers 20 at most (websearch.MaxResults).
 	DefaultResults = 25
 	MaxResults     = 50
-	// PoolSize is how many items the answer lists, the best first: last30days' default pool (fusion.py:537-543).
+	// PoolSize is how many items a standard search answers, the best first: last30days' default pool
+	// (fusion.py:537-543, pipeline.py:121).
 	PoolSize = 40
 )
 
@@ -89,6 +93,13 @@ type Plan struct {
 	// Backends pins a source to one of its backends, the only one then asked: how an opt-in backend is used
 	// (last30days pins, lib/backends.py:799-833).
 	Backends map[string]string `json:"backends,omitempty"`
+	// Depth is quick, standard or deep, the bounds of the answer's pool, the model's shortlist and the full reads
+	// (Limits); standard when empty.
+	Depth string `json:"depth,omitempty"`
+	// Pool overrides the depth's pool and shortlist, up to MaxPool; Read its full reads, up to MaxRead (last30days
+	// --max-results, pipeline.py:708-728).
+	Pool int `json:"pool,omitempty"`
+	Read int `json:"read,omitempty"`
 }
 
 // Subquery is one search of the plan.
@@ -137,6 +148,22 @@ type Item struct {
 	// Score orders the answer's items, higher first; Cluster is the cluster it is in.
 	Score   float64 `json:"score"`
 	Cluster string  `json:"cluster,omitempty"`
+	// Provenance says what scored it: llm, the model's relevance, or fallback, the code's local score; Reason is the
+	// model's (last30days rerank_provenance and explanation, lib/rerank.py:1203-1212).
+	Provenance string `json:"provenance"`
+	Reason     string `json:"reason,omitempty"`
+	// Fit is how it belongs to its cluster, as the model reviewed it: core, supporting or counter, with FitReason
+	// (trend-opportunity-radar cluster-plan.json assignments).
+	Fit       string `json:"fit,omitempty"`
+	FitReason string `json:"fit_reason,omitempty"`
+	// Direct says it was read from the post itself, the source's own record or the full read, not from a search
+	// result's card (trend-opportunity-radar's direct_post and detail_captured against search_card,
+	// references/scoring-contract.md:32).
+	Direct bool `json:"direct,omitempty"`
+	// Quotes are verbatim passages of the post or its comments, checked to be in what was read in full; Claims what
+	// it says about the topic, kept only beside a checked quote (semantic pass, layer 2b).
+	Quotes []string `json:"quotes,omitempty"`
+	Claims []string `json:"claims,omitempty"`
 	// QuoteFrom says where the text was read, for an item a model found: caption, image_text or comment.
 	QuoteFrom string `json:"quote_from,omitempty"`
 	// Check is how an item a model found was checked, its link opened (muse.go): "verified: …", or in the answer's
@@ -147,6 +174,11 @@ type Item struct {
 	relevance float64
 	freshness int
 	rrf       float64
+	// rerank is the model's relevance, 0-100, when Provenance is llm; outside says it is dated outside the window.
+	rerank  float64
+	outside bool
+	// body is the text as the source gave it, before it was cut, for the full read.
+	body string
 }
 
 // Answer is what a search found, and what it could not read.
@@ -158,9 +190,12 @@ type Answer struct {
 	Coverage []Coverage `json:"coverage"`
 	Clusters []Cluster  `json:"clusters"`
 	Warnings []string   `json:"warnings,omitempty"`
-	// Items are the best PoolSize, the best first; Omitted counts those left out.
+	// Items are the best of the pool, the best first; Omitted counts those left out.
 	Items   []Item `json:"items"`
 	Omitted int    `json:"omitted,omitempty"`
+	// Limits are the bounds this search used; Pass reports the semantic pass over them.
+	Limits Limits `json:"limits"`
+	Pass   Pass   `json:"pass"`
 	// Unverified are what a model said it found and its link did not bear out, at most PoolSize, each with why in
 	// its Check: leads to look at, never evidence, so neither ranked, clustered nor counted as items (issue #1292;
 	// last30days grok_x._validate_items drops them, lib/grok_x.py:400-440).
@@ -179,6 +214,10 @@ type Config struct {
 	// Sleep waits between two calls to one site; nil: a timer.
 	Sleep  func(ctx context.Context, d time.Duration) error
 	Logger *slog.Logger
+	// ReviewModel scores the shortlist and reviews its clusters, ReadModel reads the final items in full: a gateway
+	// chat model's name, ModelOff, or empty for DefaultReviewModel and DefaultReadModel.
+	ReviewModel string
+	ReadModel   string
 	// Muse is the owner's Muse pool, the backend of Facebook, Instagram and Threads (muse.go); nil: those sources
 	// cannot be read. Used only when Platforms is nil.
 	Muse Muse
@@ -190,6 +229,12 @@ type Service struct {
 	now       func() time.Time
 	pacer     *Pacer
 	logger    *slog.Logger
+
+	reviewModel, readModel string
+	// scores and readings are the model's judgments, kept for a later search of the same items.
+	scores   *memo[scored]
+	readings *memo[reading]
+	plans    *memo[clusterPlan]
 
 	mu sync.Mutex
 	// resting is each backend's rest, by "<platform>/<backend>".
@@ -212,6 +257,8 @@ func New(cfg Config) *Service {
 
 	return &Service{
 		platforms: cfg.Platforms, now: cfg.Now, pacer: NewPacer(cfg.Now, cfg.Sleep), logger: cfg.Logger,
+		reviewModel: cfg.ReviewModel, readModel: cfg.ReadModel,
+		scores: newMemo[scored](cfg.Now), readings: newMemo[reading](cfg.Now), plans: newMemo[clusterPlan](cfg.Now),
 		resting: map[string]*SourceError{},
 	}
 }
@@ -226,8 +273,9 @@ func (s *Service) SourceNames() []string {
 	return out
 }
 
-// Search runs a plan; web asks the web search chain for the backends that use it (nil: they cannot be asked).
-func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer, error) {
+// Search runs a plan with what its caller may use: the web search chain for the backends that ask it, the web fetch
+// and the gateway's models for the semantic pass.
+func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, error) {
 	plan, err := s.check(plan)
 	if err != nil {
 		return Answer{}, err
@@ -275,12 +323,8 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 			var streams []stream
 
 			for _, sq := range labels {
-				req := Request{
-					Query: sq.Query, Topic: plan.topic(), Limit: plan.MaxResults, From: from, To: now, Web: web,
-					Pace: s.pacer.Wait, Now: s.now, Run: run,
-					Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
-					Rest:    func(path string, f *SourceError) time.Time { return s.rest("path:"+path, f) },
-				}
+				req := s.request(plan, c)
+				req.Query, req.Limit, req.From, req.To, req.Run = sq.Query, plan.MaxResults, from, now, run
 				st := s.runStream(ctx, p, plan.Backends[p.Name], sq, req)
 				cov.Streams = append(cov.Streams, st.report)
 				streams = append(streams, st)
@@ -327,27 +371,29 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 		}
 	}
 
+	answer.Limits = plan.limits()
+
 	items := rank(plan, streams, now)
-	if len(items) > PoolSize {
-		answer.Omitted = len(items) - PoolSize
-		items = items[:PoolSize]
+	if len(items) > answer.Limits.Pool {
+		answer.Omitted = len(items) - answer.Limits.Pool
+		items = items[:answer.Limits.Pool]
 	}
 
-	answer.Clusters = clusterItems(items, plan.topic())
-	answer.Items = items
+	answer.Items, answer.Clusters, answer.Pass = s.semantic(ctx, plan, items, c, answer.Limits, from, now)
 
-	// last30days-skill-cn render._assess_data_freshness measures dated evidence in the returned results.
+	// last30days-skill-cn render._assess_data_freshness measures dated evidence in the returned results, after the
+	// full read dated some by their pages and dropped those outside the window.
 	dated := 0
 
-	for _, it := range items {
+	for _, it := range answer.Items {
 		if it.PublishedAt != nil && inDays(it.PublishedAt, from, now) {
 			dated++
 		}
 	}
 
-	if dated < 5 || dated*10 < len(items)*3 {
+	if dated < 5 || dated*10 < len(answer.Items)*3 {
 		answer.Warnings = []string{fmt.Sprintf("Thin date coverage: %d of %d returned items have a date inside the window.",
-			dated, len(items))}
+			dated, len(answer.Items))}
 	}
 
 	if answer.Items == nil {
@@ -373,6 +419,10 @@ func (s *Service) check(plan Plan) (Plan, error) {
 		plan.MaxResults = DefaultResults
 	}
 
+	if plan.Depth == "" {
+		plan.Depth = DepthStandard
+	}
+
 	switch {
 	case len(plan.Subqueries) == 0:
 		return Plan{}, fmt.Errorf("%w: a plan needs at least one subquery", ErrInvalid)
@@ -382,6 +432,12 @@ func (s *Service) check(plan Plan) (Plan, error) {
 		return Plan{}, fmt.Errorf("%w: window_days is from 1 to %d", ErrInvalid, MaxWindowDays)
 	case plan.MaxResults < 1 || plan.MaxResults > MaxResults:
 		return Plan{}, fmt.Errorf("%w: max_results is from 1 to %d", ErrInvalid, MaxResults)
+	case depths[plan.Depth].Depth == "":
+		return Plan{}, fmt.Errorf("%w: depth is %s, %s or %s", ErrInvalid, DepthQuick, DepthStandard, DepthDeep)
+	case plan.Pool < 0 || plan.Pool > MaxPool:
+		return Plan{}, fmt.Errorf("%w: pool is from 1 to %d", ErrInvalid, MaxPool)
+	case plan.Read < 0 || plan.Read > MaxRead:
+		return Plan{}, fmt.Errorf("%w: read is from 1 to %d", ErrInvalid, MaxRead)
 	}
 
 	sourceErr := func(name string) error {
@@ -422,6 +478,9 @@ func (s *Service) check(plan Plan) (Plan, error) {
 
 	labels := map[string]bool{}
 
+	// The subqueries are filled in on a copy: the caller's plan, which may be shared, is left as it was.
+	plan.Subqueries = slices.Clone(plan.Subqueries)
+
 	for i := range plan.Subqueries {
 		sq := &plan.Subqueries[i]
 		sq.Query = strings.TrimSpace(sq.Query)
@@ -461,6 +520,15 @@ func (s *Service) check(plan Plan) (Plan, error) {
 	}
 
 	return plan, nil
+}
+
+// request is what a backend is asked for this plan and caller, its query and window aside.
+func (s *Service) request(plan Plan, c Caller) Request {
+	return Request{
+		Topic: plan.topic(), Web: c.Web, Fetch: c.Fetch, Pace: s.pacer.Wait, Now: s.now,
+		Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
+		Rest:    func(path string, f *SourceError) time.Time { return s.rest("path:"+path, f) },
+	}
 }
 
 func (s *Service) platform(name string) Platform {

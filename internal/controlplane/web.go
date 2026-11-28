@@ -83,17 +83,46 @@ func (a agentWeb) Fetch(ctx context.Context, who agentapi.Who, url string) (webs
 	return a.bot.Fetch(ctx, who.ChatID, url)
 }
 
-// agentListening is social listening as the agent API gives it (issue #1287): the web searches a plan makes go
-// through the agent's metered web, each recorded on the key of who asked, as its own web_search is.
+// agentListening is social listening as the agent API gives it (issue #1287): the web searches and page reads a plan
+// makes go through the agent's metered web, and its semantic pass's model calls through the gateway (issue #1306),
+// each recorded on the key of who asked, as its own web_search is.
 type agentListening struct {
-	svc *listening.Service
-	web agentWeb
+	svc    *listening.Service
+	web    agentWeb
+	models agentModels
 }
 
 func (a agentListening) Search(ctx context.Context, who agentapi.Who, plan listening.Plan) (listening.Answer, error) {
-	return a.svc.Search(ctx, plan, func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
-		return a.web.Search(ctx, who, query, limit, "")
+	return a.svc.Search(ctx, plan, listening.Caller{
+		Web: func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+			return a.web.Search(ctx, who, query, limit, "")
+		},
+		Fetch: func(ctx context.Context, address string) (websearch.Page, error) {
+			return a.web.Fetch(ctx, who, address)
+		},
+		Model: func(ctx context.Context, body []byte) ([]byte, error) {
+			out, err := a.models.Complete(ctx, who, body)
+			if errors.Is(err, modelgateway.ErrNotFound) {
+				return nil, fmt.Errorf("%w: %w", listening.ErrModelNotServed, err)
+			}
+
+			return out, err
+		},
 	})
+}
+
+// agentModels are the gateway's chat models as a tool asks them for a worker or a Bot's pi, on its key.
+type agentModels struct {
+	worker modelgateway.WorkerModels
+	bot    modelgateway.BotModels
+}
+
+func (a agentModels) Complete(ctx context.Context, who agentapi.Who, body []byte) ([]byte, error) {
+	if who.DispatchID != "" {
+		return a.worker.Complete(ctx, who.DispatchID, body)
+	}
+
+	return a.bot.Complete(ctx, who.ChatID, body)
 }
 
 func (a agentListening) SourceNames() []string { return a.svc.SourceNames() }

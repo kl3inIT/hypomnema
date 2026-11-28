@@ -323,16 +323,16 @@ func (mr *museReader) open(ctx context.Context, r Request, address string, left 
 		return page{}, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	pg := readPage(io.LimitReader(resp.Body, maxBody))
+	pg := readPostPage(io.LimitReader(resp.Body, maxBody))
 	pg.final = resp.Request.URL
 
 	return pg, nil
 }
 
-// readPage reads a page's meta tags, its title, its first time element and whether it asks for a password: the
+// readPostPage reads a page's meta tags, its title, its first time element and whether it asks for a password: the
 // fields radar reads of a detail (og:url, og:title, og:description or the description, the first time's datetime,
 // password inputs: run_facebook_opencli_capture.py:59, run_instagram_opencli_capture.py:23).
-func readPage(body io.Reader) page {
+func readPostPage(body io.Reader) page {
 	var (
 		pg      page
 		inTitle bool
