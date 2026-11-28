@@ -6787,9 +6787,11 @@ Node (`internal/node`):
   `systemctl --user set-property hypomnema-workers.slice MemoryMax=<ceiling> MemoryHigh=<90 %> MemorySwapMax=0`,
   which takes effect at once and stays in a drop-in for the next start; no ceiling sets the three to `infinity`. The
   90 % is the owner's margin (2026-11-28): the kernel throttles and reclaims above `MemoryHigh` before it kills at
-  `MemoryMax`. Checked on 2026-11-28 in a scratch slice of 512 MiB on a node: a process that allocated 1 GiB was
-  throttled above `MemoryHigh` for about 4 minutes, then killed at `MemoryMax`, and nothing outside the slice was
-  touched.
+  `MemoryMax`. Checked on 2026-11-28 with the slice at 512 MiB (`TestALiveWorkerOverTheSliceEndsOOMKilled`, behind
+  `HYPOMNEMA_TEST_WORKER_SLICE`): nothing outside the slice was touched, but a worker that took memory a page at a
+  time stayed throttled between `MemoryHigh` and `MemoryMax` for the test's 15 minutes and was not killed; with
+  `MemoryHigh` equal to `MemoryMax` the kernel killed it within a second and it ended `oom_killed`. A Python process
+  allocating 1 GiB at once in a scratch slice of the same size was killed after about 4 minutes.
 - No worker has a ceiling of its own by default: one build can take 2.7 GiB with a CLI beside it. A profile may set
   one, as a Kubernetes or Coder container sets its limits (`examples/templates/kubernetes/main.tf:298-306`):
   `limits: {memory: 4Gi}` in its YAML, kept in `profile_versions.memory_limit_bytes` and sent in the offer as
