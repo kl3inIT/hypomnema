@@ -5895,6 +5895,43 @@ export type InboxChatSet = {
   set_at: string;
 };
 
+/**
+ * Supply exactly one of chat_ids or filter. Only chats whose reads value changes get an owner choice.
+ */
+export type InboxChatBulkChoice = {
+  reads: boolean;
+  chat_ids?: Array<string>;
+  filter?: InboxChatBulkFilter;
+};
+
+/**
+ * The same filters and ordering as the chat list. Applies to its first 500 matching chats.
+ */
+export type InboxChatBulkFilter = {
+  q?: string;
+  kind?: InboxChatKind;
+  state?: InboxChatState;
+};
+
+export type InboxChatBulkReceipt = {
+  changes: Array<InboxChatBulkChange>;
+};
+
+export type InboxChatBulkChange = {
+  chat: string;
+  reads: boolean;
+  set_at: string;
+  previous?: InboxChatPreviousChoice;
+};
+
+/**
+ * The previous owner choice. Its absence means the chat previously used its default.
+ */
+export type InboxChatPreviousChoice = {
+  reads: boolean;
+  set_at: string;
+};
+
 export type InboxChatMove = {
   /**
    * The Bot's id, whose folder holds thu-ky/filters.json; the main Bot when left out.
@@ -14899,6 +14936,62 @@ export type ListInboxChatsResponses = {
 };
 
 export type ListInboxChatsResponse = ListInboxChatsResponses[keyof ListInboxChatsResponses];
+
+export type SetInboxChatsBulkData = {
+  body: InboxChatBulkChoice;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/inbox/chat-sources/{integration}/{label}/bulk';
+};
+
+export type SetInboxChatsBulkErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetInboxChatsBulkError = SetInboxChatsBulkErrors[keyof SetInboxChatsBulkErrors];
+
+export type SetInboxChatsBulkResponses = {
+  /**
+   * The changes. Send this receipt to the undo endpoint for the same account.
+   */
+  200: InboxChatBulkReceipt;
+};
+
+export type SetInboxChatsBulkResponse = SetInboxChatsBulkResponses[keyof SetInboxChatsBulkResponses];
+
+export type UndoInboxChatsBulkData = {
+  body: InboxChatBulkReceipt;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/inbox/chat-sources/{integration}/{label}/bulk/undo';
+};
+
+export type UndoInboxChatsBulkErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UndoInboxChatsBulkError = UndoInboxChatsBulkErrors[keyof UndoInboxChatsBulkErrors];
+
+export type UndoInboxChatsBulkResponses = {
+  /**
+   * The previous choices were restored.
+   */
+  204: void;
+};
+
+export type UndoInboxChatsBulkResponse = UndoInboxChatsBulkResponses[keyof UndoInboxChatsBulkResponses];
 
 export type SetInboxChatData = {
   body: InboxChatChoice;

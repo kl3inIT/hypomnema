@@ -5062,7 +5062,11 @@ writes no prose (last30days SKILL.md LAW 7).
   `limit_reached`, `refused`) until the first is free; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
   anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
-  tried with its result, detail and rest (`until`, `skipped`).
+  tried with its result, detail and rest (`until`, `skipped`). Each source counts rejected candidates before
+  deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The web source requests the UTC
+  date window from the keyless chain. The answering provider and its `window_basis` (`server_bounds`,
+  `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result through. The
+  answer warns when fewer than 5 returned items or under 30% have dates in the window.
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
   without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
@@ -5070,7 +5074,8 @@ writes no prose (last30days SKILL.md LAW 7).
   score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
   Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
   freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
-  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
+  rank, freshness and engagement (last30days' local score, multiplied by 0.35 for any out-of-window survivor),
+  at most 3 items an author; the best 40 are answered and
   the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
 - Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
@@ -5705,9 +5710,12 @@ its client API, its CLI and the Bots' tools.
     Zalo, WhatsApp, Telegram and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
     is the owner's choice, with when he made it; inbox-zero's per-account exclude items). A chat without a row takes
     its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
-    official account's is not, a bot being a WhatsApp broadcast list, a Telegram chat of kind `bot` or `broadcast`
-    (a bot, an account Telegram marks verified, support, scam or fake, a channel; issue #1184) or a chat whose name
-    or id matches `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
+    official account's is not. For Zalo and WhatsApp, that means a broadcast list or a chat whose name or id
+    matches `inboxstore.BotPatterns` (the check's former `dropChats` defaults); for Telegram, a chat of kind `bot` or
+    `broadcast` (a bot, an account Telegram marks verified, support, scam or fake, a channel; issue #1184). Lark uses
+    the chat list's bot mode or a P2P peer type of app or bot. The list recomputes the kind and default on each read,
+    then applies the owner's stored choice. The triage check uses the same Lark metadata before reading a chat's
+    history. `internal/controlplane/inbox` (`Chats`)
     lists a Connection's chats with their state: Zalo's, WhatsApp's and Telegram's kept chats (up to `messaging.MaxChats`,
     20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
     100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
@@ -5730,7 +5738,12 @@ its client API, its CLI and the Bots' tools.
     plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
     `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
     kind and state filters as the Machines page's segmented controls with counts for the search, and a card of rows, each with its kind's icon,
-    why it is in its state (default or set by him, and when) and a switch.
+    why it is in its state (default or set by him, and when) and a switch. Skip all shown and Read all shown
+    confirm the visible list's count and send its IDs in one `POST …/bulk` request. Only rows whose read state
+    changes become owner choices. One Undo sends the receipt to `POST …/bulk/undo`, which restores all previous
+    overrides or defaults together and refuses the undo if any affected choice changed since the batch.
+    The CLI accepts comma-separated IDs (`inbox chats set zalo:main 1001,2002 off`) or the list filters
+    (`inbox chats set zalo:main off --kind group`). With `--shown` alone it uses the first 500 chats of the account.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 

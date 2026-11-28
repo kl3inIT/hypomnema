@@ -398,6 +398,8 @@ var policies = map[string]policy{
 	"ListInboxChatSources": {scope: scopeOwner, long: true},
 	"ListInboxChats":       {scope: scopeOwner, long: true},
 	"SetInboxChat":         {scope: scopeOwner},
+	"SetInboxChatsBulk":    {scope: scopeOwner, long: true},
+	"UndoInboxChatsBulk":   {scope: scopeOwner},
 	"MoveInboxDropChats":   {scope: scopeOwner, long: true},
 }
 

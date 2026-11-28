@@ -69,6 +69,47 @@ func TestInboxChatsMoveFailsUntilEveryIDIsStored(t *testing.T) {
 	assert.Contains(t, out, "set already, left as it is: zalo:main chat 1001")
 }
 
+func TestInboxChatsSetBulkAcceptsFiltersAndIDs(t *testing.T) {
+	t.Parallel()
+
+	var srv *clientapi.Server
+	w := newWorldWith(t, replier{}, func(s *clientapi.Server) { srv = s })
+	srv.WithInboxChats(inbox.NewChats(inbox.Config{
+		Chats: func(_ context.Context, _, _ string, _ int) ([]messaging.Chat, error) {
+			return []messaging.Chat{
+				{ID: "101", Kind: "group", Name: "Alpha"},
+				{ID: "102", Kind: "group", Name: "Birch"},
+				{ID: "103", Kind: "dm", Name: "Alex"},
+			}, nil
+		},
+		ChatReads: w.svc.Inbox().ChatReads,
+	}))
+
+	_, err := w.svc.SaveServiceConnection(t.Context(), orchestration.Connection{
+		Integration: "zalo", Label: "demo", Secret: "test-zalo",
+	})
+	require.NoError(t, err)
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "inbox", "chats", "set", "zalo:demo", "off", "--q", "alp", "--kind", "group", "--state", "read")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Updated 1 chat of zalo:demo.")
+
+	out, err = w.cmd(t, "inbox", "chats", "zalo:demo", "--state", "skipped")
+	require.NoError(t, err)
+	assert.Contains(t, out, "101\tAlpha\tgroup\tskipped (owner)")
+	assert.Contains(t, out, "1 of 3 chats")
+
+	out, err = w.cmd(t, "inbox", "chats", "set", "zalo:demo", "102,103", "off")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Updated 2 chats of zalo:demo.")
+
+	out, err = w.cmd(t, "inbox", "chats", "zalo:demo", "--state", "skipped")
+	require.NoError(t, err)
+	assert.Contains(t, out, "102\tBirch\tgroup\tskipped (owner)")
+	assert.Contains(t, out, "103\tAlex\tdirect\tskipped (owner)")
+}
+
 // folderOf holds the main Bot's thu-ky/filters.json, which the test changes; every id is made up.
 type folderOf struct{ filters *atomic.Pointer[string] }
 
