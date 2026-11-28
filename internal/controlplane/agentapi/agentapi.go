@@ -222,6 +222,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.counted(s.callTool))
 	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
 	mux.HandleFunc("POST "+agenttool.PathGitHubToken, s.githubToken)
+	mux.HandleFunc("POST "+agenttool.PathGitHubPRCreateToken, s.githubToken)
 	mux.HandleFunc("GET "+agenttool.PathCIWait, s.ciWait)
 	mux.HandleFunc("POST "+agenttool.PathBackground, s.background)
 }
