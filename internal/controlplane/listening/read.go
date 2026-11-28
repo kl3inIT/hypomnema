@@ -457,22 +457,55 @@ func (s *Service) askReadings(ctx context.Context, topic string, asked []int, bl
 }
 
 // The forms a date is written in: day/month/year, as Vietnamese pages write it, year-month-day, the Vietnamese
-// "(ngày) D tháng M (năm) Y", and the English month's name before or after the day ("November 22, 2019", "Nov. 22,
-// 2019", "22 November 2019").
+// "(ngày) D tháng M (năm) Y" with the month in digits or in words ("tháng mười một"), and the English month's name
+// before or after the day ("November 22, 2019", "Nov. 22, 2019", "22 November 2019"). Every number is read whole:
+// what precedes and follows it is not a digit, so "20190" is no 2019.
 var (
-	dayMonthYear = regexp.MustCompile(`(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})`)
-	yearMonthDay = regexp.MustCompile(`(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})`)
-	vietnamese   = regexp.MustCompile(`(?i)(\d{1,2})\s+tháng\s+(\d{1,2})[\s,]+(?:năm\s+)?(\d{4})`)
-	monthName    = `(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|` +
+	dayMonthYear = regexp.MustCompile(`(?:^|\D)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\D|$)`)
+	yearMonthDay = regexp.MustCompile(`(?:^|\D)(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})(?:\D|$)`)
+	vietnamese   = regexp.MustCompile(`(?i)(?:^|\D)(\d{1,2})\s+tháng\s+(\d{1,2}|` + vietnameseMonth +
+		`)[\s,]+(?:năm\s+)?(\d{4})(?:\D|$)`)
+	monthName = `(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|` +
 		`oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?`
-	monthDayYear = regexp.MustCompile(`(?i)\b` + monthName + `\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})`)
-	dayMonthName = regexp.MustCompile(`(?i)\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthName + `,?\s+(\d{4})`)
+	monthDayYear = regexp.MustCompile(`(?i)\b` + monthName + `\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?:\D|$)`)
+	dayMonthName = regexp.MustCompile(`(?i)(?:^|\D)(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthName +
+		`,?\s+(\d{4})(?:\D|$)`)
 )
 
-// monthOf is an English month's number from its name or its first three letters.
+// vietnameseMonths are the Vietnamese months in words, by number; the longer names first, so "mười một" is not read
+// as "mười". "Giêng" and "chạp" are the lunar calendar's first and last months, which a page's date does not use.
+var vietnameseMonths = []struct {
+	name   string
+	number int
+}{
+	{"mười một", 11}, {"mười hai", 12}, {"mười", 10}, {"một", 1}, {"hai", 2}, {"ba", 3}, {"tư", 4}, {"bốn", 4},
+	{"năm", 5}, {"sáu", 6}, {"bảy", 7}, {"tám", 8}, {"chín", 9},
+}
+
+var vietnameseMonth = func() string {
+	names := make([]string, 0, len(vietnameseMonths))
+	for _, m := range vietnameseMonths {
+		names = append(names, strings.ReplaceAll(m.name, " ", `\s+`))
+	}
+
+	return strings.Join(names, "|")
+}()
+
+// monthOf is a month's number from its digits, its English name or first three letters, or its Vietnamese words.
 func monthOf(name string) string {
+	name = strings.ToLower(strings.Join(strings.Fields(name), " "))
+	if _, err := strconv.Atoi(name); err == nil {
+		return name
+	}
+
+	for _, m := range vietnameseMonths {
+		if name == m.name {
+			return strconv.Itoa(m.number)
+		}
+	}
+
 	for n, m := range []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"} {
-		if strings.HasPrefix(strings.ToLower(name), m) {
+		if strings.HasPrefix(name, m) {
 			return strconv.Itoa(n + 1)
 		}
 	}
@@ -515,7 +548,7 @@ func pageDate(date, quote, doc string) *time.Time {
 	}
 
 	for _, f := range vietnamese.FindAllStringSubmatch(quote, -1) {
-		if matches(f[3], f[2], f[1]) {
+		if matches(f[3], monthOf(f[2]), f[1]) {
 			return &at
 		}
 	}

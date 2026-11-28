@@ -5046,7 +5046,8 @@ writes no prose (last30days SKILL.md LAW 7).
   counts only when it is in what was read (NFKC, spaces evened), a claim only beside a checked quote and only when
   every number in it is one the post has (code owns the numbers, the model the words). Each read item is dated by
   its page (owner, 2026-11-28): the page's own `Published`, else the date the model read on the page when the words
-  it quotes for it are there and write that very date, day, month and year (day/month/year, year-month-day, "ngày D tháng M năm Y", or the English month by name, "November 22, 2019", "22 Nov 2019"); that date replaces a disagreeing one, and an item dated
+  it quotes for it are there and write that very date, day, month and year (day/month/year, year-month-day, "ngày D tháng M năm Y" with the month in digits or words, "tháng mười một", or the English month by name,
+  "November 22, 2019", "22 Nov 2019"; every number read whole, so "20190" is no 2019); that date replaces a disagreeing one, and an item dated
   outside the window is dropped, counted in `pass.read.outside_window`, and the scores and clusters made again. The
   page's own date stands even when the read's model fails. The models are given a bounded,
   sanitized payload (id, source, date, title 220 and text 420 characters without links, inside last30days'
