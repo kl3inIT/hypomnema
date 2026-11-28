@@ -7,6 +7,8 @@ import {
   listInboxChatsOptions,
   listInboxChatsQueryKey,
   setInboxChatMutation,
+  setInboxChatsBulkMutation,
+  undoInboxChatsBulkMutation,
 } from "@/api/generated/@tanstack/react-query.gen"
 import type { InboxChatKind, InboxChatState } from "@/api/generated/types.gen"
 import { callsOf } from "@/lib/query-keys"
@@ -35,18 +37,26 @@ export function useChats(integration: string, label: string, filter: ChatFilter)
   })
 }
 
+function useRefreshChatLists() {
+  const queryClient = useQueryClient()
+  return () =>
+    queryClient.invalidateQueries({
+      predicate: callsOf(
+        listInboxChatsQueryKey({ path: { integration: "", label: "" } }),
+        listInboxChatSourcesQueryKey(),
+      ),
+    })
+}
+
 // useSetChat switches whether the secretary reads a chat, then reads the lists and their counts again.
 export function useSetChat() {
-  const queryClient = useQueryClient()
+  return useMutation({ ...setInboxChatMutation(), onSettled: useRefreshChatLists() })
+}
 
-  return useMutation({
-    ...setInboxChatMutation(),
-    onSettled: () =>
-      queryClient.invalidateQueries({
-        predicate: callsOf(
-          listInboxChatsQueryKey({ path: { integration: "", label: "" } }),
-          listInboxChatSourcesQueryKey(),
-        ),
-      }),
-  })
+export function useSetChatsBulk() {
+  return useMutation({ ...setInboxChatsBulkMutation(), onSettled: useRefreshChatLists() })
+}
+
+export function useUndoChatsBulk() {
+  return useMutation({ ...undoInboxChatsBulkMutation(), onSettled: useRefreshChatLists() })
 }
