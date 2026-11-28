@@ -556,6 +556,27 @@ test("a chat the owner switched off is skipped, one he switched on is read", asy
   assert.ok(!w.calls.some((c) => c.args?.path?.includes("container_id=oc_off")), "nothing of it is read");
 });
 
+test("Lark bot chats are skipped before reading unless the owner switches them on", async () => {
+  const lark = {
+    chats: [
+      { chat_id: "oc_desk", name: "File Desk", chat_mode: "p2p", p2p_target_type: "app" },
+      { chat_id: "oc_paper", name: "Paper Trail", chat_mode: "bot" },
+      { chat_id: "oc_editor", name: "Newsletter Editor", chat_mode: "p2p", p2p_target_type: "user" },
+      { chat_id: "oc_calendar", name: "Calendar Desk", chat_mode: "p2p", p2p_target_type: "bot" },
+    ],
+    messages: {
+      oc_calendar: [{ message_id: "om_1", create_time: larkAt("01:50"), sender: { id: "cli_calendar", sender_type: "app" } }],
+    },
+  };
+  const choices = [{ account: "lark:me", chat: "oc_calendar", reads: true, set_at: since }];
+  const w = world({ lark, choices });
+  const got = await check({ tools, call: w.call, state, now });
+
+  const histories = w.calls.flatMap(({ args }) => args.path?.match(/container_id=(oc_[a-z]+)/)?.[1] ?? []);
+  assert.deepEqual(histories, ["oc_editor", "oc_calendar"]);
+  assert.match(got.text, /oc_calendar/);
+});
+
 test("when his choices cannot be read, his chats wait for the next run", async () => {
   const at = "2026-11-21T01:55:00Z";
   const w = world({
