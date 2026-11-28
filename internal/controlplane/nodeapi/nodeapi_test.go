@@ -539,6 +539,8 @@ func TestAnOfferCarriesTheAppsTokenOnlyToANodeThatRefreshesIt(t *testing.T) {
 			true, bot, "Co-authored-by: octo <1+octo@users.noreply.github.com>"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := newPlane(t)
 			p.githubApp = tc.refreshes
 
@@ -565,14 +567,16 @@ func TestAnOfferCarriesTheAppsTokenOnlyToANodeThatRefreshesIt(t *testing.T) {
 			assert.Equal(t, tc.app, offer.GitHubApp)
 			if tc.app {
 				assert.Empty(t, offer.RepoToken, "the node asks for the App's token at each use")
-				assert.Equal(t, bot, githost.Identity{Name: offer.GitCommitterName, Email: offer.GitCommitterEmail})
+				actualCommitter := githost.Identity{Name: offer.GitCommitterName, Email: offer.GitCommitterEmail}
+				assert.Equal(t, bot, actualCommitter)
 			} else {
 				assert.Equal(t, "ghp_the_owners", offer.RepoToken)
 				assert.Empty(t, offer.GitCommitterName)
 				assert.Empty(t, offer.GitCommitterEmail)
 			}
 
-			assert.Equal(t, tc.author, githost.Identity{Name: offer.GitName, Email: offer.GitEmail})
+			actualAuthor := githost.Identity{Name: offer.GitName, Email: offer.GitEmail}
+			assert.Equal(t, tc.author, actualAuthor)
 			assert.Equal(t, tc.trailer, offer.GitCoAuthor)
 		})
 	}
