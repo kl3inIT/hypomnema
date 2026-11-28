@@ -2,7 +2,6 @@ package modelgateway_test
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"sync/atomic"
@@ -220,7 +219,7 @@ func TestARefusedSignInRestsForTheUsageWait(t *testing.T) {
 			require.Equal(t, c.status, status, body)
 			assert.Equal(t, c.code, acc.lastCode())
 			assert.WithinDuration(t, time.Now().Add(time.Hour), acc.cooledUntil(), time.Minute,
-				fmt.Sprintf("rests until %v", acc.cooledUntil()))
+				"rests until %v", acc.cooledUntil())
 		})
 	}
 }

@@ -103,7 +103,7 @@ export function restTone(code: CoolingCode | undefined): Tone {
 // again changes nothing. OpenClaw keeps a billing failure off until the owner acts
 // (docs/research/2026-11-13-gateway-features.md:70-72). An OpenCode key is not signed in again: a new key is a new
 // account (issues #854, #965).
-export function restAction(code: CoolingCode | undefined, runtime: string) {
+function restAction(code: CoolingCode | undefined, runtime: string) {
   if (code === "auth") {
     return runtime === "opencode_go" || runtime === "opencode_zen"
       ? "Add a new key"
