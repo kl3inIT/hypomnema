@@ -160,7 +160,7 @@ func (p *Proxy) decideRequest(ctx context.Context, req *http.Request, body []byt
 		}
 
 		if !allowed {
-			governing, verdict, message, err = p.decide(ctx, lookup, s, func(a Action) asking {
+			governing, verdict, message, err = p.decide(ctx, lookup, s, false, func(a Action) asking {
 				return lookupAsking(req, body, a, s, id)
 			})
 			if err != nil || message != "" {
@@ -171,7 +171,9 @@ func (p *Proxy) decideRequest(ctx context.Context, req *http.Request, body []byt
 		named, repository = p.resolveByID(ctx, req, body, s, id, rest, named)
 	}
 
-	return p.decide(ctx, named, s, func(a Action) asking {
+	preapproved := named.ID == "github.comments.create" && codeRabbitTrigger(req, body, s)
+
+	return p.decide(ctx, named, s, preapproved, func(a Action) asking {
 		q := httpAsking(req, body, a, s)
 		if repository.ID != "" {
 			// A request by a repository's id names it only by a number: the owner is told which it is, by its name

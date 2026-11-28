@@ -8,6 +8,8 @@ const (
 	// gh and git call (`hypomnema-node gh`, `hypomnema-node git-credential`), as Omnara's agents ask their daemon
 	// (machinedaemon/git_credential_helper.go).
 	PathGitHubToken = "/agent/v1/github/token" //nolint:gosec // a route, not a credential
+	// PathGitHubPRCreateToken gives the App-backed worker its repository's owner Connection for gh pr create.
+	PathGitHubPRCreateToken = "/agent/v1/github/pr-create-token" //nolint:gosec // a route, not a credential
 	// PathCIWait waits a while for the CI of a pull request to end (`hypomnema ci wait`), without the worker calling
 	// GitHub: the App's events end it. Its parameters are QueryPullRequest and QueryWait.
 	PathCIWait = "/agent/v1/ci/wait"
