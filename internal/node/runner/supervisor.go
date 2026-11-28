@@ -158,10 +158,20 @@ type Worker struct {
 	// when it is taken for one that never started.
 	shimBy time.Time
 
+	// adopted says an earlier daemon started the worker: its shim may run outside the workers' slice and is moved
+	// into its scope (issue #1313, review round 1).
+	adopted bool
+
 	mu       sync.Mutex
 	pid      int
 	started  bool
 	stopping bool
+	// scope is the cgroup directory of the worker's scope in the workers' slice, once found or made; scopeTried
+	// says it was tried; scopeRead is when its memory.events was read last, and oomKills the count read there.
+	scope      string
+	scopeTried bool
+	scopeRead  time.Time
+	oomKills   int64
 }
 
 // ID is the worker's Dispatch.
@@ -444,6 +454,7 @@ func (s *Supervisor) Adopt(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	_, state := readCheckpoint(dir)
 	w := &Worker{
 		id: d.ID, dir: dir, socketDir: s.socketDir(d.ID), r: r, turn: rt.Adopted(state), started: true, offer: d.Offer,
+		adopted: true,
 	}
 
 	pid, err := shim.PID(dir)
@@ -710,6 +721,8 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 			}
 
 		}
+		s.watchScope(ctx, w)
+
 		forceStopping := false
 		if polls && ctx.Err() == nil {
 			changed, reason := poller.Poll(ctx, w, n == 0 && err == nil)
@@ -816,9 +829,14 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 
 	// A process of the worker the kernel killed for memory makes the exit's reason oom_killed, whichever process
 	// it was, as containerd says OOMKilled for a container whose child was (internal/cri/server/events.go:197-200).
-	oom := ""
-	if exit.OOMKills > 0 {
-		ex.Reason, oom = nodeproto.ExitOOMKilled, oomSummary(exit.OOMKills)
+	// The count is the shim's, read in its scope as it exited, or what the Supervisor read of the scope while the
+	// worker ran, for a shim that could not count it (one an earlier daemon started, one the kernel killed).
+	kills := max(exit.OOMKills, s.scopeKills(w))
+	if kills > 0 && !stopping {
+		ex.Reason = nodeproto.ExitOOMKilled
+		s.endedForMemory(ctx, w, started, oomSummary(kills), ex, res)
+
+		return
 	}
 
 	switch {
@@ -830,7 +848,7 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 		return
 	case !started && !res.Done:
 		w.Report(ctx, w.r.Finished(ctx, nodeproto.Finished{
-			Class: "start_failed", Summary: withOOM(oom, FirstLine(res.Failure, exit.Error, stderr(w.dir))), Exit: ex,
+			Class: "start_failed", Summary: FirstLine(res.Failure, exit.Error, stderr(w.dir)), Exit: ex,
 		}))
 
 		return
@@ -843,26 +861,126 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 
 	switch {
 	case finished:
-		// The worker's own report stands; the kill is said after it, so it is not taken for a flaky test.
-		summary := final.Summary
-		if oom != "" {
-			summary = strings.TrimSpace(summary + "\n\n" + oom)
-		}
-
 		w.Report(ctx, w.r.Finished(ctx, nodeproto.Finished{
-			Summary: summary, Evidence: final.Evidence, Gate: final.Gate, Exit: ex, Usage: res.Usage,
+			Summary: final.Summary, Evidence: final.Evidence, Gate: final.Gate, Exit: ex, Usage: res.Usage,
 		}))
-	case oom != "":
-		// The worker ended without finish after a kill for memory: it failed for that, not for an unknown cause
-		// (Kubernetes ends such a container Terminated with the reason OOMKilled).
-		f := nodeproto.Finished{Class: "worker_error", Summary: withOOM(oom, res.Failure), Exit: ex, Usage: res.Usage}
-		w.Report(ctx, w.r.Finished(ctx, f))
 	case !res.Done && res.Failure == "":
 		// No result and nothing said: the outcome is unknown.
 		w.Report(ctx, w.r.Exited(ctx))
 	default:
 		w.Report(ctx, w.r.Finished(ctx, w.turn.Outcome(ex)))
 	}
+}
+
+// endedForMemory ends a worker one of whose processes the kernel killed for memory the same way whenever it
+// happened (issue #1313, review round 1): it failed (worker_error), as Kubernetes takes an OOMKilled container for
+// a failure even when it exited 0 (pkg/kubelet/kuberuntime/helpers.go:170-177). The kill comes first in the summary,
+// then what the worker said, its finish report's summary and evidence included. A worker killed before its CLI said
+// it started did run: it is reported started first, so it does not end as a start that failed.
+func (s *Supervisor) endedForMemory(ctx context.Context, w *Worker, started bool, oom string, ex nodeproto.Exit,
+	res Result,
+) {
+	if !started {
+		w.Started(ctx, "")
+	}
+
+	f := nodeproto.Finished{Class: "worker_error", Exit: ex, Usage: res.Usage}
+	said := res.Failure
+
+	final, finished, err := bridge.Finished(bridge.Dir(w.dir))
+	if err != nil {
+		w.Report(ctx, err)
+	}
+
+	if finished {
+		said, f.Evidence = final.Summary, final.Evidence
+		if final.Gate != nil {
+			said = strings.TrimSpace(said + "\n\nIt ended to ask: " + final.Gate.Text)
+		}
+	}
+
+	f.Summary = withOOM(oom, said)
+	w.Report(ctx, w.r.Finished(ctx, f))
+}
+
+// scopeEvery is how often a worker's scope's memory.events is read while it runs.
+const scopeEvery = time.Second
+
+// watchScope keeps a worker in its scope of the workers' slice and reads that scope's kills for memory while it runs
+// (issue #1313). A worker an earlier daemon started outside the slice, before the node limited its workers or before
+// it updated itself, is moved into its own scope there (memlimit.Limit.Adopt), so no worker runs outside the
+// ceiling; one this daemon started is already in it. A move that fails is logged and not tried again.
+func (s *Supervisor) watchScope(ctx context.Context, w *Worker) {
+	if !s.Memory.On() {
+		return
+	}
+
+	w.mu.Lock()
+	pid, tried, dir, due := w.pid, w.scopeTried, w.scope, time.Since(w.scopeRead) >= scopeEvery
+	w.mu.Unlock()
+
+	if pid <= 0 {
+		return
+	}
+
+	if !tried {
+		var err error
+		if w.adopted {
+			dir, err = s.Memory.Adopt(ctx, w.id, w.offer.MemoryLimit, func() []int { return shim.Tree(pid) })
+		} else {
+			dir, err = memlimit.ScopeOf(pid)
+		}
+
+		if err != nil {
+			dir = ""
+
+			s.Logger.WarnContext(ctx, "could not put a worker in its scope of the workers' slice",
+				slog.String("event", "node.memory_scope_failed"), slog.String("dispatch_id", w.id),
+				slog.String("error", err.Error()))
+		} else if w.adopted {
+			s.Logger.InfoContext(ctx, "moved an adopted worker into its scope of the workers' slice",
+				slog.String("event", "node.memory_scope_adopted"), slog.String("dispatch_id", w.id),
+				slog.String("cgroup", dir))
+		}
+
+		w.mu.Lock()
+		w.scopeTried, w.scope = true, dir
+		w.mu.Unlock()
+	}
+
+	if dir != "" && (due || !tried) {
+		s.readScope(w, dir)
+	}
+}
+
+// readScope reads the kills for memory in a worker's scope, keeping the largest count seen.
+func (s *Supervisor) readScope(w *Worker, dir string) {
+	n, err := memlimit.ScopeOOMKills(dir)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.scopeRead = time.Now()
+	if err == nil && n > w.oomKills {
+		w.oomKills = n
+	}
+}
+
+// scopeKills is the kills for memory read in the worker's scope, read once more as it ended: its scope may still
+// hold what the shim did not say.
+func (s *Supervisor) scopeKills(w *Worker) int64 {
+	w.mu.Lock()
+	dir := w.scope
+	w.mu.Unlock()
+
+	if dir != "" {
+		s.readScope(w, dir)
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.oomKills
 }
 
 // oomSummary names a kill for memory in a Dispatch's result (issue #1313).

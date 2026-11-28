@@ -6805,15 +6805,23 @@ Node (`internal/node`):
   into the new scope and executes the shim with its pid; the shim, the CLI and everything it spawns stay in that
   scope, and what `systemd-run` says when it fails goes to the run directory's `stderr.log`. The daemon itself, its
   terminals and an agent's commands on the machine (`node_exec`) stay outside the slice, so a kill inside it never
-  takes the daemon down. systemd names the slice's cgroup `hypomnema.slice/hypomnema-workers.slice`.
+  takes the daemon down. systemd names the slice's cgroup `hypomnema.slice/hypomnema-workers.slice`. A worker an
+  earlier daemon started (before the node limited its workers, or before it updated itself, which it does while
+  workers run) is moved into its own scope there when the new daemon adopts it: its shim and every process under it
+  (the shim is their subreaper) are handed to a new transient scope with the user manager's `StartTransientUnit` and
+  its `PIDs` property, through `busctl`, as a scope takes processes started elsewhere (`systemd.scope(5)`), and one
+  forked meanwhile is written into the scope's `cgroup.procs`. A move that fails is logged
+  (`node.memory_scope_failed`) and the worker goes on where it was.
 - The ceiling is the node's allocatable memory as placement computes it (`memory_bytes - reserved_memory_bytes - 1
   GiB`, `Service.WorkerMemoryMax`), as the kubelet makes a node's allocatable the limit of the cgroup of all its pods
   (`pkg/kubelet/cm/node_container_manager_linux.go:69-85`). The control plane sends it as `worker_memory_max` in the
   hello's answer and in each heartbeat's acknowledgement, so a reserve the owner changes reaches the node within a
-  heartbeat; 0 is no ceiling (a node that never said its size), and a control plane that does not say it (an earlier
-  release, or one that could not read it) leaves what the node applied last. The node applies a new value with
+  heartbeat. A control plane that does not say it (an earlier release, or one that could not read it) leaves what the
+  node applied last, and so does 0 (a node that never said its size, or one whose owner reserved all its memory): an
+  Allocatable of 0 never lifts the ceiling to `infinity`, the slice keeps the last one, and the node logs
+  `node.memory_limit_kept` once. The node applies a new value with
   `systemctl --user set-property hypomnema-workers.slice MemoryMax=<ceiling> MemoryHigh=<ceiling> MemorySwapMax=0`,
-  which takes effect at once and stays in a drop-in for the next start; no ceiling sets the three to `infinity`.
+  which takes effect at once and stays in a drop-in for the next start.
   `MemoryHigh` equals `MemoryMax`, as Buildkite's defaults give both the same (`templates/aws-stack.yml:477-494`;
   the owner, 2026-11-28): checked on 2026-11-28 on stc-hy-app with the slice at 512 MiB
   (`TestALiveWorkerOverTheSliceEndsOOMKilled`, behind `HYPOMNEMA_TEST_WORKER_SLICE`), a worker that took memory a
@@ -6830,11 +6838,15 @@ Node (`internal/node`):
 - When the worker exits, the shim reads its scope's `memory.events` (`oom_kill`, how many of its processes any OOM
   killer killed, its descendants' included) and writes the kills since its worker started into its exit file, before
   it exits: the scope, and the cgroup that holds the count, go with its last process (containerd's note,
-  `internal/cri/server/events.go:211-225`). A kill makes the exit's `reason` `oom_killed`, whichever process it was, as
-  containerd says `OOMKilled` for a container whose child was killed (`events.go:194-236`). A worker that ended
-  without `finish` then fails (`worker_error`) with a summary that begins `oom_killed: the kernel killed a process of
-  this worker for memory`, rather than an unknown outcome; one that finished keeps its report, with that line after
-  its summary. A shim the kernel killed itself writes no exit file and ends as before ("the shim died").
+  `internal/cri/server/events.go:211-225`). The Supervisor also reads the scope's `memory.events` every second while
+  the worker runs, and once more as it ends, for a shim that cannot count (one an earlier daemon started, one the
+  kernel killed itself). A kill makes the exit's `reason` `oom_killed`, whichever process it was, as containerd says
+  `OOMKilled` for a container whose child was killed (`events.go:194-236`), and the Dispatch fails the same whenever
+  it happened (`worker_error`), as Kubernetes takes an `OOMKilled` container for a failure even when it exited 0
+  (`pkg/kubelet/kuberuntime/helpers.go:170-177`): its summary begins `oom_killed: the kernel killed a process of this
+  worker for memory`, then what the worker said, its `finish` report's summary and evidence included (a Gate it asked
+  is said there, not kept). A worker killed before its CLI said it started is reported started first, so it does not
+  end as a start that failed. Only a stop the owner asked for ends as before, canceled.
 
 ## Web client
 

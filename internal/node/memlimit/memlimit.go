@@ -33,6 +33,11 @@
 // is collected (containerd's note 3 there: a scope's cgroup goes with its
 // last process).
 //
+// A worker an earlier daemon started outside the slice is moved into its own
+// scope there when the new daemon adopts it (Adopt), so no worker runs outside
+// the ceiling after the node updates itself. A ceiling of 0 from the control
+// plane never lifts the one applied.
+//
 // Without systemd, or where the user manager does not delegate the memory
 // controller, the node runs its workers as before, says so once in its log
 // and at each hello, and the Machines page shows "Memory not limited".
@@ -59,6 +64,8 @@ type Limit struct {
 	// SystemdRun starts a worker's scope and Systemctl sets the slice's properties; empty SystemdRun: off.
 	SystemdRun string
 	Systemctl  string
+	// Busctl starts the scope of a worker an earlier daemon started (Adopt), with the processes it already has.
+	Busctl string
 	// OOMPolicy says the user manager takes OOMPolicy= for a scope (systemd 253 and later); an earlier one has
 	// no OOM policy for scopes, and leaves a scope running after a kill in it anyway.
 	OOMPolicy bool
@@ -104,11 +111,11 @@ func (l Limit) Scope(dispatchID string, memoryMax int64) []string {
 }
 
 // SliceProperties are WorkerSlice's memory properties for a ceiling of memoryMax bytes: MemoryMax and MemoryHigh at
-// it, so a worker over it is killed rather than throttled without end, and no swap. A ceiling of 0 or less is none:
-// every property is infinity, as before the limit.
+// it, so a worker over it is killed rather than throttled without end, and no swap. A ceiling of 0 or less has none:
+// it is never applied, so it never lifts the ceiling the slice has (issue #1313, review round 1).
 func SliceProperties(memoryMax int64) []string {
 	if memoryMax <= 0 {
-		return []string{"MemoryMax=infinity", "MemoryHigh=infinity", "MemorySwapMax=infinity"}
+		return nil
 	}
 
 	ceiling := strconv.FormatInt(memoryMax, 10)
@@ -151,20 +158,34 @@ type Ceiling struct {
 	mu      sync.Mutex
 	applied bool
 	max     int64
+	// zeroSaid: a ceiling of 0 was logged, once until a real one comes again.
+	zeroSaid bool
 }
 
 // Apply makes memoryMax WorkerSlice's ceiling, with `systemctl --user set-property`, which applies it to the
 // running slice at once and keeps it in a drop-in for the next start (systemctl(1)). A ceiling already applied is
-// not applied again; a failure is logged and tried again at the next call.
+// not applied again; a failure is logged and tried again at the next call. A ceiling of 0 or less, the Allocatable
+// of a node whose owner reserved all its memory or that never said its size, is not applied: the slice keeps the
+// last ceiling it had, never infinity, and running workers stay under it (issue #1313, review round 1).
 func (c *Ceiling) Apply(ctx context.Context, memoryMax int64) {
 	if c == nil || !c.Limit.On() {
 		return
 	}
 
-	memoryMax = max(memoryMax, 0)
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if memoryMax <= 0 {
+		if !c.zeroSaid {
+			c.zeroSaid = true
+			c.logger().WarnContext(ctx, "the control plane says no memory is allocatable; the workers' ceiling stays",
+				slog.String("event", "node.memory_limit_kept"), slog.Int64("memory_max", c.max))
+		}
+
+		return
+	}
+
+	c.zeroSaid = false
 
 	if c.applied && c.max == memoryMax {
 		return

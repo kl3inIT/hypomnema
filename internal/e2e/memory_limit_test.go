@@ -161,7 +161,10 @@ func TestAnAllocatableOfZeroKeepsTheCeiling(t *testing.T) {
 
 	t.Cleanup(func() {
 		cancel()
-		<-done
+
+		if err := <-done; err != nil {
+			t.Logf("the node ended with: %v", err)
+		}
 	})
 
 	said := func(v int64) func() bool {

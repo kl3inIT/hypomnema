@@ -625,9 +625,9 @@ type HelloResponse struct {
 	// report to an earlier one after a reconnect.
 	QuestionParts bool `json:"question_parts,omitempty"`
 	// WorkerMemoryMax is the memory, in bytes, that all the node's workers may use together: its allocatable
-	// memory as the control plane computes it (issue #1313). The node makes it WorkerSlice's MemoryMax. Zero: no
-	// ceiling, for a node that never said its memory. Nil: not said, by a control plane of an earlier release or
-	// one that could not read it; the node keeps the ceiling it applied last.
+	// memory as the control plane computes it (issue #1313). The node makes it WorkerSlice's MemoryMax. Zero (a
+	// node that never said its memory, or whose owner reserved all of it) and nil (not said, by a control plane of
+	// an earlier release or one that could not read it): the node keeps the ceiling it applied last, never none.
 	WorkerMemoryMax *int64 `json:"worker_memory_max,omitempty"`
 }
 

@@ -1064,7 +1064,7 @@ func TestAnAdoptedWorkerIsMovedIntoItsScope(t *testing.T) {
 	if onSystemd {
 		for _, p := range tree {
 			require.Eventually(t, func() bool {
-				raw, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(p), "cgroup")) //nolint:gosec // /proc
+				raw, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(p), "cgroup"))
 				return strings.Contains(string(raw), "/hypomnema-workers.slice/hypomnema-worker-dsp_1.scope")
 			}, 5*time.Second, 50*time.Millisecond, "process %d is in the worker's scope", p)
 		}

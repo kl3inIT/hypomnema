@@ -14,13 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeSystemd puts systemd-run and systemctl on PATH, which the probe looks for; the commands themselves are run
+// fakeSystemd puts systemd-run, systemctl and busctl on PATH, which the probe looks for; the commands themselves are run
 // through the probe's run.
 func fakeSystemd(t *testing.T) {
 	t.Helper()
 
 	dir := t.TempDir()
-	for _, name := range []string{"systemd-run", "systemctl"} {
+	for _, name := range []string{"systemd-run", "systemctl", "busctl"} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o700)) //nolint:gosec // fixture
 	}
 	t.Setenv("PATH", dir)
