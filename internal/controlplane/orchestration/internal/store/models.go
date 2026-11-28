@@ -650,18 +650,19 @@ type ListeningBackend struct {
 }
 
 type ListeningReading struct {
-	Source     string
-	Day        string
-	Items      int64
-	LastAt     int64
-	LastResult string
-	LastCode   string
+	Source string
+	Day    string
+	Items  int64
 }
 
 type ListeningSource struct {
 	Source           string
 	Off              int64
 	Told             int64
+	LastReadAt       sql.NullInt64
+	LastResult       string
+	LastCode         string
+	PreviousResult   string
 	LastSuccessAt    sql.NullInt64
 	LastErrorAt      sql.NullInt64
 	LastErrorCode    string

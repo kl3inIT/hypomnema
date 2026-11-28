@@ -266,6 +266,14 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 			for _, sq := range labels {
 				req := s.request(p, sq, plan.topic(), plan.MaxResults, from, now, web)
 				st := s.runStream(ctx, p, plan.Backends[p.Name], sq, req)
+
+				// Switched off while the search ran: nothing of it is answered, and no other read of it starts.
+				if st.off {
+					runs[i] = sourceRun{coverage: Coverage{Source: p.Name, State: StateOff, Streams: []Stream{}}}
+
+					return
+				}
+
 				cov.Streams = append(cov.Streams, st.report)
 				streams = append(streams, st)
 			}
@@ -278,7 +286,7 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 
 	// Each source's reading is kept for the Social listening page, and tells the owner when it broke it.
 	for _, r := range runs {
-		if r.coverage.Source != "" {
+		if r.coverage.Source != "" && r.coverage.State != StateOff {
 			s.record(ctx, coverageReading(r.coverage))
 		}
 	}

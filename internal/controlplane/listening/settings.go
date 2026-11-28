@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -207,4 +208,23 @@ func at(v sql.NullInt64) time.Time {
 	}
 
 	return time.UnixMilli(v.Int64).UTC()
+}
+
+// switchedOff says the owner has switched a source off by now: a search under way starts no new read of it (review
+// round 1 of PR #1322), as a web search provider switched off is not tried from the next call on. A switch that
+// cannot be read is taken as on: the search began with it on.
+func (s *Service) switchedOff(ctx context.Context, source string) bool {
+	if s.db == nil {
+		return false
+	}
+
+	n, err := store.New(s.db).ListeningSourceIsOff(context.WithoutCancel(ctx), source)
+	if err != nil {
+		s.logger.WarnContext(ctx, "a listening source's switch could not be read", slog.String("event",
+			"listening.switch_failed"), slog.String("source", source), slog.String("error", err.Error()))
+
+		return false
+	}
+
+	return n > 0
 }

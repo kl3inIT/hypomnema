@@ -94,7 +94,6 @@ export function needsYou(source: ListeningSource) {
 
 // readLine says when the source was last read and whether that worked, for the card's head.
 export function readLine(source: ListeningSource, now = Date.now()) {
-  if (!source.on) return "Off"
   if (!source.checked_at) return "Not read yet"
 
   return `Read ${since(source.checked_at, now)}`
@@ -107,14 +106,14 @@ export function itemsLine(source: ListeningSource) {
   return n === 1 ? "1 item this week" : `${n} items this week`
 }
 
-// failureShown says whether the card shows the source's last error: while it is not working, or when it is newer than
-// its last success.
-export function failureShown(source: ListeningSource) {
-  if (!source.last_error) return false
-  if (source.group === "broken" || source.group === "unverified") return true
-  if (!source.last_success_at) return true
+// failureShown says how the card shows the source's last error, which it always shows (issue #1290's card row):
+// "before" when the source worked again after it, "now" otherwise; null when there is none.
+export function failureShown(source: ListeningSource): "now" | "before" | null {
+  if (!source.last_error) return null
+  if (source.group === "broken" || source.group === "unverified" || !source.last_success_at)
+    return "now"
 
-  return new Date(source.last_error.at) > new Date(source.last_success_at)
+  return new Date(source.last_error.at) > new Date(source.last_success_at) ? "now" : "before"
 }
 
 // moved is an order with one backend moved one place up or down.

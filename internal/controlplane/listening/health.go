@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/listening/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
 // How each source reads, for the Social listening page (issue #1290): what the last readings showed, in four groups,
@@ -25,8 +26,11 @@ import (
 //     "no recent run", doctor.py:132 and 1887-1893; Agent-Reach "unverified", manage.py:245);
 //   - any other last reading is broken (doctor.py:128-130).
 //
-// A source that passed on an earlier day and fails today is "regressed", Agent-Reach's flag on a channel whose
-// action passed in the previous check and fails in the latest (manage.py:211-216, troubleshooting.md:37).
+// A source whose reading right before the latest passed and whose latest fails is "regressed", Agent-Reach's flag on a
+// channel whose action passed in the previous check and fails in the latest (manage.py:189-216, which keeps the
+// previous check's results beside the latest's; troubleshooting.md:37), whatever the time between the two: every
+// reading counts, a real search's or a live test's (review round 1 of PR #1322: the issue's "yesterday" is the
+// previous check, as Agent-Reach's).
 //
 // A source not read for a day is tested again: doctor runs a live probe when there is no fresh run ("if no recent
 // runs, run a live test", doctor.py:2954-2958), with Agent-Reach's live test, a fixed search asked of each backend
@@ -34,9 +38,11 @@ import (
 // on its card, which first clears its rests, as an explicit doctor run clears Reddit's path skips ("a doctor run is
 // how a user says 'try that path again'", doctor.py:2945-2950).
 //
-// When a source breaks the owner is told once, and told again only after it has worked in between: postiz flags a
-// channel whose refresh failed only where the flag was not set, and only the attempt that set it notifies
-// (integration.repository.ts:603-616, refresh.integration.service.ts:148-166); a reconnect clears it.
+// When a source breaks the owner is told once, and told again only after a reading read items in between: postiz
+// flags a channel whose refresh failed only where the flag was not set, only the attempt that set it notifies
+// (integration.repository.ts:603-616, refresh.integration.service.ts:148-166), and only a refresh that returns an
+// access token clears it (refresh.integration.service.ts:20-54); a clean zero is no such proof. A failure that rests
+// and comes back by itself is not told: a rate limit, a spent quota or a timeout of any backend it tried (tells).
 
 // The four groups of the page.
 const (
@@ -55,8 +61,9 @@ const (
 	// testQuery and testLimit are the live test's search: Agent-Reach's for Reddit (channels/reddit.py:50).
 	testQuery = "python"
 	testLimit = 2
-	// readingDays are how many UTC days of readings are kept: a week for "items this week", and the day before it.
-	readingDays = 8
+	// readingDays are how many UTC days of items are kept: the week "items this week" counts (inference: no
+	// reference counts a week; harken keeps running totals, store.py:102-121).
+	readingDays = 7
 )
 
 // The result of a reading, as kept.
@@ -130,6 +137,26 @@ type reading struct {
 	tried []Attempt
 	// test: a live test, whose clean zero is a failure and whose items are not counted.
 	test bool
+	// off: the owner switched the source off while it was read; it is not kept.
+	off bool
+}
+
+// tells says the reading tells the owner the source broke: it failed with a code a person must act on, and no backend
+// it tried failed with one that rests and comes back by itself, as a fallback that is throttled serves again once
+// its wait ends (review round 1 of PR #1322; Agent-Reach reports a channel whose failures are rate limits as a
+// "cooldown", manage.py:236-238, and falls back on a retryable error, runtime/dispatch.py:276-322).
+func (r reading) tells() bool {
+	if r.result != resultFailed || !tells(r.code) {
+		return false
+	}
+
+	for _, a := range r.tried {
+		if !tells(Code(a.Result)) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // coverageReading is what a real search's coverage of a source says of it.
@@ -175,7 +202,7 @@ func failureOf(tried []Attempt, code Code) (detail, backend string) {
 // record keeps a reading and tells the owner when it is the one that broke the source. It never fails the search
 // it is of: a write that fails is logged.
 func (s *Service) record(ctx context.Context, r reading) {
-	if s.db == nil {
+	if s.db == nil || r.off {
 		return
 	}
 
@@ -209,15 +236,12 @@ func (s *Service) record(ctx context.Context, r reading) {
 			}
 		}
 
-		items := int64(r.items)
-		if r.test {
-			items = 0
-		}
-
-		if err := q.AddListeningReading(ctx, store.AddListeningReadingParams{
-			Source: r.source, Day: day, Items: items, At: now, Result: r.result, Code: string(r.code),
-		}); err != nil {
-			return err
+		if !r.test {
+			if err := q.AddListeningItems(ctx, store.AddListeningItemsParams{
+				Source: r.source, Day: day, Items: int64(r.items),
+			}); err != nil {
+				return err
+			}
 		}
 
 		if err := q.PruneListeningReadings(ctx, time.UnixMilli(now).UTC().AddDate(0, 0, 1-readingDays).
@@ -225,9 +249,25 @@ func (s *Service) record(ctx context.Context, r reading) {
 			return err
 		}
 
+		if err := q.RecordListeningRead(ctx, store.RecordListeningReadParams{
+			Source: r.source, Now: now, Result: r.result, Code: string(r.code),
+		}); err != nil {
+			return err
+		}
+
 		switch r.result {
 		case resultPassed:
-			return q.RecordListeningSuccess(ctx, store.RecordListeningSuccessParams{Source: r.source, Now: now})
+			if err := q.RecordListeningSuccess(ctx, store.RecordListeningSuccessParams{
+				Source: r.source, Now: now,
+			}); err != nil {
+				return err
+			}
+
+			if r.items == 0 {
+				return nil
+			}
+
+			return q.ClearListeningTold(ctx, store.ClearListeningToldParams{Source: r.source, Now: now})
 		case resultPartial, resultFailed:
 			if err := q.RecordListeningError(ctx, store.RecordListeningErrorParams{
 				Source: r.source, Code: string(r.code), Detail: r.detail, Backend: r.backend, Now: now,
@@ -236,7 +276,7 @@ func (s *Service) record(ctx context.Context, r reading) {
 			}
 		}
 
-		if r.result != resultFailed || !tells(r.code) {
+		if !r.tells() {
 			return nil
 		}
 
@@ -287,18 +327,14 @@ func (s *Service) States(ctx context.Context) ([]SourceState, error) {
 			}
 		}
 
-		days := kept.readings[p.Name]
-		for _, d := range days {
-			if d.Day >= now.AddDate(0, 0, -6).Format(time.DateOnly) {
+		for _, d := range kept.readings[p.Name] {
+			if d.Day >= now.AddDate(0, 0, 1-readingDays).Format(time.DateOnly) {
 				st.ItemsThisWeek += int(d.Items)
 			}
 		}
 
-		if len(days) > 0 {
-			st.CheckedAt = time.UnixMilli(days[0].LastAt).UTC()
-		}
-
-		st.Group, st.Code, st.Regressed = group(st.On, days, now)
+		st.CheckedAt = at(src.LastReadAt)
+		st.Group, st.Code, st.Regressed = group(st.On, src, now)
 
 		for _, b := range p.Backends {
 			bs := BackendState{Name: b.Name, OptIn: b.OptIn, Resting: s.restOf(p.Name + "/" + b.Name)}
@@ -323,30 +359,27 @@ func (s *Service) States(ctx context.Context) ([]SourceState, error) {
 	return out, nil
 }
 
-// group is a source's group from its readings, the latest day first, with the code of its last reading when it did
-// not pass and whether it regressed.
-func group(on bool, days []store.ListeningReading, now time.Time) (string, Code, bool) {
+// group is a source's group from its last reading, with that reading's code when it did not pass, and whether it
+// regressed: it fails and the reading right before it passed (Agent-Reach regressed(), manage.py:211-216).
+func group(on bool, src store.ListeningSource, now time.Time) (string, Code, bool) {
 	if !on {
 		return GroupCouldBeOn, "", false
 	}
 
-	if len(days) == 0 || now.Sub(time.UnixMilli(days[0].LastAt)) >= Fresh {
+	if !src.LastReadAt.Valid || now.Sub(at(src.LastReadAt)) >= Fresh {
 		return GroupUnverified, "", false
 	}
 
-	last := days[0]
-	code := Code(last.LastCode)
+	code := Code(src.LastCode)
 
-	switch last.LastResult {
+	switch src.LastResult {
 	case resultPassed:
 		return GroupWorking, "", false
 	case resultPartial:
 		return GroupUnverified, code, false
 	}
 
-	regressed := len(days) > 1 && days[1].LastResult == resultPassed
-
-	return GroupBroken, code, regressed
+	return GroupBroken, code, src.PreviousResult == resultPassed
 }
 
 // untilOf is when a source's backend's rest ends; zero when it does not rest.
@@ -448,7 +481,8 @@ func (s *Service) Test(ctx context.Context, source string, web WebSearch, again 
 // test asks each of a source's backends the live test's search, as Agent-Reach checks each backend of an action
 // (only_backend, runtime/manage.py:165-167). An opt-in backend, never asked unless pinned, is not tested.
 func (s *Service) test(ctx context.Context, p Platform, web WebSearch) reading {
-	ctx = s.searchContext(ctx)
+	// A live test reads the source now, never the web search's cached answer (websearch.Fresh).
+	ctx = websearch.Fresh(s.searchContext(ctx))
 	now := s.now().UTC()
 	sq := Subquery{Label: "test", Query: testQuery, Weight: 1}
 	r := reading{source: p.Name, test: true, result: resultFailed}
@@ -467,8 +501,15 @@ func (s *Service) test(ctx context.Context, p Platform, web WebSearch) reading {
 		st := s.runStream(ctx, p, b.Name, sq, req)
 		r.tried = append(r.tried, st.report.Tried...)
 
+		if st.off {
+			r.off = true
+
+			return r
+		}
+
 		if st.report.ServedBy != "" {
 			r.result = resultPassed
+			r.items += st.report.Items
 		} else {
 			failed = append(failed, st.report.Code)
 		}

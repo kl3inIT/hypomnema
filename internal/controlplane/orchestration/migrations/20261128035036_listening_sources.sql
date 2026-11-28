@@ -4,15 +4,21 @@
 -- its last success and last error (harken's source_metrics last_success_at, last_error_at and last_error,
 -- store.py:102-121). listening_backends holds the owner's order of a source's backends (as
 -- gateway_search_providers.position orders the keyed web search providers) and each backend's last answer.
--- listening_readings is each source's readings by UTC day, a real search's or a live test's: how many items it read
--- and how its last reading of the day ended, kept 8 days, for its items this week and whether it passed the day
--- before (Agent-Reach's checks with their previous result, runtime/manage.py:189-216).
+-- It also holds how its last reading ended and how the one right before it ended, a real search's or a live
+-- test's, for its group and "regressed" (Agent-Reach keeps each check's result and the previous one,
+-- runtime/manage.py:189-216). listening_readings is the items real searches read each UTC day, kept 8 days, for its
+-- items this week.
 
 -- +goose Up
 CREATE TABLE listening_sources (
     source             TEXT    NOT NULL PRIMARY KEY CHECK (length(source) > 0),
     off                INTEGER NOT NULL DEFAULT 0 CHECK (off IN (0, 1)),
     told               INTEGER NOT NULL DEFAULT 0 CHECK (told IN (0, 1)),
+    -- The last reading and the one right before it: passed, partial or failed ('' before any), with the last's code.
+    last_read_at       INTEGER,
+    last_result        TEXT    NOT NULL DEFAULT '' CHECK (last_result IN ('', 'passed', 'partial', 'failed')),
+    last_code          TEXT    NOT NULL DEFAULT '',
+    previous_result    TEXT    NOT NULL DEFAULT '' CHECK (previous_result IN ('', 'passed', 'partial', 'failed')),
     last_success_at    INTEGER,
     last_error_at      INTEGER,
     last_error_code    TEXT    NOT NULL DEFAULT '',
@@ -40,10 +46,6 @@ CREATE TABLE listening_readings (
     day         TEXT    NOT NULL CHECK (length(day) = 10),
     -- Items the day's real searches read, before duplicates are removed; a live test's are not counted.
     items       INTEGER NOT NULL DEFAULT 0,
-    last_at     INTEGER NOT NULL,
-    -- How the day's last reading ended: passed, partial or failed, with the failure's code.
-    last_result TEXT    NOT NULL CHECK (last_result IN ('passed', 'partial', 'failed')),
-    last_code   TEXT    NOT NULL DEFAULT '',
     PRIMARY KEY (source, day)
 ) STRICT;
 

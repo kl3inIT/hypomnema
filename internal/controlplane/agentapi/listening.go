@@ -55,10 +55,11 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"reads; give `topic` in a few words. It answers JSON, no prose: `items` (the best " +
 			strconv.Itoa(listening.PoolSize) + ", best first, each with its cluster), `clusters` (items telling one " +
 			"story, tagged single-source or thin-evidence when the evidence is weak), and `coverage`, one line per " +
-			"source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with its code " +
+			"source: ok, partial, no_results (read, nothing found: the only real zero), not_read, with its code " +
 			"(need_login, refused, rate_limited, limit_reached, not_found, timeout, broken), the one step that fixes " +
-			"it (`fix`), and each backend tried. The sources listed are those the owner keeps on, on Settings → " +
-			"Gateway → Social listening. " +
+			"it (`fix`), and each backend tried, or off (the owner switched it off during the search: nothing of it " +
+			"is answered). The sources listed are those the owner keeps on, on Settings → Gateway → Social " +
+			"listening; use only those. " +
 			"When available, use the social-listening skill for discovery, planning and the evidence report. " +
 			"Write your report from the results, with verbatim quotes and their links and dates. " + listeningData,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +

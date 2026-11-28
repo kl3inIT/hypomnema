@@ -148,12 +148,19 @@ func webFailure(err error) error {
 
 	f := &SourceError{Code: CodeBroken, Detail: oneLine(failed.Error())}
 
-	// Providers that answered with nothing are not failures; a failure that did not rest makes it broken.
-	if failed.Others > 0 || len(failed.Rests) == 0 {
+	// Providers that answered with nothing are not failures; a failure that neither rested nor timed out makes it
+	// broken. A provider that did not answer in time is a timeout, which comes back by itself, kept as one through the
+	// chain (issue #1290, review round 1; Agent-Reach classifies each backend's timeout as TIMEOUT,
+	// runtime/result.py:68-87, and the most actionable code of several is reported, last30days lib/health.py:51-59).
+	if failed.Others > failed.Timeouts || len(failed.Rests)+failed.Timeouts == 0 {
 		return f
 	}
 
-	codes := make([]Code, 0, len(failed.Rests))
+	codes := make([]Code, 0, len(failed.Rests)+1)
+	if failed.Timeouts > 0 {
+		codes = append(codes, CodeTimeout)
+	}
+
 	for _, r := range failed.Rests {
 		codes = append(codes, restCode(r.Why))
 

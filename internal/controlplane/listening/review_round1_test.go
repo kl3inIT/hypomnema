@@ -216,8 +216,10 @@ func TestReviewRegressedSkipsMissingYesterday(t *testing.T) {
 	search(t, s, "forum")
 	assert.False(t, stateOf(t, s, "forum").Regressed, "the reading right before failed too")
 
+	c.Advance(time.Hour)
 	b.set([]listening.Item{post("p2", "VETC", 0)}, nil)
 	search(t, s, "forum")
+	require.Equal(t, listening.GroupWorking, stateOf(t, s, "forum").Group)
 	c.Advance(48 * time.Hour)
 	b.set(nil, listening.Fail(listening.CodeBroken, "down"))
 	search(t, s, "forum")

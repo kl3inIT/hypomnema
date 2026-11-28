@@ -283,7 +283,7 @@ function SourceCard({ source }: { source: ListeningSource }) {
         <p className="text-xs text-muted-foreground">
           {source.on ? source.adds : `Switch it on to add: ${source.adds}`}
         </p>
-        {source.on && <Facts source={source} />}
+        {(source.on || source.checked_at) && <Facts source={source} />}
         {source.page && (
           <Link
             to={source.page}
@@ -296,7 +296,7 @@ function SourceCard({ source }: { source: ListeningSource }) {
             Its accounts
           </Link>
         )}
-        {source.on && failureShown(source) && <LastError source={source} />}
+        <LastError source={source} />
         {source.on && (broken || source.group === "unverified") && (
           <div className="relative z-20 flex items-center gap-2">
             <Button
@@ -349,18 +349,28 @@ function Facts({ source }: { source: ListeningSource }) {
 }
 
 // LastError is the last error, where and when, and the one step that fixes it (last30days' prescriptions).
+// Once the source worked again after it, it is kept, marked as before (issue #1290: a card shows its last error).
 function LastError({ source }: { source: ListeningSource }) {
   const error = source.last_error
-  if (!error) return null
+  const when = failureShown(source)
+  if (!error || !when) return null
+
+  const before = when === "before"
 
   return (
     <div
       role="note"
       aria-label="Last error"
-      className="flex flex-col gap-1 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs"
+      className={cn(
+        "flex flex-col gap-1 rounded-lg border px-3 py-2 text-xs",
+        before ? "bg-muted/40" : "border-destructive/25 bg-destructive/5",
+      )}
     >
       <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="font-medium text-destructive">{codeLabel(error.code)}</span>
+        <span className={cn("font-medium", before ? "text-foreground" : "text-destructive")}>
+          {codeLabel(error.code)}
+        </span>
+        {before && <span className="text-muted-foreground">Before it worked again</span>}
         {error.backend && (
           <span className="text-muted-foreground">{backendName(error.backend)}</span>
         )}
@@ -500,6 +510,14 @@ function SourceRow({ source }: { source: ListeningSource }) {
           </span>
         )}
         {source.label}
+        {source.page && (
+          <Link
+            to={source.page}
+            className="ms-2 text-xs font-normal text-primary underline-offset-4 hover:underline"
+          >
+            Its accounts
+          </Link>
+        )}
       </td>
       <td className="px-3 py-2.5">
         <span className="flex flex-wrap gap-1">
@@ -529,11 +547,18 @@ function SourceRow({ source }: { source: ListeningSource }) {
         </ol>
       </td>
       <td className="max-w-72 px-3 py-2.5 text-xs">
-        {source.on && failureShown(source) && source.last_error ? (
+        {failureShown(source) && source.last_error ? (
           <span className="flex flex-col gap-1">
-            <span className="text-destructive">{codeLabel(source.last_error.code)}</span>
+            <span
+              className={
+                failureShown(source) === "before" ? "text-muted-foreground" : "text-destructive"
+              }
+            >
+              {codeLabel(source.last_error.code)}
+              {failureShown(source) === "before" && ", before it worked again"}
+            </span>
             <span className="text-muted-foreground">{source.last_error.fix}</span>
-            {(broken || source.group === "unverified") && (
+            {source.on && (broken || source.group === "unverified") && (
               <span>
                 <Button
                   variant="outline"

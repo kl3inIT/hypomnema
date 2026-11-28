@@ -104,6 +104,8 @@ type stream struct {
 	subquery Subquery
 	source   string
 	items    []Item
+	// off: the owner switched the source off while it ran; no backend was asked after.
+	off bool
 }
 
 // stopsHost are the codes after which the other backends of the same host are not asked in this search: Agent-Reach
@@ -159,6 +161,13 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 
 				continue
 			}
+		}
+
+		// The owner's switch is read again before each read starts: once saved Off, no new read begins.
+		if s.switchedOff(ctx, p.Name) {
+			st.off = true
+
+			return st
 		}
 
 		res, err := b.Search(ctx, req)

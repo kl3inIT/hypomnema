@@ -10,31 +10,35 @@ import (
 	"database/sql"
 )
 
-const addListeningReading = `-- name: AddListeningReading :exec
-INSERT INTO listening_readings (source, day, items, last_at, last_result, last_code)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-ON CONFLICT (source, day) DO UPDATE SET items = items + excluded.items, last_at = excluded.last_at,
-    last_result = excluded.last_result, last_code = excluded.last_code
+const addListeningItems = `-- name: AddListeningItems :exec
+INSERT INTO listening_readings (source, day, items) VALUES (?1, ?2, ?3)
+ON CONFLICT (source, day) DO UPDATE SET items = items + excluded.items
 `
 
-type AddListeningReadingParams struct {
+type AddListeningItemsParams struct {
 	Source string
 	Day    string
 	Items  int64
-	At     int64
-	Result string
-	Code   string
 }
 
-func (q *Queries) AddListeningReading(ctx context.Context, arg AddListeningReadingParams) error {
-	_, err := q.db.ExecContext(ctx, addListeningReading,
-		arg.Source,
-		arg.Day,
-		arg.Items,
-		arg.At,
-		arg.Result,
-		arg.Code,
-	)
+func (q *Queries) AddListeningItems(ctx context.Context, arg AddListeningItemsParams) error {
+	_, err := q.db.ExecContext(ctx, addListeningItems, arg.Source, arg.Day, arg.Items)
+	return err
+}
+
+const clearListeningTold = `-- name: ClearListeningTold :exec
+UPDATE listening_sources SET told = 0, updated_at = ?1 WHERE source = ?2
+`
+
+type ClearListeningToldParams struct {
+	Now    int64
+	Source string
+}
+
+// A reading that read items clears the flag that the owner was told it broke, as only a refresh that returns an
+// access token clears postiz's refreshNeeded (refresh.integration.service.ts:20-54); a clean zero does not.
+func (q *Queries) ClearListeningTold(ctx context.Context, arg ClearListeningToldParams) error {
+	_, err := q.db.ExecContext(ctx, clearListeningTold, arg.Now, arg.Source)
 	return err
 }
 
@@ -94,7 +98,7 @@ func (q *Queries) ListListeningBackends(ctx context.Context) ([]ListeningBackend
 }
 
 const listListeningReadings = `-- name: ListListeningReadings :many
-SELECT source, day, items, last_at, last_result, last_code FROM listening_readings WHERE day >= ?1 ORDER BY source, day DESC
+SELECT source, day, items FROM listening_readings WHERE day >= ?1 ORDER BY source, day DESC
 `
 
 func (q *Queries) ListListeningReadings(ctx context.Context, since string) ([]ListeningReading, error) {
@@ -106,14 +110,7 @@ func (q *Queries) ListListeningReadings(ctx context.Context, since string) ([]Li
 	items := []ListeningReading{}
 	for rows.Next() {
 		var i ListeningReading
-		if err := rows.Scan(
-			&i.Source,
-			&i.Day,
-			&i.Items,
-			&i.LastAt,
-			&i.LastResult,
-			&i.LastCode,
-		); err != nil {
+		if err := rows.Scan(&i.Source, &i.Day, &i.Items); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -129,7 +126,7 @@ func (q *Queries) ListListeningReadings(ctx context.Context, since string) ([]Li
 
 const listListeningSources = `-- name: ListListeningSources :many
 
-SELECT source, off, told, last_success_at, last_error_at, last_error_code, last_error_detail, last_error_backend, updated_at FROM listening_sources ORDER BY source
+SELECT source, off, told, last_read_at, last_result, last_code, previous_result, last_success_at, last_error_at, last_error_code, last_error_detail, last_error_backend, updated_at FROM listening_sources ORDER BY source
 `
 
 // Social listening's sources as the owner sets them and as they last read (issue #1290).
@@ -146,6 +143,10 @@ func (q *Queries) ListListeningSources(ctx context.Context) ([]ListeningSource, 
 			&i.Source,
 			&i.Off,
 			&i.Told,
+			&i.LastReadAt,
+			&i.LastResult,
+			&i.LastCode,
+			&i.PreviousResult,
 			&i.LastSuccessAt,
 			&i.LastErrorAt,
 			&i.LastErrorCode,
@@ -164,6 +165,17 @@ func (q *Queries) ListListeningSources(ctx context.Context) ([]ListeningSource, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const listeningSourceIsOff = `-- name: ListeningSourceIsOff :one
+SELECT COUNT(*) FROM listening_sources WHERE source = ?1 AND off = 1
+`
+
+func (q *Queries) ListeningSourceIsOff(ctx context.Context, source string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, listeningSourceIsOff, source)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const pruneListeningReadings = `-- name: PruneListeningReadings :exec
@@ -246,11 +258,36 @@ func (q *Queries) RecordListeningError(ctx context.Context, arg RecordListeningE
 	return err
 }
 
-const recordListeningSuccess = `-- name: RecordListeningSuccess :exec
-INSERT INTO listening_sources (source, told, last_success_at, updated_at)
-VALUES (?1, 0, CAST(?2 AS INTEGER), CAST(?2 AS INTEGER))
-ON CONFLICT (source) DO UPDATE SET told = 0, last_success_at = excluded.last_success_at,
+const recordListeningRead = `-- name: RecordListeningRead :exec
+INSERT INTO listening_sources (source, last_read_at, last_result, last_code, updated_at)
+VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, CAST(?2 AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET previous_result = listening_sources.last_result,
+    last_read_at = excluded.last_read_at, last_result = excluded.last_result, last_code = excluded.last_code,
     updated_at = excluded.updated_at
+`
+
+type RecordListeningReadParams struct {
+	Source string
+	Now    int64
+	Result string
+	Code   string
+}
+
+// Each reading moves the last result to the one before it (Agent-Reach's previous check, manage.py:189-206).
+func (q *Queries) RecordListeningRead(ctx context.Context, arg RecordListeningReadParams) error {
+	_, err := q.db.ExecContext(ctx, recordListeningRead,
+		arg.Source,
+		arg.Now,
+		arg.Result,
+		arg.Code,
+	)
+	return err
+}
+
+const recordListeningSuccess = `-- name: RecordListeningSuccess :exec
+INSERT INTO listening_sources (source, last_success_at, updated_at)
+VALUES (?1, CAST(?2 AS INTEGER), CAST(?2 AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET last_success_at = excluded.last_success_at, updated_at = excluded.updated_at
 `
 
 type RecordListeningSuccessParams struct {
@@ -258,7 +295,6 @@ type RecordListeningSuccessParams struct {
 	Now    int64
 }
 
-// A success clears the flag that the owner was told it broke, as a reconnect clears postiz's refreshNeeded.
 func (q *Queries) RecordListeningSuccess(ctx context.Context, arg RecordListeningSuccessParams) error {
 	_, err := q.db.ExecContext(ctx, recordListeningSuccess, arg.Source, arg.Now)
 	return err
