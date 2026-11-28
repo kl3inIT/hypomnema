@@ -6809,9 +6809,17 @@ Node (`internal/node`):
   earlier daemon started (before the node limited its workers, or before it updated itself, which it does while
   workers run) is moved into its own scope there when the new daemon adopts it: its shim and every process under it
   (the shim is their subreaper) are handed to a new transient scope with the user manager's `StartTransientUnit` and
-  its `PIDs` property, through `busctl`, as a scope takes processes started elsewhere (`systemd.scope(5)`), and one
-  forked meanwhile is written into the scope's `cgroup.procs`. A move that fails is logged
-  (`node.memory_scope_failed`) and the worker goes on where it was.
+  its `PIDs` property, through `busctl`, as a scope takes processes started elsewhere (`systemd.scope(5)`). A process
+  forked between the listing and the move stays behind and may fork again; the daemon's cgroup, which it shares,
+  cannot be frozen without freezing the daemon, so the new scope is frozen (`cgroup.freeze`) and the tree is listed
+  again, what is outside written into the scope's `cgroup.procs` (frozen as it enters), until a listing finds every
+  process inside; the scope is thawed then, as runc freezes a container's cgroup before listing it
+  (`libcontainer/init_linux.go:699-702`). Memory a process used before the move stays charged to the daemon's cgroup
+  until it is freed (the kernel's `cgroup-v2.rst`, "Memory Ownership"): the ceiling covers what an adopted worker uses
+  after it. With the worker, a holder process (`sleep infinity`, kept in the run directory's `scope-holder.json` with
+  its start time) is put in the scope, so the scope and its `memory.events` outlive the worker until the Supervisor
+  has read its end, then it is stopped. A move that fails is logged (`node.memory_scope_failed`), its holder stopped,
+  and the worker goes on where it was.
 - The ceiling is the node's allocatable memory as placement computes it (`memory_bytes - reserved_memory_bytes - 1
   GiB`, `Service.WorkerMemoryMax`), as the kubelet makes a node's allocatable the limit of the cgroup of all its pods
   (`pkg/kubelet/cm/node_container_manager_linux.go:69-85`). The control plane sends it as `worker_memory_max` in the
@@ -6845,7 +6853,8 @@ Node (`internal/node`):
   it happened (`worker_error`), as Kubernetes takes an `OOMKilled` container for a failure even when it exited 0
   (`pkg/kubelet/kuberuntime/helpers.go:170-177`): its summary begins `oom_killed: the kernel killed a process of this
   worker for memory`, then what the worker said, its `finish` report's summary and evidence included (a Gate it asked
-  is said there, not kept). A worker killed before its CLI said it started is reported started first, so it does not
+  is said there, not kept). A worker killed before its CLI said it started is reported started first, and an adopted
+  one is said started again (a control plane that knew refuses it), so it does not
   end as a start that failed. Only a stop the owner asked for ends as before, canceled.
 
 ## Web client
