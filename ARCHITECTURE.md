@@ -5024,7 +5024,8 @@ writes no prose (last30days SKILL.md LAW 7).
     `hypomnema` else `*`, allows the path and its Content-Signal allows an AI's input and not only reference use; else
     the search's excerpt and link. voz.vn says `use=reference`, so it is excerpts only. robots.txt is kept 24 hours; a
     4xx is no rules, a 5xx or no answer disallows all (RFC 9309), checked again at every redirect; a robots.txt 429
-    rests the forum's pages like a thread's, so neither is asked until its `Retry-After`. A thread that could not be
+    rests the forum's pages like a thread's, so neither is asked until its `Retry-After`. The robots.txt itself is
+    read one redirect at a time, each hop resting on its own host (Otofun's old host sends it to the new one). A thread that could not be
     read keeps its excerpt and makes the read partial.
   - A page a search named (a careers page, a role, a thread, a robots.txt) is read through the web fetch's client
     (`websearch.PageClient`: public addresses only, each redirect followed by hand), as `hypomnema/1 (+…)`. A refusal
@@ -5032,7 +5033,8 @@ writes no prose (last30days SKILL.md LAW 7).
 - A backend that read in part (`Result.Failed`: a page, an order, a thread or YouTube's recent-uploads search not
   read) keeps that failure's code on its stream beside the items: the source is `partial` and its health
   `unverified`. With no item left, the failure is the stream's, never a clean zero. YouTube's recent-uploads search
-  refused or rate limited stops that search's captions and comments and rests the backend.
+  refused or rate limited stops that search's captions and comments and rests the backend; so does a bot check
+  or a 429 met while listing or reading the videos, even after yt-dlp printed some (they are kept).
 - Ranking per source: engagement weights and references, YouTube on its view scale, a comment scored on its votes
   alone, and each source's quality from last30days' `signals.py`; arXiv, Techmeme, careers, forums and the app stores
   have no engagement score.
@@ -5049,7 +5051,7 @@ writes no prose (last30days SKILL.md LAW 7).
 - Failure codes, a closed set: `need_login` (401), `refused` (403, a page where JSON was asked), `rate_limited` (429,
   Arctic Shift's 422), `limit_reached` (402), `not_found` (404, 410), `timeout`, `broken`, and `no_results`, the only
   clean zero. Rests, in memory: a wait the source or the chain named, else refused 6 hours, rate limited what the source said (`Retry-After` in
-  seconds or as an HTTP date, `x-ratelimit-reset`) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
+  seconds or as an HTTP date, `x-ratelimit-reset`, kept however long; a value past 10^8 is a Unix time) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
 - Pacing: one call at a time per host, Reddit's at least 1 s apart, Arctic Shift's 400 ms (`Pacer`), whoever asks.
   The web searches a plan makes wait in the chain for their route's turn, one call at a time per key or keyless
   provider and 1 s apart (`websearch.WithPace`); a provider's rest is stored before its turn ends, and a route that

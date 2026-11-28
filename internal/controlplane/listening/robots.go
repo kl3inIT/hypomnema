@@ -189,6 +189,36 @@ func parseRobots(text string) robotRules {
 	return pick("*")
 }
 
+// fetch reads a robots.txt one redirect at a time, each hop in its own host's turn and checked against that host's
+// rest, the same rest its pages have (readPage): Otofun's old host sends its robots.txt to the new one, whose 429
+// then rests the new host whichever host a link names (review round 3 of PR #1321).
+func (rb *robots) fetch(ctx context.Context, r Request, address string) (answer, error) {
+	for hop := 0; hop <= maxRedirects; hop++ {
+		host := hostOf(address)
+
+		a, err := call{
+			host: host, path: host + "/pages", address: address, accept: "text/plain", userAgent: pageUserAgent,
+			redirect: true, siteRests: true,
+			failure: func(s int, h http.Header, now time.Time) *SourceError {
+				if s >= 400 && s < 500 && s != http.StatusTooManyRequests {
+					// Unavailable: no rules (RFC 9309 §2.3.1.3), and nothing rests.
+					return Fail(CodeNotFound, "robots.txt answered HTTP %d", s)
+				}
+
+				return HTTPFailure(s, h, now)
+			},
+		}.do(ctx, rb.client, r)
+		if err != nil || a.location == "" {
+			return a, err
+		}
+
+		address = a.location
+	}
+
+	// RFC 9309 §2.3.1.2: follow at least five redirects; past them the file is unreachable.
+	return answer{}, Fail(CodeBroken, "robots.txt redirected more than %d times", maxRedirects)
+}
+
 // robots reads and keeps the robots.txt of the sites a forum's threads are on.
 type robots struct {
 	client *http.Client
@@ -219,19 +249,7 @@ func (rb *robots) of(ctx context.Context, r Request, origin string) (robotRules,
 		return cached, nil
 	}
 
-	host := hostOf(origin)
-	a, err := call{
-		host: host, path: host + "/pages", address: origin + "/robots.txt", accept: "text/plain",
-		userAgent: pageUserAgent, follow: true, siteRests: true,
-		failure: func(s int, h http.Header, now time.Time) *SourceError {
-			if s >= 400 && s < 500 && s != http.StatusTooManyRequests {
-				// Unavailable: no rules (RFC 9309 §2.3.1.3), and nothing rests.
-				return Fail(CodeNotFound, "robots.txt answered HTTP %d", s)
-			}
-
-			return HTTPFailure(s, h, now)
-		},
-	}.do(ctx, rb.client, r)
+	a, err := rb.fetch(ctx, r, origin+"/robots.txt")
 
 	var rules robotRules
 

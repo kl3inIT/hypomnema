@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -118,15 +119,79 @@ func ytRun(ctx context.Context, run Command, r Request, timeout time.Duration, a
 		defer done()
 	}
 
+	block := blockOf(ctx)
+	if f := block.get(); f != nil {
+		// The search met YouTube's block: no other yt-dlp run is started (last30days _youtube_transcripts_blocked).
+		return nil, f
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	stdout, stderr, err := run(ctx, args...)
-	if err != nil && len(bytes.TrimSpace(stdout)) == 0 {
-		return nil, ytFailure(ctx, stderr, err)
+	if err == nil {
+		return stdout, nil
+	}
+
+	f := ytFailure(ctx, stderr, err)
+
+	// A bot check or a 429 is the search's block even when yt-dlp printed some videos first: they are kept, the
+	// block is recorded (last30days search_youtube, youtube_yt.py:1049-1054, and _search_recent_uploads, :967-968).
+	if stopsHost(f.Code) {
+		block.set(f)
+	}
+
+	if len(bytes.TrimSpace(stdout)) == 0 {
+		return nil, f
 	}
 
 	return stdout, nil
+}
+
+// ytBlock is one search's record that YouTube refused or rate limited it: last30days' _YouTubeBlock, a flag shared by
+// a search and its workers (youtube_yt.py:304-347).
+type ytBlock struct {
+	mu sync.Mutex
+	f  *SourceError
+}
+
+func (b *ytBlock) get() *SourceError {
+	if b == nil {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.f
+}
+
+func (b *ytBlock) set(f *SourceError) {
+	if b == nil {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.f == nil {
+		b.f = f
+	}
+}
+
+type ytBlockKey struct{}
+
+// withYtBlock gives a search its block record (last30days _youtube_block_scope).
+func withYtBlock(ctx context.Context) (context.Context, *ytBlock) {
+	b := &ytBlock{}
+
+	return context.WithValue(ctx, ytBlockKey{}, b), b
+}
+
+func blockOf(ctx context.Context) *ytBlock {
+	b, _ := ctx.Value(ytBlockKey{}).(*ytBlock)
+
+	return b
 }
 
 // ytBase are the options every run takes: no config file and no browser's cookies, keyless (last30days).
@@ -157,6 +222,7 @@ func youtubeBackend(run Command) Backend {
 	return Backend{
 		Name: BackendYtDlp, Host: youtubeHost,
 		Search: func(ctx context.Context, r Request) (Result, error) {
+			ctx, block := withYtBlock(ctx)
 			q := strings.Join(strings.Fields(r.Query), " ")
 
 			// The search's results as they are listed, without opening them: a channel among them would otherwise be
@@ -182,7 +248,7 @@ func youtubeBackend(run Command) Backend {
 			// Few videos in the window: relevance has filled the results with old ones, so the results page is
 			// asked again for recent uploads only, and what it adds is read (last30days search_youtube's retry,
 			// _search_recent_uploads, "fewer than 3 in window").
-			if sp := uploadFilter(r); len(inWindow) < youtubeRecent && sp != "" {
+			if sp := uploadFilter(r); len(inWindow) < youtubeRecent && sp != "" && block.get() == nil {
 				page := "https://www.youtube.com/results?" + url.Values{"search_query": {q}, "sp": {sp}}.Encode()
 
 				recent, err := ytRun(ctx, run, r, youtubeSearchTimeout, append(slices.Clone(ytBase), "--flat-playlist",
@@ -227,6 +293,14 @@ func youtubeBackend(run Command) Backend {
 
 			if recentFailed != nil && recentFailed.restBackend {
 				blocked = recentFailed
+			}
+
+			// A block met while listing or reading the videos, with videos printed before it: the read is partial
+			// and the backend rests, as after the recent-uploads search's (radar collection-pacing-contract.md:12).
+			if f := block.get(); f != nil && recentFailed == nil {
+				blocked = f
+				recentFailed = &SourceError{Code: f.Code, Detail: "the search: " + f.Detail, Until: f.Until,
+					restBackend: true}
 			}
 
 			for i, v := range inWindow {
