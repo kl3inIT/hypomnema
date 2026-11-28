@@ -6874,8 +6874,12 @@ Node (`internal/node`):
   until it is freed (the kernel's `cgroup-v2.rst`, "Memory Ownership"): the ceiling covers what an adopted worker uses
   after it. With the worker, a holder process (`sleep infinity`, kept in the run directory's `scope-holder.json` with
   its start time) is put in the scope, so the scope and its `memory.events` outlive the worker until the Supervisor
-  has read its end, then it is stopped. A move that fails is logged (`node.memory_scope_failed`), its holder stopped,
-  and the worker goes on where it was.
+  has read its end, then it is stopped. A process whose cgroup cannot be read counts as not moved, and only a
+  listing that reads every process inside ends the move. A move that is not done within 5 s, or a thaw that cannot be
+  written, fails the adoption: it is logged (`node.memory_scope_failed`), and the worker is stopped and fails
+  (`worker_error`, "the worker could not be moved into hypomnema-workers.slice: …") rather than run outside the
+  ceiling or stay frozen. A later daemon that finds the worker, or its holder, already in the slice thaws its scope
+  first, since a daemon that died during a move may have left it frozen.
 - The ceiling is the node's allocatable memory as placement computes it (`memory_bytes - reserved_memory_bytes - 1
   GiB`, `Service.WorkerMemoryMax`), as the kubelet makes a node's allocatable the limit of the cgroup of all its pods
   (`pkg/kubelet/cm/node_container_manager_linux.go:69-85`). The control plane sends it as `worker_memory_max` in the

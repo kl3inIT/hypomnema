@@ -29,10 +29,12 @@ type cgroupOps struct {
 	// moveInto writes a process into a cgroup's cgroup.procs; freeze writes its cgroup.freeze.
 	moveInto func(dir string, pid int) error
 	freeze   func(dir string, frozen bool) error
+	// wait bounds the whole adoption.
+	wait time.Duration
 }
 
 var hostCgroups = cgroupOps{
-	run: runCommand, cgroupOf: cgroupOf,
+	run: runCommand, cgroupOf: cgroupOf, wait: adoptWait,
 	moveInto: func(dir string, pid int) error {
 		return os.WriteFile(filepath.Join(dir, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o600)
 	},
@@ -57,7 +59,9 @@ var hostCgroups = cgroupOps{
 // frozen without freezing the daemon, so the new scope is frozen instead (cgroup.freeze), as runc freezes a
 // container's cgroup before it lists its processes so that none forks in between (libcontainer/init_linux.go:699-
 // 702): what is moved in after it is frozen as it enters, and can fork no more. The tree is listed again and what is
-// outside is moved, until a listing finds every process inside; the scope is thawed then. Memory a process had
+// outside is moved, until a listing reads every process inside; the scope is thawed then. A process whose cgroup
+// cannot be read is not counted inside, and past adoptWait, or when the thaw cannot be written, adoption fails: the
+// Supervisor then stops the worker rather than leave it outside the ceiling, or frozen. Memory a process had
 // already used stays charged to the cgroup it was in until it is freed (the kernel's cgroup-v2.rst, "Memory
 // Ownership"): the ceiling covers what the worker uses after the move.
 func (l Limit) Adopt(ctx context.Context, dispatchID string, memoryMax int64, tree func() []int) (string, error) {
@@ -65,7 +69,7 @@ func (l Limit) Adopt(ctx context.Context, dispatchID string, memoryMax int64, tr
 }
 
 func (l Limit) adopt(ctx context.Context, ops cgroupOps, dispatchID string, memoryMax int64, tree func() []int,
-) (string, error) {
+) (dir string, err error) {
 	if !l.On() {
 		return "", errors.New("the workers' memory is not limited")
 	}
@@ -75,8 +79,14 @@ func (l Limit) adopt(ctx context.Context, ops cgroupOps, dispatchID string, memo
 		return "", errors.New("the worker has no process left")
 	}
 
-	if dir, err := ops.cgroupOf(pids[0]); err == nil && inSlice(dir) {
-		return dir, nil
+	// A worker already in the slice was moved by an earlier daemon, which may have died with its scope frozen: it
+	// is thawed before anything else (review round 3).
+	if got, err := ops.cgroupOf(pids[0]); err == nil && inSlice(got) {
+		if err := ops.freeze(got, false); err != nil {
+			return got, fmt.Errorf("thawing %s: %w", ScopeName(dispatchID), err)
+		}
+
+		return got, nil
 	}
 
 	callCtx, cancel := context.WithTimeout(ctx, probeTimeout)
@@ -86,10 +96,9 @@ func (l Limit) adopt(ctx context.Context, ops cgroupOps, dispatchID string, memo
 		return "", fmt.Errorf("making scope %s: %w: %s", ScopeName(dispatchID), err, strings.TrimSpace(string(out)))
 	}
 
-	deadline := time.Now().Add(adoptWait)
+	deadline := time.Now().Add(ops.wait)
 
 	// The scope's job moves the processes; wait for the shim to be in it.
-	dir := ""
 	for dir == "" {
 		if got, err := ops.cgroupOf(pids[0]); err == nil && inSlice(got) {
 			dir = got
@@ -110,30 +119,41 @@ func (l Limit) adopt(ctx context.Context, ops cgroupOps, dispatchID string, memo
 		return dir, fmt.Errorf("freezing %s: %w", ScopeName(dispatchID), err)
 	}
 
-	defer func() { _ = ops.freeze(dir, false) }()
+	// The thaw always runs, and its failure is the adoption's: a worker left frozen is no success.
+	defer func() {
+		if thawErr := ops.freeze(dir, false); thawErr != nil {
+			err = errors.Join(err, fmt.Errorf("thawing %s: %w", ScopeName(dispatchID), thawErr))
+		}
+	}()
 
 	for {
-		outside := 0
+		// The bound is checked before each listing, so no listing after it can report done.
+		if time.Now().After(deadline) {
+			return dir, fmt.Errorf("processes of the worker were still outside %s after %s", ScopeName(dispatchID),
+				ops.wait)
+		}
+
+		// A process whose cgroup cannot be read may have forked and exited since the listing: its child is not in
+		// this listing, so it is unsettled, not inside. Only a listing that reads every process inside is done.
+		unsettled := 0
 
 		for _, pid := range tree() {
 			got, err := ops.cgroupOf(pid)
-			if err != nil || got == dir {
-				continue // gone, or inside
-			}
 
-			outside++
+			switch {
+			case err != nil:
+				unsettled++
+			case got != dir:
+				unsettled++
 
-			if err := ops.moveInto(dir, pid); err != nil && !errors.Is(err, syscall.ESRCH) {
-				return dir, fmt.Errorf("moving process %d into %s: %w", pid, ScopeName(dispatchID), err)
+				if err := ops.moveInto(dir, pid); err != nil && !errors.Is(err, syscall.ESRCH) {
+					return dir, fmt.Errorf("moving process %d into %s: %w", pid, ScopeName(dispatchID), err)
+				}
 			}
 		}
 
-		if outside == 0 {
+		if unsettled == 0 {
 			return dir, nil
-		}
-
-		if time.Now().After(deadline) {
-			return dir, fmt.Errorf("%d processes of the worker were still outside %s", outside, ScopeName(dispatchID))
 		}
 	}
 }
@@ -290,4 +310,13 @@ func startTime(pid int) (uint64, error) {
 	}
 
 	return strconv.ParseUint(fields[19], 10, 64)
+}
+
+// Thaw thaws a worker's scope, which a daemon that died while it adopted the worker may have left frozen.
+func Thaw(dir string) error {
+	if err := hostCgroups.freeze(dir, false); err != nil {
+		return fmt.Errorf("thawing %s: %w", dir, err)
+	}
+
+	return nil
 }

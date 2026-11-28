@@ -172,6 +172,8 @@ type Worker struct {
 	scopeTried bool
 	scopeRead  time.Time
 	oomKills   int64
+	// uncontained says why an adopted worker could not be put in its scope; it was stopped for it.
+	uncontained string
 }
 
 // ID is the worker's Dispatch.
@@ -840,6 +842,16 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 		return
 	}
 
+	w.mu.Lock()
+	uncontained := w.uncontained
+	w.mu.Unlock()
+
+	if uncontained != "" && !stopping {
+		s.endedUncontained(ctx, w, started, uncontained, ex, res)
+
+		return
+	}
+
 	switch {
 	case stopping:
 		if !exit.Unconfirmed {
@@ -938,11 +950,24 @@ func (s *Supervisor) watchScope(ctx context.Context, w *Worker) {
 			dir, err = memlimit.ScopeOf(pid)
 		}
 
-		if err != nil {
+		switch {
+		case err != nil && w.adopted:
+			// An adopted worker that could not be put under the ceiling, or was left frozen, does not run on: it is
+			// stopped and fails, saying why (review round 3).
+			s.Logger.ErrorContext(ctx, "could not put an adopted worker in its scope of the workers' slice; stopping it",
+				slog.String("event", "node.memory_scope_failed"), slog.String("dispatch_id", w.id),
+				slog.String("error", err.Error()))
+
+			w.mu.Lock()
+			w.uncontained = err.Error()
+			w.mu.Unlock()
+
+			w.Report(ctx, shim.Stop(ctx, w.socketDir, "the worker could not be moved into the workers' slice"))
+		case err != nil:
 			s.Logger.WarnContext(ctx, "could not put a worker in its scope of the workers' slice",
 				slog.String("event", "node.memory_scope_failed"), slog.String("dispatch_id", w.id),
 				slog.String("error", err.Error()))
-		} else if w.adopted {
+		case w.adopted:
 			s.Logger.InfoContext(ctx, "moved an adopted worker into its scope of the workers' slice",
 				slog.String("event", "node.memory_scope_adopted"), slog.String("dispatch_id", w.id),
 				slog.String("cgroup", dir))
@@ -963,8 +988,9 @@ func (s *Supervisor) watchScope(ctx context.Context, w *Worker) {
 // already in a scope of the slice was moved by an earlier daemon of this release. A holder whose move failed is
 // stopped, so none is left in the daemon's cgroup.
 func (s *Supervisor) adoptScope(ctx context.Context, w *Worker, pid int) (string, error) {
+	// A daemon that died while it adopted the worker may have left its scope frozen: it is thawed first.
 	if held := memlimit.HeldScope(w.dir); held != "" {
-		return held, nil
+		return held, memlimit.Thaw(held)
 	}
 
 	holder, err := memlimit.StartHolder(w.dir)
@@ -1026,6 +1052,25 @@ func (s *Supervisor) scopeKills(w *Worker) int64 {
 	defer w.mu.Unlock()
 
 	return w.oomKills
+}
+
+// endedUncontained ends an adopted worker the Supervisor stopped because it could not put it in its scope of the
+// workers' slice (review round 3): it failed, and says why. As after a kill for memory, the control plane is told it
+// started first, which it refuses when it knew.
+func (s *Supervisor) endedUncontained(ctx context.Context, w *Worker, started bool, why string, ex nodeproto.Exit,
+	res Result,
+) {
+	switch {
+	case !started:
+		w.Started(ctx, "")
+	case w.adopted:
+		w.Report(ctx, w.r.Started(ctx, "shim:"+strconv.Itoa(w.shimPID()), ""))
+	}
+
+	w.Report(ctx, w.r.Finished(ctx, nodeproto.Finished{
+		Class: "worker_error", Exit: ex, Usage: res.Usage,
+		Summary: "the worker could not be moved into " + nodeproto.WorkerSlice + ": " + why,
+	}))
 }
 
 // oomSummary names a kill for memory in a Dispatch's result (issue #1313).

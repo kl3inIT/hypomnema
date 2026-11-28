@@ -41,3 +41,6 @@ func HeldScope(string) string { return "" }
 
 // StopHolder is never asked off Linux.
 func StopHolder(string) {}
+
+// Thaw is never asked off Linux.
+func Thaw(string) error { return errors.New("cgroups are Linux's") }

@@ -52,6 +52,7 @@ func (f *fakeCgroups) ops() cgroupOps {
 
 			return nil
 		},
+		wait: time.Second,
 	}
 }
 
@@ -165,8 +166,18 @@ func TestAdoptFailsPastItsBound(t *testing.T) {
 	ops.wait = 100 * time.Millisecond
 	ops.moveInto = func(string, int) error { return nil } // the move never takes
 
-	tree := func() []int { return []int{100, 101, 107} }
-	f.in[107] = daemonDir
+	// 107 is forked after the scope was made, and never moves.
+	listed := 0
+	tree := func() []int {
+		listed++
+		if listed == 1 {
+			return []int{100, 101}
+		}
+
+		f.in[107] = daemonDir
+
+		return []int{100, 101, 107}
+	}
 
 	l := Limit{SystemdRun: "systemd-run", Systemctl: "systemctl", Busctl: "busctl"}
 	_, err := l.adopt(t.Context(), ops, "dsp_1", 0, tree)
