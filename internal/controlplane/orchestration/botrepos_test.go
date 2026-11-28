@@ -194,41 +194,51 @@ func TestABotsRunOnARepositoryAnotherBotOwnsGoesToThatBot(t *testing.T) {
 	assert.Equal(t, RoutedOwnChat, kept2.RoutedBy)
 }
 
-// Scenario: review round 1 of PR #1343. A create retried after the upgrade, with the same request and key as one made
-// before it, returns the first Run: the receipt kept before ChatNamed existed still matches the request.
+// Scenario: review rounds 1 and 2 of PR #1343. A create retried after the upgrade, with the same request and key as
+// one made before it, returns the first Run: the receipt kept before ChatNamed existed still matches the request, with
+// no chat named and with one (`runs create --chat`, whose request named the chat only by ChatID then).
 func TestARunCreateRetriedAcrossTheUpgradeReturnsTheFirstRun(t *testing.T) {
 	t.Parallel()
 
 	w := newRepoWorld(t)
 	ctx := t.Context()
-	nr := NewRun{Objective: "Fix the tool", CreatedBy: "laptop", Repo: "acme/tooling"}
 
-	first, err := w.s.CreateChatRunOnce(ctx, Once{}, nr, w.parent.Name)
-	require.NoError(t, err)
+	for _, c := range []struct {
+		key string
+		nr  NewRun
+	}{
+		{"retry", NewRun{Objective: "Fix the tool", CreatedBy: "laptop", Repo: "acme/tooling"}},
+		{"review-explicit", NewRun{
+			Objective: "Review the tool", CreatedBy: "laptop", Repo: "acme/tooling", ChatID: w.main.ID, ChatNamed: true,
+		}},
+	} {
+		first, err := w.s.CreateChatRunOnce(ctx, Once{}, c.nr, w.parent.Name)
+		require.NoError(t, err, c.key)
 
-	// NewRun as main had it before this change, and the receipt its create kept.
-	before := struct {
-		Objective          string
-		CreatedBy          string
-		Repo               string
-		Base               string
-		CoordinatorTokenID string
-		ChatID             string
-		Uses               []string
-		Bot                string
-	}{Objective: nr.Objective, CreatedBy: nr.CreatedBy, Repo: nr.Repo}
-	hash, err := requestHash("runs.create", before)
-	require.NoError(t, err)
-	response, err := json.Marshal(first.ID)
-	require.NoError(t, err)
-	require.NoError(t, store.New(w.db).InsertReceipt(ctx, store.InsertReceiptParams{
-		Caller: "tok_laptop", RequestID: "retry", Method: "runs.create", PayloadHash: hash, Response: string(response),
-		Now: 1,
-	}))
+		// NewRun as main had it before this change, and the receipt its create kept.
+		before := struct {
+			Objective          string
+			CreatedBy          string
+			Repo               string
+			Base               string
+			CoordinatorTokenID string
+			ChatID             string
+			Uses               []string
+			Bot                string
+		}{Objective: c.nr.Objective, CreatedBy: c.nr.CreatedBy, Repo: c.nr.Repo, ChatID: c.nr.ChatID}
+		hash, err := requestHash("runs.create", before)
+		require.NoError(t, err)
+		response, err := json.Marshal(first.ID)
+		require.NoError(t, err)
+		require.NoError(t, store.New(w.db).InsertReceipt(ctx, store.InsertReceiptParams{
+			Caller: "tok_laptop", RequestID: c.key, Method: "runs.create", PayloadHash: hash,
+			Response: string(response), Now: 1,
+		}))
 
-	again, err := w.s.CreateChatRunOnce(ctx, Once{Caller: "tok_laptop", Key: "retry"}, nr, w.parent.Name)
-	require.NoError(t, err)
-	assert.Equal(t, first.ID, again.ID)
+		again, err := w.s.CreateChatRunOnce(ctx, Once{Caller: "tok_laptop", Key: c.key}, c.nr, w.parent.Name)
+		require.NoError(t, err, c.key)
+		assert.Equal(t, first.ID, again.ID, c.key)
+	}
 }
 
 // Scenario: issue #1334, decision 6. The main Bot, given a to-do no project Bot fits, keeps it and says why: the item
