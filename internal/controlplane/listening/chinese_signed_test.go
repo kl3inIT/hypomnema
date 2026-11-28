@@ -535,6 +535,9 @@ type xhsTab struct {
 	feeds    []any
 	status   int
 	answer   string
+	// filtered and filteredAnswer are the feeds and the search's answer after the filter's click, when set.
+	filtered       []any
+	filteredAnswer string
 }
 
 func (x *xhsTab) page(t *testing.T) *pageFake {
@@ -548,9 +551,23 @@ func (x *xhsTab) page(t *testing.T) *pageFake {
 		}
 
 		p.bodies["n1"] = x.answer
-
-		return []browser.Response{{URL: "https://edith.xiaohongshu.com/api/sns/web/v1/search/notes", Status: status,
+		out := []browser.Response{{URL: "https://edith.xiaohongshu.com/api/sns/web/v1/search/notes", Status: status,
 			RequestID: "n1"}}
+
+		if len(p.clicks) > 0 && x.filteredAnswer != "" {
+			p.bodies["n2"] = x.filteredAnswer
+			out = append(out, browser.Response{URL: "https://edith.xiaohongshu.com/api/sns/web/v1/search/notes",
+				Status: 200, RequestID: "n2"})
+		}
+
+		return out
+	}
+	feeds := func() []any {
+		if len(p.clicks) > 0 && x.filtered != nil {
+			return x.filtered
+		}
+
+		return x.feeds
 	}
 	p.eval = func(expression, _ string) any {
 		switch {
@@ -560,14 +577,22 @@ func (x *xhsTab) page(t *testing.T) *pageFake {
 				ids = "c,d"
 			}
 
+			if len(feeds()) == 0 {
+				ids = ""
+			}
+
 			path := cmpOr(x.path, "/search_result")
 			logged := 1
-			if x.loggedIn == false {
+
+			switch x.loggedIn {
+			case false:
 				logged = 0
+			case "unknown":
+				logged = -1
 			}
 
 			return map[string]any{"path": path, "host": "www.xiaohongshu.com", "logged_in": logged, "ours": true,
-				"ready": len(x.feeds) > 0, "empty": len(x.feeds) == 0, "ids": ids}
+				"ready": len(feeds()) > 0, "empty": len(feeds()) == 0, "ids": ids}
 		case strings.Contains(expression, "div.filter-panel div.filters"):
 			assert.Contains(t, expression, `"发布时间","半年内"`, "a 30-day window chooses 半年内")
 
@@ -577,7 +602,7 @@ func (x *xhsTab) page(t *testing.T) *pageFake {
 
 			return map[string]any{"x": 30, "y": 40, "found": true}
 		case strings.Contains(expression, "JSON.stringify(v)"):
-			return asJSON(t, x.feeds)
+			return asJSON(t, feeds())
 		default:
 			return map[string]any{"href": "https://www.xiaohongshu.com" + cmpOr(x.path, "/search_result"),
 				"ready": "complete"}
