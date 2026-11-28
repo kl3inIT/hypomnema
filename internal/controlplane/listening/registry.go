@@ -235,9 +235,16 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 
 		items := s.inWindow(res, p.Name, b.Name, sq.Label, req, &st.report.dropped)
 		if f := res.Failed; f != nil && len(items) == 0 {
+			// Nothing left beside the failure: it is the stream's, rested as the failure path above rests one, so
+			// a block met after some output still keeps the next search away (review round 4 of PR #1321).
+			until := f.Until
+			if !f.pathRest {
+				until = s.rest(id, f)
+			}
+
 			attempt.Result, attempt.Detail = string(f.Code), joinDetail(res.Detail, f.Detail)
-			if !f.Until.IsZero() {
-				attempt.Until = f.Until.UTC().Format(time.RFC3339)
+			if !until.IsZero() {
+				attempt.Until = until.UTC().Format(time.RFC3339)
 			}
 
 			st.report.Tried = append(st.report.Tried, attempt)

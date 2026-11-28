@@ -279,6 +279,12 @@ func youtubeBackend(run Command) Backend {
 			}
 
 			if len(asked) == 0 {
+				// Only a channel printed before the block: not a clean zero, the block is the read's (last30days
+				// youtube_yt.py:1049-1054).
+				if f := block.get(); f != nil {
+					return Result{}, f
+				}
+
 				return Result{Detail: "the search listed no video"}, nil
 			}
 

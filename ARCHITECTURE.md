@@ -5039,7 +5039,8 @@ writes no prose (last30days SKILL.md LAW 7).
     or a rate limit rests that host's pages (`Retry-After` kept), so the next search sends nothing there.
 - A backend that read in part (`Result.Failed`: a page, an order, a thread or YouTube's recent-uploads search not
   read) keeps that failure's code on its stream beside the items: the source is `partial` and its health
-  `unverified`. With no item left, the failure is the stream's, never a clean zero. YouTube's recent-uploads search
+  `unverified`. With no item left, the failure is the stream's, never a clean zero, and rests the backend as any
+  failure does. YouTube's recent-uploads search
   refused or rate limited stops that search's captions and comments and rests the backend; so does a bot check
   or a 429 met while listing or reading the videos, even after yt-dlp printed some (they are kept).
 - Ranking per source: engagement weights and references, YouTube on its view scale, a comment scored on its votes
