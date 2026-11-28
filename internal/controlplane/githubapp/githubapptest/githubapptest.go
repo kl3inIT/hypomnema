@@ -1,6 +1,7 @@
 // Package githubapptest is a GitHub that answers the owner's GitHub App in memory (issue #1262): the manifest's code
-// exchange, the App's installations and their tokens, the checks of a pull request, and a redelivery. Tests give its
-// Transport to the App's HTTP client; nothing reaches the network.
+// exchange, the App's installations and their tokens, the checks of a pull request, and a redelivery; and for the
+// calls of issue #1232 a collaborator's permission, a reaction and a comment posted. Tests give its Transport to the
+// App's HTTP client; nothing reaches the network.
 package githubapptest
 
 import (
@@ -52,6 +53,45 @@ type GitHub struct {
 	head string
 	// held are the next reads of the checks held back, in order (HoldNextRead).
 	held []*heldRead
+	// permissions are the collaborators' permissions by login in lower case (SetPermission); posted is what the App
+	// posted, in order (Posted).
+	permissions map[string]collaborator
+	posted      []Post
+}
+
+type collaborator struct {
+	id         int64
+	permission string
+}
+
+// Post is a request the App posted to a repository: a reaction or a comment, its path, the Authorization it carried
+// and its body as JSON.
+type Post struct {
+	Path string
+	Auth string
+	Body map[string]any
+}
+
+// SetPermission makes login, GitHub's user id, a collaborator of every repository with permission: admin, write,
+// read or none, as GET /repos/{owner}/{repo}/collaborators/{username}/permission answers it. A login never set is
+// not found.
+func (g *GitHub) SetPermission(login string, id int64, permission string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.permissions == nil {
+		g.permissions = map[string]collaborator{}
+	}
+
+	g.permissions[strings.ToLower(login)] = collaborator{id: id, permission: permission}
+}
+
+// Posted is every reaction and comment the App posted, in order.
+func (g *GitHub) Posted() []Post {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return append([]Post(nil), g.posted...)
 }
 
 type heldRead struct {
@@ -217,6 +257,35 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 		return answer(http.StatusOK, []any{map[string]any{"id": 9, "guid": "guid-9", "event": "ping"}})
 	case r.Method == http.MethodPost && path == "/app/hook/deliveries/9/attempts":
 		return answer(http.StatusAccepted, map[string]any{})
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/repos/") && strings.HasSuffix(path, "/permission"):
+		parts := strings.Split(path, "/")
+		if len(parts) != 7 || parts[4] != "collaborators" {
+			break
+		}
+
+		c, ok := g.permissions[strings.ToLower(parts[5])]
+		if !ok {
+			return answer(http.StatusNotFound, map[string]any{"message": "Not Found"})
+		}
+
+		return answer(http.StatusOK, map[string]any{
+			"permission": c.permission, "user": map[string]any{"login": parts[5], "id": c.id},
+		})
+	case r.Method == http.MethodPost && strings.HasPrefix(path, "/repos/") &&
+		(strings.HasSuffix(path, "/reactions") || strings.HasSuffix(path, "/comments") ||
+			strings.HasSuffix(path, "/replies")):
+		var body map[string]any
+		_ = json.Unmarshal(sent, &body)
+		g.posted = append(g.posted, Post{Path: path, Auth: auth, Body: body})
+
+		if strings.HasSuffix(path, "/reactions") {
+			return answer(http.StatusCreated, map[string]any{"id": len(g.posted), "content": body["content"]})
+		}
+
+		return answer(http.StatusCreated, map[string]any{
+			"id": 70000 + len(g.posted), "html_url": fmt.Sprintf("https://github.com%s#issuecomment-%d",
+				strings.TrimPrefix(strings.TrimSuffix(path, "/comments"), "/repos"), 70000+len(g.posted)),
+		})
 	case r.Method == http.MethodPost && path == "/graphql":
 		g.reads++
 		g.asked = append(g.asked, auth)
@@ -285,4 +354,133 @@ func WorkflowRunCompleted(number int, conclusion string) []byte {
 	}
 
 	return raw
+}
+
+// Person is who writes a comment or a review on GitHub: a login and GitHub's id of it, and the account's type, User
+// or Bot.
+type Person struct {
+	Login string
+	ID    int64
+	Type  string
+}
+
+// Comment is an issue_comment or pull_request_review_comment created on kl3inIT/hypomnema: by whom, on which issue or
+// pull request, its id and body, and the body of the issue or pull request it is on.
+type Comment struct {
+	By          Person
+	Number      int
+	PullRequest bool
+	ID          int64
+	Body        string
+	IssueBody   string
+	// Path and Line place a review comment in the diff.
+	Path string
+	Line int
+}
+
+func person(p Person) map[string]any {
+	if p.Type == "" {
+		p.Type = "User"
+	}
+
+	return map[string]any{"login": p.Login, "id": p.ID, "type": p.Type}
+}
+
+func base() map[string]any {
+	return map[string]any{
+		"installation": map[string]any{"id": Installation},
+		"repository":   map[string]any{"full_name": "kl3inIT/hypomnema", "id": 1000},
+	}
+}
+
+func encode(body map[string]any) []byte {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+
+	return raw
+}
+
+// IssueComment is the body of an issue_comment delivery: c created on its issue or pull request.
+func IssueComment(c Comment) []byte {
+	body := base()
+	issue := map[string]any{
+		"number": c.Number, "title": "Make the store faster", "body": c.IssueBody,
+		"html_url": fmt.Sprintf("https://github.com/kl3inIT/hypomnema/issues/%d", c.Number),
+		"user":     person(Person{Login: "someone-else", ID: 999}),
+	}
+
+	if c.PullRequest {
+		issue["pull_request"] = map[string]any{
+			"html_url": fmt.Sprintf("https://github.com/kl3inIT/hypomnema/pull/%d", c.Number),
+		}
+		issue["html_url"] = fmt.Sprintf("https://github.com/kl3inIT/hypomnema/pull/%d", c.Number)
+	}
+
+	body["action"] = "created"
+	body["issue"] = issue
+	body["comment"] = map[string]any{
+		"id": c.ID, "body": c.Body, "user": person(c.By),
+		"html_url": fmt.Sprintf("%s#issuecomment-%d", issue["html_url"], c.ID),
+	}
+	body["sender"] = person(c.By)
+
+	return encode(body)
+}
+
+// ReviewComment is the body of a pull_request_review_comment delivery: c created in the diff of its pull request.
+func ReviewComment(c Comment) []byte {
+	body := base()
+	pr := pullRequest(c.Number, c.IssueBody)
+	body["action"] = "created"
+	body["pull_request"] = pr
+	body["comment"] = map[string]any{
+		"id": c.ID, "body": c.Body, "user": person(c.By), "path": c.Path, "line": c.Line,
+		"html_url": fmt.Sprintf("%s#discussion_r%d", pr["html_url"], c.ID),
+	}
+	body["sender"] = person(c.By)
+
+	return encode(body)
+}
+
+// Review is the body of a pull_request_review delivery: a review submitted by by on pull request number, with its id,
+// state and body.
+func Review(by Person, number int, id int64, state, text string) []byte {
+	body := base()
+	pr := pullRequest(number, "")
+	body["action"] = "submitted"
+	body["pull_request"] = pr
+	body["review"] = map[string]any{
+		"id": id, "body": text, "state": state, "user": person(by),
+		"html_url": fmt.Sprintf("%s#pullrequestreview-%d", pr["html_url"], id),
+	}
+	body["sender"] = person(by)
+
+	return encode(body)
+}
+
+// ReviewURL is the address of review id on pull request number of kl3inIT/hypomnema, as Review gives it.
+func ReviewURL(number int, id int64) string {
+	return fmt.Sprintf("https://github.com/kl3inIT/hypomnema/pull/%d#pullrequestreview-%d", number, id)
+}
+
+// PullRequestOpened is the body of a pull_request delivery: by opened pull request number with body.
+func PullRequestOpened(by Person, number int, text string) []byte {
+	body := base()
+	pr := pullRequest(number, text)
+	pr["user"] = person(by)
+	body["action"] = "opened"
+	body["pull_request"] = pr
+	body["sender"] = person(by)
+
+	return encode(body)
+}
+
+func pullRequest(number int, text string) map[string]any {
+	return map[string]any{
+		"number": number, "title": "Make the store faster", "body": text, "state": "open",
+		"html_url": fmt.Sprintf("https://github.com/kl3inIT/hypomnema/pull/%d", number),
+		"head":     map[string]any{"sha": Head, "ref": "hyp/tsk_1"},
+	}
 }
