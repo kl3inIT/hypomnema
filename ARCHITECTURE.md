@@ -2620,6 +2620,13 @@ flowchart LR
       `POST /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the
       App's latest delivery again (`POST /app/hook/deliveries/{id}/attempts`); GitHub keeps its id, so it is answered
       200 as handled before, which GitHub's Recent Deliveries shows.
+    - **Commit attribution** ([issue #1312](https://github.com/kl3inIT/hypomnema/issues/1312)). App-backed offers
+      use the owner's GitHub Connection identity as author and the App's bot as committer. The control plane
+      reads the bot user ID at `GET /users/<slug>[bot]` and keeps it in the vault's App credential, backfilling
+      older credentials on the first App offer. The bot's address is `<bot user id>+<slug>[bot]@users.noreply.github.com`.
+      If the repository's Connection supplies no matching owner identity, the bot fills both Git identities and
+      the worker prompt asks for a `Co-authored-by` trailer when the App owner's GitHub account is known. With a
+      personal token the Connection account still fills both fields. See [the GitHub App guide](docs/github-app.md).
     - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): a token is made with the App's
       JWT for one repository (`POST /app/installations/{id}/access_tokens` with `repository_ids`, as Omnara's
       `auth.go:138-162`; every permission the installation has), so it reaches that repository alone, and reused
@@ -2628,7 +2635,7 @@ flowchart LR
       App covers is offered as the App's (`github_app` set) with no token at all, only by a node that said
       `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole Dispatch, is
       given the owner's, as before. So no token of the App's is kept with the offer in the node's state, in the
-      worker's environment or in the shim's spec. The commits still name the owner's account (issue #991). Such a
+      worker's environment or in the shim's spec. Such a
       node asks for a fresh token for its own clone, fetch and push (`publish_branch`), and puts `github-bin/` of the
       Dispatch's directory first on the worker's PATH,
       holding `gh` and `hypomnema` scripts, sets git's credential helper for github.com (an empty helper first,
@@ -3585,7 +3592,7 @@ flowchart LR
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
     A Bot given the same Connection reads GitHub through the service proxy instead (issue #685, under
     Integrations).
-  - The worker commits as the account its token belongs to (issue
+  - With a Connection token, the worker commits as the account that token belongs to (issue
     [#991](https://github.com/kl3inIT/hypomnema/issues/991)), not as the node user's `~/.gitconfig` says. The
     control plane reads that account once a token at the host's `GET /user`, with the token and through the
     Connection's route, and keeps it with the Connection (`connections.git_name`, `git_email`, and

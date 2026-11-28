@@ -30,3 +30,12 @@ the owner's token. Each token reaches its Task's repository alone. To stop using
 repositories on GitHub when no Run is working on them: new work goes back to the owner's token, while a worker that
 started as the App's would get no token of it, and its gh and git would refuse to run rather than use the
 machine's own login.
+
+## Commit attribution
+
+With an App token, a worker's commits use your GitHub Connection's login and noreply address as author and the App
+bot as committer. Connect your own GitHub account for the repository to get author credit on the default branch.
+If the Connection does not supply your identity, the bot fills both fields and the worker is asked to add a
+`Co-authored-by` trailer when your GitHub account is known. An existing App picks up its bot user ID on the first
+App offer after upgrading, with no need to register again. With your personal token, commits still use your account
+for both fields. The App still opens pull requests with its own token.
