@@ -71,6 +71,8 @@ func TestReviewWithNoWorkLeftWakesItsCoordinatorOnce(t *testing.T) {
 }
 
 func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
+	t.Parallel()
+
 	for _, resolution := range []string{"new work", "merge webhook", "merge poll", "finished"} {
 		t.Run(resolution, func(t *testing.T) {
 			w := newWorld(t)
@@ -131,6 +133,29 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 			_, err = w.s.WakeChats(ctx)
 			require.NoError(t, err)
 			assert.Equal(t, item.ID, report(3).ID)
+			if resolution == "new work" {
+				assert.NotContains(t, item.Notes, "Fix the remaining blockers in one more round before merging.")
+				wakes, err := w.s.Undelivered(ctx, chat.ID)
+				require.NoError(t, err)
+				require.NotEmpty(t, wakes)
+				assert.Contains(t, wakes[len(wakes)-1].Text, item.ID)
+				assert.Contains(t, wakes[len(wakes)-1].Text, "inbox_comment")
+
+				coordinator := inboxstore.Actor{Kind: inboxstore.Bot, ID: chat.Bot}
+				const recommendation = "Recommendation: Stop. The retry change is superseded."
+				_, err = w.s.Inbox().CommentWith(ctx, coordinator, item.ID, recommendation,
+					inboxstore.Attached{From: chat.ID})
+				assert.NoError(t, err)
+
+				const reply = "one more round, focused on retry"
+				commented, err := w.s.Inbox().Comment(ctx, inboxstore.Actor{Kind: inboxstore.Owner}, item.ID, reply)
+				require.NoError(t, err)
+				assert.Contains(t, fmt.Sprint(commented.Events), recommendation)
+				wakes, err = w.s.Undelivered(ctx, chat.ID)
+				require.NoError(t, err)
+				assert.Len(t, wakes, 4, "only the owner's reply adds a wake")
+				assert.Contains(t, wakes[len(wakes)-1].Text, reply)
+			}
 			all, err := w.s.Inbox().List(ctx, inboxstore.Filter{WithClosed: true}, "", 10)
 			require.NoError(t, err)
 			require.Len(t, all.Items, 1)
