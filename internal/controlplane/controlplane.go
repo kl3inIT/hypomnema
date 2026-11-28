@@ -636,8 +636,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
 	}
 	agents.WithWeb(agentsWeb).
-		// Social listening (issue #1287): the web and Reddit, keyless, its web searches on the caller's key.
-		WithListening(agentListening{svc: listening.New(listening.Config{Logger: logger}), web: agentsWeb}).
+		// Social listening (issue #1287): the web and Reddit, keyless, its web searches on the caller's key; Facebook,
+		// Instagram and Threads through the Muse pool (issue #1292).
+		WithListening(agentListening{
+			svc: listening.New(listening.Config{Logger: logger, Muse: listeningMuse(musePool)}), web: agentsWeb,
+		}).
 		WithImages(agentImages{
 			worker: modelgateway.WorkerImages{Server: gatewayServer, Gateway: gateway, Logger: logger},
 			bot:    modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},

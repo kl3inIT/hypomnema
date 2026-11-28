@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -76,39 +75,6 @@ type Request struct {
 	Run *Run
 }
 
-// Run is one search as its streams share it: when it began, how many streams read each source, and what a backend
-// keeps for the whole search (the time Muse may take, muse.go), as last30days shares one X lane budget across a
-// run's calls (grok_x.LANE_BUDGET_SECONDS, pipeline.py:6911-6916).
-type Run struct {
-	Began   time.Time
-	streams map[string]int
-
-	mu     sync.Mutex
-	values map[string]any
-}
-
-// NewRun is a search begun at began, with how many streams read each source.
-func NewRun(began time.Time, streams map[string]int) *Run {
-	return &Run{Began: began, streams: streams, values: map[string]any{}}
-}
-
-// Streams is how many streams of the search read source.
-func (r *Run) Streams(source string) int { return r.streams[source] }
-
-// Value is what the search keeps under key, made by init the first time.
-func (r *Run) Value(key string, init func() any) any {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	v, ok := r.values[key]
-	if !ok {
-		v = init()
-		r.values[key] = v
-	}
-
-	return v
-}
-
 func (r Request) now() time.Time {
 	if r.Now == nil {
 		return time.Now()
@@ -137,6 +103,8 @@ type stream struct {
 	subquery Subquery
 	source   string
 	items    []Item
+	// unverified are what a model said it found that its links did not bear out (Answer.Unverified).
+	unverified []Item
 }
 
 // stopsHost are the codes after which the other backends of the same host are not asked in this search: Agent-Reach
@@ -241,6 +209,9 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 			continue
 		}
 
+		st.unverified = append(st.unverified, s.stampUnverified(res.Unverified, p.Name, b.Name, sq.Label, req)...)
+		st.report.Unverified = len(st.unverified)
+
 		items := s.inWindow(res.Items, p.Name, b.Name, sq.Label, req)
 		if len(items) == 0 {
 			clean = true
@@ -309,6 +280,26 @@ func (s *Service) inWindow(items []Item, source, backend, label string, req Requ
 		if len(out) == req.Limit {
 			break
 		}
+	}
+
+	return out
+}
+
+// stampUnverified marks a model's unverified items as inWindow marks items, at most the request's limit, whatever
+// their date: a date outside the window may be why one failed, and its date is a model's, so low.
+func (s *Service) stampUnverified(items []Item, source, backend, label string, req Request) []Item {
+	now := s.now().UTC()
+	out := make([]Item, 0, min(len(items), req.Limit))
+
+	for _, it := range items[:min(len(items), req.Limit)] {
+		it.Source = source
+		it.Backend = backend
+		it.Subqueries = []string{label}
+		it.FetchedAt = now
+		it.ID = itemID(source, it.NativeID)
+		it.DateConfidence = "low"
+		it.Text = clip(it.Text, maxTextRunes)
+		out = append(out, it)
 	}
 
 	return out

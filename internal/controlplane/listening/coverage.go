@@ -53,6 +53,7 @@ func (c Coverage) settle() Coverage {
 
 	for _, s := range c.Streams {
 		c.Items += s.Items
+		c.Unverified += s.Unverified
 
 		if s.read() {
 			read++

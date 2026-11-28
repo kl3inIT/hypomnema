@@ -46,8 +46,9 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 
 	return agenttool.BrowserTool{
 		Name: agenttool.ToolListenSearch,
-		Description: "Find what people say about a topic: posts, threads and comments from the web and Reddit, each " +
-			"with its link, author, date, text and counts. Use it to learn what the public says (complaints, " +
+		Description: "Find what people say about a topic: posts, threads and comments from the web, Reddit, " +
+			"Facebook, Instagram and Threads, each with its link, author, date, text and counts. Use it to learn " +
+			"what the public says (complaints, " +
 			"praise, questions, comparisons) rather than what the press or a company says; for a fact or one page, " +
 			"use web_search and web_fetch instead. You write the plan: up to " + strconv.Itoa(listening.MaxSubqueries) +
 			" subqueries, each a short search in the words people use (in their language), with the sources it " +
@@ -56,6 +57,11 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"story, tagged single-source or thin-evidence when the evidence is weak), and `coverage`, one line per " +
 			"source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with its code " +
 			"(need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend tried. " +
+			"facebook, instagram and threads are read by asking the owner's Muse, about a minute a question and one " +
+			"at a time, all of a call's Muse questions within six minutes: give them one or two subqueries (a " +
+			"source not reached in time is not_read, timeout). Each post Muse names is checked by opening its link; " +
+			"one whose page does not hold its quote or whose date does not check is listed in `unverified`, with " +
+			"why: a lead to look at, never evidence or a count. " +
 			"Write your report from these; quote the text and give the link and date. " + listeningData,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 			`"topic":{"type":"string","description":"What the plan is about, in a few words; its words are not ` +

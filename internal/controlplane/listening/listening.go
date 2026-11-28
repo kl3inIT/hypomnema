@@ -253,6 +253,13 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 
 	runs := make([]sourceRun, len(s.platforms))
 
+	streamsOf := map[string]int{}
+	for _, p := range s.platforms {
+		streamsOf[p.Name] = len(plan.subqueriesOf(p.Name))
+	}
+
+	run := NewRun(now, streamsOf)
+
 	var wg sync.WaitGroup
 
 	for i, p := range s.platforms {
@@ -269,7 +276,7 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 			for _, sq := range labels {
 				req := Request{
 					Query: sq.Query, Topic: plan.topic(), Limit: plan.MaxResults, From: from, To: now, Web: web,
-					Pace: s.pacer.Wait, Now: s.now,
+					Pace: s.pacer.Wait, Now: s.now, Run: run,
 					Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
 					Rest:    func(path string, f *SourceError) time.Time { return s.rest("path:"+path, f) },
 				}
@@ -288,6 +295,8 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 
 	var streams []stream
 
+	seen := map[string]bool{}
+
 	for _, r := range runs {
 		if r.coverage.Source == "" {
 			continue
@@ -295,6 +304,15 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 
 		answer.Coverage = append(answer.Coverage, r.coverage)
 		streams = append(streams, r.streams...)
+
+		for _, st := range r.streams {
+			for _, it := range st.unverified {
+				if !seen[it.ID] && len(answer.Unverified) < PoolSize {
+					seen[it.ID] = true
+					answer.Unverified = append(answer.Unverified, it)
+				}
+			}
+		}
 	}
 
 	items := rank(plan, streams, now)

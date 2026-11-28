@@ -161,13 +161,18 @@ func (p *pages) opened() []string {
 func (p *pages) client() *http.Client {
 	target, _ := url.Parse(p.server.URL)
 
-	return &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
-		r = r.Clone(r.Context())
+	return &http.Client{Transport: roundTrip(func(asked *http.Request) (*http.Response, error) {
+		r := asked.Clone(asked.Context())
 		r.Header.Set("X-Host", r.URL.Host)
 		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
 		r.Host = target.Host
 
-		return http.DefaultTransport.RoundTrip(r)
+		resp, err := http.DefaultTransport.RoundTrip(r)
+		if resp != nil {
+			resp.Request = asked
+		}
+
+		return resp, err
 	})}
 }
 
@@ -282,13 +287,19 @@ func TestMuseStoppingMidWorkIsContinuedInTheSameThread(t *testing.T) {
 		answeredWith(block(1, a, "@coccoc.official", "@coccoc.official", "2026-11-08", "caption",
 			"Vào web đọc truyện mà quên mở bằng Cốc Cốc 🤡", "75")),
 	}
-	m := &fakeMuse{answer: func(n int, _ muse.Question) (muse.Result, error) { return answers[n], nil }}
+	m := &fakeMuse{answer: func(n int, _ muse.Question) (muse.Result, error) {
+		if n < len(answers) {
+			return answers[n], nil
+		}
+
+		return answeredWith("NO POSTS FOUND"), nil // the depth question that follows
+	}}
 
 	got, err := museService(c, m, p).Search(t.Context(), plan([]string{listening.SourceThreads}, "Cốc Cốc"), nil)
 	require.NoError(t, err)
 
 	asked := m.questions()
-	require.Len(t, asked, 3)
+	require.GreaterOrEqual(t, len(asked), 3)
 	assert.Empty(t, asked[0].Thread)
 	assert.Equal(t, museThread, asked[1].Thread)
 	assert.Equal(t, museThread, asked[2].Thread)
