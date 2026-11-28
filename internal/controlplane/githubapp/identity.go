@@ -20,7 +20,7 @@ func (a *App) OfferIdentity(ctx context.Context, host, path string) (bot, owner 
 	}
 
 	if err != nil {
-		a.logger.WarnContext(ctx, "an offer goes with the owner's token: the GitHub App's token or bot identity could not be read",
+		a.logger.WarnContext(ctx, "an offer goes with the owner's token: the GitHub App credential is unavailable",
 			slog.String("event", "githubapp.offer_failed"), slog.String("repository", path),
 			slog.String("error", err.Error()))
 

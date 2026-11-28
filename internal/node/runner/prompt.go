@@ -513,8 +513,7 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 	}
 
 	if !readOnly && o.GitHubApp && o.GitCoAuthor != "" {
-		fmt.Fprintf(&b, "\nWhen committing, include this trailer on its own line after a blank line in the commit message: %q.\n",
-			o.GitCoAuthor)
+		fmt.Fprintf(&b, "\nAdd this trailer on its own line after a blank line in the commit message: %q.\n", o.GitCoAuthor)
 	}
 
 	return b.String()

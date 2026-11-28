@@ -250,8 +250,9 @@ func TestAnExistingGitHubAppKeepsItsBotUserAfterTheFirstOffer(t *testing.T) {
 	w.install()
 
 	bot, owner := w.app.OfferIdentity(ctx, githost.GitHubHost, "kl3inIT/hypomnema")
-	assert.Equal(t, githost.Identity{Name: "hypomnema-owner[bot]", Email: "4343+hypomnema-owner[bot]@users.noreply.github.com"},
-		bot)
+	assert.Equal(t, githost.Identity{
+		Name: "hypomnema-owner[bot]", Email: "4343+hypomnema-owner[bot]@users.noreply.github.com",
+	}, bot)
 	assert.Equal(t, githost.Identity{Name: "kl3inIT", Email: "164090677+kl3inIT@users.noreply.github.com"}, owner)
 	require.Equal(t, 1, w.gh.BotReads())
 
