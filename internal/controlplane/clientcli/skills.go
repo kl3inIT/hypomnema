@@ -40,11 +40,10 @@ import (
 // store (issues #492, #536): the control plane publishes them as built-in
 // revisions at each start (StoreSkills), and `skills install` takes out the
 // copies and stubs earlier releases put in ~/.agents/skills, so that a Bot
-// gets each once. A guide requires its Integration, or the phone, in its
-// frontmatter (metadata.hypomnema.requires) and goes only to an agent that
-// may use a Connection of it (orchestration's givenSkills). Each names only
-// tools every kind has (show_artifact, Superset's tools, the device_* tools,
-// an Integration's command) and its files relative to its own folder; only
+// gets each once. A guide can declare its Integration, device or tool in
+// metadata.hypomnema.requires. Orchestration gives it to agents that meet
+// the requirement (givenSkills). Each names tools its agents can use and
+// files relative to its own folder. Only
 // pages's Routine row names commands (`hypomnema superset chart`, `hypomnema
 // artifact show`), which a Routine's script runs
 // (docs/decisions/2026-11-15-one-tool-for-every-agent.md).
@@ -84,6 +83,7 @@ var releasedStubs = map[string][]string{
 // it has.
 var storeSkills = []string{
 	"pdf", "slides", "pages", "google-workspace", "lark", "aws", "superset", "android-device", "github", "gitlab",
+	"social-listening",
 }
 
 // StoreSkills are the skills the control plane publishes into its skills

@@ -70,7 +70,8 @@ type Server struct {
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
 	// githubApp is the owner's GitHub App (issue #1262, githubapp.go); nil when the control plane wired none.
-	githubApp GitHubApp
+	githubApp           GitHubApp
+	githubAppPublicHost string
 	// terminals reaches a node for a terminal; nil when the control plane wired none.
 	terminals Terminals
 	nodeFiles NodeFiles
