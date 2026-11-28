@@ -1076,6 +1076,38 @@ func TestStopEndsTheChatsPi(t *testing.T) {
 		"the key ends with the pi")
 }
 
+// fastTurnPi lets the RPC reader finish the turn before the sender can resume.
+type fastTurnPi struct{ *scriptedPi }
+
+func (w fastTurnPi) Write(line []byte) (int, error) {
+	before := len(w.prompts)
+	n, err := w.scriptedPi.Write(line)
+	if err == nil && len(w.prompts) > before {
+		w.p.handle(w.t.Context(), []byte(`{"type":"agent_start"}`))
+		w.p.handle(w.t.Context(), []byte(`{"type":"agent_settled","aborted":false}`))
+	}
+
+	return n, err
+}
+
+func TestAFastTurnLeavesTheChatsPiIdle(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newStore(t)
+	ctx := t.Context()
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	sup, p, pi := scriptedSupervisor(t, svc, chat.ID)
+	p.stdin = fastTurnPi{pi}
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
+	require.NoError(t, err)
+	require.NoError(t, sup.deliver(ctx, chat.ID))
+	require.Equal(t, []string{"hello"}, pi.prompts)
+	require.True(t, sup.Idle(chat.ID), "the prompt acknowledgement must not undo an already settled turn")
+}
+
 // answerAndExit plays a pi that answers each command and exits at once: its
 // response is handed over and then done closes, as the reader does.
 type answerAndExit struct{ p *proc }
