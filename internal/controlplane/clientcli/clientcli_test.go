@@ -588,7 +588,7 @@ func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
 
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)
-	assert.Equal(t, "shop\tacme/shop\t\twork\t\n", out)
+	assert.Equal(t, "shop\tacme/shop\t\twork\t\tbot: main bot\n", out)
 
 	_, err = w.cmd(t, "integrations", "disconnect", "github.com")
 	require.ErrorContains(t, err, "<integration>:<label>")
@@ -703,8 +703,8 @@ func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
 
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)
-	assert.Equal(t, "hyp\tkl3inIT/hypomnema\t\t\t\n"+
-		"platform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\t\t\n", out)
+	assert.Equal(t, "hyp\tkl3inIT/hypomnema\t\t\t\tbot: main bot\n"+
+		"platform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\t\t\tbot: main bot\n", out)
 
 	// The host cuts a large clone over HTTPS, so the repository is cloned over SSH (issue #625); what else it
 	// says is kept, and an empty address clones it over HTTPS again.
@@ -727,7 +727,7 @@ func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)
 	assert.Contains(t, out, "platform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\t\t"+
-		"ssh://git@167.254.68.172:222/team/Platform-API.git\n")
+		"ssh://git@167.254.68.172:222/team/Platform-API.git\tbot: main bot\n")
 
 	out, err = w.cmd(t, "repos", "set", "platform-api", "--ssh-url", "")
 	require.NoError(t, err)
@@ -1620,19 +1620,45 @@ func TestDiskWaitUsesPlainLanguage(t *testing.T) {
 	assert.Equal(t, "no suitable node has enough measured free disk space", waitingLine(orchestration.ReasonNodesLowDisk))
 }
 
-// pi's environment names its chat; the Runs it creates record it.
-func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
+// Scenario: issue #1334. The owner gives a project Bot its repository with `bots set --repos`, and `repos list` names
+// that Bot. pi, with its own token and no --chat, creates a Run on that repository: the Run goes to the project Bot's
+// main chat and the CLI prints why; a Run on a repository no Bot owns stays in pi's own chat, which its token names.
+func TestRunsCreatedByPiGoToTheBotThatOwnsTheRepository(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
-	w.login(t, bearertoken.Coordinator)
+	ctx := t.Context()
+	w.login(t, bearertoken.Owner)
 
-	chat, err := w.svc.CreateChat(t.Context(), "", "")
+	chat, _, err := w.svc.OpenMainChat(ctx, "", "", "", orchestration.ChatModel{})
+	require.NoError(t, err)
+	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot"})
 	require.NoError(t, err)
 
-	t.Setenv("HYPOMNEMA_CHAT_ID", chat.ID)
+	out, err := w.cmd(t, "bots", "set", "BeyondPilot", "--repos", "acme/beyondpilot")
+	require.NoError(t, err)
+	assert.Contains(t, out, "repositories: acme/beyondpilot")
 
-	var run openapi.Run
-	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "kl3inIT/demo", "health page")
-	assert.Equal(t, chat.ID, val(run.ChatId))
+	_, err = w.cmd(t, "repos", "add", "acme/beyondpilot")
+	require.NoError(t, err)
+	out, err = w.cmd(t, "repos", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "bot: BeyondPilot")
+
+	secret, err := w.svc.AddBotToken(ctx, testChatCoordinator, chat.ID, chat.Bot)
+	require.NoError(t, err)
+	w.loginWith(t, secret)
+
+	out, err = w.cmd(t, "runs", "create", "--repo", "acme/beyondpilot", "fix the pilot's report")
+	require.NoError(t, err)
+	owned, err := w.svc.GetBot(ctx, beyond.ID)
+	require.NoError(t, err)
+	assert.Contains(t, out, "in chat "+owned.MainChat)
+	assert.Contains(t, out, "routed_by repo_owner: bot "+beyond.ID+" owns acme/beyondpilot")
+
+	var own openapi.Run
+	w.jsonCmd(t, &own, "", "runs", "create", "--repo", "kl3inIT/demo", "health page")
+	assert.Equal(t, chat.ID, val(own.ChatId))
+	assert.Equal(t, openapi.RoutedByOwnChat, val(own.RoutedBy))
 }
 
 func TestTheOwnerCanNameTheChatToCreateOrAdoptARunIn(t *testing.T) {

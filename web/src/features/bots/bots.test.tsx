@@ -125,6 +125,18 @@ function server(
     const one = /^\/bots\/([^/]+)$/.exec(path)
     const found = one && bots.find((b) => b.id === one[1])
 
+    // A Bot's repositories (issue #1334): acme/vmap is another Bot's, and its claim is refused.
+    const owns = /^\/bots\/([^/]+)\/repos$/.exec(path)
+    if (request.method === "PUT" && owns) {
+      const { repos } = (await request.clone().json()) as { repos: string[] }
+      if (repos.includes("acme/vmap"))
+        return json({ code: "conflict", message: "acme/vmap belongs to bot VMAP (vmap)" }, 409)
+      const stored: Bot = { ...bots.find((b) => b.id === owns[1])!, repos }
+      bots = bots.map((b) => (b.id === stored.id ? stored : b))
+
+      return json(stored)
+    }
+
     if (request.method === "GET" && one) {
       return found ? json(found) : json({ code: "not_found", message: "no such bot" }, 404)
     }
@@ -659,4 +671,42 @@ test("a Bot's switches wait while its form saves", async () => {
   expect(limit).toHaveAttribute("aria-disabled", "true")
   release()
   await vi.waitFor(() => expect(limit).not.toHaveAttribute("aria-disabled", "true"))
+})
+
+// Scenario: issue #1334. The owner gives a project Bot its repository on its page: it is listed and saved at once. A
+// repository another Bot owns is refused with the server's words, naming that Bot, and the list stays. Removing one
+// saves the list without it. The main Bot's page says it owns none.
+test("a Bot's repositories are added and removed on its page, and a taken one is refused", async () => {
+  server([bot("coordinator"), bot("beyond", { name: "BeyondPilot", repos: [] })])
+  open("/bots/beyond")
+  const user = userEvent.setup()
+
+  const repos = await screen.findByRole("region", { name: "Repositories" })
+  const field = within(repos).getByRole("textbox", { name: "Repository" })
+  await user.type(field, "acme/beyondpilot")
+  await user.click(within(repos).getByRole("button", { name: "Add" }))
+  const owned = await within(repos).findByRole("list", { name: "Repositories it owns" })
+  expect(owned).toHaveTextContent("acme/beyondpilot")
+  expect(field).toHaveValue("")
+
+  await user.type(field, "acme/vmap")
+  await user.click(within(repos).getByRole("button", { name: "Add" }))
+  expect(await within(repos).findByRole("alert")).toHaveTextContent("acme/vmap belongs to bot VMAP")
+  expect(within(owned).getAllByRole("listitem")).toHaveLength(1)
+
+  await user.click(within(repos).getByRole("button", { name: "Stop owning acme/beyondpilot" }))
+  await waitFor(() =>
+    expect(
+      within(repos).queryByRole("list", { name: "Repositories it owns" }),
+    ).not.toBeInTheDocument(),
+  )
+})
+
+test("the main Bot's page says it owns no repository", async () => {
+  server([bot("coordinator")])
+  open("/bots/coordinator")
+
+  const repos = await screen.findByRole("region", { name: "Repositories" })
+  expect(repos).toHaveTextContent("The main Bot owns no repository")
+  expect(within(repos).queryByRole("textbox")).not.toBeInTheDocument()
 })

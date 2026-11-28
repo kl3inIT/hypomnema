@@ -305,11 +305,13 @@ func TestTheMigrationQueuesEachPullRequestsLatestVerdict(t *testing.T) {
 	p, err := provider(world.db)
 	require.NoError(t, err)
 
-	_, err = p.DownTo(ctx, before)
-	require.NoError(t, err)
-
+	// The Tasks are made by today's code on today's schema, before the schema goes back: a later migration's column
+	// is not there below it.
 	first := world.tasks(NewTask{Ref: "first", Profile: "reviewer", Spec: reviewSpec})[0]
 	later := world.tasks(NewTask{Ref: "later", Profile: "reviewer", Spec: reviewSpec})[0]
+
+	_, err = p.DownTo(ctx, before)
+	require.NoError(t, err)
 
 	for _, v := range []struct{ task, head, verdict string }{
 		{first.ID, statusHead, "incorrect"}, {later.ID, statusNewHead, "correct"},

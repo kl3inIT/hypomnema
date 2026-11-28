@@ -363,3 +363,13 @@ test("the message waited on is placed by the item's own source", () => {
     kind: "name",
   })
 })
+
+// Scenario: issue #1334. The main Bot kept the item and said why it passed it to no Bot: the thread says so in words.
+test("the main Bot's reason for passing to no Bot is a thread line", () => {
+  expect(
+    eventLine(
+      event(5, { actor: bot, after: { not_passed: "No project Bot has the billing account." } }),
+      nameOf,
+    ).words,
+  ).toBe("Hypo passed it to no Bot: No project Bot has the billing account.")
+})

@@ -68,6 +68,7 @@ function world({
   quiet = false,
   triage = false,
   passed = false,
+  notPassed = false,
   worked = false,
   projects: withProjects = false,
   waiting = false,
@@ -79,6 +80,7 @@ function world({
   quiet?: boolean
   triage?: boolean
   passed?: boolean
+  notPassed?: boolean
   worked?: boolean
   projects?: boolean
   waiting?: boolean
@@ -267,6 +269,16 @@ function world({
         assignee: { kind: "bot", name: "bot_beyond" },
         passed_by: "bot_main",
         chat_id: "cht_beyond",
+        source: { kind: "owner" },
+      }),
+    )
+  // Hypo kept a to-do no project Bot fits and said why (issue #1334).
+  if (notPassed)
+    todos.push(
+      todo("tdo_billing", "Pay the Vercel invoice for ELITEX", {
+        assignee: { kind: "bot", name: "bot_main" },
+        not_passed: "It needs the ELITEX billing account, and no project Bot has it.",
+        chat_id: "cht_billing",
         source: { kind: "owner" },
       }),
     )
@@ -464,6 +476,27 @@ function world({
           ],
         }
       : {}
+  if (notPassed)
+    threads.tdo_billing = [
+      {
+        id: 2,
+        at: at(-30 * 60_000),
+        revision: 2,
+        actor: { kind: "owner" },
+        kind: "edited",
+        before: {},
+        after: { assignee_kind: "bot", assignee: "bot_main" },
+      },
+      {
+        id: 3,
+        at: at(-20 * 60_000),
+        revision: 3,
+        actor: { kind: "bot", id: "bot_main" },
+        kind: "edited",
+        before: { not_passed: null },
+        after: { not_passed: "It needs the ELITEX billing account, and no project Bot has it." },
+      },
+    ]
   if (waiting)
     threads.tdo_chase = [
       {
@@ -1650,6 +1683,27 @@ test("an item the main Bot passed shows who has it through whom", async ({ page 
   await expect(thread).toContainText("You gave it to Hypo")
   await expect(thread).toContainText("Hypo passed it to BeyondPilot")
   await shot(page, "inbox-passed")
+})
+
+// Scenario: issue #1334. Hypo kept a to-do no project Bot fits and said why: its row says "Not passed", and its
+// detail and thread give the reason, instead of the item staying with Hypo silently.
+test("a to-do the main Bot passed to no Bot shows Not passed with its reason", async ({ page }) => {
+  const w = world({ notPassed: true })
+  await w.serve(page)
+  await page.goto("/inbox")
+  const row = page.getByTestId("inbox-row").filter({ hasText: "Pay the Vercel invoice for ELITEX" })
+  await expect(row.locator('[data-slot="not-passed"]')).toHaveText("Not passed")
+  await shot(page, "inbox-not-passed-list")
+
+  await page.goto("/inbox?item=todo%3Atdo_billing")
+  const detail = item(page)
+  await expect(detail).toContainText(
+    /Not passed\s*It needs the ELITEX billing account, and no project Bot has it\./,
+  )
+  await expect(detail.getByRole("region", { name: "Comments" })).toContainText(
+    "Hypo passed it to no Bot: It needs the ELITEX billing account",
+  )
+  await shot(page, "inbox-not-passed")
 })
 
 // Scenario: issue #1111, section 3. The owner edits the reply to Kai and presses Send: a confirmation names Kai

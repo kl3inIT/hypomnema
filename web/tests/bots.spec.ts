@@ -193,6 +193,26 @@ async function fakeServer(
       return json(stored)
     }
 
+    // A Bot's repositories (issue #1334): acme/vmap is another Bot's, and a claim on it is refused.
+    const reposOf = /^\/bots\/([^/]+)\/repos$/.exec(path)
+    if (reposOf && request.method() === "PUT") {
+      const { repos } = request.postDataJSON() as { repos: string[] }
+      if (repos.includes("acme/vmap")) {
+        return json(
+          {
+            code: "conflict",
+            message: "acme/vmap belongs to bot VMAP (bot_vmap); take it from that bot first",
+          },
+          409,
+        )
+      }
+
+      const stored = { ...bots.find((b) => b.id === reposOf[1])!, repos }
+      bots = bots.map((b) => (b.id === reposOf[1] ? stored : b))
+
+      return json(stored)
+    }
+
     // A memory's notes (issue #589), the server's paths and sizes.
     const query = new URL(request.url()).searchParams
     if (path === "/memory-notes") {
@@ -1006,4 +1026,42 @@ test("a chat shows what the Bot coordinator changed, and the owner undoes it", a
   await expect(made.getByRole("button", { name: "Undo" })).toHaveCount(0)
   expect(calls).toContainEqual({ call: "POST /setup-changes/chg_1/undo", body: null })
   await shot(page, "chat-setup-changes-undone")
+})
+
+// Scenario: issue #1334. The owner gives the BeyondPilot Bot its repository on its page: it is listed at once. A
+// repository another Bot owns is refused with the server's words, which name that Bot. The main Bot's page says it
+// owns none.
+test("a Bot owns repositories set on its page, and a taken one is refused", async ({ page }) => {
+  const calls = await fakeServer(page, [
+    coordinator,
+    bot("beyond", {
+      name: "BeyondPilot",
+      persona: "The BeyondPilot project for GenAI Fund.",
+      repos: [],
+    }),
+  ])
+  await page.goto("/bots/beyond")
+
+  const repos = page.getByRole("region", { name: "Repositories" })
+  await repos.getByRole("textbox", { name: "Repository" }).fill("acme/beyondpilot")
+  await repos.getByRole("button", { name: "Add" }).click()
+  await expect(repos.getByRole("list", { name: "Repositories it owns" })).toContainText(
+    "acme/beyondpilot",
+  )
+  await expect
+    .poll(() => calls.at(-1))
+    .toEqual({ call: "PUT /bots/beyond/repos", body: { repos: ["acme/beyondpilot"] } })
+
+  await repos.getByRole("textbox", { name: "Repository" }).fill("acme/vmap")
+  await repos.getByRole("button", { name: "Add" }).click()
+  await expect(repos.getByRole("alert")).toContainText("acme/vmap belongs to bot VMAP")
+  await repos.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-repositories")
+
+  await page.goto("/bots/coordinator")
+  const main = page.getByRole("region", { name: "Repositories" })
+  await expect(main).toContainText("The main Bot owns no repository")
+  await main.scrollIntoViewIfNeeded()
+  await shot(page, "bot-repositories-main")
 })
