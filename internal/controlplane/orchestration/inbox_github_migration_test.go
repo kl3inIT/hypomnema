@@ -32,6 +32,8 @@ func TestMigrationLetsGitHubsCallsMakeItems(t *testing.T) {
 			'bot_kai', 'dep_a', 'bot', 'bot_kai', 1, 1)`,
 		`INSERT INTO todo_events (todo_id, at, revision, actor_kind, actor, kind, before, after)
 		 VALUES ('tdo_a', 1, 1, 'bot', 'bot_kai', 'created', '{}', '{"title":"Reply to Lan"}')`,
+		`INSERT INTO github_deliveries (id, event, action, repository, payload, received_at)
+		 VALUES ('d-old', 'issue_comment', 'created', 'kl3init/hypomnema', '{"comment":{"body":"words"}}', 1)`,
 	} {
 		_, err := db.ExecContext(ctx, stmt)
 		require.NoError(t, err, stmt)
@@ -41,6 +43,11 @@ func TestMigrationLetsGitHubsCallsMakeItems(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, columns, todoColumns(t, db), "every column, in its order")
+
+	var kept int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM github_deliveries WHERE payload IS NOT NULL`).
+		Scan(&kept))
+	assert.Zero(t, kept, "no delivery's body is kept, those of before neither")
 
 	var (
 		project string

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -60,6 +61,38 @@ type GitHub struct {
 	// posted, in order (Posted).
 	permissions map[string]collaborator
 	posted      []Post
+	// refused are the paths a POST is refused at, with the status (Refuse); reviews the reviews made (POST
+	// .../pulls/{n}/reviews), in order.
+	refused map[string]int
+	reviews []Made
+}
+
+// Made is a review made on a pull request through the API: by whom GitHub took it to be, from the token that made
+// it (an installation's token is the App's account, any other the owner's), and the delivery GitHub then sends.
+type Made struct {
+	By    Person
+	URL   string
+	Event []byte
+}
+
+// Refuse makes every POST to path answer status, and nothing is posted; 0 lets it through again.
+func (g *GitHub) Refuse(path string, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.refused == nil {
+		g.refused = map[string]int{}
+	}
+
+	g.refused[path] = status
+}
+
+// Reviews are the reviews made through the API, in order.
+func (g *GitHub) Reviews() []Made {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return append([]Made(nil), g.reviews...)
 }
 
 type collaborator struct {
@@ -288,6 +321,10 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 		return answer(http.StatusOK, map[string]any{
 			"permission": c.permission, "user": map[string]any{"login": parts[5], "id": c.id},
 		})
+	case r.Method == http.MethodPost && g.refused[path] != 0:
+		return answer(g.refused[path], map[string]any{"message": "refused"})
+	case r.Method == http.MethodPost && strings.HasPrefix(path, "/repos/") && strings.HasSuffix(path, "/reviews"):
+		return g.review(path, auth, sent)
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/repos/") &&
 		(strings.HasSuffix(path, "/reactions") || strings.HasSuffix(path, "/comments") ||
 			strings.HasSuffix(path, "/replies")):
@@ -343,6 +380,45 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 	return answer(http.StatusNotFound, map[string]any{"message": "Not Found"})
 }
 
+// review makes a review on a pull request as GitHub's POST /repos/{owner}/{repo}/pulls/{n}/reviews does: by the
+// App's account when an installation's token made it, else by the owner's; and the pull_request_review delivery
+// GitHub sends the App for it. g.mu is held.
+func (g *GitHub) review(path, auth string, sent []byte) (*http.Response, error) {
+	parts := strings.Split(path, "/")
+
+	number, err := strconv.Atoi(parts[len(parts)-2])
+	if err != nil || len(parts) != 7 {
+		return answer(http.StatusNotFound, map[string]any{"message": "Not Found"})
+	}
+
+	var asked struct {
+		Event string `json:"event"`
+		Body  string `json:"body"`
+	}
+
+	_ = json.Unmarshal(sent, &asked)
+
+	by := Person{Login: "kl3inIT", ID: OwnerUserID}
+	if strings.HasPrefix(auth, "Bearer ghs_installation_token_") {
+		by = Person{Login: Slug + "[bot]", ID: BotUserID, Type: "Bot"}
+	}
+
+	id := int64(880 + len(g.reviews))
+	state := map[string]string{"APPROVE": "approved", "REQUEST_CHANGES": "changes_requested"}[asked.Event]
+
+	if state == "" {
+		state = "commented"
+	}
+
+	made := Made{By: by, URL: ReviewURL(number, id), Event: ReviewAt(by, number, id, state, asked.Body, time.Now())}
+	g.reviews = append(g.reviews, made)
+
+	return answer(http.StatusOK, map[string]any{
+		"id": id, "html_url": made.URL, "state": strings.ToUpper(state), "user": person(by),
+		"submitted_at": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 func answer(status int, body any) (*http.Response, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -390,9 +466,10 @@ type Comment struct {
 	ID          int64
 	Body        string
 	IssueBody   string
-	// Path and Line place a review comment in the diff.
-	Path string
-	Line int
+	// Path and Line place a review comment in the diff; InReplyTo is the thread's first comment when it is a reply.
+	Path      string
+	Line      int
+	InReplyTo int64
 }
 
 func person(p Person) map[string]any {
@@ -453,7 +530,7 @@ func ReviewComment(c Comment) []byte {
 	body["action"] = "created"
 	body["pull_request"] = pr
 	body["comment"] = map[string]any{
-		"id": c.ID, "body": c.Body, "user": person(c.By), "path": c.Path, "line": c.Line,
+		"id": c.ID, "body": c.Body, "user": person(c.By), "path": c.Path, "line": c.Line, "in_reply_to_id": c.InReplyTo,
 		"html_url": fmt.Sprintf("%s#discussion_r%d", pr["html_url"], c.ID),
 	}
 	body["sender"] = person(c.By)
@@ -461,16 +538,22 @@ func ReviewComment(c Comment) []byte {
 	return encode(body)
 }
 
-// Review is the body of a pull_request_review delivery: a review submitted by by on pull request number, with its id,
-// state and body.
+// Review is the body of a pull_request_review delivery: a review submitted now by by on pull request number, with its
+// id, state and body.
 func Review(by Person, number int, id int64, state, text string) []byte {
+	return ReviewAt(by, number, id, state, text, time.Now())
+}
+
+// ReviewAt is Review submitted at at.
+func ReviewAt(by Person, number int, id int64, state, text string, at time.Time) []byte {
 	body := base()
 	pr := pullRequest(number, "")
 	body["action"] = "submitted"
 	body["pull_request"] = pr
 	body["review"] = map[string]any{
 		"id": id, "body": text, "state": state, "user": person(by),
-		"html_url": fmt.Sprintf("%s#pullrequestreview-%d", pr["html_url"], id),
+		"html_url":     fmt.Sprintf("%s#pullrequestreview-%d", pr["html_url"], id),
+		"submitted_at": at.UTC().Format(time.RFC3339),
 	}
 	body["sender"] = person(by)
 

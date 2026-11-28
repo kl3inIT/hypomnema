@@ -8,28 +8,29 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/githubapp"
 )
 
-// slug is the registered App's handle (issue #1232's comment of 2026-11-28: the App is hypo-bot); the code reads it
-// from the App's record, never a fixed word.
-const slug = "hypo-bot"
+// slug is a made-up App's handle; the code reads the real one from the App's record, never a fixed word.
+const slug = "acme-bot"
 
-// Scenario (issue #1232, row 1): a comment names the App only by its handle as a word, as Omnara's githubMentionsBot
-// reads it; the request is the caller's words after it.
+// Scenario (issue #1232, rows 1 and 4): a comment names the App only by its handle as a word, as Omnara's
+// githubMentionsBot reads it; the request is the caller's words after it on that line only (review round 1 of PR
+// #1323).
 func TestAMentionIsTheAppsHandleAsAWord(t *testing.T) {
 	t.Parallel()
 
 	for body, want := range map[string]string{
-		"@hypo-bot review PR này":              "review PR này",
-		"Thanks! @Hypo-Bot, fix issue này\nok": "fix issue này\nok",
-		"@hypo-bot[bot] review":                "review",
-		"cc @hypo-bot.":                        "",
-		"@hypo-bot":                            "",
+		"@acme-bot review PR này":               "review PR này",
+		"Thanks! @Acme-Bot, fix issue này\nok":  "fix issue này",
+		"context\n@acme-bot review\n\nmerge it": "review",
+		"@acme-bot[bot] review":                 "review",
+		"cc @acme-bot.":                         "",
+		"@acme-bot":                             "",
 	} {
 		assert.True(t, githubapp.Mentions(body, slug), body)
 		assert.Equal(t, want, githubapp.Request(body, slug), body)
 	}
 
-	for _, body := range []string{"@hypo-bot-old review", "mail me@hypo-bot.dev", "@hypo-bots review",
-		"hypo-bot review", "@hypo-bot[x]"} {
+	for _, body := range []string{"@acme-bot-old review", "mail me@acme-bot.dev", "@acme-bots review",
+		"acme-bot review", "@acme-bot[x]"} {
 		assert.False(t, githubapp.Mentions(body, slug), body)
 		assert.Empty(t, githubapp.Request(body, slug), body)
 	}
@@ -40,11 +41,11 @@ func TestAMentionIsTheAppsHandleAsAWord(t *testing.T) {
 func TestOnlyTheAppsOwnSlugCallsIt(t *testing.T) {
 	t.Parallel()
 
-	assert.False(t, githubapp.Mentions("@hypo review", slug), "@hypo is another account, not the App")
-	assert.Empty(t, githubapp.Request("@hypo review", slug))
+	assert.False(t, githubapp.Mentions("@acme review", slug), "the slug without -bot is another account")
+	assert.Empty(t, githubapp.Request("@acme review", slug))
 
-	assert.True(t, githubapp.Mentions("@hypo-bot review", slug))
-	assert.Equal(t, "review", githubapp.Request("@hypo-bot review", slug))
+	assert.True(t, githubapp.Mentions("@acme-bot review", slug))
+	assert.Equal(t, "review", githubapp.Request("@acme-bot review", slug))
 
-	assert.False(t, githubapp.Mentions("@hypo-bot review", ""), "an App without a slug is called by nothing")
+	assert.False(t, githubapp.Mentions("@acme-bot review", ""), "an App without a slug is called by nothing")
 }
