@@ -101,6 +101,17 @@ test("send on a handed item adds a comment", async () => {
   )
 })
 
+test("send on a review stall replies to the coordinator without handing over the item", async () => {
+  const calls = server()
+  await write(todo({ reply_to_coordinator: true }), "Send")
+
+  await waitFor(() =>
+    expect(calls).toEqual([
+      { call: "POST /inbox/tdo_1/comments", body: { text: "Draft a reply to Kai" } },
+    ]),
+  )
+})
+
 // Scenario: issue #1143, Logic 6. On an item closed as done, Reopen and send reopens it with the revision read,
 // then hands it back to its Bot with the text and the revision the reopen made.
 test("send on a done item reopens it", async () => {
