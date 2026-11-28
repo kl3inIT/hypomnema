@@ -113,8 +113,7 @@ export function ConsentDialog({
   const [open, setOpen] = useState(false)
   const show = useShowListening()
   const agree = useMutation({
-    mutationFn: async () =>
-      (await consentListeningSource({ path: { source: source.name } })).data,
+    mutationFn: async () => (await consentListeningSource({ path: { source: source.name } })).data,
     onSuccess: (listening) => {
       show(listening)
       said(`${source.label} is on: sign its account in`)
@@ -292,7 +291,9 @@ function SignInDialog({ source, again }: { source: ListeningSource; again: boole
           </div>
         </DialogPanel>
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>{done ? "Close" : "Cancel"}</DialogClose>
+          <DialogClose render={<Button variant="outline" />}>
+            {done ? "Close" : "Cancel"}
+          </DialogClose>
           {!opened && (
             <Button onClick={() => start.mutate()} disabled={start.isPending}>
               {start.isPending ? (

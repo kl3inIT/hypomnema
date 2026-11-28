@@ -121,7 +121,13 @@ describe("a card", () => {
 
 describe("a signed-in source (issue #1291)", () => {
   const signed = (over: Partial<NonNullable<ListeningSource["signed"]>> = {}) =>
-    source({ name: "x", label: "X", group: "could_be_on", on: false, signed: { consent: "Risks.", ...over } })
+    source({
+      name: "x",
+      label: "X",
+      group: "could_be_on",
+      on: false,
+      signed: { consent: "Risks.", ...over },
+    })
   const account = (state: "signed_in" | "need_login" | "refused", stopped_until?: string) => ({
     label: "secondary",
     state,
@@ -148,8 +154,13 @@ describe("a signed-in source (issue #1291)", () => {
 
   it("says a stopped account's end, and a signed-in one's state", () => {
     expect(accountState(signed({ account: account("signed_in") }), now)?.label).toBe("Signed in")
-    expect(accountState(signed({ account: account("refused") }), now)?.why).toContain("security check")
-    const stopped = accountState(signed({ account: account("signed_in", "2026-11-29T09:00:00Z") }), now)
+    expect(accountState(signed({ account: account("refused") }), now)?.why).toContain(
+      "security check",
+    )
+    const stopped = accountState(
+      signed({ account: account("signed_in", "2026-11-29T09:00:00Z") }),
+      now,
+    )
     expect(stopped?.tone).toBe("warning")
     expect(stopped?.label).toMatch(/^Stopped until /)
     expect(accountState(signed(), now)).toBeNull()

@@ -97,7 +97,7 @@ export function needsYou(source: ListeningSource) {
 }
 
 // accountNeedsYou says a signed-in source's account asked for a sign-in again or was refused.
-export function accountNeedsYou(source: ListeningSource) {
+function accountNeedsYou(source: ListeningSource) {
   const state = source.signed?.account?.state
 
   return state === "need_login" || state === "refused"
