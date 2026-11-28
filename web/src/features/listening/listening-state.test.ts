@@ -77,6 +77,12 @@ describe("a card", () => {
       "before",
     )
     expect(failureShown(source({ last_error: failure(recent), last_success_at: old }))).toBe("now")
+    // An error kept in the same millisecond as the last success came with or after it: it is not "before".
+    expect(
+      failureShown(
+        source({ group: "broken", last_error: failure(recent), last_success_at: recent }),
+      ),
+    ).toBe("now")
     // Not read for a day, it is unverified: an error older than its last success is still from before it.
     expect(
       failureShown(
