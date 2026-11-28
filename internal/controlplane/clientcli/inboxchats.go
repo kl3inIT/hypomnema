@@ -53,20 +53,8 @@ func inboxChats(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
-	params := &openapi.ListInboxChatsParams{}
-	if q := str(fs, "q"); q != "" {
-		params.Q = &q
-	}
-
-	if k := str(fs, "kind"); k != "" {
-		kind := openapi.InboxChatKind(k)
-		params.Kind = &kind
-	}
-
-	if st := str(fs, "state"); st != "" {
-		state := openapi.InboxChatState(st)
-		params.State = &state
-	}
+	filter := inboxChatFilter(fs)
+	params := &openapi.ListInboxChatsParams{Q: filter.Q, Kind: filter.Kind, State: filter.State}
 
 	resp, err := e.api.ListInboxChatsWithResponse(ctx, integration, label, params)
 	if err != nil {
@@ -91,6 +79,33 @@ func inboxChats(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	})
 }
 
+func inboxChatFilterFlags(fs *flag.FlagSet) {
+	fs.String("q", "", "only the chats whose name or id has these words")
+	fs.String("kind", "", "only the chats of this kind: direct, group or bot")
+	fs.String("state", "", "only the chats the secretary reads (read) or skips (skipped)")
+	jsonFlag(fs)
+}
+
+func inboxChatFilter(fs *flag.FlagSet) openapi.InboxChatBulkFilter {
+	var filter openapi.InboxChatBulkFilter
+
+	if q := str(fs, "q"); q != "" {
+		filter.Q = &q
+	}
+
+	if k := str(fs, "kind"); k != "" {
+		kind := openapi.InboxChatKind(k)
+		filter.Kind = &kind
+	}
+
+	if st := str(fs, "state"); st != "" {
+		state := openapi.InboxChatState(st)
+		filter.State = &state
+	}
+
+	return filter
+}
+
 func inboxChatsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	integration, label, err := accountOf(fs.Arg(0))
 	if err != nil {
@@ -99,12 +114,36 @@ func inboxChatsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	var reads bool
 
-	switch fs.Arg(2) {
+	action := fs.Arg(fs.NArg() - 1)
+	switch action {
 	case "on":
 		reads = true
 	case "off":
 	default:
-		return fmt.Errorf("%q is on or off", fs.Arg(2))
+		return fmt.Errorf("%q must be on or off", action)
+	}
+
+	filter := inboxChatFilter(fs)
+	hasFilter := filter.Q != nil || filter.Kind != nil || filter.State != nil || boolean(fs, "shown")
+
+	if fs.NArg() == 2 {
+		if !hasFilter {
+			return errors.New("name a chat or use --shown to set the current list")
+		}
+
+		return inboxChatsSetBulk(ctx, e, fs, integration, label, openapi.InboxChatBulkChoice{Reads: reads, Filter: &filter})
+	}
+
+	if hasFilter {
+		return errors.New("use chat IDs or list filters, not both")
+	}
+
+	if ids := strings.Split(fs.Arg(1), ","); len(ids) > 1 {
+		for i, id := range ids {
+			ids[i] = strings.TrimSpace(id)
+		}
+
+		return inboxChatsSetBulk(ctx, e, fs, integration, label, openapi.InboxChatBulkChoice{Reads: reads, ChatIds: &ids})
 	}
 
 	resp, err := e.api.SetInboxChatWithResponse(ctx, integration, label, fs.Arg(1), openapi.InboxChatChoice{Reads: reads})
@@ -119,6 +158,31 @@ func inboxChatsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() {
 		e.printf("The secretary %s %s:%s chat %s.\n", map[bool]string{true: "reads", false: "skips"}[reads],
 			integration, label, fs.Arg(1))
+	})
+}
+
+func inboxChatsSetBulk(ctx context.Context, e *env, fs *flag.FlagSet, integration, label string,
+	body openapi.InboxChatBulkChoice,
+) error {
+	action := "setting the chats of " + integration + ":" + label
+	resp, err := e.api.SetInboxChatsBulkWithResponse(ctx, integration, label, body)
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError(action, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		count := len(resp.JSON200.Changes)
+		noun := "chats"
+
+		if count == 1 {
+			noun = "chat"
+		}
+
+		e.printf("Updated %d %s of %s:%s.\n", count, noun, integration, label)
 	})
 }
 

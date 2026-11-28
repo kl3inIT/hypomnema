@@ -5688,8 +5688,11 @@ its client API, its CLI and the Bots' tools.
     Zalo, WhatsApp and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
     is the owner's choice, with when he made it; inbox-zero's per-account exclude items). A chat without a row takes
     its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
-    official account's is not, a bot being a WhatsApp broadcast list or a chat whose name or id matches
-    `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
+    official account's is not. For Zalo and WhatsApp, that means a broadcast list or a chat whose name or id
+    matches `inboxstore.BotPatterns` (the check's former `dropChats` defaults). Lark uses the chat list's bot mode
+    or a P2P peer type of app or bot. The list recomputes the kind and default on each read, then applies the
+    owner's stored choice. The triage check uses the same Lark metadata before reading a chat's history.
+    `internal/controlplane/inbox` (`Chats`)
     lists a Connection's chats with their state: Zalo's and WhatsApp's kept chats (up to `messaging.MaxChats`,
     20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
     100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
@@ -5712,7 +5715,12 @@ its client API, its CLI and the Bots' tools.
     plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
     `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
     kind and state filters as the Machines page's segmented controls with counts for the search, and a card of rows, each with its kind's icon,
-    why it is in its state (default or set by him, and when) and a switch.
+    why it is in its state (default or set by him, and when) and a switch. Skip all shown and Read all shown
+    confirm the visible list's count and send its IDs in one `POST …/bulk` request. Only rows whose read state
+    changes become owner choices. One Undo sends the receipt to `POST …/bulk/undo`, which restores all previous
+    overrides or defaults together and refuses the undo if any affected choice changed since the batch.
+    The CLI accepts comma-separated IDs (`inbox chats set zalo:main 1001,2002 off`) or the list filters
+    (`inbox chats set zalo:main off --kind group`). With `--shown` alone it uses the first 500 chats of the account.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 
