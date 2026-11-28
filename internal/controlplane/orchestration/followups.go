@@ -71,7 +71,7 @@ func (s *Service) FollowUpTask(ctx context.Context, id string, by Addressee, not
 	fid := s.newID("fup")
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return followUpIn(ctx, q, now, id, by, fid, note)
+		return s.followUpIn(ctx, q, now, id, by, fid, note)
 	})
 	if err != nil {
 		return FollowUp{}, err
@@ -88,7 +88,9 @@ func (s *Service) FollowUpTask(ctx context.Context, id string, by Addressee, not
 // followUpIn keeps follow-up fid of Task id in the transaction of q, as FollowUpTask says, so that another step,
 // such as the escalation of a followed pull request (pullrequests.go), is written with it or not at all. Every
 // refusal comes before its first write.
-func followUpIn(ctx context.Context, q *store.Queries, now int64, id string, by Addressee, fid, note string) error {
+func (s *Service) followUpIn(ctx context.Context, q *store.Queries, now int64, id string, by Addressee, fid,
+	note string,
+) error {
 	task, err := q.GetTask(ctx, id)
 	if err != nil {
 		return notFound(err, "task", id)
@@ -140,7 +142,10 @@ func followUpIn(ctx context.Context, q *store.Queries, now int64, id string, by 
 
 	// Its event is task.status from succeeded (or blocked) to ready; the
 	// Dispatch that carries the note names it (dispatch.created).
-	return transitionTask(ctx, q, now, id, TaskReady, BlockedNone, "")
+	if err := transitionTask(ctx, q, now, id, TaskReady, BlockedNone, ""); err != nil {
+		return err
+	}
+	return s.inbox.CloseRunReviewStallsTx(ctx, q, now, run.ID, "Work resumed on the Run.")
 }
 
 // supersedeGates closes the Task's open Gate as replaced by the follow-up

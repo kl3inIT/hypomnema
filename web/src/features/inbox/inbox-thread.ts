@@ -291,10 +291,13 @@ export function handoverWords(
 export type Write = { act: "hand" | "comment" | "reopen"; bot: string; label: string }
 
 export function writeOf(
-  todo: Pick<Todo, "state" | "assignee" | "chat_id">,
+  todo: Pick<Todo, "state" | "assignee" | "chat_id" | "reply_to_coordinator">,
   mainBot: string,
   botName: (id: string) => string,
 ): Write & { placeholder: string } {
+  if (todo.reply_to_coordinator)
+    return { act: "comment", bot: "", label: "Send", placeholder: "Reply to the coordinator…" }
+
   const held = todo.assignee.kind === "bot" && todo.assignee.name ? todo.assignee.name : ""
   const bot = held || mainBot
   const name = bot ? botName(bot) : "Hypo"

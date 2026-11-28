@@ -75,7 +75,11 @@ ORDER BY id DESC LIMIT @lim;
 -- any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
 -- changed_by, only the items an actor of that kind changed at or after changed_since: the owner (issue #1119) or a
 -- Bot (issue #1204).
-SELECT t.* FROM todos t
+SELECT sqlc.embed(t), CAST(COALESCE(s.long_report, '') AS TEXT) AS long_report,
+       CAST((t.state = 'open' AND t.assignee_kind = 'me' AND c.id IS NOT NULL) AS INTEGER) AS reply_to_coordinator
+FROM todos t LEFT JOIN review_stall_todos s ON s.todo_id = t.id
+LEFT JOIN runs r ON r.id = s.run_id AND r.status = 'open'
+LEFT JOIN chats c ON c.id = r.chat_id
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
   AND (CAST(@source_kind AS TEXT) = '' OR t.source_kind = @source_kind)
@@ -95,6 +99,7 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND EXISTS (SELECT 1 FROM review_stall_todos s WHERE s.todo_id = t.id))
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
   AND (CAST(@changed_by AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
         WHERE e.todo_id = t.id AND e.actor_kind = CAST(@changed_by AS TEXT) AND e.at >= CAST(@changed_since AS INTEGER)))
@@ -127,6 +132,7 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND EXISTS (SELECT 1 FROM review_stall_todos s WHERE s.todo_id = t.id))
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
   AND (CAST(@changed_by AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
         WHERE e.todo_id = t.id AND e.actor_kind = CAST(@changed_by AS TEXT) AND e.at >= CAST(@changed_since AS INTEGER)));

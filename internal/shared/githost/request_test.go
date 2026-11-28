@@ -224,6 +224,13 @@ func TestFindRequestFindsTheBranchsPullRequest(t *testing.T) {
 	assert.False(t, st.AutoMerge)
 	assert.Equal(t, []string{"graphql #1150"}, host.asked, "a hint of the branch is read alone")
 
+	host.asked = nil
+	r, st, err = FindRequest(t.Context(), client, GitHub, repo, "", &merged, "the-token")
+	require.NoError(t, err)
+	assert.Equal(t, merged, r)
+	assert.Equal(t, RequestMerged, st.Status)
+	assert.Equal(t, []string{"graphql #1150"}, host.asked, "a request by URL needs no branch lookup")
+
 	_, _, err = FindRequest(t.Context(), client, GitHub, repo, "hyp/tsk_c", nil, "the-token")
 	require.ErrorIs(t, err, ErrNoRequest)
 

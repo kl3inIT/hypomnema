@@ -327,6 +327,8 @@ type Todo struct {
 	SnoozedUntil *time.Time
 	Source       Source
 	CreatedBy    Actor
+	// ReplyToCoordinator means that an owner comment wakes the Run’s coordinator chat.
+	ReplyToCoordinator bool
 	// WhyOpen is AskedDirectly or Promised for an item a Bot opened from what it read or a Routine's run found,
 	// Waiting while it waits on the person it is given to (issue #1142); empty for any other.
 	WhyOpen string
@@ -1053,6 +1055,19 @@ func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, err
 		return Todo{}, err
 	}
 
+	if t.CreatedBy == reviewStallActor {
+		report, err := q.ReviewStallLongReport(ctx, id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return Todo{}, fmt.Errorf("reading the review stall report: %w", err)
+		}
+		appendReviewReport(&t, report)
+		coordinator, err := reviewStallCoordinator(ctx, q, row)
+		if err != nil {
+			return Todo{}, err
+		}
+		t.ReplyToCoordinator = coordinator.ChatID != ""
+	}
+
 	rows, err := q.ListTodoEvents(ctx, store.ListTodoEventsParams{TodoID: id, Lim: MaxEvents})
 	if err != nil {
 		return Todo{}, fmt.Errorf("reading the history of to-do %s: %w", id, err)
@@ -1151,7 +1166,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 	}
 
 	var (
-		rows   []store.Todo
+		rows   []store.ListTodosRow
 		total  int64
 		events = map[string][]store.TodoEvent{}
 	)
@@ -1172,10 +1187,10 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		}
 
 		for _, row := range rows[:min(len(rows), limit)] {
-			if events[row.ID], err = q.ListTodoEventsBy(ctx, store.ListTodoEventsByParams{
-				TodoID: row.ID, ActorKind: cnt.ChangedBy, Since: cnt.ChangedSince, Lim: MaxEvents,
+			if events[row.Todo.ID], err = q.ListTodoEventsBy(ctx, store.ListTodoEventsByParams{
+				TodoID: row.Todo.ID, ActorKind: cnt.ChangedBy, Since: cnt.ChangedSince, Lim: MaxEvents,
 			}); err != nil {
-				return fmt.Errorf("reading the %s's changes of to-do %s: %w", cnt.ChangedBy, row.ID, err)
+				return fmt.Errorf("reading the %s's changes of to-do %s: %w", cnt.ChangedBy, row.Todo.ID, err)
 			}
 		}
 
@@ -1190,18 +1205,21 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 	for i, row := range rows {
 		if i == limit {
-			last := rows[limit-1]
+			last := rows[limit-1].Todo
 			page.Next = encodeCursor(last)
 
 			break
 		}
 
-		t, err := fromRow(row, now)
+		t, err := fromRow(row.Todo, now)
 		if err != nil {
 			return Page{}, err
 		}
 
-		if mine, ok := events[row.ID]; ok {
+		appendReviewReport(&t, row.LongReport)
+		t.ReplyToCoordinator = row.ReplyToCoordinator != 0
+
+		if mine, ok := events[row.Todo.ID]; ok {
 			t.Events = eventsOf(mine)
 		}
 

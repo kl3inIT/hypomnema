@@ -12325,6 +12325,9 @@ components:
         chat_id:
           type: string
           description: "The item's own chat with the Bot it was given to, where the owner's comments reach it."
+        reply_to_coordinator:
+          type: boolean
+          description: An owner comment on this review report goes to the Run's coordinator chat.
         passed_by:
           type: string
           description: >-

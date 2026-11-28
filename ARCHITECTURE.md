@@ -4775,7 +4775,9 @@ calls, and each call is recorded on a gateway key.
   fallback and its `BLOCK_PAGE_PHRASES`). A page whose server answers outside 2xx, such as a bot wall's 403, is read
   by Jina too, which fetches it from its own servers (issue #667; OpenClaw asks its fetch provider on `!res.ok`); a
   404 or 410 fails without asking it (inferred), and an address the check refuses never reaches it. A page is read
-  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`.
+  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`. A page's `Published` is
+  the date its own metadata gives (Readability's JSON-LD `datePublished`, `article:published_time`, Dublin Core) or
+  Jina's `Published Time:` line (Agent-Reach's reading), nil when it gives none (issue #1306).
 - A page is read only where the shared browser may go (the gate's rules, `browser/egress`): each connection's
   address is checked as it is made, after the name was resolved, so a name or a redirect that leads to loopback,
   the machine's own addresses, a private network, link-local, the cloud's metadata service or a reserved address
@@ -4984,9 +4986,11 @@ topic. The calling model writes the plan; the tool answers with items, clusters 
 writes no prose (last30days SKILL.md LAW 7).
 - Plan: `topic`, 1 to 5 `subqueries` (`label`, `query`, `sources`, `weight`), the
   `sources` a subquery naming none reads, `source_weights`, `window_days` (1 to 365, default 30), `max_results` a
-  stream keeps (1 to 50, default 25, last30days' default and deep depths), and `backends` pinning a source to one
-  backend. A plan that cannot run is the
-  tool's error, naming why; an unknown field is refused.
+  stream keeps (1 to 50, default 25, last30days' default and deep depths), `backends` pinning a source to one
+  backend, and `depth` (issue #1306): `quick`, `standard` (default) or `deep`, the answer's pool, the model's
+  shortlist and the full reads, 15/15/8, 40/40/18 and 60/60/20 (last30days' pools, radar's detail pages; the model scores the whole pool),
+  which `pool` (up to 60) and `read` (up to 20) override; the answer's `limits` says which were used. A plan that
+  cannot run is the tool's error, naming why; an unknown field is refused.
 - Sources, each an ordered chain of backends (`Platform`, `Backend`: name, host, opt-in, a side-effect-free probe,
   search): `web` is `web_search`, the web search chain above; `reddit` is `reddit_json`, Reddit's keyless
   `/search.json` (with the `<platform>:<app>:<version>` User-Agent), then `web_arctic`, the web search's
@@ -5030,13 +5034,58 @@ writes no prose (last30days SKILL.md LAW 7).
   score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
   Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
   freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
-  rank, freshness and engagement (last30days' local score, multiplied by 0.35 for any out-of-window survivor),
-  at most 3 items an author; the best 40 are answered and
-  the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
+  rank, freshness and engagement (last30days' local score, multiplied by 0.35 for any out-of-window survivor,
+  whichever step scored it), at most 3 items an author; the best of the depth's pool are answered and the rest counted
+  (`omitted`). An address keeps its encoded path and query, so two queries stay two. Each item says what scored it,
+  `provenance` `llm` (with the model's `reason`) or `fallback`.
 - Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
   or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
   test on Vietnamese posts (`listening/cluster_test.go`).
+- Semantic pass (issue #1306; `semantic.go`, `rerank.go`, `clusterplan.go`, `read.go`, `model.go`), after the code
+  has ranked and cut the pool, each step through the gateway's in-process `Complete` on the caller's gateway key
+  (`modelgateway.WorkerModels`, `BotModels`), whatever models that key lets its own client name; a caller without a
+  key is not asked for. (1) A cheap model scores the shortlist's relevance in one batched call (last30days
+  `rerank_candidates`): its score replaces the local one in the final score, one under 20 cuts the item to 0.3, a
+  local score never; an unknown id is dropped, an item it did not score keeps the local score. Each answer's
+  rows are checked against their schema one by one (types, required fields, a relevance from 0 to 100): a row that
+  does not fit is refused and counted, the others kept, and an answer with no valid row makes the step fall back
+  with its reason (OpinionLens filters its sentiment rows so; last30days keeps the valid scores). (2) A second call
+  reviews the code's clusters as a plan (radar's clustering contract): merge, split, every item assigned once with
+  `fit` core, supporting or counter and a reason; a plan naming an unknown item, one twice, leaving one out, or with
+  a bad fit, reason or title (one holding a number none of its items says, numbers compared whole: `1,5` is not a 1 and a 5) is refused whole and the code's clusters
+  stand. Each reviewed cluster carries its `audit` (3 members, 2 authors, 1 direct source, 2 core; an item is
+  `direct` when read from the source's own record or in full, not a search card); a failed one is capped at 54, so
+  thin evidence, keeping `uncapped_score`; the audit is made again after the full read, a title checked again on the
+  members left (one that lost its number gives way to the best member's title), and none passing is reported as
+  "nothing solid". The same set given the same way reuses its kept plan, checked again. (3) The clusters' representatives are read in full, a web page through the caller's web fetch,
+  a Reddit thread as the source gave it (one only a search showed, from Arctic Shift's `/api/posts/ids`, with its
+  own title and date; when that fails the thread was not read and stays a search card, never direct and with no quote checked on
+  its snippet) with its 10 top comments by score from Arctic Shift's keyless `/api/comments/tree`, each cut at 20,000
+  characters; one call to a long-context model extracts up to 5 verbatim `quotes` and 5 `claims` an item; a quote
+  counts only when it is in what was read (NFKC, spaces evened), a claim only beside a checked quote and only when
+  every number in it is one the post has (code owns the numbers, the model the words). Each read item is dated by
+  its page (owner, 2026-11-28): the page's own `Published`, else the date the model read on the page when the words
+  it quotes for it are there and write that very date, day, month and year (day/month/year, year-month-day, "ngày D tháng M năm Y" with the month in digits or words, "tháng mười một", or the English month by name,
+  "November 22, 2019", "22 Nov 2019"; every number read whole, so "20190" is no 2019); that date replaces a disagreeing one, and an item dated
+  outside the window is dropped, counted in `pass.read.outside_window`, and the scores and clusters made again. The
+  page's own date stands even when the read's model fails. The models are given a bounded,
+  sanitized payload (id, source, date, title 220 and text 420 characters without links, inside last30days'
+  `<untrusted_content>` fence, its tag defanged in a post). The review's calls have 30 s and 2 attempts, the read
+  60 s and one; the models are `HYPOMNEMA_LISTENING_REVIEW_MODEL` (default `codex-subscription/gpt-6-luna`, measured against
+  `opencode-go/deepseek-v4.1-flash` on the fixtures) and
+  `HYPOMNEMA_LISTENING_READ_MODEL` (default `codex-subscription/gpt-6-luna`), `off` keeping a step deterministic; a
+  name the gateway does not serve falls back to the default. Temperature 0 is sent except to OpenAI's reasoning
+  models (obsei) and Claude models (Claude Opus 5.5 refuses any sampling parameter, Anthropic's migration guide). On no model, a failed call or an answer that is not what was asked, the code's ranking and
+  clusters stand. The answer's `pass` says, per step (`rerank`, `clusters`, `read`), `model`, `fallback` with its
+  reason or `off`, the model, calls, items from the cache, tokens (absent when a call did not count them) and
+  seconds. Scores, readings and cluster plans are kept in memory 24 hours (at most 4096 each): a score by item, a hash of
+  its text, the question, the prompt's version and the model; a reading by everything the model was given for the item
+  (title and fields with the text read, read again each search), so a changed page or title is read again, and a
+  failed ask falls back for the items asked only, the kept readings of the others standing; a plan by the whole payload. A judgment the model did not validly
+  give is not kept, so the next search asks for it again.
+  `go test ./internal/controlplane/listening -run LiveSemantic` with `HYPOMNEMA_LISTENING_MODEL_URL` and
+  `HYPOMNEMA_LISTENING_MODEL_KEY` measures it on the Vietnamese fixtures.
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
@@ -6328,8 +6377,11 @@ The owner's commands:
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the
-  Run card and in the work that needs the owner; the review Task holds the findings. The coordinator checks the
-  current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
+  Run card and opens one report per Run and head in the owner's Inbox (issue #1331). Its body carries the review verbatim.
+  The coordinator posts its recommendation with `inbox_comment`. An owner comment on the open report wakes the
+  Run's coordinator chat. New or resumed work, a merge of the reported request, or the Run ending closes the report
+  while it is assigned to the owner. The report is informational. The coordinator checks the current
+  GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
   with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
   Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
   Task's branch to its push branch (its own, or the one it continues, issue #690), never forced; a push the host

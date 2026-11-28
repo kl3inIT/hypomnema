@@ -144,6 +144,10 @@ func inboxRecall(w inboxstore.Wake) sql.NullString {
 // comment on it. The main Bot given an item is told the project Bots it may pass it to (issue #1118); a project Bot
 // passed one, that it gives it back to the owner or the main Bot.
 func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore.Wake) (string, error) {
+	if w.Kind == inboxstore.WakeReviewReply {
+		return fmt.Sprintf("The owner replied to review report %s in the Inbox:\n<owner_comment>\n%s\n</owner_comment>",
+			w.Todo.ID, w.Text), nil
+	}
 	if w.Kind == inboxstore.WakeComment {
 		return inboxWakeText(w, "", ""), nil
 	}

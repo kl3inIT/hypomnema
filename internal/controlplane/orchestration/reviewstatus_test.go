@@ -305,8 +305,7 @@ func TestTheMigrationQueuesEachPullRequestsLatestVerdict(t *testing.T) {
 	p, err := provider(world.db)
 	require.NoError(t, err)
 
-	// The Tasks are made by today's code on today's schema, before the schema goes back: a later migration's column
-	// is not there below it.
+	// Task creation uses today's schema. Only the verdict rows need to predate the migration under test.
 	first := world.tasks(NewTask{Ref: "first", Profile: "reviewer", Spec: reviewSpec})[0]
 	later := world.tasks(NewTask{Ref: "later", Profile: "reviewer", Spec: reviewSpec})[0]
 
