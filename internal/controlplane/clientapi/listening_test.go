@@ -20,7 +20,9 @@ import (
 // listeningOver wires social listening as the control plane does: the owner's test reads with no web search here.
 type listeningOver struct{ svc *listening.Service }
 
-func (l listeningOver) States(ctx context.Context) ([]listening.SourceState, error) { return l.svc.States(ctx) }
+func (l listeningOver) States(ctx context.Context) ([]listening.SourceState, error) {
+	return l.svc.States(ctx)
+}
 
 func (l listeningOver) SetSource(ctx context.Context, source string, on bool) error {
 	return l.svc.SetSource(ctx, source, on)

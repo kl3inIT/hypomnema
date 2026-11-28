@@ -18,7 +18,7 @@ import (
 // doctor.py:119-126, and its setup's "Default: on, no question", research note §5b); a source that is off is neither
 // read nor may a plan name it, as a web search provider that is off (SetSearchProvider).
 
-// ErrNotFound: no such source.
+// ErrNotFound is the error of a source that does not exist.
 var ErrNotFound = errors.New("not found")
 
 // settings are the owner's switches and orders, as kept.
