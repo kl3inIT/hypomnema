@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/pressly/goose/v3"
@@ -137,4 +138,51 @@ func versionBefore(t *testing.T, version int64) int64 {
 	}
 
 	return before
+}
+
+// Scenario (review of PR #1323 after #1337): the rebuild of todos keeps every row of the tables with a foreign key
+// to it, which SQLite would delete with the old todos (ON DELETE CASCADE): a review that reached its limit keeps its
+// Run, pull request and long report (review_stall_todos, 00193), after the migration, and after its way back and up
+// again.
+func TestMigrationKeepsTheReviewStallOfAnItem(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	own := migrationVersion(t, "_inbox_github_calls.sql")
+	before := versionBefore(t, own)
+	db, p := databaseAt(t, before)
+
+	for _, stmt := range []string{
+		`INSERT INTO runs (id, objective, status, created_by, created_at, updated_at)
+		 VALUES ('run_a', 'o', 'open', 'owner', 1, 1)`,
+		`INSERT INTO todos (id, title, state, source_kind, created_by_kind, created_at, updated_at)
+		 VALUES ('tdo_s', 'Review limit reached', 'open', 'owner', 'owner', 1, 1)`,
+		`INSERT INTO review_stall_todos (run_id, head_sha, pull_request, todo_id, long_report)
+		 VALUES ('run_a', 'abc123', 'https://github.com/kl3inIT/hypomnema/pull/1', 'tdo_s', 'the long report')`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	stall := func() string {
+		var run, head, pr, report string
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT run_id, head_sha, pull_request, long_report
+			FROM review_stall_todos WHERE todo_id = 'tdo_s'`).Scan(&run, &head, &pr, &report))
+
+		return strings.Join([]string{run, head, pr, report}, "|")
+	}
+
+	want := "run_a|abc123|https://github.com/kl3inIT/hypomnema/pull/1|the long report"
+
+	_, err := p.UpTo(ctx, own)
+	require.NoError(t, err)
+	assert.Equal(t, want, stall(), "after Up")
+
+	_, err = p.DownTo(ctx, before)
+	require.NoError(t, err)
+	assert.Equal(t, want, stall(), "after Down")
+
+	_, err = p.UpTo(ctx, own)
+	require.NoError(t, err)
+	assert.Equal(t, want, stall(), "after Down then Up")
 }
