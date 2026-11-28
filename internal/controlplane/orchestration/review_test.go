@@ -82,11 +82,12 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 
 			const blockers = "- [P1] Retry drops the original row.\n- [P0] Cancel clears **all** pending work."
 			headOf := func(round int) string { return fmt.Sprintf("%08x%032x", round, round) }
-			review := func(round int, spec, head string) {
+			review := func(t *testing.T, round int, spec, head string) {
+				t.Helper()
 				task := w.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: spec})[0]
 				finishReview(w, task.ID, "Verdict: incorrect\nHead: "+head+"\n\nFindings:\n"+blockers,
 					[]Evidence{{Kind: "pull_request", Ref: reviewPR}})
-				run, err := w.s.GetRun(ctx, w.run.ID)
+				run, err := w.s.GetRun(t.Context(), w.run.ID)
 				require.NoError(t, err)
 				require.NotNil(t, run.ReviewStall)
 				assert.Equal(t, round >= 3, run.ReviewStall.WaitingForOwner)
@@ -99,7 +100,7 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 				"Earlier PR: https://github.com/owner/repo/pull/827\n\nReview this change:\n\n" + reviewPR,
 				reviewSpec, reviewSpec,
 			} {
-				review(index+1, spec, headOf(index+1))
+				review(t, index+1, spec, headOf(index+1))
 				if index < 2 {
 					page, err := w.s.Inbox().List(ctx, inboxstore.Filter{WithClosed: true}, "", 10)
 					require.NoError(t, err)
@@ -163,13 +164,13 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 			assert.True(t, inboxstore.Closed(closed.State))
 
 			if resolution == "new work" {
-				review(3, reviewSpec, headOf(3)[:8])
+				review(t, 3, reviewSpec, headOf(3)[:8])
 				all, err := w.s.Inbox().List(ctx, inboxstore.Filter{WithClosed: true}, "", 10)
 				require.NoError(t, err)
 				require.Len(t, all.Items, 1, "another report of the same commit does not create a second item")
 				assert.True(t, inboxstore.Closed(all.Items[0].State))
 
-				review(4, reviewSpec, headOf(4))
+				review(t, 4, reviewSpec, headOf(4))
 				assert.NotEqual(t, item.ID, report(4).ID)
 				require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
 			}

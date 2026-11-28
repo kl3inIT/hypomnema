@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -237,6 +238,75 @@ func reviewAfterTask(ctx context.Context, q *store.Queries, now int64, task stor
 	review.WaitingForOwner = review.Verdict == "incorrect" && rounds >= maxReviewRounds
 
 	return review, nil
+}
+
+// The coordinator's review reference uses this same recommendation and reply path (issue #1331).
+func (s *Service) reportReviewStall(ctx context.Context, q *store.Queries, now int64, task store.Task,
+	review ReviewStall, result string,
+) error {
+	run, err := q.GetRun(ctx, task.RunID)
+	if err != nil {
+		return fmt.Errorf("reading the review stall's Run: %w", err)
+	}
+
+	head, specHead := reviewHead(result), reviewHead(task.Spec)
+	if head == "" || (len(specHead) > len(head) && sameCommit(head, specHead)) {
+		head = specHead
+	}
+
+	notes := fmt.Sprintf("Pull request: <%s>\n\nHead: %s\n\nVerdict: %s\n\n",
+		review.PullRequest, or(head, "not reported"), review.Verdict)
+	replyTo := "the coordinator"
+	if run.ChatID.Valid {
+		// InboxMarkdown links chat IDs to the existing chat.
+		replyTo += " in " + run.ChatID.String
+	}
+	notes += "**Recommendation:** Fix the remaining blockers in one more round before merging.\n\n" +
+		"Reply to " + replyTo + " with “one more round”, “merge as is and open an issue for the rest”, or “stop”."
+
+	return s.inbox.AddReviewStallTx(ctx, q, now, run.ID, run.ChatID.String, head, review.PullRequest, notes, result)
+}
+
+// A Run can review a pull request without having an author Task in the Run. Follow the reported URL in that
+// case, using the same host reader and cadence as the author path.
+func (s *Service) followReviewStallRequests(ctx context.Context, read ReadPullRequest, seen map[string]bool) error {
+	prs, err := s.read().OpenReviewStallRequests(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pull requests with open review stall to-dos: %w", err)
+	}
+
+	kindOf := registeredKind(ctx, s.read())
+	var errs []error
+	for _, pr := range prs {
+		if seen[strings.ToLower(pr)] {
+			continue
+		}
+		var kind githost.Kind
+		r, ok := githost.ParseRequest(pr, func(host string) (githost.Kind, bool) {
+			var known bool
+			kind, known = kindOf(host)
+			return kind, known
+		})
+		if !ok {
+			continue
+		}
+
+		_, state, err := read(ctx, FollowedRequest{Kind: kind, Repo: r.Repo, Hint: &r})
+		switch {
+		case errors.Is(err, ErrCannotFollow), errors.Is(err, githost.ErrNoRequest):
+		case err != nil:
+			errs = append(errs, fmt.Errorf("reading pull request %s for its review stall to-do: %w", pr, err))
+		case state.Status == githost.RequestMerged:
+			errs = append(errs, s.closeMergedReviewStalls(ctx, pr))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Service) closeMergedReviewStalls(ctx context.Context, pr string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		return s.inbox.CloseMergedReviewStallsTx(ctx, q, now, pr)
+	})
 }
 
 func activeReviewStall(ctx context.Context, q *store.Queries, runID string) (*ReviewStall, error) {

@@ -6298,8 +6298,10 @@ The owner's commands:
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the
-  Run card and in the work that needs the owner; the review Task holds the findings. The coordinator checks the
-  current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
+  Run card and opens one report per Run and head in the owner's Inbox (issue #1331). It carries the review verbatim
+  and links to the Run's coordinator chat when the Run has one. New or resumed work, a merge of the reported
+  request, or the Run ending closes the item. The report is informational. The coordinator checks the current
+  GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
   with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
   Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
   Task's branch to its push branch (its own, or the one it continues, issue #690), never forced; a push the host

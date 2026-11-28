@@ -109,8 +109,10 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    since the reviewed head is a clean merge of the base, a `make migration-fix` rename of the change's migrations
    or wording needs only a review of that diff, at `"effort": "medium"`, for its `review` status. Every verdict
    names the head it covers.
-   After round 3, if any blocking finding remains, give the owner a one-line report with the verdict
-   and remaining blockers, then stop without waiting for an answer (issue #871). Leave the Run and pull request open
-   with auto-merge off and add no Task. The "Waiting for you" label may stay until work is added or the Run ends.
+   After round 3, if any blocking finding remains, the control plane reports the verdict and remaining blockers in
+   the owner's Inbox (issues #871 and #1331). The report recommends fixing them in one more round before merging.
+   The owner can open this coordinator chat from the item and reply “one more round”, “merge as is and open an issue
+   for the rest”, or “stop”. Stop without waiting for a reply. Leave the Run and pull request open with auto-merge
+   off and add no Task.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.

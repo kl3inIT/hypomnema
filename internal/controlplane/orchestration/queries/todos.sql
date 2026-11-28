@@ -95,6 +95,7 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND EXISTS (SELECT 1 FROM review_stall_todos s WHERE s.todo_id = t.id))
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
   AND (CAST(@changed_by AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
         WHERE e.todo_id = t.id AND e.actor_kind = CAST(@changed_by AS TEXT) AND e.at >= CAST(@changed_since AS INTEGER)))
@@ -127,6 +128,7 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND EXISTS (SELECT 1 FROM review_stall_todos s WHERE s.todo_id = t.id))
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
   AND (CAST(@changed_by AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
         WHERE e.todo_id = t.id AND e.actor_kind = CAST(@changed_by AS TEXT) AND e.at >= CAST(@changed_since AS INTEGER)));

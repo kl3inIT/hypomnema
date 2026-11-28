@@ -953,6 +953,13 @@ type RestartBoot struct {
 	At int64
 }
 
+type ReviewStallTodo struct {
+	RunID       string
+	HeadSha     string
+	PullRequest string
+	TodoID      string
+}
+
 type ReviewStatus struct {
 	PullRequest string
 	HeadSha     string
