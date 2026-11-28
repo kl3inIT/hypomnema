@@ -4748,7 +4748,9 @@ calls, and each call is recorded on a gateway key.
   fallback and its `BLOCK_PAGE_PHRASES`). A page whose server answers outside 2xx, such as a bot wall's 403, is read
   by Jina too, which fetches it from its own servers (issue #667; OpenClaw asks its fetch provider on `!res.ok`); a
   404 or 410 fails without asking it (inferred), and an address the check refuses never reaches it. A page is read
-  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`.
+  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`. A page's `Published` is
+  the date its own metadata gives (Readability's JSON-LD `datePublished`, `article:published_time`, Dublin Core) or
+  Jina's `Published Time:` line (Agent-Reach's reading), nil when it gives none (issue #1306).
 - A page is read only where the shared browser may go (the gate's rules, `browser/egress`): each connection's
   address is checked as it is made, after the name was resolved, so a name or a redirect that leads to loopback,
   the machine's own addresses, a private network, link-local, the cloud's metadata service or a reserved address
@@ -5013,16 +5015,25 @@ writes no prose (last30days SKILL.md LAW 7).
   (`modelgateway.WorkerModels`, `BotModels`), whatever models that key lets its own client name; a caller without a
   key is not asked for. (1) A cheap model scores the shortlist's relevance in one batched call (last30days
   `rerank_candidates`): its score replaces the local one in the final score, one under 20 cuts the item to 0.3, a
-  local score never; an unknown id is dropped, an item it did not score keeps the local score. (2) A second call
+  local score never; an unknown id is dropped, an item it did not score keeps the local score. Each answer is
+  checked against its schema (types, required fields, a relevance from 0 to 100) and one that does not fit is
+  refused whole, the step falling back with its reason (OpinionLens). (2) A second call
   reviews the code's clusters as a plan (radar's clustering contract): merge, split, every item assigned once with
   `fit` core, supporting or counter and a reason; a plan naming an unknown item, one twice, leaving one out, or with
-  a bad fit, reason or title is refused whole and the code's clusters stand. Each reviewed cluster carries its
-  `audit` (3 members, 2 authors, 2 core); a failed one is capped at 54, so thin evidence, keeping
-  `uncapped_score`; none passing is reported as "nothing solid". (3) The clusters' representatives are read in
-  full, a web page through the caller's web fetch, a Reddit thread as the source gave it with its 10 top comments
-  by score from Arctic Shift's keyless `/api/comments/tree`, each cut at 20,000 characters; one call to a
-  long-context model extracts up to 5 verbatim `quotes` and 5 `claims` an item; a quote counts only when it is in
-  what was read (NFKC, spaces evened), a claim only beside a checked quote. The models are given a bounded,
+  a bad fit, reason or title (one holding a number none of its items says) is refused whole and the code's clusters
+  stand. Each reviewed cluster carries its `audit` (3 members, 2 authors, 1 direct source, 2 core; an item is
+  `direct` when read from the source's own record or in full, not a search card); a failed one is capped at 54, so
+  thin evidence, keeping `uncapped_score`; the audit is made again after the full read, and none passing is reported
+  as "nothing solid". (3) The clusters' representatives are read in full, a web page through the caller's web fetch,
+  a Reddit thread as the source gave it (one only a search showed, from Arctic Shift's `/api/posts/ids`, with its
+  date) with its 10 top comments by score from Arctic Shift's keyless `/api/comments/tree`, each cut at 20,000
+  characters; one call to a long-context model extracts up to 5 verbatim `quotes` and 5 `claims` an item; a quote
+  counts only when it is in what was read (NFKC, spaces evened), a claim only beside a checked quote and only when
+  every number in it is one the post has (code owns the numbers, the model the words). Each read item is dated by
+  its page (owner, 2026-11-28): the page's own `Published`, else the date the model read on the page when the words
+  it quotes for it are there and hold its year and day; that date replaces a disagreeing one, and an item dated
+  outside the window is dropped, counted in `pass.read.outside_window`, and the scores and clusters made again. The
+  page's own date stands even when the read's model fails. The models are given a bounded,
   sanitized payload (id, source, date, title 220 and text 420 characters without links, inside last30days'
   `<untrusted_content>` fence, its tag defanged in a post). The review's calls have 30 s and 2 attempts, the read
   60 s and one; the models are `HYPOMNEMA_LISTENING_REVIEW_MODEL` (default `codex-subscription/gpt-6-luna`, measured against
@@ -5032,8 +5043,9 @@ writes no prose (last30days SKILL.md LAW 7).
   models (obsei). On no model, a failed call or an answer that is not what was asked, the code's ranking and
   clusters stand. The answer's `pass` says, per step (`rerank`, `clusters`, `read`), `model`, `fallback` with its
   reason or `off`, the model, calls, items from the cache, tokens (absent when a call did not count them) and
-  seconds. Scores and readings are kept in memory 24 hours (at most 4096 each), by item, its text, the question,
-  the prompt's version and the model; the cluster review, a judgment of the whole set, is asked each time.
+  seconds. Scores and readings are kept in memory 24 hours (at most 4096 each), by item, a hash of its text, the
+  question, the prompt's version and the model; a judgment the model did not give is not kept, so the next search
+  asks for it again; the cluster review, a judgment of the whole set, is asked each time.
   `go test ./internal/controlplane/listening -run LiveSemantic` with `HYPOMNEMA_LISTENING_MODEL_URL` and
   `HYPOMNEMA_LISTENING_MODEL_KEY` measures it on the Vietnamese fixtures.
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes

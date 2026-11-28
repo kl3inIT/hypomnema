@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
 	"strings"
 	"sync"
@@ -193,15 +192,25 @@ func jsonObject(text string, out any) error {
 	return nil
 }
 
-// score reads a model's 0-100 score: a number, clamped; not a number, a boolean or not finite is no score
-// (last30days _parse_llm_score, lib/rerank.py:485-494).
-func score(raw json.RawMessage) (float64, bool) {
-	var v float64
-	if json.Unmarshal(raw, &v) != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0, false
+// schemaChecked is a model's answer that says whether it fits its schema beyond its JSON types.
+type schemaChecked interface {
+	check() error
+}
+
+// decodeAnswer reads a model's answer into its schema: the JSON object, its fields of the types asked, then its
+// required fields and bounds; an answer that does not fit is refused whole, so the step falls back to the code's
+// result with this reason (OpinionLens report_pipeline/schema_validator.py: type, required, minimum and maximum
+// checked; report_manager.py:15-17, an output that fails degrades to the deterministic report).
+func decodeAnswer(text string, out schemaChecked) error {
+	if err := jsonObject(text, out); err != nil {
+		return err
 	}
 
-	return math.Max(0, math.Min(100, v)), true
+	if err := out.check(); err != nil {
+		return fmt.Errorf("the model's answer does not fit its schema: %w", err)
+	}
+
+	return nil
 }
 
 // tally counts a step's calls and tokens: the tokens are unknown once one call did not count them, failed, or was

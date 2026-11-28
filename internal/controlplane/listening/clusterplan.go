@@ -4,20 +4,24 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // The model's review of the clusters (layer 2's second call): trend-opportunity-radar's clustering contract
-// (references/clustering-contract.md) and its audit (scripts/audit_clusters.py). The model is given the shortlist
+// (references/clustering-contract.md:29) and its audit (scripts/audit_clusters.py). The model is given the shortlist
 // as the code clustered it and answers a cluster plan: it merges two clusters that tell one story in other words,
 // splits one that joins two stories, and assigns every item once with its fit and a reason. The code then checks the
 // plan: a plan that names an unknown item, names one twice, leaves one out, or gives a fit or reason that is not
-// valid is refused whole, and the code's clusters stand (audit_clusters.py:43-57, 99-101). A cluster of the plan
-// passes its audit with three members or more, two authors or more and two core members or more
-// (audit_clusters.py:58-74; its direct-source, task-transition and subject-bridge checks need fields these items do
-// not have); one that fails has its score capped at 54, under thin evidence's 55, and keeps its uncapped score
-// (references/scoring-contract.md: a failed or missing audit caps evidence confidence at 54, the uncapped value kept).
+// valid, or a title holding a number none of its items says, is refused whole, and the code's clusters stand
+// (audit_clusters.py:43-57, 99-101). A cluster of the plan passes its audit with three members or more, two authors
+// or more, one direct source or more and two core members or more (audit_clusters.py:58-74; owner, 2026-11-28; its
+// task-transition and subject-bridge checks need fields these items do not have); one that fails has its score capped
+// at 54, under thin evidence's 55, and keeps its uncapped score (references/scoring-contract.md:32). The audit is
+// made again after the full read, which can make an item direct and drop one dated outside the window.
 
 // The fits a member has (audit_clusters.py VALID_FITS).
 const (
@@ -28,12 +32,14 @@ const (
 
 // Audit is the code's check of a reviewed cluster.
 type Audit struct {
-	// Status is passed or failed; Failed names the checks it failed: member_count, author_diversity, core_members.
+	// Status is passed or failed; Failed names the checks it failed: member_count, author_diversity, direct_source,
+	// core_members.
 	Status string   `json:"status"`
 	Failed []string `json:"failed,omitempty"`
-	// Members, Authors and Core are what was counted.
+	// Members, Authors, Direct and Core are what was counted.
 	Members int `json:"members"`
 	Authors int `json:"authors"`
+	Direct  int `json:"direct"`
 	Core    int `json:"core"`
 	// UncappedScore is the cluster's score before a failed audit capped it.
 	UncappedScore *float64 `json:"uncapped_score,omitempty"`
@@ -46,6 +52,7 @@ const (
 
 	auditMembers = 3
 	auditAuthors = 2
+	auditDirect  = 1
 	auditCore    = 2
 	auditCap     = 54
 	// maxClusterTitle is the longest title (audit_clusters.py:45).
@@ -122,21 +129,7 @@ func (s *Service) reviewClusters(ctx context.Context, topic string, items []Item
 			return fmt.Errorf("the model's cluster plan was refused, so the code's clusters stand: %w", err)
 		}
 
-		passed := 0
-		for _, cl := range reviewed {
-			if cl.Audit.Status == AuditPassed {
-				passed++
-			}
-		}
-
-		st.Detail = fmt.Sprintf("%d clusters reviewed from %d; %d passed the audit", len(reviewed), len(lexical),
-			passed)
-		if passed == 0 {
-			// Thin data is reported as thin (last30days passes_discovery_floor, lib/rerank.py:106-154: "nothing
-			// solid this window" is an outcome).
-			st.Detail += "; nothing solid: no cluster has 3 members, 2 authors and 2 core members"
-		}
-
+		st.Detail = fmt.Sprintf("%d clusters reviewed from %d", len(reviewed), len(lexical))
 		clusters = reviewed
 
 		return nil
@@ -157,14 +150,14 @@ func applyPlan(plan clusterPlan, items []Item, topic string) ([]Cluster, error) 
 		return nil, fmt.Errorf("the plan has no cluster")
 	}
 
-	type group struct {
+	type proposed struct {
 		title   string
 		members []int
 	}
 
 	seen := map[int]bool{}
 	fits := make([]struct{ fit, reason string }, len(items))
-	groups := make([]group, 0, len(plan.Clusters))
+	groups := make([]proposed, 0, len(plan.Clusters))
 
 	for _, pc := range plan.Clusters {
 		title := strings.Join(strings.Fields(pc.Title), " ")
@@ -179,7 +172,7 @@ func applyPlan(plan clusterPlan, items []Item, topic string) ([]Cluster, error) 
 			return nil, fmt.Errorf("the cluster %q has no member", clip(title, 60))
 		}
 
-		g := group{title: title}
+		g := proposed{title: title}
 
 		for _, a := range pc.Assignments {
 			i, ok := index[strings.TrimSpace(a.ID)]
@@ -218,6 +211,35 @@ func applyPlan(plan clusterPlan, items []Item, topic string) ([]Cluster, error) 
 		return nil, fmt.Errorf("it leaves out %d items: %s", len(left), strings.Join(left[:min(len(left), 10)], ", "))
 	}
 
+	for _, g := range groups {
+		if n := foreignNumber(g.title, g.members, items); n != "" {
+			return nil, fmt.Errorf("the title %q has the number %s, which none of its items says", clip(g.title, 60), n)
+		}
+	}
+
+	for i := range items {
+		items[i].Fit, items[i].FitReason = fits[i].fit, fits[i].reason
+	}
+
+	planned := make([]group, 0, len(groups))
+	for _, g := range groups {
+		planned = append(planned, group{title: g.title, members: g.members, reviewed: true})
+	}
+
+	return finishClusters(planned, items, topic), nil
+}
+
+// group is a cluster's members, by their index in the items, and its title; reviewed when the model made it.
+type group struct {
+	title    string
+	members  []int
+	reviewed bool
+}
+
+// finishClusters makes the groups clusters: a reviewed one with its title and its audit, a failed audit capping its
+// score; the code's with its best item's title. They are ordered best first, numbered in that order, and each item
+// marked with its cluster.
+func finishClusters(groups []group, items []Item, topic string) []Cluster {
 	alike := alikeIn(items, topic)
 	out := make([]Cluster, 0, len(groups))
 
@@ -225,12 +247,22 @@ func applyPlan(plan clusterPlan, items []Item, topic string) ([]Cluster, error) 
 		slices.Sort(g.members)
 
 		cl := makeCluster("", g.members, items, alike)
-		cl.Title = g.title
-		cl.Audit = audit(g.members, items, fits)
 
-		if cl.Audit.Status == AuditFailed && cl.Score > auditCap {
-			cl.Audit.UncappedScore = new(cl.Score)
-			cl.Score = auditCap
+		cl.Title = g.title
+		if !g.reviewed {
+			cl.Title = items[g.members[0]].Title
+			if cl.Title == "" {
+				cl.Title = clip(items[g.members[0]].Text, 120)
+			}
+		}
+
+		if g.reviewed {
+			cl.Audit = audit(g.members, items)
+
+			if cl.Audit.Status == AuditFailed && cl.Score > auditCap {
+				cl.Audit.UncappedScore = new(cl.Score)
+				cl.Score = auditCap
+			}
 		}
 
 		cl.tag()
@@ -239,26 +271,103 @@ func applyPlan(plan clusterPlan, items []Item, topic string) ([]Cluster, error) 
 
 	slices.SortStableFunc(out, func(a, b Cluster) int { return cmp.Compare(b.Score, a.Score) })
 
+	index := map[string]int{}
+	for i, it := range items {
+		index[it.ID] = i
+	}
+
 	for n := range out {
 		out[n].ID = fmt.Sprintf("c%d", n+1)
-	}
 
-	for i := range items {
-		items[i].Fit, items[i].FitReason = fits[i].fit, fits[i].reason
-	}
-
-	for _, cl := range out {
-		for _, id := range cl.Items {
-			items[index[id]].Cluster = cl.ID
+		for _, id := range out[n].Items {
+			items[index[id]].Cluster = out[n].ID
 		}
 	}
 
-	return out, nil
+	return out
 }
 
-// audit is radar's check of one cluster: members, distinct authors (case folded; an item without one counts none)
-// and core members.
-func audit(members []int, items []Item, fits []struct{ fit, reason string }) *Audit {
+// audited says how many reviewed clusters passed their audit, as the pass reports it once the full read has made the
+// last audit; empty for the code's clusters. Thin data is reported as thin (last30days passes_discovery_floor,
+// lib/rerank.py:106-154: "nothing solid this window" is an outcome).
+func audited(clusters []Cluster) string {
+	reviewed, passed := 0, 0
+
+	for _, cl := range clusters {
+		if cl.Audit != nil {
+			reviewed++
+
+			if cl.Audit.Status == AuditPassed {
+				passed++
+			}
+		}
+	}
+
+	switch {
+	case reviewed == 0:
+		return ""
+	case passed == 0:
+		return "0 passed the audit; nothing solid: no cluster has 3 members, 2 authors, 1 direct source and 2 core " +
+			"members"
+	default:
+		return fmt.Sprintf("%d passed the audit", passed)
+	}
+}
+
+// regroup makes the clusters again from the items left, as each is marked, after some were dropped or changed: a
+// cluster keeps its title and, when the model made it, is audited again.
+func regroup(clusters []Cluster, items []Item, topic string) []Cluster {
+	byCluster := map[string][]int{}
+	for i, it := range items {
+		byCluster[it.Cluster] = append(byCluster[it.Cluster], i)
+	}
+
+	var groups []group
+
+	for _, cl := range clusters {
+		if members := byCluster[cl.ID]; len(members) > 0 {
+			groups = append(groups, group{title: cl.Title, members: members, reviewed: cl.Audit != nil})
+		}
+	}
+
+	return finishClusters(groups, items, topic)
+}
+
+// numbers are the runs of digits in a text.
+var numbers = regexp.MustCompile(`\d+`)
+
+// foreignNumber is a number of the model's words that none of the items' own text has, or empty: code owns the
+// numbers and the model the words (OpinionLens report_pipeline/narrator.py:9-11, every number in the narrative comes
+// from the computed stats).
+func foreignNumber(words string, members []int, items []Item) string {
+	var own strings.Builder
+	for _, i := range members {
+		own.WriteString(" " + items[i].Title + " " + items[i].Text + " " + items[i].body)
+	}
+
+	return numberNotIn(words, own.String())
+}
+
+// numberNotIn is a number of words that text does not have as a number of its own, or empty.
+func numberNotIn(words, text string) string {
+	have := map[string]bool{}
+	for _, n := range numbers.FindAllString(norm.NFKC.String(text), -1) {
+		have[n] = true
+	}
+
+	for _, n := range numbers.FindAllString(norm.NFKC.String(words), -1) {
+		if !have[n] {
+			return n
+		}
+	}
+
+	return ""
+}
+
+// audit is radar's check of one cluster: members, distinct authors (case folded; an item without one counts none),
+// direct sources (radar's detail_captured or direct_post: the source's own record or a post read in full, not a search
+// card) and core members.
+func audit(members []int, items []Item) *Audit {
 	a := &Audit{Members: len(members)}
 	authors := map[string]bool{}
 
@@ -267,7 +376,11 @@ func audit(members []int, items []Item, fits []struct{ fit, reason string }) *Au
 			authors[author] = true
 		}
 
-		if fits[i].fit == FitCore {
+		if items[i].Direct {
+			a.Direct++
+		}
+
+		if items[i].Fit == FitCore {
 			a.Core++
 		}
 	}
@@ -280,6 +393,10 @@ func audit(members []int, items []Item, fits []struct{ fit, reason string }) *Au
 
 	if a.Authors < auditAuthors {
 		a.Failed = append(a.Failed, "author_diversity")
+	}
+
+	if a.Direct < auditDirect {
+		a.Failed = append(a.Failed, "direct_source")
 	}
 
 	if a.Core < auditCore {

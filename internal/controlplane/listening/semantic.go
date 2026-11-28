@@ -94,6 +94,8 @@ type Step struct {
 	Calls  int    `json:"calls"`
 	// Cached counts the items whose judgment came from the cache, without a call.
 	Cached int `json:"cached,omitempty"`
+	// OutsideWindow counts the items the full read dropped because their own page dates them outside the window.
+	OutsideWindow int `json:"outside_window,omitempty"`
 	// PromptTokens and CompletionTokens are the calls' tokens; absent when a call did not count them.
 	PromptTokens     *int    `json:"prompt_tokens,omitempty"`
 	CompletionTokens *int    `json:"completion_tokens,omitempty"`
@@ -130,9 +132,8 @@ func modelFor(configured, fallback string) string {
 
 // semantic runs the pass over the cut pool, ordered best first, and answers the items, ordered again, their clusters
 // and the pass's report.
-func (s *Service) semantic(ctx context.Context, plan Plan, items []Item, c Caller, l Limits) ([]Item, []Cluster,
-	Pass,
-) {
+func (s *Service) semantic(ctx context.Context, plan Plan, items []Item, c Caller, l Limits, from, to time.Time,
+) ([]Item, []Cluster, Pass) {
 	var pass Pass
 
 	topic := plan.topic()
@@ -143,9 +144,38 @@ func (s *Service) semantic(ctx context.Context, plan Plan, items []Item, c Calle
 	clusters, review := s.reviewClusters(ctx, topic, items, lexical, c)
 	pass.Clusters = review
 
-	pass.Read = s.read(ctx, topic, items, clusters, s.request(plan, c), c, l)
+	req := s.request(plan, c)
+	req.From, req.To = from, to
 
-	return items, clusters, pass
+	var read readResult
+
+	pass.Read, read = s.read(ctx, topic, items, clusters, req, c, l)
+	if !read.changed && len(read.outside) == 0 {
+		pass.Clusters.Detail = joinReason(pass.Clusters.Detail, audited(clusters))
+
+		return items, clusters, pass
+	}
+
+	// The read dated some items by their pages, dropped those outside the window and found others direct: their
+	// scores are made again from their dates, and the clusters audited again (radar audits the plan as it stands).
+	kept := items[:0:0]
+
+	for i, it := range items {
+		if read.outside[i] {
+			continue
+		}
+
+		it.freshness = freshness(it.PublishedAt, to, plan.WindowDays)
+		it.Score = math.Round(finalScore(it)*10) / 10
+		kept = append(kept, it)
+	}
+
+	byScore(kept)
+
+	clusters = regroup(clusters, kept, topic)
+	pass.Clusters.Detail = joinReason(pass.Clusters.Detail, audited(clusters))
+
+	return kept, clusters, pass
 }
 
 // step runs one model step with its model: off when the configuration turned it off, a fallback when the caller

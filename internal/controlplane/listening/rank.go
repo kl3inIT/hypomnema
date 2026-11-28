@@ -205,15 +205,20 @@ func rank(plan Plan, streams []stream, to time.Time) []Item {
 		out = append(out, c.item)
 	}
 
-	slices.SortStableFunc(out, func(a, b Item) int {
+	byScore(out)
+
+	return capAuthors(Dedupe(out))
+}
+
+// byScore orders items by score, the best first, then by engagement.
+func byScore(items []Item) {
+	slices.SortStableFunc(items, func(a, b Item) int {
 		if c := cmp.Compare(b.Score, a.Score); c != 0 {
 			return c
 		}
 
 		return cmp.Compare(engagementOf(b), engagementOf(a))
 	})
-
-	return capAuthors(Dedupe(out))
 }
 
 func engagementOf(it Item) int {

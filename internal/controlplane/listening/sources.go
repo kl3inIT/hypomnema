@@ -91,16 +91,17 @@ func Sources(e Endpoints, client *http.Client) []Platform {
 	}
 }
 
-// readPage reads a web item's page through the web fetch, one page at a time per site, webGap apart (pace.go).
-func readPage(ctx context.Context, r Request, it Item) (string, error) {
+// readPage reads a web item's page through the web fetch, one page at a time per site, webGap apart (pace.go), with
+// the date its metadata gives.
+func readPage(ctx context.Context, r Request, it Item) (Document, error) {
 	if r.Fetch == nil {
-		return "", Fail(CodeBroken, "this control plane has no web fetch")
+		return Document{}, Fail(CodeBroken, "this control plane has no web fetch")
 	}
 
 	if r.Pace != nil {
 		done, err := r.Pace(ctx, "page:"+hostOf(it.URL), webGap)
 		if err != nil {
-			return "", AsFailure(err)
+			return Document{}, AsFailure(err)
 		}
 
 		defer done()
@@ -108,10 +109,10 @@ func readPage(ctx context.Context, r Request, it Item) (string, error) {
 
 	page, err := r.Fetch(ctx, it.URL)
 	if err != nil {
-		return "", Fail(CodeBroken, "%s", err.Error())
+		return Document{}, Fail(CodeBroken, "%s", err.Error())
 	}
 
-	return page.Content, nil
+	return Document{Text: page.Content, Published: page.Published}, nil
 }
 
 // arcticComment is a comment of Arctic Shift's comment tree, its replies beneath it (last30days
@@ -126,16 +127,39 @@ type arcticComment struct {
 	} `json:"data"`
 }
 
-// redditRead reads a thread in full: its post as the source gave it, then its top comments by score from Arctic
-// Shift's keyless /api/comments/tree, deleted ones left out, each cut at maxQuote (last30days
-// reddit_arctic.fetch_post_comments, lib/reddit_arctic.py:941-1000, and snippet.cut_quote). When the comments cannot
-// be read, the post is read alone and the error says so.
-func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Request, it Item) (string, error) {
+// redditRead reads a thread in full: its post as the source gave it, or, for a thread only a search showed, as Arctic
+// Shift's /api/posts/ids has it, with its date; then its top comments by score from Arctic Shift's keyless
+// /api/comments/tree, deleted ones left out, each cut at maxQuote (last30days reddit_arctic.fetch_post_comments,
+// lib/reddit_arctic.py:941-1000, and snippet.cut_quote). When the comments cannot be read, the post is read alone and
+// the error says so.
+func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Request, it Item) (Document, error) {
 	host := hostOf(e.ArcticURL)
 	path := host + "/api/comments/tree"
+	postsPath := host + "/api/posts/ids"
 
-	return func(ctx context.Context, r Request, it Item) (string, error) {
-		post := strings.TrimSpace(it.Title + "\n\n" + it.body)
+	return func(ctx context.Context, r Request, it Item) (Document, error) {
+		var doc Document
+
+		body := it.body
+
+		if !it.Direct {
+			var archived struct {
+				Data []redditPost `json:"data"`
+			}
+
+			err := getJSON(ctx, client, r, host, arcticGap, true, postsPath,
+				e.ArcticURL+"/api/posts/ids?ids="+url.QueryEscape(it.NativeID), &archived)
+			if err != nil {
+				return Document{Text: strings.TrimSpace(it.Title + "\n\n" + body)}, err
+			}
+
+			if len(archived.Data) > 0 {
+				p := archived.Data[0].item(r.now(), true)
+				body, doc.Published = p.Text, p.PublishedAt
+			}
+		}
+
+		post := strings.TrimSpace(it.Title + "\n\n" + body)
 
 		var tree struct {
 			Data  []arcticComment `json:"data"`
@@ -147,11 +171,15 @@ func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Re
 		err := getJSON(ctx, client, r, host, arcticGap, true, path, e.ArcticURL+"/api/comments/tree?"+query.Encode(),
 			&tree)
 		if err != nil {
-			return post, err
+			doc.Text = post
+
+			return doc, err
 		}
 
 		if tree.Data == nil {
-			return post, Fail(CodeBroken, "arctic-shift gave no comments: %s", oneLine(tree.Error))
+			doc.Text = post
+
+			return doc, Fail(CodeBroken, "arctic-shift gave no comments: %s", oneLine(tree.Error))
 		}
 
 		var rows []arcticComment
@@ -194,7 +222,9 @@ func redditRead(e Endpoints, client *http.Client) func(ctx context.Context, r Re
 				cut(c.Data.Body, maxQuote))
 		}
 
-		return b.String(), nil
+		doc.Text = b.String()
+
+		return doc, nil
 	}
 }
 
@@ -375,7 +405,9 @@ func (p redditPost) item(now time.Time, archived bool) Item {
 		link = "https://www.reddit.com/comments/" + id + "/"
 	}
 
-	it := Item{NativeID: id, URL: link, Title: p.Title, Text: p.Selftext, Engagement: map[string]float64{}}
+	it := Item{
+		NativeID: id, URL: link, Title: p.Title, Text: p.Selftext, Engagement: map[string]float64{}, Direct: true,
+	}
 
 	if p.Author != "" && p.Author != "[deleted]" && p.Author != "[removed]" {
 		it.Author = "u/" + p.Author

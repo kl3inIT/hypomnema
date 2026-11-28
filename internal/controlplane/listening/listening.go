@@ -156,6 +156,10 @@ type Item struct {
 	// (trend-opportunity-radar cluster-plan.json assignments).
 	Fit       string `json:"fit,omitempty"`
 	FitReason string `json:"fit_reason,omitempty"`
+	// Direct says it was read from the post itself, the source's own record or the full read, not from a search
+	// result's card (trend-opportunity-radar's direct_post and detail_captured against search_card,
+	// references/scoring-contract.md:32).
+	Direct bool `json:"direct,omitempty"`
 	// Quotes are verbatim passages of the post or its comments, checked to be in what was read in full; Claims what
 	// it says about the topic, kept only beside a checked quote (semantic pass, layer 2b).
 	Quotes []string `json:"quotes,omitempty"`
@@ -331,7 +335,7 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 		items = items[:answer.Limits.Pool]
 	}
 
-	answer.Items, answer.Clusters, answer.Pass = s.semantic(ctx, plan, items, c, answer.Limits)
+	answer.Items, answer.Clusters, answer.Pass = s.semantic(ctx, plan, items, c, answer.Limits, from, now)
 
 	if answer.Items == nil {
 		answer.Items = []Item{}

@@ -54,13 +54,15 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"reads; give `topic` in a few words, and `depth` (quick, standard or deep). It answers JSON, no prose: " +
 			"`items` (the best of the pool, best first, each with its cluster; `provenance` llm when a model scored " +
 			"its relevance, with its `reason`, fallback when the code did; `fit` core, supporting or counter in its " +
-			"cluster; `quotes`, verbatim and checked against the post read in full, and `claims` beside them), " +
+			"cluster; `direct` when read from the post itself, not a search card; `quotes`, verbatim and checked " +
+			"against the post read in full, and `claims` beside them; its date taken from its own page when read), " +
 			"`clusters` (items telling one story, tagged single-source or thin-evidence when the evidence is weak; a " +
 			"model-reviewed cluster carries its `audit`, and a failed one cannot back a finding alone), `coverage`, " +
 			"one line per source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with " +
 			"its code (need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend " +
 			"tried, `limits` (the pool, the model's shortlist and the full reads used) and `pass`, what each model " +
-			"step did and cost: model or fallback (the code's ranking stands, with why) or off. " +
+			"step did and cost: model or fallback (the code's ranking stands, with why) or off; `pass.read` counts " +
+			"the items dropped because their own page dates them outside the window (`outside_window`). " +
 			"When available, use the social-listening skill for discovery, planning and the evidence report. " +
 			"Write your report from the results, with verbatim quotes (the `quotes` first) and their links and " +
 			"dates; when no cluster passed its audit, say the evidence is thin rather than fill the gap. " +

@@ -66,6 +66,7 @@ Write in the user's language and use this order.
    A web hit from a platform gives coverage of that item through the web. Report requested sources
    the tool could not search as unread. Distinguish excerpts, comments and comment counts. Say
    whether the model pass ran: each step of `pass` is `model`, `fallback` with its reason, or `off`.
+   Report `pass.read.outside_window` items as dropped because their own page dated them outside the window.
 3. **Findings.** Write one to three evidence-backed findings when the sample supports them. For each,
    link the supporting and counter evidence, state the confidence and explain what the sample cannot
    show. If a search for counter-evidence found none, describe the search and its bounds. Use
@@ -73,7 +74,8 @@ Write in the user's language and use this order.
    independent original evidence once even when several queries, providers or copies return it.
    Reduce confidence for partial sampling or thin evidence. Check the items behind each cluster.
    A cluster whose `audit` failed cannot back a finding alone; when none passed, say the evidence is
-   thin. Items with `fit` `counter` are counter-evidence for their cluster.
+   thin. Items with `fit` `counter` are counter-evidence for their cluster. An item without `direct` is
+   a search card: its snippet is a lead, not the post.
 4. **Quotes.** Give short verbatim excerpts with the original item link, publication date and a
    relevant tag from `pain`, `trigger`, `outcome`, `objection`, `competitor`. Keep translations
    separate. Prefer an item's `quotes`, which were checked against the post read in full. Leave

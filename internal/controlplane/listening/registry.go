@@ -39,7 +39,13 @@ type Platform struct {
 	// Read reads one of its items in full, the post and its top comments, for the semantic pass's full read
 	// (Agent-Reach's read action beside search, channels/base.py:30-50; last30days reads a kept thread's comments
 	// after ranking, reddit_hydrate.py); nil: its items are not read.
-	Read func(ctx context.Context, r Request, it Item) (string, error)
+	Read func(ctx context.Context, r Request, it Item) (Document, error)
+}
+
+// Document is an item read in full: its text, and when its page says it was published, nil when it says none.
+type Document struct {
+	Text      string
+	Published *time.Time
 }
 
 func (p Platform) backendNames() []string {

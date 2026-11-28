@@ -1,12 +1,9 @@
 package listening
 
 import (
-	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 	"time"
 )
@@ -181,19 +178,38 @@ func (s *Service) rerank(ctx context.Context, plan Plan, items []Item, c Caller,
 		items[i].Score = math.Round(finalScore(items[i])*10) / 10
 	}
 
-	slices.SortStableFunc(items, func(a, b Item) int {
-		if c := cmp.Compare(b.Score, a.Score); c != 0 {
-			return c
-		}
-
-		return cmp.Compare(engagementOf(b), engagementOf(a))
-	})
+	byScore(items)
 
 	return items, st
 }
 
-// askScores asks the model to score items and reads its scores: an id that is not one of the items is dropped, as
-// is a score that is not a number (last30days _apply_llm_scores, lib/rerank.py:497-538).
+// scoreAnswer is the scores' schema: each row an id and a relevance from 0 to 100, its reason optional (last30days
+// _build_prompt's JSON, lib/rerank.py:464-473); an answer that does not fit is refused whole.
+type scoreAnswer struct {
+	Scores []struct {
+		ID        string   `json:"id"`
+		Relevance *float64 `json:"relevance"`
+		Reason    string   `json:"reason"`
+	} `json:"scores"`
+}
+
+func (a scoreAnswer) check() error {
+	for n, row := range a.Scores {
+		switch {
+		case strings.TrimSpace(row.ID) == "":
+			return fmt.Errorf("scores[%d] has no id", n)
+		case row.Relevance == nil:
+			return fmt.Errorf("scores[%d] has no relevance", n)
+		case *row.Relevance < 0 || *row.Relevance > 100:
+			return fmt.Errorf("scores[%d]'s relevance %g is not from 0 to 100", n, *row.Relevance)
+		}
+	}
+
+	return nil
+}
+
+// askScores asks the model to score items and reads its scores: an id that is not one of the items is dropped
+// (last30days _apply_llm_scores, lib/rerank.py:497-538; obsei ask.py:151-152).
 func (s *Service) askScores(ctx context.Context, plan Plan, items []Item, model string, c Caller, t *tally,
 ) (map[string]scored, error) {
 	body, err := chatRequest(model, rerankSystem(plan), fenced("Candidates", candidateBlock(items, false)))
@@ -206,15 +222,8 @@ func (s *Service) askScores(ctx context.Context, plan Plan, items []Item, model 
 		return nil, err
 	}
 
-	var answer struct {
-		Scores []struct {
-			ID        string          `json:"id"`
-			Relevance json.RawMessage `json:"relevance"`
-			Reason    string          `json:"reason"`
-		} `json:"scores"`
-	}
-
-	if err := jsonObject(text, &answer); err != nil {
+	var answer scoreAnswer
+	if err := decodeAnswer(text, &answer); err != nil {
 		return nil, err
 	}
 
@@ -226,13 +235,8 @@ func (s *Service) askScores(ctx context.Context, plan Plan, items []Item, model 
 	out := map[string]scored{}
 
 	for _, row := range answer.Scores {
-		id := strings.TrimSpace(row.ID)
-		if !known[id] {
-			continue
-		}
-
-		if v, ok := score(row.Relevance); ok {
-			out[id] = scored{relevance: v, reason: clip(row.Reason, 200)}
+		if id := strings.TrimSpace(row.ID); known[id] {
+			out[id] = scored{relevance: *row.Relevance, reason: clip(row.Reason, 200)}
 		}
 	}
 

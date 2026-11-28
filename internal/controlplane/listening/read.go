@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +21,21 @@ import (
 // after ranking (#542). A quote counts only when it is in what was read, character for character once spaces and
 // Unicode forms are evened out: an item found by a model is checked against its page before it counts (research
 // note §2, last30days grok_x _validate_items), and an answer may cite only what was given (obsei ask.py:151-152,
-// jev-social validateResearchReport). A claim is kept only beside a checked quote.
+// jev-social validateResearchReport). A claim is kept only beside a checked quote, and only when every number in it
+// is one the post itself has: code owns the numbers, the model the words (OpinionLens
+// report_pipeline/narrator.py:9-11).
+//
+// The read also dates each item by its own page (owner, 2026-11-28; no reference checks a date on the page: a
+// snippet-dated 2019 page came back stamped 2026 on production): the date the page's metadata gives, read by code
+// (websearch.Page.Published, Agent-Reach's "Published Time:", agent_reach/channels/web.py:141-150), else the date the
+// model read on the page, kept only when the words it quotes for it are on the page and hold its year and day. That
+// date replaces a snippet's that disagrees, and an item its page dates outside the window is dropped and counted
+// (trend-opportunity-radar counts content publication time, never capture time, references/scoring-contract.md:16).
 
 const (
 	// readPrompt is the version of the read's prompt: a cached reading is kept for its version only.
-	readPrompt = "read-1"
-	// maxQuotes and maxClaims bound what one item gives: jev-social's five excerpts a record (SECURITY.md).
+	readPrompt = "read-2"
+	// maxQuotes and maxClaims bound what one item gives: jev-social's five excerpts a record (SECURITY.md:24).
 	maxQuotes = 5
 	maxClaims = 5
 	// maxQuote is the longest quote: last30days' stored quote (snippet.QUOTE_LIMIT, 400); maxClaim a claim, as long
@@ -39,9 +49,10 @@ const (
 	arcticCommentRows = 500
 )
 
-// reading is what the model extracted from one item.
+// reading is what was read of one item: the quotes and claims the model extracted, and the date its page gives.
 type reading struct {
 	quotes, claims []string
+	published      *time.Time
 }
 
 // readSystem tells the model what to extract; thin data is reported as thin, never filled (BettaFish #597 invented
@@ -54,14 +65,18 @@ For each item give up to 5 quotes and up to 5 claims:
 		`author or a commenter says about the topic, in their own words and language; never translate, fix, join ` +
 		`or shorten a quote with an ellipsis. A quote that is not in the item's text is dropped.
 - a claim says in one sentence, in the text's language, what the item asserts or complains about, at most 300 ` +
-		`characters.
+		`characters. Write a number only as the text writes it.
+- published: when the text itself says when the post was published, that date as YYYY-MM-DD and, as "quote", the ` +
+		`exact words of the text that say it; leave it out when the text does not say, and never give the date of a ` +
+		`comment, an edit or today.
 If an item says nothing about the topic, give it no quotes and no claims. Never fill a gap with what the text ` +
 		`does not say, and never invent a person, a number or a source.
 
 Return JSON only:
 {
   "items": [
-    {"id": "id", "quotes": ["verbatim quote"], "claims": ["claim"]}
+    {"id": "id", "quotes": ["verbatim quote"], "claims": ["claim"],
+     "published": {"date": "YYYY-MM-DD", "quote": "the words that give it"}}
   ]
 }`
 }
@@ -94,13 +109,21 @@ func readKey(topic string, it Item, model string) string {
 	return cacheKey("read", it.ID, it.Title, it.Text, topic, readPrompt, model)
 }
 
-// read reads the targets in full and puts the checked quotes and claims on the items.
+// readResult is what the read changed beyond the items' quotes: the items its pages date outside the window, and
+// whether any item's date or directness changed, so the scores and clusters are made again.
+type readResult struct {
+	outside map[int]bool
+	changed bool
+}
+
+// read reads the targets in full and puts the checked quotes, claims and page dates on the items.
 func (s *Service) read(ctx context.Context, topic string, items []Item, clusters []Cluster, req Request, c Caller,
 	l Limits,
-) Step {
+) (Step, readResult) {
 	targets := readTargets(clusters, items, l.Read)
+	res := readResult{outside: map[int]bool{}}
 
-	return s.step(ctx, "read", s.readModel, DefaultReadModel, c, func(model string, t *tally, st *Step) error {
+	st := s.step(ctx, "read", s.readModel, DefaultReadModel, c, func(model string, t *tally, st *Step) error {
 		if len(targets) == 0 {
 			st.Detail = "nothing to read"
 
@@ -127,21 +150,55 @@ func (s *Service) read(ctx context.Context, topic string, items []Item, clusters
 		var asked []int
 
 		for _, i := range fetch {
-			if docs[i] != "" {
+			if docs[i].Text != "" {
 				asked = append(asked, i)
 			}
 		}
 
+		// The page's own date is code's to read, so it is applied even when the model fails below.
+		dated := map[int]*time.Time{}
+		for _, i := range asked {
+			if docs[i].Published != nil {
+				dated[i] = docs[i].Published
+			}
+		}
+
+		defer func() {
+			for i, r := range got {
+				if r.published != nil {
+					dated[i] = r.published
+				}
+			}
+
+			notes = append(notes, s.dateByPage(items, dated, req, &res)...)
+			st.OutsideWindow = len(res.outside)
+
+			if len(notes) > 0 {
+				st.Detail = joinReason(st.Detail, strings.Join(notes, "; "))
+			}
+		}()
+
+		for _, i := range asked {
+			items[i].Direct, res.changed = true, true
+		}
+
+		for i := range got {
+			items[i].Direct, res.changed = true, true
+		}
+
 		if len(asked) > 0 {
-			fresh, err := s.askReadings(ctx, topic, items, asked, docs, model, c, t)
+			fresh, answered, err := s.askReadings(ctx, topic, items, asked, docs, model, c, t)
 			if err != nil {
 				return err
 			}
 
+			// A judgment the model did not give is not kept: the next search asks for it again (OpinionLens
+			// report_sentiment.py:1-14, a missing result falls back and is not cached).
 			for _, i := range asked {
-				r := fresh[i]
-				got[i] = r
-				s.readings.put(readKey(topic, items[i], model), r)
+				got[i] = fresh[i]
+				if answered[i] {
+					s.readings.put(readKey(topic, items[i], model), fresh[i])
+				}
 			}
 		}
 
@@ -160,20 +217,49 @@ func (s *Service) read(ctx context.Context, topic string, items []Item, clusters
 
 		st.Detail = fmt.Sprintf("%d of %d representatives read in full, %d with checked quotes", len(got),
 			len(targets), quoted)
-		if len(notes) > 0 {
-			st.Detail += "; " + strings.Join(notes, "; ")
-		}
 
 		return nil
 	})
+
+	return st, res
+}
+
+// dateByPage puts each page's date on its item where the item's date disagrees by day, and marks the items it dates
+// outside the window; it answers a note for each.
+func (s *Service) dateByPage(items []Item, dated map[int]*time.Time, req Request, res *readResult) []string {
+	var notes []string
+
+	for i, at := range dated {
+		it := &items[i]
+		day := at.UTC().Format(time.DateOnly)
+
+		if it.PublishedAt == nil || it.PublishedAt.UTC().Format(time.DateOnly) != day {
+			was := "undated"
+			if it.PublishedAt != nil {
+				was = "dated " + it.PublishedAt.UTC().Format(time.DateOnly)
+			}
+
+			notes = append(notes, fmt.Sprintf("%s dated %s by its page (%s before)", it.ID, day, was))
+			it.PublishedAt, it.DateConfidence, res.changed = at, "high", true
+		}
+
+		if !inDays(at, req.From, req.To) {
+			res.outside[i] = true
+			notes = append(notes, fmt.Sprintf("%s dropped: its page dates it %s, outside the window", it.ID, day))
+		}
+	}
+
+	slices.Sort(notes)
+
+	return notes
 }
 
 // readDocuments reads the items in full, each through its source, at once, every site at its own pace; a note says
 // what was not read, or read in part.
-func (s *Service) readDocuments(ctx context.Context, req Request, items []Item, targets []int) (map[int]string,
+func (s *Service) readDocuments(ctx context.Context, req Request, items []Item, targets []int) (map[int]Document,
 	[]string,
 ) {
-	docs := make([]string, len(targets))
+	docs := make([]Document, len(targets))
 	errs := make([]error, len(targets))
 
 	var wg sync.WaitGroup
@@ -187,25 +273,26 @@ func (s *Service) readDocuments(ctx context.Context, req Request, items []Item, 
 		}
 
 		wg.Go(func() {
-			text, err := p.Read(ctx, req, items[i])
-			docs[n], errs[n] = cut(text, websearch.MaxContent), err
+			doc, err := p.Read(ctx, req, items[i])
+			doc.Text = cut(doc.Text, websearch.MaxContent)
+			docs[n], errs[n] = doc, err
 		})
 	}
 
 	wg.Wait()
 
-	out := map[int]string{}
+	out := map[int]Document{}
 
 	var notes []string
 
 	for n, i := range targets {
-		if docs[n] != "" {
+		if docs[n].Text != "" {
 			out[i] = docs[n]
 		}
 
 		if errs[n] != nil {
 			what := "not read"
-			if docs[n] != "" {
+			if docs[n].Text != "" {
 				what = "read in part"
 			}
 
@@ -226,10 +313,35 @@ func cut(text string, n int) string {
 	return string(r[:n])
 }
 
-// askReadings asks the model to read the documents and checks its answer.
-func (s *Service) askReadings(ctx context.Context, topic string, items []Item, asked []int, docs map[int]string,
+// readAnswer is the read's schema: an answer that does not fit it is refused whole (OpinionLens
+// report_pipeline/schema_validator.py: types and required fields checked; report_manager.py:15-17, an output that
+// fails degrades to the deterministic report).
+type readAnswer struct {
+	Items []struct {
+		ID        string   `json:"id"`
+		Quotes    []string `json:"quotes"`
+		Claims    []string `json:"claims"`
+		Published *struct {
+			Date  string `json:"date"`
+			Quote string `json:"quote"`
+		} `json:"published"`
+	} `json:"items"`
+}
+
+func (a readAnswer) check() error {
+	for n, row := range a.Items {
+		if strings.TrimSpace(row.ID) == "" {
+			return fmt.Errorf("items[%d] has no id", n)
+		}
+	}
+
+	return nil
+}
+
+// askReadings asks the model to read the documents and checks its answer; answered are the items it judged.
+func (s *Service) askReadings(ctx context.Context, topic string, items []Item, asked []int, docs map[int]Document,
 	model string, c Caller, t *tally,
-) (map[int]reading, error) {
+) (map[int]reading, map[int]bool, error) {
 	var b strings.Builder
 
 	for _, i := range asked {
@@ -240,30 +352,23 @@ func (s *Service) askReadings(ctx context.Context, topic string, items []Item, a
 			date = it.PublishedAt.UTC().Format(time.DateOnly)
 		}
 
-		fmt.Fprintf(&b, "=== item %s\nsource: %s; where: %s; author: %s; date: %s\ntitle: %s\n\n%s\n\n", it.ID, it.Source,
-			it.Container, it.Author, date, it.Title, docs[i])
+		fmt.Fprintf(&b, "=== item %s\nsource: %s; where: %s; author: %s; search date: %s\ntitle: %s\n\n%s\n\n", it.ID,
+			it.Source, it.Container, it.Author, date, it.Title, docs[i].Text)
 	}
 
 	body, err := chatRequest(model, readSystem(topic), fenced("Items", strings.TrimRight(b.String(), "\n")))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	text, err := ask(ctx, c.Model, body, readDeadline, readAttempts, t)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	var answer struct {
-		Items []struct {
-			ID     string   `json:"id"`
-			Quotes []string `json:"quotes"`
-			Claims []string `json:"claims"`
-		} `json:"items"`
-	}
-
-	if err := jsonObject(text, &answer); err != nil {
-		return nil, err
+	var answer readAnswer
+	if err := decodeAnswer(text, &answer); err != nil {
+		return nil, nil, err
 	}
 
 	byID := map[string]int{}
@@ -272,8 +377,10 @@ func (s *Service) askReadings(ctx context.Context, topic string, items []Item, a
 	}
 
 	out := map[int]reading{}
+	answered := map[int]bool{}
+
 	for _, i := range asked {
-		out[i] = reading{}
+		out[i] = reading{published: docs[i].Published}
 	}
 
 	for _, row := range answer.Items {
@@ -282,8 +389,9 @@ func (s *Service) askReadings(ctx context.Context, topic string, items []Item, a
 			continue
 		}
 
+		answered[i] = true
 		r := out[i]
-		doc := evened(docs[i])
+		doc := evened(docs[i].Text)
 
 		for _, q := range row.Quotes {
 			q = strings.Trim(strings.TrimSpace(q), "\"“”'‘’")
@@ -297,16 +405,46 @@ func (s *Service) askReadings(ctx context.Context, topic string, items []Item, a
 
 		if len(r.quotes) > 0 {
 			for _, claim := range row.Claims {
-				if claim = clip(claim, maxClaim); claim != "" && len(r.claims) < maxClaims {
+				claim = clip(claim, maxClaim)
+				if claim != "" && len(r.claims) < maxClaims && numberNotIn(claim, docs[i].Text) == "" {
 					r.claims = append(r.claims, claim)
 				}
 			}
 		}
 
+		if r.published == nil && row.Published != nil {
+			r.published = pageDate(row.Published.Date, row.Published.Quote, doc)
+		}
+
 		out[i] = r
 	}
 
-	return out, nil
+	return out, answered, nil
+}
+
+// pageDate is the date the model read on the page, when the words it quotes for it are on the page and hold the
+// date's year and its day; nil otherwise.
+func pageDate(date, quote, doc string) *time.Time {
+	at, err := time.Parse(time.DateOnly, strings.TrimSpace(date))
+	if err != nil {
+		return nil
+	}
+
+	quote = evened(quote)
+	if quote == "" || !strings.Contains(doc, quote) {
+		return nil
+	}
+
+	have := map[string]bool{}
+	for _, n := range numbers.FindAllString(quote, -1) {
+		have[strings.TrimLeft(n, "0")] = true
+	}
+
+	if !have[strconv.Itoa(at.Year())] || !have[strconv.Itoa(at.Day())] {
+		return nil
+	}
+
+	return &at
 }
 
 // evened is text as a quote is looked for in it: NFKC, its spaces made one.

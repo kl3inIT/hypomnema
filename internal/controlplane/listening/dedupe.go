@@ -115,6 +115,8 @@ func merge(kept, later Item) Item {
 		kept.Text = later.Text
 	}
 
+	kept.Direct = kept.Direct || later.Direct
+
 	if len(later.body) > len(kept.body) {
 		kept.body = later.body
 	}
