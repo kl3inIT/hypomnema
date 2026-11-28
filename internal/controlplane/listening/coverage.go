@@ -45,7 +45,8 @@ type Stream struct {
 	Subquery string `json:"subquery"`
 	ServedBy string `json:"served_by,omitempty"`
 	Items    int    `json:"items"`
-	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served.
+	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served in full,
+	// and the failure's code beside its items when it was served in part (Result.Failed).
 	Code    Code      `json:"code,omitempty"`
 	Tried   []Attempt `json:"tried"`
 	dropped Drops

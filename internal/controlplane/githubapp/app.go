@@ -729,20 +729,25 @@ func stateOf(link string, ci githubstore.CI) ciwait.State {
 	return ciwait.State{PullRequest: link, Head: ci.Head, State: string(ci.State), Failed: ci.Failed}
 }
 
-// TokenOfDispatch is a token of the App's installation on a Dispatch's repository, for its worker's gh and git, and
-// false when the App does not cover it.
-func (a *App) TokenOfDispatch(ctx context.Context, dispatchID string) (agenttool.GitHubToken, bool, error) {
+// runOfDispatch resolves the repository from the worker's Dispatch, as it does for the App token (issue #1262).
+func (a *App) runOfDispatch(ctx context.Context, dispatchID string) (orchestration.Run, error) {
 	d, err := a.svc.GetDispatch(ctx, dispatchID)
 	if err != nil {
-		return agenttool.GitHubToken{}, false, err
+		return orchestration.Run{}, err
 	}
 
 	task, err := a.svc.GetTask(ctx, d.TaskID)
 	if err != nil {
-		return agenttool.GitHubToken{}, false, err
+		return orchestration.Run{}, err
 	}
 
-	run, err := a.svc.GetRun(ctx, task.RunID)
+	return a.svc.GetRun(ctx, task.RunID)
+}
+
+// TokenOfDispatch is a token of the App's installation on a Dispatch's repository, for its worker's gh and git, and
+// false when the App does not cover it.
+func (a *App) TokenOfDispatch(ctx context.Context, dispatchID string) (agenttool.GitHubToken, bool, error) {
+	run, err := a.runOfDispatch(ctx, dispatchID)
 	if err != nil {
 		return agenttool.GitHubToken{}, false, err
 	}
@@ -753,6 +758,45 @@ func (a *App) TokenOfDispatch(ctx context.Context, dispatchID string) (agenttool
 	}
 
 	return agenttool.GitHubToken{Token: token.Value, ExpiresAt: token.ExpiresAt}, true, nil
+}
+
+// PRCreateTokenOfDispatch uses the same repository Connection and owner identity match as App commit attribution
+// (nodeapi, issue #1312). Only the gh pr create shim asks for it (issue #1339).
+func (a *App) PRCreateTokenOfDispatch(ctx context.Context, dispatchID string) (agenttool.GitHubToken, bool, error) {
+	run, err := a.runOfDispatch(ctx, dispatchID)
+	if err != nil {
+		return agenttool.GitHubToken{}, false, err
+	}
+
+	if !strings.EqualFold(run.RepoHost, Host) {
+		return agenttool.GitHubToken{}, false, nil
+	}
+
+	if _, ok, err := a.store().InstallationOf(ctx, run.Repo); err != nil || !ok {
+		return agenttool.GitHubToken{}, false, err
+	}
+
+	cred, ok, err := a.credential(ctx)
+	if err != nil || !ok {
+		return agenttool.GitHubToken{}, false, err
+	}
+
+	conn, ok, err := a.svc.ConnectionFor(ctx, run.RepoHost, run.Repo)
+	if err != nil || !ok || conn.GitName == "" || !strings.EqualFold(conn.GitName, cred.Owner) {
+		return agenttool.GitHubToken{}, false, err
+	}
+
+	opened, err := a.vault.Open(ctx, conn.Secret)
+	if err != nil {
+		return agenttool.GitHubToken{}, false, vaultError(err)
+	}
+
+	token := opened.Payload[vault.KeyValue]
+	if token == "" || opened.VersionID != conn.GitSecretVersionID {
+		return agenttool.GitHubToken{}, false, nil
+	}
+
+	return agenttool.GitHubToken{Token: token}, true, nil
 }
 
 // FindRequest finds and reads a followed pull request (githost.FindRequest) with the App's token, when the App covers

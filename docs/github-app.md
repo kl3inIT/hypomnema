@@ -38,7 +38,15 @@ bot as committer. Connect your own GitHub account for the repository to get auth
 If the Connection does not supply your identity, the bot fills both fields and the worker is asked to add a
 `Co-authored-by` trailer when your GitHub account is known. An existing App picks up its bot user ID on the first
 App offer after upgrading, with no need to register again. With your personal token, commits still use your account
-for both fields. The App still opens pull requests with its own token.
+for both fields.
+
+## Opening pull requests
+
+On an App-backed worker, `gh pr create` uses the repository's GitHub Connection for the App owner's account
+([issue #1339](https://github.com/kl3inIT/hypomnema/issues/1339)). GitHub records the owner as the pull request author,
+which lets CodeRabbit review it. Connect the App owner's account and select that Connection for the repository
+if the host has multiple Connections. The worker asks for the token when it opens the pull request. The App
+still handles pushes, other `gh` calls and CI waits.
 
 ## Calling Hypo on GitHub
 

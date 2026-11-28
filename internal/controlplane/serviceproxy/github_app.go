@@ -64,11 +64,32 @@ func ownerRepo(owner, name string) (string, bool) {
 	return strings.ToLower(owner + "/" + name), true
 }
 
+var codeRabbitCommentPath = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/issues/[1-9][0-9]*/comments$`)
+
+// codeRabbitTrigger is the exact REST comment approved for the coordinator's review rounds (issue #1339).
+func codeRabbitTrigger(req *http.Request, body []byte, s session) bool {
+	if !s.caller.Coordinator || s.caller.ReadRun || s.runKey != "" || s.integration != GitHubID ||
+		s.host != githubAPI || req.Method != http.MethodPost || req.URL.RawQuery != "" {
+		return false
+	}
+
+	parts := codeRabbitCommentPath.FindStringSubmatch(req.URL.EscapedPath())
+	if parts == nil || !githubPathPart(parts[1]) || !githubPathPart(parts[2]) {
+		return false
+	}
+
+	var comment map[string]json.RawMessage
+	var message string
+
+	return json.Unmarshal(body, &comment) == nil && len(comment) == 1 &&
+		json.Unmarshal(comment["body"], &message) == nil && message == "@coderabbitai review"
+}
+
 // appToken is the owner's GitHub App's token for a request to GitHub's API that names a repository the App is
 // installed on: the Bot's gh then counts against the App's limit, not the owner's (issue #1262). Any other request
 // goes with its Connection's token, as before.
 func (p *Proxy) appToken(ctx context.Context, req *http.Request, body []byte, s session) (string, bool) {
-	if p.cfg.RepoToken == nil || s.host != githubAPI {
+	if p.cfg.RepoToken == nil || s.host != githubAPI || codeRabbitTrigger(req, body, s) {
 		return "", false
 	}
 

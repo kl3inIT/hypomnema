@@ -152,6 +152,27 @@ func TestWhatGhAsksGitHubIsAnActionOfTheCatalog(t *testing.T) {
 	}
 }
 
+// The coordinator's CodeRabbit trigger reaches GitHub with the Connection token without an approval (issue #1339).
+func TestCoordinatorRequestsCodeRabbitWithoutApproval(t *testing.T) {
+	t.Parallel()
+
+	const appInstallation = "app-installation"
+	w := newWorldWith(t, 100*time.Millisecond, nil, func(_ context.Context, integration, repo string) (string, bool) {
+		return appInstallation, integration == serviceproxy.GitHubID && repo == "example/project"
+	})
+	gh := w.openGitHub()
+	require.Equal(t, http.StatusOK, gh.do(http.MethodGet, "/repos/example/project/pulls/7", "", nil).Status)
+
+	got := gh.do(http.MethodPost, "/repos/example/project/issues/7/comments", "application/json",
+		[]byte(`{"body":"@coderabbitai review"}`))
+	require.Equal(t, http.StatusOK, got.Status)
+	received := w.service.received()
+	require.Len(t, received, 2)
+	assert.Equal(t, "Bearer "+appInstallation, received[0].Authorization)
+	assert.Equal(t, "Bearer "+realToken, received[1].Authorization)
+	assert.Empty(t, w.approvals(""))
+}
+
 // Scenario: a Bot's pi reads an issue with gh, given the git host's Connection github.com:default, the token
 // workers use. gh holds a placeholder; GitHub receives the host's token. A comment waits for the owner and reaches
 // GitHub only once he approves. gh's feature detection, a query of the schema, runs on its own (#706). A log's
@@ -549,7 +570,7 @@ func TestACommentGrantedWhileARequestIsDecidedDoesNotCarryItsMerge(t *testing.T)
 		between = &grantBetween{Store: s, svc: svc}
 
 		return between
-	})
+	}, nil)
 	ctx := t.Context()
 
 	_, err := w.svc.SetConnection(ctx, serviceproxy.GitHubID, "default", "", "conn-github-com-default")
@@ -637,6 +658,13 @@ func githubWorld(t *testing.T, hold time.Duration) (*world, *tool) {
 	w := newWorld(t, hold)
 	w.service.answers = githubRepositories
 
+	return w, w.openGitHub()
+}
+
+func (w *world) openGitHub() *tool {
+	w.t.Helper()
+
+	t := w.t
 	_, err := w.svc.SetConnection(t.Context(), serviceproxy.GitHubID, "default", "", "conn-github-com-default")
 	require.NoError(t, err)
 
@@ -646,7 +674,7 @@ func githubWorld(t *testing.T, hold time.Duration) (*world, *tool) {
 	gh, refused := w.openTo(serviceproxy.GitHubID, w.pi, "default", "api.github.com", w.chat)
 	require.Zero(t, refused)
 
-	return w, gh
+	return gh
 }
 
 // Scenario (issue #802): `gh api --paginate` lists a pull request's files. The first page is asked by
