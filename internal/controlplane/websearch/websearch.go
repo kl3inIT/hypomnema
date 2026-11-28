@@ -113,6 +113,8 @@ var (
 	ErrInvalid = errors.New("invalid request")
 	// ErrFailed: every provider tried failed; the error says why each did.
 	ErrFailed = errors.New("no search provider answered")
+	// ErrNoResults: every provider asked answered and none found anything; such an error is an ErrFailed too.
+	ErrNoResults = errors.New("no provider found anything")
 	// ErrRefused: the page is not on the public internet.
 	ErrRefused = errors.New("the address is not on the public internet")
 	// ErrUnreadable: the page could not be read.
@@ -289,6 +291,10 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 
 // Scope is what one caller sets of a search's chain (issue #1277): a gateway key's own order, and a name for the
 // accounts its subscription searches may use. The zero Scope is the owner's chain as Settings has it.
+//
+// A search asked with a context from KeylessOnly uses the keyless providers only, never the owner's keys or
+// subscriptions: social listening's rule (owner, 2026-11-27: no paid services; last30days reads Reddit through its
+// keyless web rungs, reddit_discover.py:322-350).
 type Scope struct {
 	// Order are the providers asked first, in this order, by a search that names none; the others follow in the
 	// chain's order. A provider switched off stays off. OmniRoute's preferred_connections: the next eligible one
@@ -297,6 +303,8 @@ type Scope struct {
 	// Accounts names the accounts the caller's subscription searches go to, empty for every account: its searches
 	// are kept apart from the others' in the cache, and a subscription that rests for them rests for them alone.
 	Accounts string
+	// Keyless: only the providers asked without a key (KeylessOnly).
+	Keyless bool
 }
 
 // first puts the routes of the scope's providers first, in its order; the others keep theirs.
@@ -322,6 +330,10 @@ func (sc Scope) first(routes []route) []route {
 // SearchIn is Search with a caller's own Scope.
 func (s *Service) SearchIn(ctx context.Context, scope Scope, query string, limit int, provider string,
 ) (Answer, error) {
+	if keyless, _ := ctx.Value(keylessKey{}).(bool); keyless {
+		scope.Keyless = true
+	}
+
 	query = strings.TrimSpace(query)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 
@@ -411,27 +423,51 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 	routes, failures := s.routes(ctx, provider, set, true, scope.Accounts)
 	routes = scope.first(routes)
 
+	if scope.Keyless {
+		routes = slices.DeleteFunc(routes, func(r route) bool { return r.source != SourcePublic })
+		failures = nil
+	}
+
 	var (
 		tried     bool
+		asked     int
+		empty     int
 		firstFree time.Time
 		// skipKeys is a provider whose failure was not its key's: its other keys are not asked.
 		skipKeys = map[string]bool{}
+		// rests are the rests of the routes this search could not use, for a caller that tells them apart.
+		rests []RouteRest
+		// others counts the providers asked that failed without resting and not for want of results.
+		others int
 	)
+
+	// skipResting notes a resting route as a failure, and says whether it rests.
+	skipResting := func(r route) bool {
+		rs, ok := s.restOf(r.id)
+		if !ok {
+			return false
+		}
+
+		failures = append(failures, Failure{
+			Provider: r.provider, Reason: r.label + restWords(rs.why) + " until " + rs.until.UTC().Format(time.RFC3339),
+		})
+		rests = append(rests, RouteRest{Provider: r.provider, Why: rs.why, Until: rs.until})
+
+		if firstFree.IsZero() || rs.until.Before(firstFree) {
+			firstFree = rs.until
+		}
+
+		return true
+	}
+
+	pace, _ := ctx.Value(paceKey{}).(Pace)
 
 	for _, r := range routes {
 		if r.source == SourceKey && skipKeys[r.provider] {
 			continue
 		}
 
-		if until, why, ok := s.restingUntil(r.id); ok {
-			failures = append(failures, Failure{
-				Provider: r.provider, Reason: r.label + why + " until " + until.UTC().Format(time.RFC3339),
-			})
-
-			if firstFree.IsZero() || until.Before(firstFree) {
-				firstFree = until
-			}
-
+		if skipResting(r) {
 			continue
 		}
 
@@ -441,9 +477,39 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 			continue
 		}
 
+		// A caller that paces (social listening, issue #1287) waits for the route's turn: one call at a time per key
+		// or keyless provider, the account or host the chain knows, and checks its rest again once it has the turn,
+		// as Agent-Reach checks the cooldown again inside its slot (runtime/dispatch.py:247-257).
+		done := func() {}
+
+		if pace != nil {
+			turn, err := pace(ctx, r.id)
+			if err != nil {
+				return Answer{}, err
+			}
+
+			done = turn
+
+			if skipResting(r) {
+				done()
+
+				continue
+			}
+		}
+
 		s.use(r.id)
 
 		rep, err := s.ask(ctx, r, query, limit)
+
+		// The route's rest is stored before its turn ends, so a search waiting for the turn sees it: Agent-Reach
+		// records a backend's failure inside its slot, before the slot is left (runtime/dispatch.py:247-274).
+		keyFailure := false
+		if err != nil && ctx.Err() == nil && !errors.Is(err, ErrNoAccount) {
+			keyFailure = s.failed(r, err)
+		}
+
+		done()
+
 		if errors.Is(err, ErrNoAccount) {
 			// A subscription with no account is not in the chain; named, it cannot be asked.
 			if provider != "" {
@@ -454,10 +520,12 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		}
 
 		tried = true
+		asked++
 
 		if err == nil && len(rep.results) == 0 {
 			// A provider with nothing to show is not an answer: the next is asked (omp: no renderable content).
-			err = errors.New("no results")
+			err = errNoResults
+			empty++
 		}
 
 		s.record(ctx, r, err == nil, rep.costDollars)
@@ -469,8 +537,14 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 
 			failures = append(failures, Failure{Provider: r.provider, Reason: r.label + reasonOf(err)})
 
-			if !s.failed(r, err) && r.source == SourceKey {
+			if !keyFailure && r.source == SourceKey {
 				skipKeys[r.provider] = true
+			}
+
+			if rs, ok := s.restOf(r.id); ok {
+				rests = append(rests, RouteRest{Provider: r.provider, Why: rs.why, Until: rs.until})
+			} else if len(rep.results) > 0 || !errors.Is(err, errNoResults) {
+				others++
 			}
 
 			s.cfg.Logger.WarnContext(ctx, "a web search provider failed",
@@ -491,7 +565,54 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		return Answer{}, &RestingError{Until: firstFree}
 	}
 
-	return Answer{}, fmt.Errorf("%w: %s", ErrFailed, failureText(failures))
+	return Answer{}, &FailedError{Failures: failures, Rests: rests, Asked: asked, Empty: empty, Others: others}
+}
+
+// FailedError is a search no provider answered (an ErrFailed): why each failed, and the rests the routes it could
+// not use are in, so that a caller keeps a provider's rate limit as a rate limit with its real wait (issue #1287;
+// Agent-Reach keeps a typed code from the backend to the envelope, runtime/result.py:64-79). When every provider
+// asked answered with nothing it is ErrNoResults too: a clean zero, not a failure (last30days lib/health.py:37).
+type FailedError struct {
+	Failures []Failure
+	Rests    []RouteRest
+	// Asked counts the providers asked; Empty those that answered with nothing; Others those that failed without
+	// resting (a 5xx, a timeout, an answer that could not be read).
+	Asked, Empty, Others int
+}
+
+// errNoResults is a provider's empty answer, which is not an answer: the next is asked (omp: no renderable content).
+var errNoResults = errors.New("no results")
+
+// RouteRest is a route's rest: its provider, why (RestRateLimited, RestNoCredits, RestRefused, RestDailyLimit) and
+// until when.
+type RouteRest struct {
+	Provider string
+	Why      string
+	Until    time.Time
+}
+
+func (e *FailedError) Error() string { return ErrFailed.Error() + ": " + failureText(e.Failures) }
+
+func (e *FailedError) Is(target error) bool {
+	return target == ErrFailed || target == ErrNoResults && e.Asked > 0 && e.Empty == e.Asked
+}
+
+// Pace waits for a route's turn, the route named by its id (a key or a keyless provider), and gives the function
+// that ends the turn.
+type Pace func(ctx context.Context, route string) (func(), error)
+
+type paceKey struct{}
+
+type keylessKey struct{}
+
+// KeylessOnly makes the searches asked with ctx use the keyless providers only.
+func KeylessOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, keylessKey{}, true)
+}
+
+// WithPace makes the searches asked with ctx wait for each route's turn.
+func WithPace(ctx context.Context, p Pace) context.Context {
+	return context.WithValue(ctx, paceKey{}, p)
 }
 
 func failureText(failures []Failure) string {

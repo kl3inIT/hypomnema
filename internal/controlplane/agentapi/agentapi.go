@@ -147,6 +147,8 @@ type Server struct {
 	runtimeOf RuntimeOf
 	// muse is the Muse pool's tools (muse.go), given as the web's are.
 	muse Muse
+	// listening runs listen_search (listening.go); nil: no agent gets it.
+	listening Listening
 	// device is the phone a node holds (issue #417); nil when the control plane gave none.
 	device Device
 	// browserTakes films the agents' tabs (issue #1189, browsertakes.go); nil when the control plane gave none.
