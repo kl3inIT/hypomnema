@@ -5015,6 +5015,40 @@ type InboxChat struct {
 	SetBy InboxChatSetBy `json:"set_by"`
 }
 
+// InboxChatBulkChange defines model for InboxChatBulkChange.
+type InboxChatBulkChange struct {
+	Chat string `json:"chat"`
+
+	// Previous The previous owner choice. Its absence means the chat previously used its default.
+	Previous *InboxChatPreviousChoice `json:"previous,omitempty"`
+	Reads    bool                     `json:"reads"`
+	SetAt    time.Time                `json:"set_at"`
+}
+
+// InboxChatBulkChoice Supply exactly one of chat_ids or filter. Only chats whose reads value changes get an owner choice.
+type InboxChatBulkChoice struct {
+	ChatIds *[]string `json:"chat_ids,omitempty"`
+
+	// Filter The same filters and ordering as the chat list. Applies to its first 500 matching chats.
+	Filter *InboxChatBulkFilter `json:"filter,omitempty"`
+	Reads  bool                 `json:"reads"`
+}
+
+// InboxChatBulkFilter The same filters and ordering as the chat list. Applies to its first 500 matching chats.
+type InboxChatBulkFilter struct {
+	// Kind A direct chat, a group, or a bot's or an official account's chat.
+	Kind *InboxChatKind `json:"kind,omitempty"`
+	Q    *string        `json:"q,omitempty"`
+
+	// State Whether the secretary reads the chat or skips it.
+	State *InboxChatState `json:"state,omitempty"`
+}
+
+// InboxChatBulkReceipt defines model for InboxChatBulkReceipt.
+type InboxChatBulkReceipt struct {
+	Changes []InboxChatBulkChange `json:"changes"`
+}
+
 // InboxChatChoice defines model for InboxChatChoice.
 type InboxChatChoice struct {
 	Reads bool `json:"reads"`
@@ -5076,6 +5110,12 @@ type InboxChatMoved struct {
 
 	// Unknown The chat ids none of his accounts has.
 	Unknown []string `json:"unknown"`
+}
+
+// InboxChatPreviousChoice The previous owner choice. Its absence means the chat previously used its default.
+type InboxChatPreviousChoice struct {
+	Reads bool      `json:"reads"`
+	SetAt time.Time `json:"set_at"`
 }
 
 // InboxChatRef defines model for InboxChatRef.
@@ -9675,6 +9715,12 @@ type CreateTodoJSONRequestBody = NewTodo
 // MoveInboxDropChatsJSONRequestBody defines body for MoveInboxDropChats for application/json ContentType.
 type MoveInboxDropChatsJSONRequestBody = InboxChatMove
 
+// SetInboxChatsBulkJSONRequestBody defines body for SetInboxChatsBulk for application/json ContentType.
+type SetInboxChatsBulkJSONRequestBody = InboxChatBulkChoice
+
+// UndoInboxChatsBulkJSONRequestBody defines body for UndoInboxChatsBulk for application/json ContentType.
+type UndoInboxChatsBulkJSONRequestBody = InboxChatBulkReceipt
+
 // SetInboxChatJSONRequestBody defines body for SetInboxChat for application/json ContentType.
 type SetInboxChatJSONRequestBody = InboxChatChoice
 
@@ -11577,6 +11623,38 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
 	ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetInboxChatsBulkWithBody Set whether the secretary reads the selected chats of one account; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+	SetInboxChatsBulkWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetInboxChatsBulk Set whether the secretary reads the selected chats of one account; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+	SetInboxChatsBulk(ctx context.Context, integration IntegrationID, label ConnectionLabel, body SetInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UndoInboxChatsBulkWithBody Undo a batch of chat choices atomically; only the owner
+	//
+	// Returns 409 if any chat has changed since the batch.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+	UndoInboxChatsBulkWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UndoInboxChatsBulk Undo a batch of chat choices atomically; only the owner
+	//
+	// Returns 409 if any chat has changed since the batch.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+	UndoInboxChatsBulk(ctx context.Context, integration IntegrationID, label ConnectionLabel, body UndoInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetInboxChatWithBody Set whether the secretary reads one chat; only the owner
 	//
@@ -16636,6 +16714,78 @@ func (c *Client) MoveInboxDropChats(ctx context.Context, body MoveInboxDropChats
 // Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
 func (c *Client) ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListInboxChatsRequest(c.Server, integration, label, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetInboxChatsBulkWithBody Set whether the secretary reads the selected chats of one account; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+func (c *Client) SetInboxChatsBulkWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetInboxChatsBulkRequestWithBody(c.Server, integration, label, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetInboxChatsBulk Set whether the secretary reads the selected chats of one account; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+func (c *Client) SetInboxChatsBulk(ctx context.Context, integration IntegrationID, label ConnectionLabel, body SetInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetInboxChatsBulkRequest(c.Server, integration, label, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UndoInboxChatsBulkWithBody Undo a batch of chat choices atomically; only the owner
+//
+// Returns 409 if any chat has changed since the batch.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+func (c *Client) UndoInboxChatsBulkWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUndoInboxChatsBulkRequestWithBody(c.Server, integration, label, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UndoInboxChatsBulk Undo a batch of chat choices atomically; only the owner
+//
+// Returns 409 if any chat has changed since the batch.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+func (c *Client) UndoInboxChatsBulk(ctx context.Context, integration IntegrationID, label ConnectionLabel, body UndoInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUndoInboxChatsBulkRequest(c.Server, integration, label, body)
 	if err != nil {
 		return nil, err
 	}
@@ -27261,6 +27411,114 @@ func NewListInboxChatsRequest(server string, integration IntegrationID, label Co
 	return req, nil
 }
 
+// NewSetInboxChatsBulkRequest calls the generic SetInboxChatsBulk builder with application/json body
+func NewSetInboxChatsBulkRequest(server string, integration IntegrationID, label ConnectionLabel, body SetInboxChatsBulkJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetInboxChatsBulkRequestWithBody(server, integration, label, "application/json", bodyReader)
+}
+
+// NewSetInboxChatsBulkRequestWithBody constructs an http.Request for the SetInboxChatsBulk method, with any body, and a specified content type
+func NewSetInboxChatsBulkRequestWithBody(server string, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/%s/%s/bulk", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewUndoInboxChatsBulkRequest calls the generic UndoInboxChatsBulk builder with application/json body
+func NewUndoInboxChatsBulkRequest(server string, integration IntegrationID, label ConnectionLabel, body UndoInboxChatsBulkJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUndoInboxChatsBulkRequestWithBody(server, integration, label, "application/json", bodyReader)
+}
+
+// NewUndoInboxChatsBulkRequestWithBody constructs an http.Request for the UndoInboxChatsBulk method, with any body, and a specified content type
+func NewUndoInboxChatsBulkRequestWithBody(server string, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/%s/%s/bulk/undo", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewSetInboxChatRequest calls the generic SetInboxChat builder with application/json body
 func NewSetInboxChatRequest(server string, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -36763,6 +37021,38 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
 	ListInboxChatsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*ListInboxChatsResponse, error)
 
+	// SetInboxChatsBulkWithBodyWithResponse Set whether the secretary reads the selected chats of one account; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+	SetInboxChatsBulkWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetInboxChatsBulkResponse, error)
+
+	// SetInboxChatsBulkWithResponse Set whether the secretary reads the selected chats of one account; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+	SetInboxChatsBulkWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, body SetInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*SetInboxChatsBulkResponse, error)
+
+	// UndoInboxChatsBulkWithBodyWithResponse Undo a batch of chat choices atomically; only the owner
+	//
+	// Returns 409 if any chat has changed since the batch.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+	UndoInboxChatsBulkWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UndoInboxChatsBulkResponse, error)
+
+	// UndoInboxChatsBulkWithResponse Undo a batch of chat choices atomically; only the owner
+	//
+	// Returns 409 if any chat has changed since the batch.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+	UndoInboxChatsBulkWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, body UndoInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*UndoInboxChatsBulkResponse, error)
+
 	// SetInboxChatWithBodyWithResponse Set whether the secretary reads one chat; only the owner
 	//
 	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
@@ -45122,6 +45412,95 @@ func (r ListInboxChatsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListInboxChatsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetInboxChatsBulkResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatBulkReceipt
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetInboxChatsBulkResponse) GetJSON200() *InboxChatBulkReceipt {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetInboxChatsBulkResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetInboxChatsBulkResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetInboxChatsBulkResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetInboxChatsBulkResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetInboxChatsBulkResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UndoInboxChatsBulkResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UndoInboxChatsBulkResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UndoInboxChatsBulkResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UndoInboxChatsBulkResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UndoInboxChatsBulkResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UndoInboxChatsBulkResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -56087,6 +56466,62 @@ func (c *ClientWithResponses) ListInboxChatsWithResponse(ctx context.Context, in
 	return ParseListInboxChatsResponse(rsp)
 }
 
+// SetInboxChatsBulkWithBodyWithResponse Set whether the secretary reads the selected chats of one account; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+func (c *ClientWithResponses) SetInboxChatsBulkWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetInboxChatsBulkResponse, error) {
+	rsp, err := c.SetInboxChatsBulkWithBody(ctx, integration, label, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetInboxChatsBulkResponse(rsp)
+}
+
+// SetInboxChatsBulkWithResponse Set whether the secretary reads the selected chats of one account; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk (the `SetInboxChatsBulk` operationId).
+func (c *ClientWithResponses) SetInboxChatsBulkWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, body SetInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*SetInboxChatsBulkResponse, error) {
+	rsp, err := c.SetInboxChatsBulk(ctx, integration, label, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetInboxChatsBulkResponse(rsp)
+}
+
+// UndoInboxChatsBulkWithBodyWithResponse Undo a batch of chat choices atomically; only the owner
+//
+// Returns 409 if any chat has changed since the batch.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+func (c *ClientWithResponses) UndoInboxChatsBulkWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UndoInboxChatsBulkResponse, error) {
+	rsp, err := c.UndoInboxChatsBulkWithBody(ctx, integration, label, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUndoInboxChatsBulkResponse(rsp)
+}
+
+// UndoInboxChatsBulkWithResponse Undo a batch of chat choices atomically; only the owner
+//
+// Returns 409 if any chat has changed since the batch.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/{integration}/{label}/bulk/undo (the `UndoInboxChatsBulk` operationId).
+func (c *ClientWithResponses) UndoInboxChatsBulkWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, body UndoInboxChatsBulkJSONRequestBody, reqEditors ...RequestEditorFn) (*UndoInboxChatsBulkResponse, error) {
+	rsp, err := c.UndoInboxChatsBulk(ctx, integration, label, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUndoInboxChatsBulkResponse(rsp)
+}
+
 // SetInboxChatWithBodyWithResponse Set whether the secretary reads one chat; only the owner
 //
 // Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
@@ -63875,6 +64310,68 @@ func ParseListInboxChatsResponse(rsp *http.Response) (*ListInboxChatsResponse, e
 	return response, nil
 }
 
+// ParseSetInboxChatsBulkResponse parses an HTTP response from a SetInboxChatsBulkWithResponse call
+func ParseSetInboxChatsBulkResponse(rsp *http.Response) (*SetInboxChatsBulkResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetInboxChatsBulkResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatBulkReceipt
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUndoInboxChatsBulkResponse parses an HTTP response from a UndoInboxChatsBulkWithResponse call
+func ParseUndoInboxChatsBulkResponse(rsp *http.Response) (*UndoInboxChatsBulkResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UndoInboxChatsBulkResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSetInboxChatResponse parses an HTTP response from a SetInboxChatWithResponse call
 func ParseSetInboxChatResponse(rsp *http.Response) (*SetInboxChatResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -69954,6 +70451,12 @@ type ServerInterface interface {
 	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
 	// (GET /inbox/chat-sources/{integration}/{label})
 	ListInboxChats(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, params ListInboxChatsParams)
+	// SetInboxChatsBulk Set whether the secretary reads the selected chats of one account; only the owner
+	// (POST /inbox/chat-sources/{integration}/{label}/bulk)
+	SetInboxChatsBulk(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel)
+	// UndoInboxChatsBulk Undo a batch of chat choices atomically; only the owner
+	// (POST /inbox/chat-sources/{integration}/{label}/bulk/undo)
+	UndoInboxChatsBulk(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel)
 	// SetInboxChat Set whether the secretary reads one chat; only the owner
 	// (PUT /inbox/chat-sources/{integration}/{label}/{chat})
 	SetInboxChat(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, chat string)
@@ -74813,6 +75316,76 @@ func (siw *ServerInterfaceWrapper) ListInboxChats(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListInboxChats(w, r, integration, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetInboxChatsBulk operation middleware
+func (siw *ServerInterfaceWrapper) SetInboxChatsBulk(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetInboxChatsBulk(w, r, integration, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UndoInboxChatsBulk operation middleware
+func (siw *ServerInterfaceWrapper) UndoInboxChatsBulk(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UndoInboxChatsBulk(w, r, integration, label)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -80685,6 +81258,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/chat-sources", wrapper.ListInboxChatSources)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/chat-sources/moves", wrapper.MoveInboxDropChats)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}", wrapper.ListInboxChats)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}/bulk", wrapper.SetInboxChatsBulk)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}/bulk/undo", wrapper.UndoInboxChatsBulk)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}/{chat}", wrapper.SetInboxChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.GetTodo)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.EditTodo)
@@ -86144,6 +86719,82 @@ type ListInboxChatsdefaultJSONResponse struct {
 }
 
 func (response ListInboxChatsdefaultJSONResponse) VisitListInboxChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInboxChatsBulkRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Body        *SetInboxChatsBulkJSONRequestBody
+}
+
+type SetInboxChatsBulkResponseObject interface {
+	VisitSetInboxChatsBulkResponse(w http.ResponseWriter) error
+}
+
+type SetInboxChatsBulk200JSONResponse InboxChatBulkReceipt
+
+func (response SetInboxChatsBulk200JSONResponse) VisitSetInboxChatsBulkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInboxChatsBulkdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetInboxChatsBulkdefaultJSONResponse) VisitSetInboxChatsBulkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UndoInboxChatsBulkRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Body        *UndoInboxChatsBulkJSONRequestBody
+}
+
+type UndoInboxChatsBulkResponseObject interface {
+	VisitUndoInboxChatsBulkResponse(w http.ResponseWriter) error
+}
+
+type UndoInboxChatsBulk204Response struct {
+}
+
+func (response UndoInboxChatsBulk204Response) VisitUndoInboxChatsBulkResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UndoInboxChatsBulkdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UndoInboxChatsBulkdefaultJSONResponse) VisitUndoInboxChatsBulkResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -93541,6 +94192,12 @@ type StrictServerInterface interface {
 	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
 	// (GET /inbox/chat-sources/{integration}/{label})
 	ListInboxChats(ctx context.Context, request ListInboxChatsRequestObject) (ListInboxChatsResponseObject, error)
+	// SetInboxChatsBulk Set whether the secretary reads the selected chats of one account; only the owner
+	// (POST /inbox/chat-sources/{integration}/{label}/bulk)
+	SetInboxChatsBulk(ctx context.Context, request SetInboxChatsBulkRequestObject) (SetInboxChatsBulkResponseObject, error)
+	// UndoInboxChatsBulk Undo a batch of chat choices atomically; only the owner
+	// (POST /inbox/chat-sources/{integration}/{label}/bulk/undo)
+	UndoInboxChatsBulk(ctx context.Context, request UndoInboxChatsBulkRequestObject) (UndoInboxChatsBulkResponseObject, error)
 	// SetInboxChat Set whether the secretary reads one chat; only the owner
 	// (PUT /inbox/chat-sources/{integration}/{label}/{chat})
 	SetInboxChat(ctx context.Context, request SetInboxChatRequestObject) (SetInboxChatResponseObject, error)
@@ -98005,6 +98662,74 @@ func (sh *strictHandler) ListInboxChats(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListInboxChatsResponseObject); ok {
 		if err := validResponse.VisitListInboxChatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetInboxChatsBulk operation middleware
+func (sh *strictHandler) SetInboxChatsBulk(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel) {
+	var request SetInboxChatsBulkRequestObject
+
+	request.Integration = integration
+	request.Label = label
+
+	var body SetInboxChatsBulkJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetInboxChatsBulk(ctx, request.(SetInboxChatsBulkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetInboxChatsBulk")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetInboxChatsBulkResponseObject); ok {
+		if err := validResponse.VisitSetInboxChatsBulkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UndoInboxChatsBulk operation middleware
+func (sh *strictHandler) UndoInboxChatsBulk(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel) {
+	var request UndoInboxChatsBulkRequestObject
+
+	request.Integration = integration
+	request.Label = label
+
+	var body UndoInboxChatsBulkJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UndoInboxChatsBulk(ctx, request.(UndoInboxChatsBulkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UndoInboxChatsBulk")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UndoInboxChatsBulkResponseObject); ok {
+		if err := validResponse.VisitUndoInboxChatsBulkResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
