@@ -3,7 +3,10 @@ package telegram
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/updates"
 	"github.com/gotd/td/tg"
 	"github.com/stretchr/testify/assert"
@@ -264,4 +267,227 @@ func TestAGroupAppearsWhenItIsCreated(t *testing.T) {
 	chats, err = a.Chats(ctx, 0)
 	require.NoError(t, err)
 	assert.Empty(t, chats)
+}
+
+// Review round 2 of #1324, P1 1: a listing cut short by a dropped connection goes on when gotd connects again within
+// the same session (telegram/connect.go:148-175 reconnects without a new client.Run), not only at the next session's
+// start.
+func TestAReconnectResumesAnUnfinishedListing(t *testing.T) {
+	t.Parallel()
+
+	a := testAccount(t)
+	a.retry = func() backoff.BackOff { return backoff.NewConstantBackOff(time.Hour) }
+	ctx := t.Context()
+	server := newFakeTelegram()
+	server.dialogs = []tg.MessagesDialogsClass{oneDialog()}
+	server.dialogsFail = map[int]error{1: errors.New("connection reset")}
+
+	jobs := &background{}
+	jobs.start(ctx, server.conn())
+	a.setClient(server)
+	a.onStart(jobs)
+
+	require.Eventually(t, func() bool { return dialogsAsked(server) == 1 }, 5*time.Second, time.Millisecond)
+
+	a.connectionChanged(jobs, telegram.ConnectionStateDisconnected)
+	a.connectionChanged(jobs, telegram.ConnectionStateReady)
+
+	require.Eventually(t, func() bool { return listingDone(t, a) }, 5*time.Second, time.Millisecond)
+	jobs.stop()
+
+	assert.Equal(t, messaging.StatusConnected, a.State().Status)
+	assert.Equal(t, 2, dialogsAsked(server))
+	assert.Len(t, mustChats(t, a), 1)
+}
+
+// Review round 2 of #1324, P1 1: a request that fails for good (its retries spent, or a flood wait longer than the
+// middleware waits, gotd/contrib middleware/floodwait/waiter.go:20-24) does not end the listing: it is tried again
+// after gotd's reconnection backoff while the connection lasts.
+func TestAFailedListingIsTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	a := testAccount(t)
+	a.retry = func() backoff.BackOff { return &backoff.ZeroBackOff{} }
+	ctx := t.Context()
+	server := newFakeTelegram()
+	server.dialogs = []tg.MessagesDialogsClass{oneDialog()}
+	server.dialogsFail = map[int]error{1: errors.New("FLOOD_WAIT_300")}
+
+	jobs := &background{}
+	jobs.start(ctx, server.conn())
+	a.onStart(jobs)
+
+	require.Eventually(t, func() bool { return listingDone(t, a) }, 5*time.Second, time.Millisecond)
+	jobs.stop()
+
+	assert.Equal(t, 2, dialogsAsked(server))
+	assert.Len(t, mustChats(t, a), 1)
+}
+
+// Review round 2 of #1324, P1 2: a catch-up whose history request fails keeps the chat's anchor, the newest message
+// kept before it, so that the listing resumed fills the same gap (mautrix backfills from its anchor,
+// backfill.go:270-287): the dialog's latest message is kept only once what lies before it is.
+func TestACatchUpThatFailsKeepsItsAnchor(t *testing.T) {
+	t.Parallel()
+
+	a := testAccount(t)
+	ctx := t.Context()
+	trung := &tg.PeerUser{UserID: 7}
+	server := newFakeTelegram()
+	server.add(trung, ids(1, 14)...)
+	server.historyFail = map[int]error{1: errors.New("connection reset")}
+
+	page := &tg.MessagesDialogs{
+		Dialogs:  []tg.DialogClass{&tg.Dialog{Peer: trung, TopMessage: 14}},
+		Messages: []tg.MessageClass{message(trung, 14, "latest")},
+		Users:    []tg.UserClass{user(7, "Trung")},
+	}
+	server.dialogs = []tg.MessagesDialogsClass{page, page}
+
+	require.NoError(t, a.keepEntities(ctx, tg.EntitiesFrom([]tg.UserClass{user(7, "Trung")}, nil)))
+	_, err := a.keep(ctx, tg.Entities{}, mustConvert(t, message(trung, 10, "x")))
+	require.NoError(t, err)
+
+	require.NoError(t, a.store.restartDialogs(ctx, a.key, true))
+	require.Error(t, a.syncDialogs(ctx, server.conn()))
+	require.NoError(t, a.syncDialogs(ctx, server.conn()))
+
+	assert.True(t, listingDone(t, a))
+	assert.Equal(t, strs(ids(10, 14)), keptIDs(t, a, "user:7"))
+}
+
+// Review round 2 of #1324, P1 4: a page whose last dialogs have no message to start the next page at (an empty one)
+// keeps the offset of the page before, as gotd's iterator keeps offsetID and offsetDate (query/dialogs/iter.go:179-
+// 185): Telegram ignores offset_peer without them (mautrix chatsync.go:203-204) and would answer the first page again.
+func TestAPageWithoutAnAnchorKeepsTheOffset(t *testing.T) {
+	t.Parallel()
+
+	a := testAccount(t)
+	trung, team, group := &tg.PeerUser{UserID: 7}, &tg.PeerChat{ChatID: 8}, &tg.PeerChannel{ChannelID: 9}
+	pages := map[string]*tg.MessagesDialogsSlice{
+		"first":  dialogsPage(3, map[tg.PeerClass]tg.MessageClass{trung: message(trung, 20, "latest")}, trung),
+		"second": dialogsPage(3, map[tg.PeerClass]tg.MessageClass{team: &tg.MessageEmpty{ID: 3}}, team),
+		"third":  dialogsPage(3, map[tg.PeerClass]tg.MessageClass{group: message(group, 50, "latest")}, group),
+	}
+
+	server := newFakeTelegram()
+	server.dialogsBy = func(req *tg.MessagesGetDialogsRequest) tg.MessagesDialogsClass {
+		switch {
+		case req.OffsetID == 0 && req.OffsetDate == 0:
+			// Telegram ignores the offset peer alone.
+			return pages["first"]
+		case inputChat(req.OffsetPeer) == "user:7":
+			return pages["second"]
+		case inputChat(req.OffsetPeer) == "chat:8" && req.OffsetID == 20:
+			return pages["third"]
+		}
+
+		return &tg.MessagesDialogsSlice{Count: 3}
+	}
+
+	require.NoError(t, a.syncDialogs(t.Context(), server.conn()))
+	require.Len(t, server.dialogsAsked, 3)
+	assert.Equal(t, 20, server.dialogsAsked[2].OffsetID)
+	assert.Equal(t, 1_700_000_020, server.dialogsAsked[2].OffsetDate)
+	assert.Len(t, mustChats(t, a), 3)
+}
+
+// Review round 2 of #1324, P1 5: old history does not undo the account's membership now. A basic group's history
+// given after it was added back holds its former removal; a fetch keeps what people wrote and skips service
+// messages, as mautrix's backfill skips every message that is not a tg.Message (backfill.go:289-293) and reads the
+// actions from updates alone.
+func TestOldHistoryDoesNotUnlistARejoinedGroup(t *testing.T) {
+	t.Parallel()
+
+	a := testAccount(t)
+	ctx := t.Context()
+	team := &tg.PeerChat{ChatID: 8}
+	server := newFakeTelegram()
+	server.chats = []tg.ChatClass{&tg.Chat{ID: 8, Title: "Team"}}
+	server.add(team, 4)
+	server.messages["chat:8"] = append(server.messages["chat:8"],
+		&tg.MessageService{ID: 3, PeerID: team, Date: 1_700_000_003, Action: &tg.MessageActionChatDeleteUser{UserID: self}},
+		&tg.MessageService{ID: 5, PeerID: team, Date: 1_700_000_005,
+			Action: &tg.MessageActionChatAddUser{Users: []int64{self}}})
+
+	require.NoError(t, a.handler().Handle(ctx, &tg.Updates{
+		Updates: []tg.UpdateClass{&tg.UpdateNewMessage{Message: message(team, 10, "welcome back")}},
+		Chats:   []tg.ChatClass{&tg.Chat{ID: 8, Title: "Team"}},
+	}))
+	require.Len(t, mustChats(t, a), 1)
+
+	_, err := a.backfill(ctx, server, "chat:8", 50)
+	require.NoError(t, err)
+
+	assert.Len(t, mustChats(t, a), 1, "the group is still listed")
+	assert.Equal(t, []string{"4", "10"}, keptIDs(t, a, "chat:8"))
+}
+
+// Review round 2 of #1324, P1 6: a channel gotd finds lost after a gap (CHANNEL_PRIVATE on the next
+// getChannelDifference, telegram/updates/state_channel.go:394-396,705-716, in the same goroutine as the gap's
+// callback) stays off the list though the gap's fetch waited behind another: what the gap brought is kept when gotd
+// reports it, in the order gotd reports it, and the fetch keeps only what Telegram answers it.
+func TestALostChannelStaysOffTheListAfterAPendingGap(t *testing.T) {
+	t.Parallel()
+
+	a := testAccount(t)
+	ctx := t.Context()
+	peer := &tg.PeerChannel{ChannelID: 9}
+	server := newFakeTelegram()
+	server.add(peer, ids(1, 13)...)
+	server.historyFail = map[int]error{1: errors.New("CHANNEL_PRIVATE")}
+
+	require.NoError(t, a.handler().Handle(ctx, &tg.Updates{
+		Updates: []tg.UpdateClass{&tg.UpdateNewChannelMessage{Message: message(peer, 10, "x")}},
+		Chats:   []tg.ChatClass{channel(9, "VMAP AI")},
+	}))
+
+	jobs := &background{}
+	jobs.start(ctx, server.conn())
+	cfg := a.updatesConfig(jobs, nil)
+
+	a.fetchMu.Lock()
+	cfg.OnChannelGap(updates.ChannelGap{ChannelID: 9, AccessHash: 9000, TopMessage: 13,
+		Messages: []tg.MessageClass{message(peer, 13, "x")}, Chats: []tg.ChatClass{channel(9, "VMAP AI")}})
+	cfg.OnChannelInaccessible(9)
+	a.fetchMu.Unlock()
+	jobs.wg.Wait()
+	jobs.stop()
+
+	assert.Empty(t, mustChats(t, a))
+}
+
+func oneDialog() *tg.MessagesDialogs {
+	trung := &tg.PeerUser{UserID: 7}
+
+	return &tg.MessagesDialogs{
+		Dialogs:  []tg.DialogClass{&tg.Dialog{Peer: trung, TopMessage: 20}},
+		Messages: []tg.MessageClass{message(trung, 20, "latest")},
+		Users:    []tg.UserClass{user(7, "Trung")},
+	}
+}
+
+func dialogsAsked(f *fakeTelegram) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.dialogsAsked)
+}
+
+func listingDone(t *testing.T, a *Account) bool {
+	t.Helper()
+
+	cur, err := a.store.dialogCursor(t.Context(), a.key)
+	require.NoError(t, err)
+
+	return cur.done
+}
+
+func mustChats(t *testing.T, a *Account) []messaging.Chat {
+	t.Helper()
+
+	chats, err := a.Chats(t.Context(), 0)
+	require.NoError(t, err)
+
+	return chats
 }

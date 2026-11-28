@@ -173,7 +173,7 @@ func (s *Service) Open(ctx context.Context, id string) (*Account, error) {
 func (s *Service) newAccount(uid int64) *Account {
 	return &Account{
 		store: s.store, states: s.states, log: s.log, userID: uid, key: strconv.FormatInt(uid, 10),
-		pause: waitPage, state: messaging.State{Status: messaging.StatusConnecting},
+		pause: waitPage, retry: retryWait, state: messaging.State{Status: messaging.StatusConnecting},
 	}
 }
 
@@ -189,6 +189,8 @@ type Account struct {
 	// fetchMessagesSema (client.go:209).
 	pause   func(ctx context.Context, page int) error
 	fetchMu sync.Mutex
+	// retry is how long to wait before trying again what failed: retryWait.
+	retry func() backoff.BackOff
 	// syncMu makes the listing of dialogs one at a time, as mautrix's syncChatsLock (chatsync.go:58-62).
 	syncMu sync.Mutex
 
@@ -347,9 +349,7 @@ func (a *Account) start(ctx context.Context, appID int, appHash string) {
 }
 
 func (a *Account) run(ctx context.Context, appID int, appHash string) {
-	// gotd's own reconnection backoff (telegram/options.go:313-318), without an end.
-	wait := backoff.NewExponentialBackOff()
-	wait.MaxElapsedTime = 0
+	wait := a.retry()
 
 	for {
 		err := a.connect(ctx, appID, appHash)
@@ -376,6 +376,14 @@ func (a *Account) run(ctx context.Context, appID int, appHash string) {
 			return
 		}
 	}
+}
+
+// retryWait is gotd's own reconnection backoff (telegram/options.go:313-318), without an end.
+func retryWait() backoff.BackOff {
+	wait := backoff.NewExponentialBackOff()
+	wait.MaxElapsedTime = 0
+
+	return wait
 }
 
 func errText(err error) string {
@@ -417,15 +425,7 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 			return err
 		},
 		OnFrozen: func(_ context.Context, st telegram.FreezeState) { a.froze(st) },
-		OnConnectionState: func(st telegram.ConnectionState) {
-			switch st {
-			case telegram.ConnectionStateDisconnected:
-				a.dropped()
-			case telegram.ConnectionStateReady:
-				a.reconnected()
-			case telegram.ConnectionStateConnecting:
-			}
-		},
+		OnConnectionState: func(st telegram.ConnectionState) { a.connectionChanged(jobs, st) },
 	})
 
 	return waiter.Run(ctx, func(ctx context.Context) error {
@@ -456,6 +456,17 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 			})
 		})
 	})
+}
+
+// connectionChanged follows gotd's connection as it drops and connects again by itself (telegram/connect.go:148-175).
+func (a *Account) connectionChanged(_ *background, st telegram.ConnectionState) {
+	switch st {
+	case telegram.ConnectionStateDisconnected:
+		a.dropped()
+	case telegram.ConnectionStateReady:
+		a.reconnected()
+	case telegram.ConnectionStateConnecting:
+	}
 }
 
 // updatesConfig is the updates manager's: the handler over the mirror, the state and access hashes in telegram.db, and

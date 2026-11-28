@@ -167,7 +167,7 @@ func TestTheSessionOutlivesARestart(t *testing.T) {
 }
 
 // The update state follows gotd's storages (updates/storage.go, storage_file.go): a part of a state not kept is
-// refused, a new state forgets the channels' pts, and the access hashes are kept by kind.
+// refused, a new state keeps the channels' pts as mautrix's does, and the access hashes are kept by kind.
 func TestTheUpdateStateFollowsGotdsStorages(t *testing.T) {
 	t.Parallel()
 
@@ -207,9 +207,13 @@ func TestTheUpdateStateFollowsGotdsStorages(t *testing.T) {
 
 	require.NoError(t, st.SetState(ctx, self, updates.State{Pts: 20}))
 
-	_, found, err = st.GetChannelPts(ctx, self, 100)
+	// Review round 2 of #1324, P1 3: a general updates.difference sets a new state (gotd
+	// telegram/updates/state_difference.go:134); the channels' pts stay, as mautrix keeps them (scoped_store.go:48),
+	// so that a restart before the channel's next checkpoint still recovers it.
+	pts, found, err := st.GetChannelPts(ctx, self, 100)
 	require.NoError(t, err)
-	assert.False(t, found, "a new state forgets the channels' pts")
+	assert.True(t, found, "a new state keeps the channels' pts")
+	assert.Equal(t, 8, pts)
 
 	require.NoError(t, st.SetChannelAccessHash(ctx, self, 100, 555))
 	require.NoError(t, st.SetUserAccessHash(ctx, self, 100, 666))
