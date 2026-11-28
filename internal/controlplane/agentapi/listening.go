@@ -26,7 +26,8 @@ import (
 // of who asked, as the web tools' calls are.
 type Listening interface {
 	Search(ctx context.Context, who Who, plan listening.Plan) (listening.Answer, error)
-	SourceNames() []string
+	// SourceNames are the sources a plan may name now: those the owner has not switched off.
+	SourceNames(ctx context.Context) []string
 }
 
 // WithListening gives workers and Bots listen_search.
@@ -55,7 +56,9 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			strconv.Itoa(listening.PoolSize) + ", best first, each with its cluster), `clusters` (items telling one " +
 			"story, tagged single-source or thin-evidence when the evidence is weak), and `coverage`, one line per " +
 			"source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with its code " +
-			"(need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend tried. " +
+			"(need_login, refused, rate_limited, limit_reached, not_found, timeout, broken), the one step that fixes " +
+			"it (`fix`), and each backend tried. The sources listed are those the owner keeps on, on Settings → " +
+			"Gateway → Social listening. " +
 			"Write your report from these; quote the text and give the link and date. " + listeningData,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 			`"topic":{"type":"string","description":"What the plan is about, in a few words; its words are not ` +
@@ -133,11 +136,16 @@ func (s *Server) listenCall(w http.ResponseWriter, r *http.Request, a agent, cal
 	answerTool(w, string(raw), false)
 }
 
-// listeningToolList is listen_search's definition, when it is named.
-func (s *Server) listeningToolList(names []string) []agenttool.BrowserTool {
+// listeningToolList is listen_search's definition, when it is named and a source is on.
+func (s *Server) listeningToolList(ctx context.Context, names []string) []agenttool.BrowserTool {
 	if !slices.Contains(names, agenttool.ToolListenSearch) || s.listening == nil {
 		return nil
 	}
 
-	return []agenttool.BrowserTool{listeningTool(s.listening.SourceNames())}
+	sources := s.listening.SourceNames(ctx)
+	if sources == nil { // API only: built in the next commit.
+		return nil
+	}
+
+	return []agenttool.BrowserTool{listeningTool(sources)}
 }

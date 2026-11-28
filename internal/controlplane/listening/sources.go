@@ -82,8 +82,15 @@ func Sources(e Endpoints, client *http.Client) []Platform {
 	e.ArcticURL = strings.TrimRight(e.ArcticURL, "/")
 
 	return []Platform{
-		{Name: SourceWeb, Backends: []Backend{webBackend()}},
-		{Name: SourceReddit, Backends: []Backend{redditJSONBackend(e, client), webArcticBackend(e, client)}},
+		{
+			Name: SourceWeb, Backends: []Backend{webBackend()},
+			Adds: "Forum threads, news, reviews and blog posts the web search's keyless providers find, each with its " +
+				"link, snippet and date when the page gives one.",
+		},
+		{
+			Name: SourceReddit, Backends: []Backend{redditJSONBackend(e, client), webArcticBackend(e, client)},
+			Adds: "Reddit threads with their subreddit, author, date, score and number of comments.",
+		},
 	}
 }
 

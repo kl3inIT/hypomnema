@@ -36,6 +36,11 @@ type Result struct {
 type Platform struct {
 	Name     string
 	Backends []Backend
+	// Adds says what the source brings when it is on, as last30days' nudge says what each missing source would add
+	// (quality_nudge.py:384-392, "video transcripts with key moments").
+	Adds string
+	// Page is the page of Settings where its accounts are, for a source that has them; its card links there.
+	Page string
 }
 
 func (p Platform) backendNames() []string {

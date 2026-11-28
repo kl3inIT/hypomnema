@@ -30,12 +30,14 @@
 //     lib/cluster.py:61-346, with the topic's own words removed before comparing, last30days-cn lib/dedupe.py
 //     strip_query_terms and harken analyze/insights.py (cluster.go).
 //
-// It stores nothing: what a backend rests for is kept in memory, the control plane being one process that lives
-// across calls (last30days, a process per run, writes it to a file).
+// What a backend rests for is kept in memory, the control plane being one process that lives across calls
+// (last30days, a process per run, writes it to a file). What the owner sets of the sources and how each last read
+// are kept in the control plane's database, for the Social listening page (issue #1290, settings.go and health.go).
 package listening
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -169,6 +171,11 @@ type Config struct {
 	// Sleep waits between two calls to one site; nil: a timer.
 	Sleep  func(ctx context.Context, d time.Duration) error
 	Logger *slog.Logger
+	// DB keeps the owner's switches and orders and each source's readings (issue #1290); nil: every source is on,
+	// in the registry's order, and nothing is kept.
+	DB *sql.DB
+	// Tell tells the owner that a source broke, once until it works again; nil: he is not told.
+	Tell func(ctx context.Context, b Broken)
 }
 
 // Service searches the sources.
@@ -178,9 +185,14 @@ type Service struct {
 	pacer     *Pacer
 	logger    *slog.Logger
 
+	db   *sql.DB
+	tell func(ctx context.Context, b Broken)
+
 	mu sync.Mutex
-	// resting is each backend's rest, by "<platform>/<backend>".
+	// resting is each backend's rest, by "<platform>/<backend>", and each path's, by "path:<path>".
 	resting map[string]*SourceError
+	// pathOwner is the source whose search rested a path, whose test clears it.
+	pathOwner map[string]string
 }
 
 // New returns a Service.
@@ -199,11 +211,11 @@ func New(cfg Config) *Service {
 
 	return &Service{
 		platforms: cfg.Platforms, now: cfg.Now, pacer: NewPacer(cfg.Now, cfg.Sleep), logger: cfg.Logger,
-		resting: map[string]*SourceError{},
+		db: cfg.DB, tell: cfg.Tell, resting: map[string]*SourceError{}, pathOwner: map[string]string{},
 	}
 }
 
-// SourceNames are the sources a plan may name, in order.
+// SourceNames are the sources of the registry, in order, whether on or off.
 func (s *Service) SourceNames() []string {
 	out := make([]string, 0, len(s.platforms))
 	for _, p := range s.platforms {
@@ -215,20 +227,17 @@ func (s *Service) SourceNames() []string {
 
 // Search runs a plan; web asks the web search chain for the backends that use it (nil: they cannot be asked).
 func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer, error) {
-	plan, err := s.check(plan)
+	platforms, on, err := s.live(ctx)
 	if err != nil {
 		return Answer{}, err
 	}
 
-	// The web searches a plan makes wait for their route's turn, one call at a time per key or keyless provider and
-	// webGap apart, where the chain knows the route (websearch.WithPace).
-	// Listening asks only the keyless providers, never the owner's keys or subscriptions: no paid service (owner,
-	// 2026-11-27), as last30days reads Reddit through keyless web search (reddit_discover.py:322-350).
-	ctx = websearch.KeylessOnly(ctx)
-	ctx = websearch.WithPace(ctx, func(ctx context.Context, route string) (func(), error) {
-		return s.pacer.Wait(ctx, "web:"+route, webGap)
-	})
+	plan, err = s.check(plan, on)
+	if err != nil {
+		return Answer{}, err
+	}
 
+	ctx = s.searchContext(ctx)
 	now := s.now().UTC()
 	from := now.AddDate(0, 0, -plan.WindowDays)
 
@@ -239,11 +248,11 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 		streams  []stream
 	}
 
-	runs := make([]sourceRun, len(s.platforms))
+	runs := make([]sourceRun, len(platforms))
 
 	var wg sync.WaitGroup
 
-	for i, p := range s.platforms {
+	for i, p := range platforms {
 		labels := plan.subqueriesOf(p.Name)
 		if len(labels) == 0 {
 			continue
@@ -255,12 +264,7 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 			var streams []stream
 
 			for _, sq := range labels {
-				req := Request{
-					Query: sq.Query, Topic: plan.topic(), Limit: plan.MaxResults, From: from, To: now, Web: web,
-					Pace: s.pacer.Wait, Now: s.now,
-					Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
-					Rest:    func(path string, f *SourceError) time.Time { return s.rest("path:"+path, f) },
-				}
+				req := s.request(p, sq, plan.topic(), plan.MaxResults, from, now, web)
 				st := s.runStream(ctx, p, plan.Backends[p.Name], sq, req)
 				cov.Streams = append(cov.Streams, st.report)
 				streams = append(streams, st)
@@ -271,6 +275,13 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 	}
 
 	wg.Wait()
+
+	// Each source's reading is kept for the Social listening page, and tells the owner when it broke it.
+	for _, r := range runs {
+		if r.coverage.Source != "" {
+			s.record(ctx, coverageReading(r.coverage))
+		}
+	}
 
 	answer := Answer{From: from.Format(time.DateOnly), To: now.Format(time.DateOnly)}
 
@@ -305,9 +316,41 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 	return answer, nil
 }
 
-// check fills a plan's defaults and refuses one that cannot be run, saying why.
-func (s *Service) check(plan Plan) (Plan, error) {
-	known := s.SourceNames()
+// searchContext is the context a search's backends run in. The web searches it makes wait for their route's turn, one
+// call at a time per key or keyless provider and webGap apart, where the chain knows the route (websearch.WithPace).
+// Listening asks only the keyless providers, never the owner's keys or subscriptions: no paid service (owner,
+// 2026-11-27), as last30days reads Reddit through keyless web search (reddit_discover.py:322-350).
+func (s *Service) searchContext(ctx context.Context) context.Context {
+	ctx = websearch.KeylessOnly(ctx)
+
+	return websearch.WithPace(ctx, func(ctx context.Context, route string) (func(), error) {
+		return s.pacer.Wait(ctx, "web:"+route, webGap)
+	})
+}
+
+// request is what a source's backends are asked for one subquery.
+func (s *Service) request(p Platform, sq Subquery, topic string, limit int, from, to time.Time, web WebSearch,
+) Request {
+	return Request{
+		Query: sq.Query, Topic: topic, Limit: limit, From: from, To: to, Web: web, Pace: s.pacer.Wait, Now: s.now,
+		Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
+		Rest: func(path string, f *SourceError) time.Time {
+			s.own("path:"+path, p.Name)
+
+			return s.rest("path:"+path, f)
+		},
+	}
+}
+
+// check fills a plan's defaults and refuses one that cannot be run, saying why; on are the sources it may name.
+func (s *Service) check(plan Plan, on map[string]bool) (Plan, error) {
+	var known []string
+
+	for _, name := range s.SourceNames() {
+		if on[name] {
+			known = append(known, name)
+		}
+	}
 
 	if plan.WindowDays == 0 {
 		plan.WindowDays = DefaultWindowDays
@@ -331,6 +374,11 @@ func (s *Service) check(plan Plan) (Plan, error) {
 	sourceErr := func(name string) error {
 		if slices.Contains(known, name) {
 			return nil
+		}
+
+		if slices.Contains(s.SourceNames(), name) {
+			return fmt.Errorf("%w: %q is switched off on the Social listening page; the sources are %s", ErrInvalid,
+				name, strings.Join(known, ", "))
 		}
 
 		return fmt.Errorf("%w: %q is not a source; the sources are %s", ErrInvalid, name, strings.Join(known, ", "))

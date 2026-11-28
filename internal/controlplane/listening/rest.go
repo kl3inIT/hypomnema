@@ -62,6 +62,31 @@ func (s *Service) rest(id string, f *SourceError) time.Time {
 	return until
 }
 
+// own notes the source whose search rested a path, whose test clears it.
+func (s *Service) own(id, source string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.pathOwner[id] = source
+}
+
+// clearRests ends a source's rests, its backends' and the paths its searches rested: the owner asks to try it now.
+func (s *Service) clearRests(p Platform) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, b := range p.Backends {
+		delete(s.resting, p.Name+"/"+b.Name)
+	}
+
+	for id, source := range s.pathOwner {
+		if source == p.Name {
+			delete(s.resting, id)
+			delete(s.pathOwner, id)
+		}
+	}
+}
+
 // restOf is the rest a backend is in, nil when it may be asked.
 func (s *Service) restOf(id string) *SourceError {
 	s.mu.Lock()

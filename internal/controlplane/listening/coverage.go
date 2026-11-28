@@ -1,6 +1,9 @@
 package listening
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // What a source covered, as the answer says it: read with items, read and empty, read in part, or not read. Only a
 // clean zero says nobody talked: a source that failed is "not read", with its cause, never a zero (last30days
@@ -22,7 +25,9 @@ type Coverage struct {
 	Items int `json:"items"`
 	// Code is why a stream was not read, the most actionable of them (last30days FAILURE_SPECIFICITY); empty when
 	// every stream was read.
-	Code    Code     `json:"code,omitempty"`
+	Code Code `json:"code,omitempty"`
+	// Fix is the one step that fixes Code, the same words the Social listening page shows (Fix).
+	Fix     string   `json:"fix,omitempty"`
 	Streams []Stream `json:"streams"`
 }
 
@@ -70,7 +75,25 @@ func (c Coverage) settle() Coverage {
 
 	if len(failed) > 0 {
 		c.Code = slices.MinFunc(failed, func(a, b Code) int { return specificity(a) - specificity(b) })
+		c.Fix = Fix(c.Source, c.Code, c.until())
 	}
 
 	return c
+}
+
+// until is when the first attempt that failed with the source's code may be asked again; zero when none says.
+func (c Coverage) until() time.Time {
+	for _, s := range c.Streams {
+		for _, a := range s.Tried {
+			if a.Result != string(c.Code) || a.Until == "" {
+				continue
+			}
+
+			if t, err := time.Parse(time.RFC3339, a.Until); err == nil {
+				return t
+			}
+		}
+	}
+
+	return time.Time{}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
@@ -63,4 +64,40 @@ func diskAlertText(alert orchestration.DiskAlert) (title, text string) {
 
 func gib(n int64) string {
 	return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+}
+
+// tellListeningBroken tells the owner that a social listening source broke (issue #1290), as tellDiskAlert tells him
+// a node is out of disk: a line in the main Bot's main chat and a card through that Bot's Lark Channels. The listening
+// service calls it once until the source works again (postiz informAboutRefreshError, called only by the refresh
+// that flagged the channel, refresh.integration.service.ts:148-166).
+func tellListeningBroken(chats diskAlertChats, owner diskAlertOwner, logger *slog.Logger,
+) func(ctx context.Context, b listening.Broken) {
+	return func(ctx context.Context, b listening.Broken) {
+		if b.Source != "" { // API only: built in the next commit.
+			return
+		}
+
+		title := listening.Label(b.Source) + " stopped working for social listening"
+		text := fmt.Sprintf("%s could not be read (%s: %s). %s Settings → Gateway → Social listening shows it.",
+			listening.Label(b.Source), b.Code, b.Detail, b.Fix)
+
+		logger.WarnContext(ctx, title, slog.String("event", "controlplane.listening_broken"),
+			slog.String("source", b.Source), slog.String("code", string(b.Code)))
+
+		chatID := ""
+		if bot, err := chats.GetBot(ctx, orchestration.DefaultBotID); err == nil {
+			chatID = bot.MainChat
+		}
+
+		if chatID != "" {
+			if err := chats.TellChat(ctx, chatID, text, "", ""); err != nil {
+				logger.WarnContext(ctx, "the main chat was not told of a broken listening source",
+					slog.String("event", "controlplane.listening_broken_failed"), slog.Any("error", err))
+			}
+		}
+
+		if owner != nil {
+			owner.TellOwner(ctx, orchestration.DefaultBotID, chatID, title, text)
+		}
+	}
 }
