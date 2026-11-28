@@ -27,13 +27,14 @@ func TestLiveRedditAndWeb(t *testing.T) {
 	})})
 
 	plan := listening.Plan{
-		Topic:   "VETC",
+		Topic:   "VETC, VMAP, Cốc Cốc",
 		Sources: []string{listening.SourceWeb, listening.SourceReddit},
 		Subqueries: []listening.Subquery{
-			{Label: "vi", Query: "VETC thu phí không dừng trừ tiền"},
-			{Label: "en", Query: "VETC toll Vietnam"},
+			{Label: "vetc", Query: "VETC thu phí không dừng trừ tiền"},
+			{Label: "vmap", Query: "VMAP bản đồ số Việt Nam ra mắt"},
+			{Label: "coc-coc", Query: "Cốc Cốc trải nghiệm người dùng Việt Nam"},
 		},
-		WindowDays: 365,
+		WindowDays: 90,
 	}
 
 	a, err := s.Search(t.Context(), plan, func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
