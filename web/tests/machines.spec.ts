@@ -40,7 +40,7 @@ const node = (id: string, name: string, m: object = {}) => ({
   ...m,
 })
 
-async function fakeServer(page: Page, diskPressure = false) {
+async function fakeServer(page: Page, diskPressure = false, memoryLimits = false) {
   let nodes = [
     node("nod_1", "aioffice-app"),
     node("nod_2", "gpu-box", {
@@ -70,6 +70,19 @@ async function fakeServer(page: Page, diskPressure = false) {
       node("nod_1", "build-node", { ...storage(100), disk: { ...disk, free_bytes: 0 } }),
       node("nod_2", "worker-node", { ...storage(92), disk: { ...disk, free_bytes: 8 * GiB } }),
       node("nod_3", "new-node", { ...storage(65), disk: { ...disk, age_ms: 31000 } }),
+    ]
+  }
+  if (memoryLimits) {
+    nodes = [
+      node("nod_1", "aioffice-app", { memory_limit: { on: true } }),
+      node("nod_2", "gpu-box", {
+        memory_limit: {
+          on: false,
+          reason:
+            "the systemd user manager does not delegate the memory controller (user@1003.service has: cpu pids)",
+        },
+      }),
+      nodes[2],
     ]
   }
   const calls: string[] = []
@@ -142,6 +155,23 @@ for (const theme of ["light", "dark"] as const) {
     await expect(stale).toContainText("Not measured")
     await expect(stale.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "off")
     await shot(page, `machines-disk-${theme}`)
+  })
+}
+
+// Scenario: one machine runs its workers under a memory ceiling, one cannot and says why, and one of an earlier
+// release says nothing (issue #1313). Only the second says its memory is not limited, on a phone and a desktop.
+for (const theme of ["light", "dark"] as const) {
+  test(`a machine whose workers' memory is not limited says why in ${theme} mode`, async ({ page }) => {
+    await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
+    await fakeServer(page, false, true)
+    await page.goto("/settings/machines")
+    await expect(page.locator("html")).toHaveClass(new RegExp(theme))
+    await expect(page.getByRole("article", { name: "gpu-box" })).toContainText(
+      "Memory not limited: the systemd user manager does not delegate the memory controller",
+    )
+    await expect(page.getByRole("article", { name: "aioffice-app" })).not.toContainText("Memory not limited")
+    await expect(page.getByRole("article", { name: "old-laptop" })).not.toContainText("Memory not limited")
+    await shot(page, `machines-memory-${theme}`)
   })
 }
 

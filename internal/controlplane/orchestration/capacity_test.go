@@ -445,6 +445,29 @@ func TestEachProfileHasARequest(t *testing.T) {
 	assert.Equal(t, [2]int64{0, 1_000_000_000}, [2]int64{p.CPURequestMillis, p.MemoryRequestBytes},
 		"the CPU left out is the default")
 
+	// A limit caps each worker's memory (issue #1313); with no request of its own the profile asks for its limit,
+	// and a request over its limit is refused, as Kubernetes does.
+	p, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: capped\ndescription: d\nruntime: claude\n"+
+		"model: {provider: claude-subscription}\nrequests: {memory: 2Gi}\nlimits: {memory: 4Gi}\n")
+	require.NoError(t, err)
+	assert.Equal(t, [2]int64{2 << 30, 4 << 30}, [2]int64{p.MemoryRequestBytes, p.MemoryLimitBytes})
+
+	p, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: limited\ndescription: d\nruntime: claude\n"+
+		"model: {provider: claude-subscription}\nlimits: {memory: 1Gi}\n")
+	require.NoError(t, err)
+	assert.Equal(t, [2]int64{1 << 30, 1 << 30}, [2]int64{p.MemoryRequestBytes, p.MemoryLimitBytes})
+
+	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: over\ndescription: d\nruntime: claude\n"+
+		"model: {provider: claude-subscription}\nrequests: {memory: 6Gi}\nlimits: {memory: 4Gi}\n")
+	require.ErrorIs(t, err, ErrInvalid)
+	require.ErrorContains(t, err, "requests.memory (6442450944 bytes) must be less than or equal to limits.memory")
+
+	for _, bad := range []string{"{memory: 0}", "{memory: lots}", "{cpu: 1}"} {
+		_, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: bad\ndescription: d\nruntime: claude\n"+
+			"model: {provider: claude-subscription}\nlimits: "+bad+"\n")
+		require.ErrorIs(t, err, ErrInvalid, bad)
+	}
+
 	for _, bad := range []string{"{cpu: 0}", "{cpu: -1}", "{cpu: lots}", "{memory: 0}", "{memory: 3Qi}", "{cpu: 0m}"} {
 		t.Run(bad, func(t *testing.T) {
 			t.Parallel()

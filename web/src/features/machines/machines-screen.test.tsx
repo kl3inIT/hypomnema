@@ -784,6 +784,28 @@ test("the table has no GPU columns when no machine has a GPU", async () => {
   expect(screen.queryByRole("columnheader", { name: "GPU" })).toBeNull()
 })
 
+// Scenario: one node runs its workers under a memory ceiling, one cannot and says why, and one of an earlier release
+// says nothing (issue #1313). Only the one that cannot says its memory is not limited, with its reason.
+test("a machine whose workers' memory is not limited says why", async () => {
+  nodesServer([
+    node("limited", { memory_limit: { on: true } }),
+    node("open", {
+      memory_limit: {
+        on: false,
+        reason: "the systemd user manager does not delegate the memory controller",
+      },
+    }),
+    node("older"),
+  ])
+  await open()
+
+  expect(await machine("open")).toHaveTextContent(
+    "Memory not limited: the systemd user manager does not delegate the memory controller",
+  )
+  expect(await machine("limited")).not.toHaveTextContent("Memory not limited")
+  expect(await machine("older")).not.toHaveTextContent("Memory not limited")
+})
+
 // Scenario: one node runs its workers with their temp directory as /tmp, one cannot and says why, and one of an
 // earlier release says nothing (issue #895). Only the one that cannot says so, with its reason.
 test("a machine whose workers' temp isolation is off says why", async () => {

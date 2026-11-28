@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/node/memlimit"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -932,4 +933,92 @@ func (g *rig) waitRead(n int) {
 
 		return err == nil && len(g.rt.last().seen()) == n && checkpointOffset(dir) == info.Size()
 	}, 20*time.Second, 20*time.Millisecond)
+}
+
+// Scenario: the kernel killed the worker's CLI for memory, at the node's limit, before it called finish (issue
+// #1313 row 4). The Dispatch fails with the reason oom_killed named first in its summary, not an unknown outcome a
+// coordinator could take for a flaky test.
+func TestAWorkerKilledForMemoryEndsOOMKilled(t *testing.T) {
+	t.Parallel()
+
+	report := newReporter()
+	sup := &Supervisor{}
+	w := &Worker{id: "dsp_1", dir: t.TempDir(), r: report, turn: &fakeTurn{}, started: true}
+	sup.ended(t.Context(), w, shim.Exit{Code: -1, Signal: "killed", OOMKills: 1})
+
+	require.Len(t, report.finished, 1)
+	assert.Zero(t, report.exited)
+	f := report.finished[0]
+	assert.Equal(t, "worker_error", f.Class)
+	assert.Equal(t, nodeproto.Exit{Kind: "signaled", Signal: "killed", Reason: "oom_killed"}, f.Exit)
+	assert.Equal(t, "oom_killed: the kernel killed a process of this worker for memory, at the limit of the node's "+
+		"workers (hypomnema-workers.slice) or of its profile's limits.memory", f.Summary)
+
+	// The same exit without a kill for memory is an unknown outcome, as before.
+	plain := newReporter()
+	sup.ended(t.Context(), &Worker{id: "dsp_1", dir: t.TempDir(), r: plain, turn: &fakeTurn{}, started: true},
+		shim.Exit{Code: -1, Signal: "killed"})
+	assert.Equal(t, 1, plain.exited)
+	assert.Empty(t, plain.finished)
+}
+
+// Scenario: the kernel killed one of the worker's test binaries for memory, and the worker went on and finished
+// (issue #1313 row 4). Its report stands, and the kill is said after its summary and as the exit's reason.
+func TestAFinishedWorkerSaysAKillForMemory(t *testing.T) {
+	t.Parallel()
+
+	report := newReporter()
+	dir := t.TempDir()
+	require.NoError(t, bridge.Finish(bridge.Dir(dir), bridge.Final{Summary: "the tests pass"}))
+
+	sup := &Supervisor{}
+	sup.ended(t.Context(), &Worker{id: "dsp_1", dir: dir, r: report, turn: &fakeTurn{done: true}, started: true},
+		shim.Exit{Code: 0, OOMKills: 2})
+
+	require.Len(t, report.finished, 1)
+	f := report.finished[0]
+	assert.Empty(t, f.Class)
+	assert.Equal(t, "oom_killed", f.Exit.Reason)
+	assert.Equal(t, "the tests pass\n\noom_killed: the kernel killed 2 processes of this worker for memory, at the "+
+		"limit of the node's workers (hypomnema-workers.slice) or of its profile's limits.memory", f.Summary)
+}
+
+// Scenario: on a node that limits its workers' memory, the shim is started through systemd-run in the Dispatch's
+// own scope inside the workers' slice, with the profile's limits.memory as the scope's MemoryMax, and the shim is
+// told it runs in a scope (issue #1313 rows 1, 5). A stand-in for systemd-run records its arguments and runs the
+// shim.
+func TestAWorkerRunsInItsScopeInTheWorkersSlice(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd is Linux's")
+	}
+
+	bin := t.TempDir()
+	args := filepath.Join(bin, "args")
+	systemdRun := filepath.Join(bin, "systemd-run")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + args +
+		"\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n"
+	require.NoError(t, os.WriteFile(systemdRun, []byte(script), 0o700)) //nolint:gosec // a private stand-in
+
+	g := newRig(t, "hang")
+	g.sup.Memory = memlimit.Limit{SystemdRun: systemdRun, Systemctl: "systemctl", OOMPolicy: true}
+
+	d := g.dispatch()
+	d.Offer.MemoryLimit = 4 << 30
+
+	report := newReporter()
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, report))
+	require.Eventually(t, func() bool { return report.startedCount() == 1 }, 20*time.Second, 20*time.Millisecond)
+
+	raw, err := os.ReadFile(args) //nolint:gosec // the stand-in's own file
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"--user", "--scope", "--quiet", "--collect", "--slice=hypomnema-workers.slice",
+		"--unit=hypomnema-worker-dsp_1.scope", "--property=OOMPolicy=continue", "--property=MemoryMax=4294967296", "--",
+		g.sup.Exe, "shim", "--dir", g.sup.dir("dsp_1"),
+	}, strings.Split(strings.TrimSpace(string(raw)), "\n"))
+
+	g.sup.Stop("dsp_1")
+	report.wait(t)
+	assert.Equal(t, 1, report.stopped)
 }

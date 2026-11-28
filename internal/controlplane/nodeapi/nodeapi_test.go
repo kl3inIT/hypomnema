@@ -50,6 +50,11 @@ type plane struct {
 	// githubApp is what the node says at hello: it gives its workers fresh tokens of the owner's GitHub App (issue
 	// #1262).
 	githubApp bool
+	// memoryLimit is what the node says at hello of its workers' memory ceiling, and cpus and memoryBytes its size
+	// (issue #1313).
+	memoryLimit *nodeproto.MemoryLimit
+	cpus        int
+	memoryBytes int64
 }
 
 func newPlane(t *testing.T) *plane {
@@ -88,8 +93,9 @@ func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.H
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		InstanceID: "inst_1", DaemonVersion: "test", WorktreeRoot: "/srv/wt",
 		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
-		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64"},
+		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64", CPUs: p.cpus, MemoryBytes: p.memoryBytes},
 		Claims:   claims, TempIsolation: p.tempIsolation, QuestionParts: p.questionParts, GitHubApp: p.githubApp,
+		MemoryLimit: p.memoryLimit,
 	})
 	require.NoError(p.t, err)
 
@@ -1062,6 +1068,74 @@ func TestHelloKeepsWhatTheNodeSaysOfTempIsolation(t *testing.T) {
 	n, err = p.svc.GetNode(t.Context(), p.node.ID)
 	require.NoError(t, err)
 	assert.Nil(t, n.TempIsolation)
+}
+
+// Scenario: a node says at hello whether its workers run under a memory ceiling, and why not (issue #1313 row 6).
+// The control plane keeps what it said; a node of an earlier release, which says nothing, is shown saying nothing.
+func TestHelloKeepsWhatTheNodeSaysOfItsMemoryLimit(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	p.memoryLimit = &nodeproto.MemoryLimit{Reason: "the systemd user manager does not delegate the memory controller"}
+	status, _ := p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+
+	n, err := p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, &orchestration.MemoryLimit{
+		Reason: "the systemd user manager does not delegate the memory controller",
+	}, n.MemoryLimit)
+
+	p.memoryLimit = &nodeproto.MemoryLimit{On: true}
+	status, _ = p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	n, err = p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, &orchestration.MemoryLimit{On: true}, n.MemoryLimit)
+
+	p.memoryLimit = nil
+	status, _ = p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	n, err = p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	assert.Nil(t, n.MemoryLimit)
+}
+
+// Scenario: the control plane tells a node the memory all its workers may use, its allocatable memory (its memory
+// less the owner's reserve and the 1 GiB floor), at hello and with each heartbeat's answer, so a reserve the owner
+// changes reaches the node without a new hello (issue #1313 row 2). A node that never said its memory gets none.
+func TestANodeIsToldItsWorkersMemoryCeiling(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	status, hello := p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	require.NotNil(t, hello.WorkerMemoryMax)
+	assert.Zero(t, *hello.WorkerMemoryMax, "a node that never said its memory has no ceiling")
+
+	p.cpus, p.memoryBytes = 8, 16<<30
+	status, hello = p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	require.NotNil(t, hello.WorkerMemoryMax)
+	assert.Equal(t, int64(15<<30), *hello.WorkerMemoryMax)
+
+	n, err := p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, n.Allocatable.MemoryBytes, *hello.WorkerMemoryMax, "the ceiling is the node's allocatable memory")
+
+	conn := p.connect()
+
+	reserve := int64(4 << 30)
+	_, err = p.svc.UpdateNode(t.Context(), p.node.ID, orchestration.NodeChange{ReservedMemoryBytes: &reserve})
+	require.NoError(t, err)
+
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{})
+
+	var ack nodeproto.HeartbeatAck
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeHeartbeatAck).Payload, &ack))
+	require.NotNil(t, ack.WorkerMemoryMax)
+	assert.Equal(t, int64(11<<30), *ack.WorkerMemoryMax)
 }
 
 // Scenario: a node says hello. The control plane names where the node's
