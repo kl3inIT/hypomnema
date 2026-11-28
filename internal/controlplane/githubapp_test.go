@@ -46,6 +46,8 @@ type appWorld struct {
 	logs  *lockedBuffer
 }
 
+const appPublicURL = "https://hypomnema.example"
+
 type lockedBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -82,7 +84,7 @@ func newAppWorld(t *testing.T) *appWorld {
 	w.vault = vault.New(db, platform.SystemClock{}, platform.NewID, keys, w.svc.Profiles().ProvidersUsingKeyRef)
 
 	logger := slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	w.app = githubapp.New(w.svc, w.vault, "https://hypomnema.example", w.gh.Client(), logger)
+	w.app = githubapp.New(w.svc, w.vault, appPublicURL, w.gh.Client(), logger)
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
@@ -218,6 +220,52 @@ func TestTheManifestCallbackKeepsTheCredentialInTheVaultAndShowsNoSecret(t *test
 	// A state is good once: the same code sent back again changes nothing.
 	again, _ := w.get(githubapp.CallbackPath + "?code=the-manifest-code&state=" + "not-a-state")
 	assert.Contains(t, again.Header.Get("Location"), "done=expired")
+}
+
+// The owner's form works when a proxy forwards it with a loopback Host (issue #1308).
+func TestGitHubAppSetupFormChecksRequestOrigin(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	registered, _ := w.register()
+	require.Equal(t, githubapp.SetupPath+"?done=registered", registered.Header.Get("Location"))
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	for _, tc := range []struct {
+		name   string
+		origin string
+		site   string
+		want   string
+	}{
+		{name: "public origin through proxy", origin: appPublicURL, want: "installed"},
+		{name: "request host", origin: w.url, want: "installed"},
+		{name: "foreign origin", origin: "https://foreign.example", want: "not_same_site"},
+		{name: "same-origin takes precedence", origin: "https://foreign.example", site: "same-origin", want: "installed"},
+		{name: "cross-site with request host", origin: w.url, site: "cross-site", want: "not_same_site"},
+		{name: "cross-site with public origin", origin: appPublicURL, site: "cross-site", want: "not_same_site"},
+		{name: "neither header", want: "installed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.url+githubapp.SetupPath,
+				strings.NewReader("action=sync"))
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+w.owner)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			if tc.site != "" {
+				req.Header.Set("Sec-Fetch-Site", tc.site)
+			}
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+			assert.Equal(t, githubapp.SetupPath+"?done="+tc.want, resp.Header.Get("Location"))
+		})
+	}
 }
 
 // Scenario (issue #1262): a worker waits for its pull request's CI with `hypomnema ci wait`; a signed workflow_run
