@@ -691,7 +691,9 @@ test("a Bot's repositories are added and removed on its page, and a taken one is
 
   await user.type(field, "acme/orbit")
   await user.click(within(repos).getByRole("button", { name: "Add" }))
-  expect(await within(repos).findByRole("alert")).toHaveTextContent("acme/orbit belongs to bot Orbit")
+  expect(await within(repos).findByRole("alert")).toHaveTextContent(
+    "acme/orbit belongs to bot Orbit",
+  )
   expect(within(owned).getAllByRole("listitem")).toHaveLength(1)
 
   await user.click(within(repos).getByRole("button", { name: "Stop owning acme/atlas" }))
