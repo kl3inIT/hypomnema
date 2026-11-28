@@ -32,7 +32,7 @@ func newKeylessWeb(t *testing.T, only ...string) *keylessWeb {
 	k := &keylessWeb{}
 	k.status.Store(http.StatusOK)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		k.calls.Add(1)
 
 		if s := int(k.status.Load()); s != http.StatusOK {
@@ -41,10 +41,17 @@ func newKeylessWeb(t *testing.T, only ...string) *keylessWeb {
 			return
 		}
 
+		// Exa's MCP is asked its advanced search, which answers JSON, when the search names a date window (#1319).
+		text := `Title: Python 3.15 released\nURL: https://python.example/3.15\nPublished: 2026-11-20\n` +
+			`Author: N/A\nHighlights:\nPython 3.15 is out.`
+		if r.URL.Query().Get("tools") == "web_search_advanced_exa" {
+			text = `{\"results\":[{\"title\":\"Python 3.15 released\",\"url\":\"https://python.example/3.15\",` +
+				`\"publishedDate\":\"2026-11-20\",\"text\":\"Python 3.15 is out.\"}]}`
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(`event: message` + "\n" + `data: {"jsonrpc":"2.0","id":1,"result":{"content":[` +
-			`{"type":"text","text":"Title: Python 3.15 released\nURL: https://python.example/3.15\n` +
-			`Published: 2026-11-20\nAuthor: N/A\nHighlights:\nPython 3.15 is out."}]}}` + "\n\n"))
+			`{"type":"text","text":"` + text + `"}]}}` + "\n\n"))
 	}))
 	t.Cleanup(srv.Close)
 

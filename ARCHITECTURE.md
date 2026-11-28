@@ -4998,9 +4998,13 @@ writes no prose (last30days SKILL.md LAW 7).
   504), the web's code is the most actionable of the rests' (`rate_limited`, `limit_reached`, `refused`) and
   `timeout`; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
-  anything), `not_read`, or `off` (switched off while the search ran), with the most actionable code, `fix` (the one step that fixes it, `listening.Fix`, the
-  same words the Social listening page shows), and per stream the backend that served and each backend tried with
-  its result, detail and rest (`until`, `skipped`).
+  anything), `not_read`, or `off` (switched off while the search ran), with the most actionable code, `fix` (the
+  one step that fixes it, `listening.Fix`, the same words the Social listening page shows), and per stream the
+  backend that served and each backend tried with its result, detail and rest (`until`, `skipped`). Each source
+  counts rejected candidates before deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The
+  web source requests the UTC date window from the keyless chain. The answering provider and its `window_basis`
+  (`server_bounds`, `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result
+  through. The answer warns when fewer than 5 returned items or under 30% have dates in the window.
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
   without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
@@ -5008,7 +5012,8 @@ writes no prose (last30days SKILL.md LAW 7).
   score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
   Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
   freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
-  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
+  rank, freshness and engagement (last30days' local score, multiplied by 0.35 for any out-of-window survivor),
+  at most 3 items an author; the best 40 are answered and
   the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
 - Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
