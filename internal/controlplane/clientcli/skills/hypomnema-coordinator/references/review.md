@@ -26,11 +26,18 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    test, the test is quarantined with an issue and a note visible to the owner (issue #1281).
    When a review or fix Task investigates a flaky test or asks for repeated test runs, load the `recovery`
    reference and copy its [test repeat rules](recovery.md#flaky-tests-and-repeat-runs) into the Task's spec.
-   For an important pull request you may first ask CodeRabbit to review it: `gh pr comment <url> --body
-   "@coderabbitai review"`, a write the owner approves like any other. Important means it adds a migration,
-   changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
-   does not answer, nothing waits for it: go on with the review. Workers and reviewers never ask it (owner,
-   2026-11-17, issue #766).
+   On GitHub, for every `narrow` or `broad` Task that succeeds with a pull request, send this comment before
+   creating the reviewer Task:
+   ```sh
+   gh api --method POST repos/<repo>/issues/<number>/comments -f body='@coderabbitai review'
+   ```
+   Use the Hypomnema GitHub launcher with the owner's Connection. App-backed workers also use that Connection
+   for `gh pr create` (see `docs/github-app.md`). This one comment needs no approval. Skip it
+   for `quick` work. Send it again for each fix round's new head: `review` asks for an incremental review.
+   Create the reviewer Task without waiting for CodeRabbit. Include the comment's `created_at` as
+   `CodeRabbit requested at: <timestamp>` in the spec, or `CodeRabbit request failed` if the comment was refused.
+   Rate limited, Skipped, Failed, Cancelled, or a missing check after 10 minutes mean no CodeRabbit review this
+   round. The reviewer profile handles the bounded wait and proceeds with its own review (issue #1339).
 2. Set `profile: reviewer`, `kind` to the work's kind and `review_of` to the succeeded author Task's id. Use
    the same Run so the scheduler excludes the vendor that actually did the work. Never specify a model yourself.
 3. Create the review as a Task in the same Run:
@@ -94,7 +101,8 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    with the same spec and `## Blocked review (Task <review_task_id>)`, that review's summary word for word. When
    the cause needs the owner (an account, a login), or the new review is blocked too, tell the owner in one line
    what stops it and leave the Run and pull request open with auto-merge off.
-7. Have the updated pull request reviewed by a new review Task. Unlike the first round, its spec carries what the
+7. For a fix round's new head, request CodeRabbit again as in step 1. Have the updated pull request reviewed by a
+   new review Task. Unlike the first round, its spec carries what the
    rounds before found, so it can tell what was fixed: the pull request's URL, `Head:` set to the updated head, and
    the spec as before, then
    - `## Earlier review (Task <review_task_id>)`: that review's verdict, its `Head:` and its findings, pasted word

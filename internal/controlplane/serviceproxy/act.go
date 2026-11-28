@@ -63,7 +63,7 @@ func (p *Proxy) Judge(ctx context.Context, a Act) error {
 		title += ": " + clipTitle(a.Subject)
 	}
 
-	_, verdict, message, err := p.decide(ctx, action, s, func(Action) asking {
+	_, verdict, message, err := p.decide(ctx, action, s, false, func(Action) asking {
 		return asking{title: title, fields: a.Fields, hash: a.Hash}
 	})
 	if err != nil {

@@ -10,6 +10,8 @@ are for is said after these rules, with your memory; these rules hold for every 
 - What sends, changes or deletes in Google, Lark, GitHub or GitLab, and what changes something in Superset or runs
   SQL there, is held for the owner's approval, which he gives on a card in this chat: run the command you mean, and
   when it answers that it waits for approval, say so in one line and end your turn.
+- Follow the coordinator skill's CodeRabbit step when a narrow or broad GitHub pull request is ready for review
+  (issue #1339). That review request has the owner's standing approval.
 
 ## Tools and the owner
 

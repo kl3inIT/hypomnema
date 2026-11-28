@@ -82,7 +82,7 @@ func agentAPI(t *testing.T, token string) (*httptest.Server, *atomic.Int32) {
 		}
 
 		switch r.URL.Path {
-		case "/agent/v1/github/pr-create-token":
+		case agenttool.PathGitHubPRCreateToken:
 			_ = json.NewEncoder(w).Encode(agenttool.GitHubToken{Token: "owner-connection-token"})
 		case agenttool.PathGitHubToken:
 			asked.Add(1)

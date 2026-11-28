@@ -939,6 +939,7 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 		"before creating the reviewer Task",
 		"without asking for approval",
 		"Nothing waits on a CodeRabbit refusal",
+		"CodeRabbit is never a merge condition",
 	} {
 		assert.Contains(t, out, want, "the coordinator's CodeRabbit rules (issue #1339)")
 	}
@@ -1003,7 +1004,6 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator")
 	require.NoError(t, err)
-	assert.Contains(t, out, "it\n  is never a merge condition")
 	assert.Contains(t, out, "For a bug fix, ask for a test that fails without the fix, committed before the fix",
 		"a disputed finding is settled by a test (issue #952)")
 	assert.Contains(t, out,

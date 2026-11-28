@@ -80,11 +80,10 @@ availability: these depend on the kind and the accounts. Do not dispatch a retir
 - `reviewer` checks from another vendor. `quick` needs green CI and no worker review. For `narrow` and `broad`,
   load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec. The
   control plane posts the commit status `review` on the head a verdict covers (`review` reference).
-- For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
-  a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
-  the owner approves like any other. Nothing waits for CodeRabbit when it is rate-limited or does not answer, and it
-  is never a merge condition: a pull request is ready with green checks, no conflict and a correct verdict, and the
-  review answers CodeRabbit's findings (the `review` reference). Workers and reviewers do not ask it.
+- On every `narrow` and `broad` pull request, ask CodeRabbit when its author Task succeeds, including on each fix
+  round's new head. Do it with the owner's GitHub Connection before creating the reviewer Task and without asking for approval.
+  Skip the request for `quick` work. Nothing waits on a CodeRabbit refusal. The reviewer checks the head with a
+  10-minute limit and answers any review findings. CodeRabbit is never a merge condition (the `review` reference).
 - Never name a `runtime` or `model` unless the owner asks. Report an unavailable entry instead of substituting
   another yourself. While accounts cool, the scheduler walks the remaining chain. A Task with the owner's
   explicit runtime or model waits instead. Report fallbacks from the Dispatch's model and `chain_entry`.
