@@ -33,6 +33,9 @@
 //     full for their quotes, the code's ranking and clusters standing when no model answers as asked (issue #1306;
 //     semantic.go).
 //
+// The parts adapted from MIT and Apache-2.0 code carry those projects' notices in third_party/: last30days-skill
+// (and last30days-skill-cn), google-play-scraper, agent-reach, harken and obsei.
+//
 // What a backend rests for is kept in memory, the control plane being one process that lives across calls
 // (last30days, a process per run, writes it to a file). What the owner sets of the sources and how each last read
 // are kept in the control plane's database, for the Social listening page (issue #1290, settings.go and health.go).
@@ -144,6 +147,9 @@ type Item struct {
 	EngagementScore *int               `json:"engagement_score,omitempty"`
 	// Parent is the native id of the post a comment answers.
 	Parent string `json:"parent,omitempty"`
+	// Signals mark what the item says beyond its text: a careers page's role out of character for its company,
+	// "founding", "leadership", "specialized" or "new-geo" (last30days hiring_signals.py _strategic_candidates).
+	Signals []string `json:"signals,omitempty"`
 	// Subqueries are the labels of the subqueries that found it.
 	Subqueries []string  `json:"subqueries"`
 	FetchedAt  time.Time `json:"fetched_at"`
@@ -239,6 +245,8 @@ type Service struct {
 	resting map[string]*SourceError
 	// pathOwner is the source whose search rested a path, whose test clears it.
 	pathOwner map[string]string
+	// health is each source's state after the last search that read it (health.go).
+	health map[string]*Health
 }
 
 // New returns a Service.
@@ -259,7 +267,7 @@ func New(cfg Config) *Service {
 		platforms: cfg.Platforms, now: cfg.Now, pacer: NewPacer(cfg.Now, cfg.Sleep), logger: cfg.Logger,
 		db: cfg.DB, tell: cfg.Tell, reviewModel: cfg.ReviewModel, readModel: cfg.ReadModel,
 		scores: newMemo[scored](cfg.Now), readings: newMemo[reading](cfg.Now), plans: newMemo[clusterPlan](cfg.Now),
-		resting: map[string]*SourceError{}, pathOwner: map[string]string{},
+		resting: map[string]*SourceError{}, pathOwner: map[string]string{}, health: map[string]*Health{},
 	}
 }
 
@@ -354,6 +362,7 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 		streams = append(streams, r.streams...)
 	}
 
+	s.recordHealth(answer.Coverage, now)
 	answer.Limits = plan.limits()
 
 	items := rank(plan, streams, now)

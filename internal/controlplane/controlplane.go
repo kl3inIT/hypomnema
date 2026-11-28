@@ -464,13 +464,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The web's search and pages (issue #354). A page is read only where the shared browser may go: the same
 	// rules, the owner's list of private destinations and the control plane's own port.
+	searchRules := egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
+		return slices.Contains(ownPorts, port)
+	}}
 	webSearch := websearch.New(websearch.Config{
 		// What the owner set on the Web search page and the keys in the vault, read at each search.
 		Keys: searchKeys(secrets, logger), Settings: gateway.SearchSettings, Usage: gateway,
 		Logger: logger,
-		Rules: egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
-			return slices.Contains(ownPorts, port)
-		}},
+		Rules:  searchRules,
 	})
 	metered := modelgateway.MeteredWeb{Web: webSearch, Gateway: gateway, Logger: logger}
 
@@ -650,7 +651,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	var tellListening func(ctx context.Context, b listening.Broken)
 
 	listen := listening.New(listening.Config{
-		Logger: logger, DB: db, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
+		Platforms: listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient),
+		Logger:    logger, DB: db, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
 		Tell: func(ctx context.Context, b listening.Broken) {
 			if tellListening != nil {
 				tellListening(ctx, b)
@@ -659,8 +661,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	})
 
 	agents.WithWeb(agentsWeb).
-		// Social listening (issue #1287): its web searches, page reads and model calls (issue #1306) on the caller's
-		// key.
+		// Social listening (issues #1287, #1289): keyless sources, its web searches, page reads and model calls
+		// (issue #1306) on the caller's key, the pages a search names read through the web fetch's address check.
 		WithListening(agentListening{
 			svc: listen,
 			web: agentsWeb,

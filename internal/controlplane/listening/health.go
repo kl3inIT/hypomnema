@@ -140,6 +140,8 @@ type sourceRead struct {
 	test bool
 	// off: the owner switched the source off while it was read; it is not kept.
 	off bool
+	// untested: a live test that asked no backend, every one being opt-in (issue #1289's Toutiao): it is not kept.
+	untested bool
 }
 
 // tells says the reading tells the owner the source broke: it failed with a code a person must act on, and no backend
@@ -177,14 +179,14 @@ func coverageReading(c Coverage) sourceRead {
 		r.tried = append(r.tried, st.Tried...)
 	}
 
-	r.detail, r.backend = failureOf(r.tried, r.code)
+	r.detail, r.backend = attemptFailure(r.tried, r.code)
 
 	return r
 }
 
-// failureOf is the detail and the backend of the first attempt that failed with the code, else of the first that
+// attemptFailure is the detail and the backend of the first attempt that failed with the code, else of the first that
 // failed at all.
-func failureOf(tried []Attempt, code Code) (detail, backend string) {
+func attemptFailure(tried []Attempt, code Code) (detail, backend string) {
 	for _, pass := range []bool{true, false} {
 		for _, a := range tried {
 			if a.Result == resultOK || a.Result == string(CodeNoResults) && code != CodeNoResults {
@@ -203,7 +205,7 @@ func failureOf(tried []Attempt, code Code) (detail, backend string) {
 // record keeps a reading and tells the owner when it is the one that broke the source. It never fails the search
 // it is of: a write that fails is logged.
 func (s *Service) record(ctx context.Context, r sourceRead) {
-	if s.db == nil || r.off {
+	if s.db == nil || r.off || r.untested {
 		return
 	}
 
@@ -491,8 +493,16 @@ func (s *Service) test(ctx context.Context, p Platform, web WebSearch) sourceRea
 	// A live test reads the source now, never the web search's cached answer (websearch.Fresh).
 	ctx = websearch.Fresh(s.searchContext(ctx))
 	now := s.now().UTC()
-	sq := Subquery{Label: "test", Query: testQuery, Weight: 1}
-	r := sourceRead{source: p.Name, test: true, result: resultFailed}
+
+	// The source's own live query when it names one (issue #1289's LiveQuery, Agent-Reach's live_test per action),
+	// else Agent-Reach's Reddit one.
+	query := p.LiveQuery
+	if query == "" {
+		query = testQuery
+	}
+
+	sq := Subquery{Label: "test", Query: query, Weight: 1}
+	r := sourceRead{source: p.Name, test: true, result: resultFailed, untested: true}
 
 	var failed []Code
 
@@ -501,11 +511,13 @@ func (s *Service) test(ctx context.Context, p Platform, web WebSearch) sourceRea
 			continue
 		}
 
+		r.untested = false
+
 		// No window: the test asks whether the backend reads, not whether people spoke lately, and Agent-Reach's
 		// live tests name none (channels/reddit.py:50). Read on 2026-11-28, 30 days and then 365 left the
 		// archive's route with no Python thread in the window although it filled 15 of 15.
-		req := s.owned(s.request(Plan{Topic: testQuery}, Caller{Web: web}), p.Name)
-		req.Query, req.Limit, req.To = testQuery, testLimit, now
+		req := s.owned(s.request(Plan{Topic: query}, Caller{Web: web}), p.Name)
+		req.Query, req.Limit, req.To = query, testLimit, now
 		st := s.runStream(ctx, p, b.Name, sq, req)
 		r.tried = append(r.tried, st.report.Tried...)
 
@@ -529,7 +541,7 @@ func (s *Service) test(ctx context.Context, p Platform, web WebSearch) sourceRea
 			r.code = slices.MinFunc(failed, func(a, b Code) int { return specificity(a) - specificity(b) })
 		}
 
-		r.detail, r.backend = failureOf(r.tried, r.code)
+		r.detail, r.backend = attemptFailure(r.tried, r.code)
 		if r.code == CodeNoResults && r.detail == "" {
 			r.detail = "the live test's search found nothing"
 		}

@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"slices"
@@ -18,7 +16,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
-// The sources this control plane reads (issue #1287): the web, through the web search chain, and Reddit, first
+// The sources this control plane read first (issue #1287): the web, through the web search chain, and Reddit, first
 // through its keyless public JSON, then through the web search's Reddit threads filled in from the Arctic Shift
 // archive (owner, 2026-11-27: Reddit's JSON answers 403 from the control plane's network, as last30days found from
 // every network since 2026-05-28, reddit_public.py:3-6; its keyless floor is that second route, reddit_keyless.py
@@ -26,12 +24,40 @@ import (
 
 // The sources' and backends' names, as a plan and the answer give them.
 const (
-	SourceWeb    = "web"
-	SourceReddit = "reddit"
+	SourceWeb        = "web"
+	SourceReddit     = "reddit"
+	SourceYouTube    = "youtube"
+	SourceGooglePlay = "google_play"
+	SourceAppStore   = "app_store"
+	SourceHackerNews = "hackernews"
+	SourceGitHub     = "github"
+	SourceArxiv      = "arxiv"
+	SourceTechmeme   = "techmeme"
+	SourceDevTo      = "devto"
+	SourceBluesky    = "bluesky"
+	SourceToutiao    = "toutiao"
+	SourceBilibili   = "bilibili"
+	SourceCareers    = "careers"
+	SourceVoz        = "voz"
+	SourceTinhte     = "tinhte"
+	SourceOtofun     = "otofun"
 
 	BackendWebSearch  = "web_search"
 	BackendRedditJSON = "reddit_json"
 	BackendWebArctic  = "web_arctic"
+	BackendYtDlp      = "yt_dlp"
+	BackendPlay       = "play_reviews"
+	BackendAppStore   = "rss_reviews"
+	BackendAlgolia    = "algolia"
+	BackendGitHub     = "issues_search"
+	BackendArxiv      = "arxiv_api"
+	BackendTechmeme   = "techmeme_search"
+	BackendForem      = "forem_api"
+	BackendAppView    = "appview"
+	BackendToutiao    = "so_search"
+	BackendBilibili   = "visitor_search"
+	BackendCareers    = "careers_page"
+	BackendWebThread  = "web_thread"
 )
 
 const (
@@ -63,42 +89,105 @@ const (
 	callTimeout = 15 * time.Second
 )
 
-// Endpoints are the sources' addresses; empty: theirs. Tests name their own.
+// Endpoints are where the sources are reached; empty: theirs. Tests name their own.
 type Endpoints struct {
-	RedditURL string
-	ArcticURL string
+	RedditURL   string
+	ArcticURL   string
+	PlayURL     string
+	ITunesURL   string
+	AlgoliaURL  string
+	GitHubURL   string
+	ArxivURL    string
+	TechmemeURL string
+	DevToURL    string
+	BlueskyURL  string
+	// ToutiaoURL is Toutiao's search, ToutiaoHotURL its hot board's site, BilibiliURL Bilibili's API.
+	ToutiaoURL    string
+	ToutiaoHotURL string
+	BilibiliURL   string
+	// ForumURLs put a forum source's threads at another address than its site's (tests); the web search still
+	// asks for the site's.
+	ForumURLs map[string]string
+	// Pages is the client a page on a host the web search named is read with (a careers page, a forum thread): the
+	// web fetch's, which dials only public addresses (websearch.PageClient); nil: the sources' client.
+	Pages *http.Client
+	// YtDlp runs yt-dlp; nil: the yt-dlp on the control plane's PATH.
+	YtDlp Command
 }
 
-// Sources are the sources and their backends, in order.
+// Sources are the sources and their backends, in order: the web and Reddit (issue #1287), then the keyless sources
+// of issue #1289, every one on by default (last30days doctor.KEYLESS_ALWAYS_ON; Agent-Reach channels' level
+// "default").
 func Sources(e Endpoints, client *http.Client) []Platform {
-	if e.RedditURL == "" {
-		e.RedditURL = redditURL
+	def := func(v *string, d string) {
+		if *v == "" {
+			*v = d
+		}
+
+		*v = strings.TrimRight(*v, "/")
 	}
 
-	if e.ArcticURL == "" {
-		e.ArcticURL = arcticURL
+	def(&e.RedditURL, redditURL)
+	def(&e.ArcticURL, arcticURL)
+	def(&e.PlayURL, playURL)
+	def(&e.ITunesURL, itunesURL)
+	def(&e.AlgoliaURL, algoliaURL)
+	def(&e.GitHubURL, githubURL)
+	def(&e.ArxivURL, arxivURL)
+	def(&e.TechmemeURL, techmemeURL)
+	def(&e.DevToURL, devtoURL)
+	def(&e.BlueskyURL, blueskyURL)
+	def(&e.ToutiaoURL, toutiaoURL)
+	def(&e.ToutiaoHotURL, toutiaoHotURL)
+	def(&e.BilibiliURL, bilibiliURL)
+
+	pages := e.Pages
+	if pages == nil {
+		pages = client
 	}
 
-	e.RedditURL = strings.TrimRight(e.RedditURL, "/")
-	e.ArcticURL = strings.TrimRight(e.ArcticURL, "/")
+	if e.YtDlp == nil {
+		e.YtDlp = runYtDlp
+	}
 
-	return []Platform{
+	out := []Platform{
 		{
-			Name: SourceWeb, Backends: []Backend{webBackend()}, Read: readPage,
+			Name: SourceWeb, Backends: []Backend{webBackend()}, Read: readWebPage, LiveQuery: "VETC",
 			Adds: "Forum threads, news, reviews and blog posts the web search's keyless providers find, each with its " +
 				"link, snippet and date when the page gives one.",
 		},
 		{
 			Name: SourceReddit, Backends: []Backend{redditJSONBackend(e, client), webArcticBackend(e, client)},
-			Read: redditRead(e, client),
+			Read: redditRead(e, client), LiveQuery: "VETC Vietnam",
 			Adds: "Reddit threads with their subreddit, author, date, score and number of comments.",
 		},
+		{Name: SourceYouTube, Backends: []Backend{youtubeBackend(e.YtDlp)}, LiveQuery: "VETC"},
+		{Name: SourceGooglePlay, Backends: []Backend{playBackend(e, client)}, LiveQuery: "VETC"},
+		{Name: SourceAppStore, Backends: []Backend{appStoreBackend(e, client)}, LiveQuery: "VETC"},
+		{Name: SourceHackerNews, Backends: []Backend{hackerNewsBackend(e, client)}, LiveQuery: "Vietnam"},
+		{Name: SourceGitHub, Backends: []Backend{gitHubBackend(e, client)}, LiveQuery: "Vietnamese"},
+		{Name: SourceArxiv, Backends: []Backend{arxivBackend(e, client)}, LiveQuery: "Vietnamese"},
+		{Name: SourceTechmeme, Backends: []Backend{techmemeBackend(e, client)}, LiveQuery: "Vietnam"},
+		{Name: SourceDevTo, Backends: []Backend{devToBackend(e, client)}, LiveQuery: "vietnam"},
+		{Name: SourceBluesky, Backends: []Backend{blueskyBackend(e, client)}, LiveQuery: "Vietnam"},
+		{Name: SourceToutiao, Backends: []Backend{toutiaoBackend(e, client)}, LiveQuery: "越南"},
+		{Name: SourceBilibili, Backends: []Backend{bilibiliBackend(e, client)}, LiveQuery: "越南"},
+		{Name: SourceCareers, Backends: []Backend{careersBackend(pages)}, LiveQuery: "Cốc Cốc"},
 	}
+
+	robots := newRobots(pages)
+	for _, f := range forums {
+		out = append(out, Platform{
+			Name: f.source, Backends: []Backend{forumBackend(f, e.ForumURLs[f.source], pages, robots)}, LiveQuery: "VETC",
+		})
+	}
+
+	return out
 }
 
-// readPage reads a web item's page through the web fetch, one page at a time per site, webGap apart (pace.go), with
+// readWebPage reads a web item's page through the web fetch, one page at a time per site, webGap apart (pace.go), with
 // the date its metadata gives.
-func readPage(ctx context.Context, r Request, it Item) (Document, error) {
+func readWebPage(ctx context.Context, r Request, it Item) (Document, error) {
 	if r.Fetch == nil {
 		return Document{}, Fail(CodeBroken, "this control plane has no web fetch")
 	}
@@ -638,87 +727,6 @@ func redditTitle(title string) string {
 	return strings.TrimSpace(title)
 }
 
-// getJSON reads one JSON answer from a source, in its turn at the host: a failure's code is its status's
-// (HTTPFailure), and a page where JSON was asked is a refusal, a challenge or a sign-in page (last30days
-// reddit_public: "Anti-bot HTML response"; reddit_health: a challenge or a logged-out page is "blocked").
-//
-// slowDown reads a 422 as Arctic Shift's "slow down", a rate limit (last30days reddit_arctic._is_slow_down).
-//
-// path names the endpoint for its rest (Request.Resting): it is checked once the call has its turn, and a failure
-// that rests is recorded on it, so another search queued behind this one is not sent to a path that just refused.
-func getJSON(ctx context.Context, client *http.Client, r Request, host string, gap time.Duration, slowDown bool,
-	path, address string, out any,
-) error {
-	if r.Pace != nil {
-		done, err := r.Pace(ctx, host, gap)
-		if err != nil {
-			return AsFailure(err)
-		}
-
-		defer done()
-	}
-
-	if r.Resting != nil {
-		if rs := r.Resting(path); rs != nil {
-			return &SourceError{Code: rs.Code, Detail: rs.Detail, Until: rs.Until, resting: true}
-		}
-	}
-
-	err := fetchJSON(ctx, client, r, slowDown, address, out)
-	if err != nil && r.Rest != nil {
-		f := AsFailure(err)
-		if until := r.Rest(path, f); !until.IsZero() {
-			f.Until = until
-		}
-
-		return f
-	}
-
-	return err
-}
-
-// fetchJSON is one GET of a JSON answer.
-func fetchJSON(ctx context.Context, client *http.Client, r Request, slowDown bool, address string, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
-	if err != nil {
-		return Fail(CodeBroken, "%s", err.Error())
-	}
-
-	req.Header.Set("User-Agent", redditUserAgent)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return AsFailure(err)
-	}
-
-	defer resp.Body.Close() //nolint:errcheck // A read body's close has nothing to report.
-
-	if resp.StatusCode == http.StatusUnprocessableEntity && slowDown {
-		f := HTTPFailure(http.StatusTooManyRequests, resp.Header, r.now())
-		f.Detail = "HTTP 422 slow down"
-
-		return f
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return HTTPFailure(resp.StatusCode, resp.Header, r.now())
-	}
-
-	if media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); !strings.Contains(media, "json") {
-		return Fail(CodeRefused, "the source answered a page (%s), not JSON: a challenge or a sign-in page", media)
-	}
-
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(out); err != nil {
-		return Fail(CodeBroken, "the answer is not the source's JSON: %s", err.Error())
-	}
-
-	return nil
-}
-
 // hostOf is an address's host and port, lowercased, without "www.".
 func hostOf(address string) string {
 	u, err := url.Parse(address)
@@ -734,7 +742,8 @@ func parseDate(s string) *time.Time {
 	s = strings.TrimSpace(s)
 
 	for _, layout := range []string{
-		time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05", "2006-01-02 15:04:05", time.DateOnly, time.RFC1123,
+		time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05", "2006-01-02 15:04:05",
+		time.DateOnly, time.RFC1123,
 		time.RFC1123Z, "January 2, 2006", "Jan 2, 2006",
 	} {
 		if t, err := time.Parse(layout, s); err == nil {
