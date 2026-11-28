@@ -3,7 +3,7 @@ package telegram
 // Every chat kept as it arrives (issue #1184): gotd's updates manager hands each update to the dispatcher below,
 // after it recovered any gap from Telegram's pts/qts/seq (telegram/updates/doc.go); what it cannot recover it reports,
 // and the chats are fetched again here (history.go). The handlers are those gotd's examples/userbot registers
-// (dispatcher.OnNewMessage, main.go:178-200), for the channels' messages, the edits and the deletions too.
+// (dispatcher.OnNewMessage, main.go:192), for the channels' messages, the edits and the deletions too.
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 )
 
 // updateHandler keeps what each update's entities say, then hands the update to the dispatcher, as gotd's
-// examples/userbot fills its peer storage before its dispatcher (storage.UpdateHook, main.go:140-143): a chat the
+// examples/userbot fills its peer storage before its dispatcher (storage.UpdateHook, main.go:139): a chat the
 // account left or lost comes as an entity of any update, and a lost one (forbidden) is left out of tg.Entities.
 type updateHandler struct {
 	a        *Account
