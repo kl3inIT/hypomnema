@@ -21,6 +21,8 @@ type Coverage struct {
 	// Items are those read in the window, before duplicates are removed.
 	Items   int   `json:"items"`
 	Dropped Drops `json:"dropped"`
+	// Unverified counts what a model said it found that its links did not bear out (Answer.Unverified).
+	Unverified int `json:"unverified,omitempty"`
 	// Code is why a stream was not read, the most actionable of them (last30days FAILURE_SPECIFICITY); empty when
 	// every stream was read.
 	Code    Code     `json:"code,omitempty"`
@@ -45,6 +47,8 @@ type Stream struct {
 	Subquery string `json:"subquery"`
 	ServedBy string `json:"served_by,omitempty"`
 	Items    int    `json:"items"`
+	// Unverified counts the stream's unverified items (Answer.Unverified).
+	Unverified int `json:"unverified,omitempty"`
 	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served in full,
 	// and the failure's code beside its items when it was served in part (Result.Failed).
 	Code    Code      `json:"code,omitempty"`
@@ -65,6 +69,7 @@ func (c Coverage) settle() Coverage {
 
 	for _, s := range c.Streams {
 		c.Items += s.Items
+		c.Unverified += s.Unverified
 		c.Dropped.add(s.dropped)
 
 		if s.read() {

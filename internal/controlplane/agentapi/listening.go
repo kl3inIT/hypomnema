@@ -49,8 +49,9 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 		Description: "Find what people say about a topic: posts, threads, comments, reviews and videos from the " +
 			"web, Reddit, YouTube (with what the video says and its top comments), Google Play and App Store " +
 			"reviews, Hacker News, GitHub, arXiv, Techmeme, DEV.to, Bluesky, Bilibili and Toutiao (in Chinese; " +
-			"Toutiao is off unless `backends` pins it), the Vietnamese forums Voz, Tinhte and Otofun, and companies' " +
-			"careers pages, each item with its link, author, date, text and counts. Use it to learn what the public " +
+			"Toutiao is off unless `backends` pins it), the Vietnamese forums Voz, Tinhte and Otofun, companies' " +
+			"careers pages, and Facebook, Instagram and Threads (through Muse), each item with its link, author, " +
+			"date, text and counts. Use it to learn what the public " +
 			"says (complaints, praise, questions, comparisons) rather than what the press or a company says; for a " +
 			"fact or one page, use web_search and web_fetch instead. You write the plan: up to " +
 			strconv.Itoa(listening.MaxSubqueries) + " subqueries, each a short search in the words people use (in " +
@@ -69,6 +70,11 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"tried, `limits` (the pool, the model's shortlist and the full reads used) and `pass`, what each model " +
 			"step did and cost: model or fallback (the code's ranking stands, with why) or off; `pass.read` counts " +
 			"the items dropped because their own page dates them outside the window (`outside_window`). " +
+			"facebook, instagram and threads are read by asking the owner's Muse, about a minute a question and one " +
+			"at a time, all of a call's Muse questions within six minutes: give them one or two subqueries (a " +
+			"source not reached in time is not_read, timeout). Each post Muse names is checked by opening its link; " +
+			"one whose page does not hold its quote or whose date does not check is listed in `unverified`, with " +
+			"why: a lead to look at, never evidence or a count. " +
 			"When available, use the social-listening skill for discovery, planning and the evidence report. " +
 			"Write your report from the results, with verbatim quotes (the `quotes` first) and their links and " +
 			"dates; when no cluster passed its audit, say the evidence is thin rather than fill the gap. " +
