@@ -18,26 +18,70 @@
 <body>
   <main>
     <h1>Settings → Gateway → Social listening: Zhihu, Weibo, Douyin and Xiaohongshu (issue #1362)</h1>
-    <p>Taken by <code>web/tests/listening-accounts.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Account names are made up. Weibo and Douyin wear the same cards.</p>
+    <p>Taken by <code>web/tests/listening-accounts.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Account names are made up. Weibo and Douyin wear the same cards. Retaken after review round 1 of PR #1364: the consent card quotes xiaohongshu-mcp #930 as it reads (a security page at the first search after three read-only calls), and the phone shows each card whole.</p>
 
     <section>
-      <h2>Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card</h2>
+      <h2>Zhihu read as its account; Xiaohongshu off until its consent card</h2>
       <div class="screens">
         <figure>
           <figcaption>Desktop, light</figcaption>
-          <img src="light/listening-chinese-sources-desktop.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, desktop, light">
+          <img src="light/listening-chinese-sources-desktop.png" alt="Zhihu read as its account; Xiaohongshu off until its consent card, desktop, light">
         </figure>
         <figure>
           <figcaption>Phone, light</figcaption>
-          <img src="light/listening-chinese-sources-phone.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, phone, light">
+          <img src="light/listening-chinese-sources-phone.png" alt="Zhihu read as its account; Xiaohongshu off until its consent card, phone, light">
         </figure>
         <figure>
           <figcaption>Desktop, dark</figcaption>
-          <img src="dark/listening-chinese-sources-desktop.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, desktop, dark">
+          <img src="dark/listening-chinese-sources-desktop.png" alt="Zhihu read as its account; Xiaohongshu off until its consent card, desktop, dark">
         </figure>
         <figure>
           <figcaption>Phone, dark</figcaption>
-          <img src="dark/listening-chinese-sources-phone.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, phone, dark">
+          <img src="dark/listening-chinese-sources-phone.png" alt="Zhihu read as its account; Xiaohongshu off until its consent card, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>Zhihu's backends in order: its search API, its own search page, the web search on its site (scrolled, so the phone shows them all)</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-chinese-backends-desktop.png" alt="Zhihu's backends in order: its search API, its own search page, the web search on its site (scrolled, so the phone shows them all), desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-chinese-backends-phone.png" alt="Zhihu's backends in order: its search API, its own search page, the web search on its site (scrolled, so the phone shows them all), phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-chinese-backends-desktop.png" alt="Zhihu's backends in order: its search API, its own search page, the web search on its site (scrolled, so the phone shows them all), desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-chinese-backends-phone.png" alt="Zhihu's backends in order: its search API, its own search page, the web search on its site (scrolled, so the phone shows them all), phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>Xiaohongshu's card: its consent card first, its search page then the web search (scrolled)</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-chinese-xiaohongshu-desktop.png" alt="Xiaohongshu's card: its consent card first, its search page then the web search (scrolled), desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-chinese-xiaohongshu-phone.png" alt="Xiaohongshu's card: its consent card first, its search page then the web search (scrolled), phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-chinese-xiaohongshu-desktop.png" alt="Xiaohongshu's card: its consent card first, its search page then the web search (scrolled), desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-chinese-xiaohongshu-phone.png" alt="Xiaohongshu's card: its consent card first, its search page then the web search (scrolled), phone, dark">
         </figure>
       </div>
     </section>

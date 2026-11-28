@@ -59,13 +59,15 @@ const (
 	chineseStop = 24 * time.Hour
 	// pageLoad is how long a page is waited for to show its search's answer, looked at every pagePoll, and pageScroll
 	// the wait after a scroll: last30days-skill-cn waits 8 s for Zhihu's first XHR and scrolls Douyin eight times
-	// 1.2 s apart (crawler_bridge.py:969-976, 1096-1101); 20 s is linkedInLoad's, inferred.
+	// 1.2 s apart (crawler_bridge.py:969-976, 1102-1106). Inferred, no reference sets them: 20 s, linkedInLoad's, and a
+	// look every second, linkedInPoll's (linkedin.go).
 	pageLoad   = 20 * time.Second
 	pagePoll   = time.Second
 	pageScroll = 1200 * time.Millisecond
 	// pageScrolls is the most scrolls of a search page (crawler_bridge.py:969, range(8)).
 	pageScrolls = 8
-	// mobileUA is the iPhone Safari last30days-skill-cn sends to m.weibo.cn (crawler_bridge.py:63-66).
+	// mobileUA is the User-Agent Safari on iOS 18.5 sends, a phone's, as m.weibo.cn is read with a phone's headers
+	// (last30days-skill-cn weibo.py:151-153, kind="mobile").
 	mobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) " +
 		"Version/18.5 Mobile/15E148 Safari/604.1"
 )
@@ -104,8 +106,8 @@ var (
 // The consent cards' fixed wording, each its own source's, in the form of X's and LinkedIn's (last30days
 // references/reddit-session.md:13): what is done as the account, the risk to it, which cookie is kept and where it
 // goes, and when reading stops. Xiaohongshu's names its ban reports (xiaohongshu-mcp issues #930, 2026-11-27, a
-// security page after three read-only calls; #877, code 300011; Agent-Reach #1011, code 300012) and its one web
-// session an account (xiaohongshu-mcp README.md:301).
+// security page at the first search after three read-only calls; #877, code 300011; Agent-Reach #1011, code 300012)
+// and its one web session an account (xiaohongshu-mcp README.md:301).
 const (
 	zhihuConsent = "Reading Zhihu as your account may break Zhihu's terms: automated use of a signed-in account can " +
 		"bring a verification, a restriction or a ban of the account. Sign in a secondary account made for this, " +
@@ -130,24 +132,27 @@ const (
 		"five. Only Douyin's cookies are kept, in the vault: they are never shown or logged and go only to douyin.com. " +
 		"If Douyin shows a captcha or asks the account to sign in again, Hypomnema stops reading it until you sign in " +
 		"again, and never answers a captcha; after a rate limit, it stops for 24 hours."
-	xiaohongshuConsent = "Xiaohongshu restricts accounts more than any other site here, some after reading only: users " +
-		"of xiaohongshu-mcp, which reads it the same way, report a security page after three read-only searches " +
-		"(2026-11-27), account-security blocks (code 300011) and IP-risk blocks (code 300012). Turn it on yourself " +
-		"only with a secondary account made for this, never your own, and do not sign that account in on another web " +
-		"browser meanwhile: Xiaohongshu keeps one web session an account, so a sign-in elsewhere signs Hypomnema out. " +
-		"Hypomnema then opens Xiaohongshu's search page as that account in a browser of its own, one search at a " +
-		"time, 15 seconds apart and 45 seconds more after every five. Only Xiaohongshu's cookies are kept, in the " +
-		"vault: they are never shown or logged and go only to xiaohongshu.com. If Xiaohongshu shows its captcha or " +
-		"security check, Hypomnema stops reading the account until you sign in again, and never answers it; after a " +
-		"rate limit, it stops for 24 hours."
+	xiaohongshuConsent = "Xiaohongshu restricts accounts more than any other site here, some after reading only: " +
+		"users of xiaohongshu-mcp, which reads it the same way, report a security page at the first search after three " +
+		"read-only calls (2026-11-27), account-security blocks (code 300011) and IP-risk blocks (code 300012). Turn " +
+		"it on yourself only with a secondary account made for this, never your own, and do not sign that account in " +
+		"on another web browser meanwhile: Xiaohongshu keeps one web session an account, so a sign-in elsewhere " +
+		"signs Hypomnema out. Hypomnema then opens Xiaohongshu's search page as that account in a browser of its own, one " +
+		"search at a time, 15 seconds apart and 45 seconds more after every five. Only Xiaohongshu's cookies are " +
+		"kept, in the vault: they are never shown or logged and go only to xiaohongshu.com. If Xiaohongshu shows its " +
+		"captcha or security check, Hypomnema stops reading the account until you sign in again, and never answers " +
+		"it; after a rate limit, it stops for 24 hours."
 )
 
 // SignedChineseSources are Zhihu, Weibo, Douyin and Xiaohongshu; client reads Zhihu's and Weibo's searches with the
 // account's cookie. Each one's live query, which a sign-in's verification searches too, is Toutiao's and Bilibili's,
 // 越南 (sources.go).
 func SignedChineseSources(_ Endpoints, client *http.Client) []Platform {
-	signed := func(site signin.Site, consent, backend string) *Signed {
-		return &Signed{Site: site, Consent: consent, Backend: backend, Throttle: chineseStop}
+	signed := func(site signin.Site, consent, backend string, also ...string) *Signed {
+		return &Signed{
+			Site: site, Consent: consent, Backend: backend, Also: also, Throttle: chineseStop,
+			VisitorCookie: site.Name == weiboSite.Name || site.Name == xiaohongshuSite.Name,
+		}
 	}
 
 	return []Platform{
@@ -156,7 +161,7 @@ func SignedChineseSources(_ Endpoints, client *http.Client) []Platform {
 			Backends: []Backend{
 				zhihuAPIBackend(client), zhihuPageBackend(), siteSearchBackend("zhihu.com", zhihuPost),
 			},
-			Signed: signed(zhihuSite, zhihuConsent, BackendZhihuAPI),
+			Signed: signed(zhihuSite, zhihuConsent, BackendZhihuAPI, BackendZhihuPage),
 			Adds: "Zhihu's questions, answers and articles with their votes and comments, searched as your account; " +
 				"without one, Zhihu's pages the web search finds.",
 		},
@@ -165,7 +170,7 @@ func SignedChineseSources(_ Endpoints, client *http.Client) []Platform {
 			Backends: []Backend{
 				weiboAPIBackend(client), weiboPageBackend(), siteSearchBackend("weibo.com", weiboPost),
 			},
-			Signed: signed(weiboSite, weiboConsent, BackendWeiboAPI),
+			Signed: signed(weiboSite, weiboConsent, BackendWeiboAPI, BackendWeiboPage),
 			Adds: "Weibo posts with their author, date, reposts, comments and likes, searched as your account; without " +
 				"one, Weibo posts the web search finds.",
 		},
@@ -221,9 +226,12 @@ func signedSearch(host string, cadence Cadence, read func(ctx context.Context, r
 	}
 }
 
-// signedPageSearch is signedSearch for a read in the account's tab, opened before the turn as linkedInSearch opens it.
-func signedPageSearch(host string, cadence Cadence, read func(ctx context.Context, r Request, page Page) (Result,
-	error),
+// signedPageSearch is a read in the account's tab, opened before any turn as linkedInSearch opens it. The read takes
+// a turn for each request it makes the page send (pageStep): its search, a scroll's next page, a filter's search, a
+// fetch the page asks; each counts toward the cadence's cooldown (trend-opportunity-radar
+// collection-pacing-contract.md:7-10, "count a retry and a separately requested comment read as new requests"; review
+// round 1 of PR #1364).
+func signedPageSearch(read func(ctx context.Context, r Request, page Page) (Result, error),
 ) func(ctx context.Context, r Request) (Result, error) {
 	return func(ctx context.Context, r Request) (Result, error) {
 		page, err := r.Session.Page(ctx)
@@ -231,20 +239,46 @@ func signedPageSearch(host string, cadence Cadence, read func(ctx context.Contex
 			return Result{}, err
 		}
 
-		end, err := r.turn(ctx, host, cadence)
-		if err != nil {
-			return Result{}, err
-		}
-
-		res, err := read(ctx, r, page)
-		if err != nil {
-			end(AsFailure(err))
-		} else {
-			end(res.Failed)
-		}
-
-		return res, err
+		return read(ctx, r, page)
 	}
+}
+
+// pageStep runs one request a read makes its page send, in a turn of its own at the site at its cadence (Request.turn):
+// do sends it and waits for its answer, and what it met is kept on the account before the turn ends, so the next
+// step, or another read queued behind it, reads the stop. It answers what do met, or the skip of an account that cannot
+// be read now.
+func (r Request) pageStep(ctx context.Context, host string, c Cadence, do func() *SourceError) *SourceError {
+	end, err := r.turn(ctx, host, c)
+	if err != nil {
+		return AsFailure(err)
+	}
+
+	f := do()
+	end(f)
+
+	return f
+}
+
+// stops says a failure stops reading the account or its site: a sign-in asked, a refusal or a rate limit
+// (stopsHost), or the skip of an account that cannot be read now.
+func stops(f *SourceError) bool {
+	return f != nil && (f.resting || stopsHost(f.Code))
+}
+
+// partial is what a read keeps when f stops it: the items read before it, beside f, the site having refused or asked
+// to slow down, as X's search keeps the pages read before a failure (x.go search); f alone without them.
+func partial(res Result, f *SourceError) (Result, error) {
+	if len(res.Items) == 0 {
+		return Result{}, f
+	}
+
+	if !f.resting && stopsHost(f.Code) {
+		f.restBackend = true
+	}
+
+	res.Failed = f
+
+	return res, nil
 }
 
 // landing is where a tab stands: its address, whether it loaded, and the start of its text.

@@ -363,7 +363,7 @@ func weiboTime(s string, now time.Time) (time.Time, bool) {
 // does.
 func weiboPageBackend() Backend {
 	return sessionBackend(Backend{
-		Name: BackendWeiboPage, Host: "weibo.com", Search: signedPageSearch("weibo.com", chineseCadence, weiboPageRead),
+		Name: BackendWeiboPage, Host: "weibo.com", Search: signedPageSearch(weiboPageRead),
 	})
 }
 
@@ -379,33 +379,11 @@ type fetched struct {
 	Body   string `json:"body"`
 }
 
+// weiboPageRead loads m.weibo.cn and asks /api/config, then each page of the search, each request a read in a turn of
+// its own (pageStep; radar collection-pacing-contract.md:9, "count … a separately requested … read as new requests";
+// review round 1 of PR #1364), a throttle on any of the page's requests read after each.
 func weiboPageRead(ctx context.Context, r Request, page Page) (Result, error) {
-	if err := page.Navigate(ctx, weiboMobileURL+"/"); err != nil {
-		return Result{}, Fail(CodeBroken, "opening m.weibo.cn: %s", err.Error())
-	}
-
-	for look := 1; ; look++ {
-		l, err := landingOf(ctx, page)
-		if err == nil && l.Ready == "complete" {
-			if u, perr := url.Parse(l.Href); perr == nil && !weiboSite.Owns(u.Hostname()) {
-				if f := pageBarrier(weiboSite, l); f != nil {
-					return Result{}, f
-				}
-			}
-
-			break
-		}
-
-		if look >= int(pageLoad/pagePoll) {
-			return Result{}, Fail(CodeBroken, "m.weibo.cn did not load in time")
-		}
-
-		if err := r.wait(ctx, pagePoll); err != nil {
-			return Result{}, AsFailure(err)
-		}
-	}
-
-	ask := func(path string) (fetched, error) {
+	ask := func(path string) (fetched, *SourceError) {
 		var f fetched
 		if err := page.Evaluate(ctx, weiboFetch(path), &f); err != nil {
 			return f, Fail(CodeBroken, "m.weibo.cn's page could not ask %s: %s", path, err.Error())
@@ -422,55 +400,79 @@ func weiboPageRead(ctx context.Context, r Request, page Page) (Result, error) {
 		return f, nil
 	}
 
-	cfg, err := ask("/api/config")
-	if err != nil {
-		return Result{}, err
-	}
+	throttled := func() *SourceError { return siteThrottled(ctx, page, weiboSite, r.now()) }
 
-	if f := weiboSignedIn([]byte(cfg.Body)); f != nil {
+	// The page, then /api/config: whether the account is signed in.
+	f := r.pageStep(ctx, "weibo.com", chineseCadence, func() *SourceError {
+		if err := page.Navigate(ctx, weiboMobileURL+"/"); err != nil {
+			return Fail(CodeBroken, "opening m.weibo.cn: %s", err.Error())
+		}
+
+		for look := 1; ; look++ {
+			l, err := landingOf(ctx, page)
+			if err == nil && l.Ready == "complete" {
+				if u, ok := landedAt(l.Href); ok && !weiboSite.Owns(u.Hostname()) {
+					if f := pageBarrier(weiboSite, l); f != nil {
+						return f
+					}
+				}
+
+				break
+			}
+
+			if look >= int(pageLoad/pagePoll) {
+				return Fail(CodeBroken, "m.weibo.cn did not load in time")
+			}
+
+			if err := r.wait(ctx, pagePoll); err != nil {
+				return AsFailure(err)
+			}
+		}
+
+		if f := throttled(); f != nil {
+			return f
+		}
+
+		cfg, f := ask("/api/config")
+		if f != nil {
+			return f
+		}
+
+		return weiboSignedIn([]byte(cfg.Body))
+	})
+	if f != nil {
 		return Result{}, f
 	}
 
 	var res Result
 
 	for n := 1; n <= weiboPages && len(res.Items) < r.Limit; n++ {
-		if n > 1 {
-			if err := r.wait(ctx, 800*time.Millisecond); err != nil {
-				break
-			}
-		}
+		var items []Item
 
-		got, err := ask("/api/container/getIndex?" + weiboParams(r.Query, n).Encode())
-		if err == nil {
-			var items []Item
-
-			if items, err = weiboRead([]byte(got.Body), r.now()); err == nil {
-				if len(items) == 0 {
-					break
+		f := r.pageStep(ctx, "weibo.com", chineseCadence, func() *SourceError {
+			got, f := ask("/api/container/getIndex?" + weiboParams(r.Query, n).Encode())
+			if f == nil {
+				var err error
+				if items, err = weiboRead([]byte(got.Body), r.now()); err != nil {
+					f = AsFailure(err)
 				}
-
-				res.Items = appendNew(res.Items, items)
-
-				continue
 			}
+
+			if t := throttled(); t != nil {
+				return t
+			}
+
+			return f
+		})
+		if f != nil {
+			return partial(res, f)
 		}
 
-		if len(res.Items) == 0 {
-			return Result{}, err
+		if len(items) == 0 {
+			break
 		}
 
-		res.Failed = AsFailure(err)
-
-		break
-	}
-
-	if f := siteThrottled(ctx, page, weiboSite, r.now()); f != nil {
-		if len(res.Items) == 0 {
-			return Result{}, f
-		}
-
-		f.restBackend = true
-		res.Failed = f
+		res.Items = appendNew(res.Items, items)
 	}
 
 	if len(res.Items) == 0 {

@@ -13,9 +13,17 @@ highlights) and careers pages (JSON-LD JobPosting, the hiring signals of hiring_
 of job_boards/robots.py (robots.go); the engagement weights, references and source qualities of signals.py; and,
 from last30days-skill-cn, Toutiao's search-card and hot-board parser (toutiao.py) and Bilibili's visitor search with
 its WBI signature (bilibili.py), in chinese.go; and Zhihu's search_v3 parser (zhihu.py), Weibo's mobile search and its
-dates (weibo.py), Douyin's video parser (douyin.py), Xiaohongshu's note address and counts (xiaohongshu.py), the sites'
-login cookies and sign-in walls and the page's own search XHRs (crawler_bridge.py), in chinasigned.go, zhihu.go,
-weibo.go, douyin.go and xiaohongshu.go (issue #1362).
+dates (weibo.py), Douyin's video parser (douyin.py) and Xiaohongshu's note address and counts (xiaohongshu.py), in
+chinasigned.go, zhihu.go, weibo.go, douyin.go and xiaohongshu.go (issue #1362).
+
+The terms that apply (issue #1362, review round 1 of PR #1364): the repository's LICENSE is the MIT License below, and
+the parsers named above are adapted under it. Its usage terms (docs/usage.en.md:196-209) and the header of its
+browser bridge (scripts/lib/crawler_bridge.py:1-21) also ask that it not be used commercially, for large-scale or
+high-frequency scraping, or to resell data. crawler_bridge.py is therefore read for ideas only and none of its code is
+copied: what Hypomnema takes from it is facts about the sites (their sign-in pages and login cookies, the addresses of
+their search pages and of the requests those pages send, the words of their sign-in walls), each written anew. Hypomnema
+reads these sites with the owner's own account, one request at a time at the pace of its consent cards, for his own
+research, and resells nothing.
 
 The MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction, including without

@@ -66,6 +66,15 @@ type Signed struct {
 	Consent string
 	// Backend is the backend that reads as the account; the source's others read without one.
 	Backend string
+	// Also are the account's other backends, which a verification asks in order when the one before failed without a
+	// sign that the account must stop: Zhihu's and Weibo's pages after their APIs (issue #1362, review round 1 of PR
+	// #1364), as last30days-skill-cn tries its browser route when the cookie route read nothing (zhihu.py:58-72,
+	// weibo.py:73-95).
+	Also []string
+	// VisitorCookie: a visitor has the site's login cookie too (last30days-skill-cn crawler_bridge.py:73-76,
+	// anonymous_cookie_ambiguous; Weibo's SUB, Xiaohongshu's web_session), so a sign-in is told by that cookie changing,
+	// and a verification's memo keys on it alone (loginKey); else on the whole jar.
+	VisitorCookie bool
 	// Throttle is how long a throttling page (a rate limit) stops the account, kept across restarts; zero: the
 	// backend rests in memory as any other does.
 	Throttle time.Duration
@@ -336,7 +345,11 @@ func (s *Service) signIn(ctx context.Context, p Platform, jar []browser.Cookie, 
 		return "", err
 	}
 
-	sum := loginKey(p.Signed.Site, jar)
+	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))
+	if p.Signed.VisitorCookie {
+		sum = loginKey(p.Signed.Site, jar)
+	}
+
 	name := p.Signed.Site.Name
 
 	s.acc.mu.Lock()
@@ -423,20 +436,9 @@ func waitingFor(site string, f *SourceError) string {
 
 // verify runs the source's signed-in backend once with the jar, the source's live query and no window, as the
 // account would be read: nil when it read, items or a clean zero (Agent-Reach sessions.md:29, "redo the original
-// action to verify").
+// action to verify"). When it fails without a sign that the account must stop (a sign-in asked, a refusal, a rate
+// limit), the account's other backends are asked in turn (Signed.Also).
 func (s *Service) verify(ctx context.Context, p Platform, jar []browser.Cookie) *SourceError {
-	var b *Backend
-
-	for i := range p.Backends {
-		if p.Backends[i].Name == p.Signed.Backend {
-			b = &p.Backends[i]
-		}
-	}
-
-	if b == nil {
-		return Fail(CodeBroken, "%s has no backend %s", p.Name, p.Signed.Backend)
-	}
-
 	query := p.LiveQuery
 	if query == "" {
 		query = testQuery
@@ -455,12 +457,38 @@ func (s *Service) verify(ctx context.Context, p Platform, jar []browser.Cookie) 
 		defer s.acc.browser.DisposeContext(context.WithoutCancel(ctx), contextKey(p.Name, true))
 	}
 
-	_, err := b.Search(ctx, req)
-	if err != nil {
-		return AsFailure(err)
+	var last *SourceError
+
+	for _, name := range append([]string{p.Signed.Backend}, p.Signed.Also...) {
+		var b *Backend
+
+		for i := range p.Backends {
+			if p.Backends[i].Name == name {
+				b = &p.Backends[i]
+			}
+		}
+
+		if b == nil {
+			return Fail(CodeBroken, "%s has no backend %s", p.Name, name)
+		}
+
+		res, err := b.Search(ctx, req)
+
+		switch {
+		case err != nil:
+			last = AsFailure(err)
+		case res.Failed != nil && len(res.Items) == 0:
+			last = res.Failed
+		default:
+			return nil
+		}
+
+		if stopsHost(last.Code) || last.resting || ctx.Err() != nil {
+			return last
+		}
 	}
 
-	return nil
+	return last
 }
 
 // keep seals a verified jar in the vault as the source's account, replacing any before it, and closes the context made

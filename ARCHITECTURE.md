@@ -5248,8 +5248,9 @@ writes no prose (last30days SKILL.md LAW 7).
   the owner's: `POST /gateway/listening/sources/{source}/consent`, `POST …/sign-in`, `POST …/sign-in/check`
   `{label?}`, `PUT …/account` `{cookies, label?}`, `DELETE …/account`. The Social listening card shows the consent
   card, then Sign in (the owner's tab shown in the dialog) or Paste cookies, then the account's state with Sign in
-  again and Sign out. The sign-in memo of the same cookies keys on the login cookies only, so a site's other cookies
-  changing send no new search.
+  again and Sign out. For a site whose visitors have its login cookie too (Weibo's `SUB`, Xiaohongshu's
+  `web_session`; `Signed.VisitorCookie`), the sign-in memo keys on the login cookie only, so the site's other cookies
+  changing send no new search; for the others it keys on the whole jar.
 - Chinese signed-in sources (issue #1362; `listening/chinasigned.go`, `zhihu.go`, `weibo.go`, `douyin.go`,
   `xiaohongshu.go`), the same mechanism, each off until its own consent card, each last read by `site_search`
   (`site:zhihu.com`, `weibo.com`, `douyin.com`, `xiaohongshu.com`; only post addresses kept): `zhihu` (`zhihu_api`,
@@ -5263,8 +5264,11 @@ writes no prose (last30days SKILL.md LAW 7).
   the 发布时间 filter chosen by hovering and clicking in its panel, notes only, undated; `/website-login/captcha`,
   HTTP 461/471 and codes 300011/300012 `refused`, `/website-login` or a page that says no one is signed in
   `need_login`). Login cookies: `z_c0`, `SUB`, `sessionid`/`sessionid_ss`, `web_session`. Pace: Xiaohongshu 15 s
-  apart and 45 s more after every five, the others 10 s and 30 s; a 429 stops a site for 24 hours. Every read takes
-  its account's turn, reads the stop again inside it, and keeps what it met before the turn ends (`Request.turn`).
+  apart and 45 s more after every five, the others 10 s and 30 s; a 429 stops a site for 24 hours. Every request a
+  read makes the site answer (a page's search, each scroll, the filter's search, each fetch m.weibo.cn's page asks)
+  takes its account's turn and counts as a read, reads the stop again inside it, and keeps what it met before the
+  turn ends (`Request.turn`, `pageStep`); the first stop ends the read, the items read before it kept. A sign-in's
+  verification asks the API, then the account's page when the API failed without a stop (`Signed.Also`).
 - The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
   - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
     and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the

@@ -80,7 +80,7 @@ func douyinSearchURL(query string, from, to time.Time) string {
 func douyinPageBackend() Backend {
 	return sessionBackend(Backend{
 		Name: BackendDouyinPage, Host: "douyin.com",
-		Search: signedPageSearch("douyin.com", chineseCadence, douyinPageRead),
+		Search: signedPageSearch(douyinPageRead),
 	})
 }
 
@@ -99,14 +99,12 @@ func douyinXHR(u *url.URL) bool {
 }
 
 // douyinPageRead opens the search and reads the videos its page's search XHRs answer, scrolling for more until the
-// limit or the eighth scroll (crawler_bridge.py:969-976). An answer of status 0, no video and has_more 0 is a clean
-// zero, as xiaohongshu-mcp takes an empty search as read only when its answer says there is no more
-// (search_ready.go:131-135); inferred for Douyin.
+// limit or the eighth scroll (crawler_bridge.py:969-976). The search and each scroll are a read in a turn of their own
+// (pageStep), and what each one's answers met is read before the next: the first rate limit, captcha or sign-in wall
+// ends the scrolling (radar collection-pacing-contract.md:12; review round 1 of PR #1364). An answer of status 0, no
+// video and has_more 0 is a clean zero, as xiaohongshu-mcp takes an empty search as read only when its answer says
+// there is no more (search_ready.go:131-135); inferred for Douyin.
 func douyinPageRead(ctx context.Context, r Request, page Page) (Result, error) {
-	if err := page.Navigate(ctx, douyinSearchURL(r.Query, r.From, r.To)); err != nil {
-		return Result{}, Fail(CodeBroken, "opening Douyin's search: %s", err.Error())
-	}
-
 	var (
 		res    Result
 		read   bool
@@ -135,36 +133,71 @@ func douyinPageRead(ctx context.Context, r Request, page Page) (Result, error) {
 		}
 	}
 
-	// The first answer, waited for.
-	for look := 1; look <= int(pageLoad/pagePoll) && !read; look++ {
-		take()
-
+	met := func() *SourceError {
 		if f := siteThrottled(ctx, page, douyinSite, r.now()); f != nil {
-			return Result{}, f
+			return f
 		}
 
-		if read || failed != nil {
-			break
+		if stops(failed) {
+			return failed
 		}
 
-		if err := r.wait(ctx, pagePoll); err != nil {
-			return Result{}, AsFailure(err)
+		return nil
+	}
+
+	// The search, its first answer waited for.
+	f := r.pageStep(ctx, "douyin.com", chineseCadence, func() *SourceError {
+		if err := page.Navigate(ctx, douyinSearchURL(r.Query, r.From, r.To)); err != nil {
+			return Fail(CodeBroken, "opening Douyin's search: %s", err.Error())
 		}
+
+		for look := 1; look <= int(pageLoad/pagePoll); look++ {
+			take()
+
+			if f := met(); f != nil {
+				return f
+			}
+
+			if read || failed != nil {
+				break
+			}
+
+			if err := r.wait(ctx, pagePoll); err != nil {
+				return AsFailure(err)
+			}
+		}
+
+		return nil //nolint:nilerr // A failure of the search's answer is settled after the step (pageResult).
+	})
+
+	switch {
+	case stops(f):
+		return partial(res, f)
+	case f != nil:
+		return Result{}, f
 	}
 
 	for i := 0; i < pageScrolls && read && more && len(res.Items) < r.Limit; i++ {
-		if page.Evaluate(ctx, "window.scrollBy(0, 2400)", nil) != nil {
-			break
-		}
-
-		if err := r.wait(ctx, pageScroll); err != nil {
-			break
-		}
-
 		before := len(res.Items)
-		take()
 
-		if len(res.Items) == before && !more {
+		f = r.pageStep(ctx, "douyin.com", chineseCadence, func() *SourceError {
+			if page.Evaluate(ctx, "window.scrollBy(0, 2400)", nil) != nil {
+				return Fail(CodeBroken, "scrolling Douyin's search")
+			}
+
+			if err := r.wait(ctx, pageScroll); err != nil {
+				return AsFailure(err)
+			}
+
+			take()
+
+			return met()
+		})
+		if stops(f) {
+			return partial(res, f)
+		}
+
+		if f != nil || len(res.Items) == before && !more {
 			break
 		}
 	}

@@ -780,9 +780,10 @@ func TestEachSiteIsReadAtItsOwnPace(t *testing.T) {
 	// Both sign-ins read at the same moment; Xiaohongshu's search comes right after its own.
 	*rig.waits = nil
 	_ = rig.search(t, listening.SourceXiaohongshu)
-	assert.Equal(t, []time.Duration{15 * time.Second}, *rig.waits, "Xiaohongshu's next read waits 15 seconds")
+	assert.Equal(t, []time.Duration{15 * time.Second, 15 * time.Second}, *rig.waits,
+		"Xiaohongshu's search, then its filter's search, each 15 seconds after the read before it")
 
-	// Zhihu's last read was its sign-in's, 15 seconds ago: no wait; then 10 seconds after that search.
+	// Zhihu's last read was its sign-in's, 30 seconds ago: no wait; then 10 seconds after that search.
 	_ = rig.search(t, listening.SourceZhihu)
 	*rig.waits = nil
 	_ = rig.search(t, listening.SourceZhihu)

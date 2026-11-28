@@ -329,8 +329,8 @@ const zhihuConsent =
   "in again, and never answers a check; after a rate limit, it stops for 24 hours."
 const xiaohongshuConsent =
   "Xiaohongshu restricts accounts more than any other site here, some after reading only: users of " +
-  "xiaohongshu-mcp, which reads it the same way, report a security page after three read-only searches " +
-  "(2026-11-27), account-security blocks (code 300011) and IP-risk blocks (code 300012). Turn it on yourself only " +
+  "xiaohongshu-mcp, which reads it the same way, report a security page at the first search after three " +
+  "read-only calls (2026-11-27), account-security blocks (code 300011) and IP-risk blocks (code 300012). Turn it on yourself only " +
   "with a secondary account made for this, never your own, and do not sign that account in on another web browser " +
   "meanwhile: Xiaohongshu keeps one web session an account, so a sign-in elsewhere signs Hypomnema out. Hypomnema " +
   "then opens Xiaohongshu's search page as that account in a browser of its own, one search at a time, 15 seconds " +
@@ -397,6 +397,11 @@ test("the Chinese sources' cards name their backends and Xiaohongshu's risks", a
   ])
   expect(await fits(page)).toBe(true)
   await shot(page, "listening-chinese-sources")
+  // The page scrolls in its own frame: on a phone, a picture of each card's rest.
+  await backends.getByRole("listitem").last().scrollIntoViewIfNeeded()
+  await shot(page, "listening-chinese-backends")
+  await card(page, "Xiaohongshu").scrollIntoViewIfNeeded()
+  await shot(page, "listening-chinese-xiaohongshu")
 
   await card(page, "Xiaohongshu")
     .getByRole("button", { name: "Read the risks and turn on" })

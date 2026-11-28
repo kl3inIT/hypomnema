@@ -29,8 +29,13 @@ import (
 //     with its xsec_token (last30days-skill-cn xiaohongshu.py:122-129); a search card has no date, so a note is
 //     undated and the filter bounds it;
 //   - the search answer's own statuses and codes: HTTP 461 and 471 its captcha, code 300012 an IP risk and 300011 an
-//     account security block, each a refusal (MediaCrawler media_platform/xhs/client.py:78-80 and 158-180, read only),
+//     account security block, each a refusal (MediaCrawler media_platform/xhs/client.py:78-80, 158-164 and 179-183, read only),
 //     429 a rate limit.
+//
+// Departure from the issue's table: xiaohongshu-mcp serves its search to other programs as POST /api/v1/feeds/search
+// (routes.go:47-57), which last30days-skill-cn calls (xiaohongshu.py:132-171). That route is the server's own; here
+// the browser flow behind it (search.go) is rewritten in Go and run in the account's browser context, so no
+// xiaohongshu-mcp server runs beside the control plane.
 
 const (
 	xiaohongshuURL = "https://www.xiaohongshu.com"
@@ -157,7 +162,7 @@ func xiaohongshuPublishTime(from, to time.Time) string {
 func xiaohongshuPageBackend() Backend {
 	return sessionBackend(Backend{
 		Name: BackendXiaohongshuPage, Host: "xiaohongshu.com",
-		Search: signedPageSearch("xiaohongshu.com", xiaohongshuCadence, xiaohongshuPageRead),
+		Search: signedPageSearch(xiaohongshuPageRead),
 	})
 }
 
@@ -232,82 +237,154 @@ func (s *xiaohongshuSearched) read(ctx context.Context, page Page, seen map[stri
 	}
 }
 
-// xiaohongshuPageRead searches in the account's tab, filters it to the window, and reads its notes.
+// xiaohongshuPageRead searches in the account's tab, filters it to the window, and reads its notes. The search and
+// the filter's search are each a read in a turn of their own (pageStep; radar collection-pacing-contract.md:7-10, the
+// filter's click sends Xiaohongshu a search; review round 1 of PR #1364).
 func xiaohongshuPageRead(ctx context.Context, r Request, page Page) (Result, error) {
-	if err := page.Navigate(ctx, xiaohongshuSearchURL(r.Query)); err != nil {
-		return Result{}, Fail(CodeBroken, "opening Xiaohongshu's search: %s", err.Error())
-	}
-
 	var (
 		searched xiaohongshuSearched
 		seen     = map[string]bool{}
+		st       xiaohongshuState
+		res      Result
+		filter   = xiaohongshuPublishTime(r.From, r.To)
 	)
 
+	// look reads the page once. What the page's own requests answered is read before where it landed: a search answered
+	// 300012 or 429 and then sent to a sign-in path is that refusal or that rate limit, not a sign-in asked
+	// (review round 1 of PR #1364; Agent-Reach #1011, 300012 beside the redirect).
 	look := func() (xiaohongshuState, *SourceError) {
-		var st xiaohongshuState
+		var got xiaohongshuState
 
-		if page.Evaluate(ctx, xiaohongshuReadiness+"("+jsArgs(r.Query)+")", &st) != nil {
+		if page.Evaluate(ctx, xiaohongshuReadiness+"("+jsArgs(r.Query)+")", &got) != nil {
 			// A navigation makes the page's context go for a moment (search_ready.go:166-185): looked at again.
 			return xiaohongshuState{}, nil //nolint:nilerr // Not a failure of the read: the next look reads it.
-		}
-
-		if f := xiaohongshuLanding(st); f != nil {
-			return st, f
 		}
 
 		searched.read(ctx, page, seen, r.now())
 
 		if f := siteThrottled(ctx, page, xiaohongshuSite, r.now(), xiaohongshuRefused...); f != nil {
-			return st, f
+			return got, f
 		}
 
 		if f := searched.failed; f != nil && f.Code != CodeBroken {
-			return st, f
+			return got, f
 		}
 
-		return st, nil
-	}
-
-	st, err := xiaohongshuWait(ctx, r, look, func(st xiaohongshuState) bool {
-		return st.Ready || st.Empty && searched.empty || st.Failed && searched.failed != nil
-	}, xiaohongshuLoad)
-	if err != nil {
-		return Result{}, err
-	}
-
-	switch {
-	case st.Failed && searched.failed != nil:
-		return Result{}, searched.failed
-	case !st.Ready && !(st.Empty && searched.empty):
-		return Result{}, Fail(CodeBroken, "Xiaohongshu's search page did not show this search's notes in time")
-	case !st.Ready:
-		return Result{Detail: "Xiaohongshu's search has no note"}, nil
-	}
-
-	filter := xiaohongshuPublishTime(r.From, r.To)
-	if filter != "" {
-		if err := xiaohongshuFilter(ctx, r, page, filter, st.IDs, look); err != nil {
-			return Result{}, err
+		if f := xiaohongshuLanding(got); f != nil {
+			return got, f
 		}
+
+		return got, nil
 	}
 
-	// Looked at once more before the feeds are read: a block may land in between (search.go:128-133).
-	if _, f := look(); f != nil {
+	// finish looks once more before the feeds are read, a block may land in between (search.go:128-133), and reads
+	// them: a clean zero when the page is empty beside an answer that says there is no more.
+	finish := func() *SourceError {
+		got, f := look()
+		if f != nil {
+			return f
+		}
+
+		if got.Empty && searched.empty {
+			res.Detail = "Xiaohongshu's search has no note"
+			if filter != "" {
+				res.Detail += " published " + filter
+			}
+
+			return nil
+		}
+
+		items, f := xiaohongshuFeeds(ctx, page)
+		if f != nil {
+			return f
+		}
+
+		res.Items = items[:min(len(items), r.Limit)]
+
+		res.Detail = fmt.Sprintf("Xiaohongshu's search showed %d notes", len(res.Items))
+		if filter != "" {
+			res.Detail += ", published " + filter
+		}
+
+		return nil
+	}
+
+	f := r.pageStep(ctx, "xiaohongshu.com", xiaohongshuCadence, func() *SourceError {
+		if err := page.Navigate(ctx, xiaohongshuSearchURL(r.Query)); err != nil {
+			return Fail(CodeBroken, "opening Xiaohongshu's search: %s", err.Error())
+		}
+
+		var err error
+
+		st, err = xiaohongshuWait(ctx, r, look, func(st xiaohongshuState) bool {
+			return st.Ready || st.Empty && searched.empty || st.Failed && searched.failed != nil
+		}, xiaohongshuLoad)
+		if err != nil {
+			return AsFailure(err)
+		}
+
+		// A verification keeps the cookies only when the page says an account is signed in, as xiaohongshu-mcp checks
+		// for the signed-in user before it reads (login.go:20-36): a visitor has a web_session too.
+		if r.Session.Verifying() && st.LoggedIn != 1 {
+			return Fail(CodeNeedLogin, "Xiaohongshu's page does not say the account is signed in")
+		}
+
+		switch {
+		case st.Failed && searched.failed != nil:
+			return searched.failed
+		case !st.Ready && !(st.Empty && searched.empty):
+			return Fail(CodeBroken, "Xiaohongshu's search page did not show this search's notes in time")
+		case !st.Ready:
+			res.Detail = "Xiaohongshu's search has no note"
+
+			return nil
+		case filter == "":
+			return finish()
+		}
+
+		return nil
+	})
+	if f != nil || !st.Ready || filter == "" {
+		if f != nil {
+			return Result{}, f
+		}
+
+		return res, nil
+	}
+
+	f = r.pageStep(ctx, "xiaohongshu.com", xiaohongshuCadence, func() *SourceError {
+		before := st.IDs
+		searched.empty = false
+
+		if err := xiaohongshuFilter(ctx, r, page, filter, look, func(st xiaohongshuState) bool {
+			return st.IDs != "" && st.IDs != before || st.Empty && searched.empty
+		}); err != nil {
+			return AsFailure(err)
+		}
+
+		return finish()
+	})
+	if f != nil {
 		return Result{}, f
 	}
 
+	return res, nil
+}
+
+// xiaohongshuFeeds reads the notes from the page's state (search.go:178-204).
+func xiaohongshuFeeds(ctx context.Context, page Page) ([]Item, *SourceError) {
 	var raw string
 	if err := page.Evaluate(ctx, xiaohongshuFeedsScript, &raw); err != nil {
-		return Result{}, Fail(CodeBroken, "reading Xiaohongshu's feeds: %s", err.Error())
+		return nil, Fail(CodeBroken, "reading Xiaohongshu's feeds: %s", err.Error())
 	}
 
 	if raw == "" {
-		return Result{}, Fail(CodeBroken, "Xiaohongshu's page has no feeds in its state")
+		return nil, Fail(CodeBroken, "Xiaohongshu's page has no feeds in its state")
 	}
 
 	var feeds []xiaohongshuFeed
 	if err := json.Unmarshal([]byte(raw), &feeds); err != nil {
-		return Result{}, Fail(CodeBroken, "Xiaohongshu's feeds do not decode: %s", err.Error())
+		return nil, Fail(CodeBroken, "Xiaohongshu's feeds do not decode: %s", err.Error())
 	}
 
 	var items []Item
@@ -318,20 +395,11 @@ func xiaohongshuPageRead(ctx context.Context, r Request, page Page) (Result, err
 		}
 	}
 
-	if len(items) > r.Limit {
-		items = items[:r.Limit]
-	}
-
-	detail := fmt.Sprintf("Xiaohongshu's search showed %d notes", len(items))
-	if filter != "" {
-		detail += ", published " + filter
-	}
-
 	if len(items) == 0 {
-		return Result{}, Fail(CodeBroken, "Xiaohongshu's feeds held %d entries and no note", len(feeds))
+		return nil, Fail(CodeBroken, "Xiaohongshu's feeds held %d entries and no note", len(feeds))
 	}
 
-	return Result{Items: items, Detail: detail}, nil
+	return items, nil
 }
 
 // xiaohongshuLanding is a block where the page landed: a /website-login path, a host that is not Xiaohongshu's (a
@@ -404,9 +472,10 @@ type xiaohongshuPoint struct {
 }
 
 // xiaohongshuFilter chooses the 发布时间 option in the filter panel and waits for the feeds to change; a feed that does
-// not change in time is read as it is, as waitFeedsChanged leaves it (search.go:222-239).
-func xiaohongshuFilter(ctx context.Context, r Request, page Page, option, before string,
-	look func() (xiaohongshuState, *SourceError),
+// not change in time is read as it is, as waitFeedsChanged leaves it (search.go:222-239); done says they changed, or
+// the filtered search was answered empty.
+func xiaohongshuFilter(ctx context.Context, r Request, page Page, option string,
+	look func() (xiaohongshuState, *SourceError), done func(xiaohongshuState) bool,
 ) error {
 	find := func(what string) (xiaohongshuPoint, error) {
 		var p xiaohongshuPoint
@@ -456,9 +525,7 @@ func xiaohongshuFilter(ctx context.Context, r Request, page Page, option, before
 		return Fail(CodeBroken, "choosing Xiaohongshu's filter: %s", err.Error())
 	}
 
-	_, err = xiaohongshuWait(ctx, r, look, func(st xiaohongshuState) bool {
-		return st.IDs != "" && st.IDs != before
-	}, xiaohongshuFilterWait)
+	_, err = xiaohongshuWait(ctx, r, look, done, xiaohongshuFilterWait)
 
 	return err
 }

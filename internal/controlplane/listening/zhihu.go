@@ -214,7 +214,7 @@ func (o zhihuObject) item(entryType string) (Item, bool) {
 func zhihuPageBackend() Backend {
 	return sessionBackend(Backend{
 		Name: BackendZhihuPage, Host: "zhihu.com",
-		Search: signedPageSearch("zhihu.com", chineseCadence, zhihuPageRead),
+		Search: signedPageSearch(zhihuPageRead),
 	})
 }
 
@@ -224,12 +224,11 @@ func zhihuXHR(u *url.URL) bool {
 }
 
 // zhihuPageRead opens the search in the account's tab and reads the search_v3 answers its page receives, the first,
-// then one scroll's (crawler_bridge.py:1090-1101).
+// then one scroll's (crawler_bridge.py:1102-1106: 8 s for the first, one scroll, 1.5 s), each a read in its own turn
+// (pageStep). A 401 or 403 a later answer met ends the session with the posts read before it kept, as X keeps its
+// pages read before a failure (x.go search; review round 1 of PR #1364).
 func zhihuPageRead(ctx context.Context, r Request, page Page) (Result, error) {
 	address := zhihuURL + "/search?" + url.Values{"type": {"content"}, "q": {r.Query}}.Encode()
-	if err := page.Navigate(ctx, address); err != nil {
-		return Result{}, Fail(CodeBroken, "opening Zhihu's search: %s", err.Error())
-	}
 
 	var (
 		res    Result
@@ -254,35 +253,70 @@ func zhihuPageRead(ctx context.Context, r Request, page Page) (Result, error) {
 			}
 
 			read = true
-
-			for _, it := range got.Items {
-				if !containsItem(res.Items, it) {
-					res.Items = append(res.Items, it)
-				}
-			}
+			res.Items = appendNew(res.Items, got.Items)
 		}
 	}
 
-	for look := 1; look <= int(pageLoad/pagePoll); look++ {
-		take()
-
+	// met is what stops the read: a throttle on any of the page's requests, or the session's end a search answered.
+	met := func() *SourceError {
 		if f := siteThrottled(ctx, page, zhihuSite, r.now()); f != nil {
-			return Result{}, f
+			return f
 		}
 
-		if read || failed != nil && failed.Code == CodeNeedLogin {
-			break
+		if stops(failed) {
+			return failed
 		}
 
-		if err := r.wait(ctx, pagePoll); err != nil {
-			return Result{}, AsFailure(err)
+		return nil
+	}
+
+	f := r.pageStep(ctx, "zhihu.com", chineseCadence, func() *SourceError {
+		if err := page.Navigate(ctx, address); err != nil {
+			return Fail(CodeBroken, "opening Zhihu's search: %s", err.Error())
 		}
+
+		for look := 1; look <= int(pageLoad/pagePoll) && !read; look++ {
+			take()
+
+			if f := met(); f != nil {
+				return f
+			}
+
+			if read {
+				break
+			}
+
+			if err := r.wait(ctx, pagePoll); err != nil {
+				return AsFailure(err)
+			}
+		}
+
+		return nil
+	})
+
+	switch {
+	case stops(f):
+		return partial(res, f)
+	case f != nil:
+		return Result{}, f
 	}
 
 	if read && len(res.Items) < r.Limit {
-		// One scroll more, as crawler_bridge.py:1097-1100 does once the first answer came.
-		if page.Evaluate(ctx, "window.scrollBy(0, 2400)", nil) == nil && r.wait(ctx, 1500*time.Millisecond) == nil {
+		f = r.pageStep(ctx, "zhihu.com", chineseCadence, func() *SourceError {
+			if page.Evaluate(ctx, "window.scrollBy(0, 2400)", nil) != nil {
+				return nil //nolint:nilerr // A scroll that cannot be made reads nothing more: the first page stands.
+			}
+
+			if err := r.wait(ctx, 1500*time.Millisecond); err != nil {
+				return AsFailure(err)
+			}
+
 			take()
+
+			return met()
+		})
+		if stops(f) {
+			return partial(res, f)
 		}
 	}
 
@@ -295,14 +329,7 @@ func pageResult(ctx context.Context, page Page, s signin.Site, refused []int, r 
 	failed *SourceError,
 ) (Result, error) {
 	if f := siteThrottled(ctx, page, s, r.now(), refused...); f != nil {
-		if len(res.Items) == 0 {
-			return Result{}, f
-		}
-
-		f.restBackend = true
-		res.Failed = f
-
-		return res, nil
+		return partial(res, f)
 	}
 
 	if len(res.Items) > r.Limit {
