@@ -3400,21 +3400,25 @@ flowchart LR
     - **`telegram.db`** beside the control plane's database (private): gotd's session (`tg_sessions`, keyed by the
       owner's Telegram user id), the update state (`tg_state`, `tg_channel_state`) and access hashes
       (`tg_access_hashes`) as mautrix/telegram keeps them, the people's names (`tg_users`), and the mirror
-      `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s; `tg_version` 0.
+      `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s; `tg_version` 0. A new update
+      state keeps the channels' pts, as mautrix's store does (gotd's file storage forgets them).
     - **Every chat kept**: gotd's updates manager recovers gaps itself and hands new, edited and deleted messages to
       the mirror; a group or channel created is listed from its service message, and one the account is removed
       from (or loses, `OnChannelInaccessible`) leaves the list. A channel gap it cannot recover (`OnChannelGap`)
-      keeps the latest messages it came with and fetches those since the last message kept before the gap (read when
-      the gap is reported), at most 500 (mautrix's `max_catchup_messages`).
+      keeps the latest messages it came with when it is reported, and fetches those since the last message kept
+      before the gap (read then too), at most 500 (mautrix's `max_catchup_messages`), keeping them once all are
+      fetched. A fetched service message is skipped, as mautrix's backfill: only live updates change a chat.
     - **The listing of dialogs** (`tg_dialog_sync`): every dialog, 100 a page, each chat kept with its latest message
       and each listed channel tracked by the updates manager from its dialog's pts. It runs after a link and goes on
-      from its kept page cursor on each connection until done, as mautrix's chat sync; a gap of the account's own
-      updates (`OnTooLong`) or a state not found starts it again, catching each chat up as a channel gap is. A short
-      page ends it only when the count is reached (gotd's dialogs iterator).
+      from its kept page cursor on each session's start and each reconnection until done, as mautrix's chat sync,
+      and after a failure again with gotd's reconnection backoff; a gap of the account's own updates (`OnTooLong`)
+      or a state not found starts it again, catching each chat up as a channel gap is, a chat's latest message kept
+      only after its gap. A short page ends it only when the count is reached, and a page without a latest message
+      keeps the offset before (gotd's dialogs iterator).
     - **The past**: `Backfill` fetches older messages with `messages.getHistory`, 100 a page, one fetch at a time,
       waiting 2 s more each page up to 15 s (20 s at most for one fetch of 500); no takeout. gotd's flood-wait
       middleware waits out a `FLOOD_WAIT` of up to a minute, five times; a longer one fails the request (a listing
-      resumes on the next connection). `messages.readHistory` is never called, so nothing is marked read.
+      tries again after its backoff). `messages.readHistory` is never called, so nothing is marked read.
     - **Chats**: ids `user:<id>`, `chat:<id>`, `channel:<id>`. A person is `dm`; a bot or an account Telegram marks
       verified, support, scam or fake is `bot`; a basic group, a megagroup or a forum (one chat) is `group`; a
       broadcast channel or a gigagroup is `broadcast`. A deleted account and a chat left or lost are not listed;

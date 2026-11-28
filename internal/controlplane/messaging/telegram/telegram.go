@@ -424,7 +424,7 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 
 			return err
 		},
-		OnFrozen: func(_ context.Context, st telegram.FreezeState) { a.froze(st) },
+		OnFrozen:          func(_ context.Context, st telegram.FreezeState) { a.froze(st) },
 		OnConnectionState: func(st telegram.ConnectionState) { a.connectionChanged(jobs, st) },
 	})
 
@@ -458,13 +458,16 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 	})
 }
 
-// connectionChanged follows gotd's connection as it drops and connects again by itself (telegram/connect.go:148-175).
-func (a *Account) connectionChanged(_ *background, st telegram.ConnectionState) {
+// connectionChanged follows gotd's connection as it drops and connects again by itself (telegram/connect.go:148-175),
+// within the same session: a listing the drop cut short goes on once it is back, as mautrix resumes its chat sync on
+// each connection (pkg/connector/client.go:603-612).
+func (a *Account) connectionChanged(jobs *background, st telegram.ConnectionState) {
 	switch st {
 	case telegram.ConnectionStateDisconnected:
 		a.dropped()
 	case telegram.ConnectionStateReady:
 		a.reconnected()
+		a.resumeListing(jobs)
 	case telegram.ConnectionStateConnecting:
 	}
 }
@@ -480,12 +483,25 @@ func (a *Account) updatesConfig(jobs *background, logger log.Logger) updates.Con
 		Logger:       logger,
 		// The last message known before the gap is read now, before the channel's next updates are kept (gotd
 		// telegram/updates/config.go:55-65: what lies between it and gap.Messages is to be fetched).
+		// What the gap came with is kept now too, in the order gotd reports (keepGap); what lies between is fetched in
+		// the background.
 		OnChannelGap: func(gap updates.ChannelGap) {
-			newest, err := a.newestOf(jobs.context(), channelID(gap.ChannelID))
-			a.spawned(jobs.context(), "reading a channel's last message before its gap", err)
+			ctx := jobs.context()
+			if ctx == nil {
+				return
+			}
+
+			newest, err := a.newestOf(ctx, channelID(gap.ChannelID))
+			if err != nil {
+				a.spawned(ctx, "reading a channel's last message before its gap", err)
+
+				return
+			}
+
+			a.spawned(ctx, "keeping a channel's gap", a.keepGap(ctx, gap))
 
 			jobs.spawn(func(ctx context.Context, c conn) {
-				a.spawned(ctx, "recovering a channel's gap", a.recoverGap(ctx, c.api, newest, gap))
+				a.spawned(ctx, "recovering a channel's gap", a.fillGap(ctx, c.api, newest, gap))
 			})
 		},
 		// A channel the account lost (CHANNEL_PRIVATE on getChannelDifference, config.go:66-70) leaves the list.
@@ -514,22 +530,60 @@ func (a *Account) relist(jobs *background) {
 		return
 	}
 
-	jobs.spawn(func(ctx context.Context, c conn) { a.spawned(ctx, "listing the dialogs", a.syncDialogs(ctx, c)) })
+	a.resumeListing(jobs)
 }
 
 // onStart marks the session open once the updates manager runs, and goes on with a listing of the dialogs a former
 // connection left unfinished, as mautrix resumes its chat sync on each connection (pkg/connector/client.go:603-612).
 func (a *Account) onStart(jobs *background) {
 	a.connected()
-	jobs.spawn(func(ctx context.Context, c conn) { a.spawned(ctx, "listing the dialogs", a.syncDialogs(ctx, c)) })
+	a.resumeListing(jobs)
 }
 
-// newestOf is the id of a chat's newest message kept, zero when none is or ctx is nil.
-func (a *Account) newestOf(ctx context.Context, chat string) (int, error) {
-	if ctx == nil {
-		return 0, nil
-	}
+// resumeListing goes on with the listing of the dialogs in the background until it is done, or wakes the one already
+// running to try again at once.
+func (a *Account) resumeListing(jobs *background) {
+	jobs.list(func(ctx context.Context, c conn, wake <-chan struct{}) { a.listUntilDone(ctx, c, jobs, wake) })
+}
 
+// listUntilDone runs the listing until it is done or the connection ends. A failure, a request whose retries are
+// spent or a flood wait longer than the middleware waits too, is tried again after gotd's reconnection backoff
+// (retryWait), or at once when the connection comes back (connectionChanged) or a new listing starts (relist).
+func (a *Account) listUntilDone(ctx context.Context, c conn, jobs *background, wake <-chan struct{}) {
+	wait := a.retry()
+
+	for {
+		err := a.syncDialogs(ctx, c)
+		if ctx.Err() != nil {
+			jobs.listed()
+
+			return
+		}
+
+		if err == nil {
+			if jobs.listed() {
+				return
+			}
+
+			continue
+		}
+
+		a.spawned(ctx, "listing the dialogs", err)
+
+		t := time.NewTimer(wait.NextBackOff())
+
+		select {
+		case <-t.C:
+		case <-wake:
+		case <-ctx.Done():
+		}
+
+		t.Stop()
+	}
+}
+
+// newestOf is the id of a chat's newest message kept, zero when none is.
+func (a *Account) newestOf(ctx context.Context, chat string) (int, error) {
 	_, newest, err := a.store.edges(ctx, a.key, chat)
 
 	return newest, err
@@ -563,13 +617,16 @@ type channelTracker interface {
 	TrackChannel(ctx context.Context, channelID, accessHash int64, pts int) error
 }
 
-// background is the fetches the updates manager asked for during one connection.
+// background is the fetches the updates manager asked for during one connection, and its listing of the dialogs:
+// listing says one runs, and wake asks it to go on.
 type background struct {
-	mu     sync.Mutex
-	ctx    context.Context //nolint:containedctx // The connection's, which every fetch ends with.
-	cancel context.CancelFunc
-	conn   conn
-	wg     sync.WaitGroup
+	mu      sync.Mutex
+	ctx     context.Context //nolint:containedctx // The connection's, which every fetch ends with.
+	cancel  context.CancelFunc
+	conn    conn
+	wg      sync.WaitGroup
+	listing bool
+	wake    chan struct{}
 }
 
 func (b *background) start(ctx context.Context, c conn) {
@@ -604,6 +661,51 @@ func (b *background) spawn(f func(ctx context.Context, c conn)) {
 	ctx, c := b.ctx, b.conn
 
 	b.wg.Go(func() { f(ctx, c) })
+}
+
+// list runs f as the connection's listing, unless one runs: that one is woken instead. Asked before the connection
+// started or after it ended, it does nothing.
+func (b *background) list(f func(ctx context.Context, c conn, wake <-chan struct{})) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.ctx == nil || b.ctx.Err() != nil {
+		return
+	}
+
+	if b.wake == nil {
+		b.wake = make(chan struct{}, 1)
+	}
+
+	if b.listing {
+		select {
+		case b.wake <- struct{}{}:
+		default:
+		}
+
+		return
+	}
+
+	b.listing = true
+	ctx, c, wake := b.ctx, b.conn, b.wake
+
+	b.wg.Go(func() { f(ctx, c, wake) })
+}
+
+// listed ends the listing that runs, and says true; false when it was woken meanwhile, to go on.
+func (b *background) listed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	select {
+	case <-b.wake:
+		return false
+	default:
+	}
+
+	b.listing = false
+
+	return true
 }
 
 // stop ends the fetches and waits for them.
