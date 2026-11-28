@@ -17,7 +17,7 @@ import (
 // control plane's chat coordinator token.
 type repoWorld struct {
 	*world
-	beyond Bot
+	atlas  Bot
 	main   Chat
 	parent Token
 }
@@ -34,19 +34,19 @@ func newRepoWorld(t *testing.T) repoWorld {
 	main, _, err := w.s.OpenMainChat(ctx, "", "", "", ChatModel{})
 	require.NoError(t, err)
 
-	beyond, err := w.s.PutBot(ctx, Bot{Name: "BeyondPilot", Persona: "The BeyondPilot project."})
+	atlas, err := w.s.PutBot(ctx, Bot{Name: "Atlas", Persona: "The Atlas project."})
 	require.NoError(t, err)
 
-	beyond, err = w.s.SetBotRepos(ctx, beyond.ID, []string{"acme/beyondpilot"})
+	atlas, err = w.s.SetBotRepos(ctx, atlas.ID, []string{"acme/atlas"})
 	require.NoError(t, err)
 
-	return repoWorld{world: w, beyond: beyond, main: main, parent: parent}
+	return repoWorld{world: w, atlas: atlas, main: main, parent: parent}
 }
 
 // fromBot is a Run created by a Bot's pi in its chat, as the client API makes it from the pi's token.
 func (w repoWorld) fromBot(bot, chat, repo string, named bool) (Run, error) {
 	return w.s.CreateRunOnce(w.t.Context(), Once{}, NewRun{
-		Objective: "Fix the pilot's report", CreatedBy: "pi", Repo: repo, ChatID: chat, ChatNamed: named, Bot: bot,
+		Objective: "Fix the report", CreatedBy: "pi", Repo: repo, ChatID: chat, ChatNamed: named, Bot: bot,
 		CoordinatorTokenID: w.parent.ID,
 	})
 }
@@ -60,40 +60,40 @@ func TestARepositoryHasOneOwningBot(t *testing.T) {
 	w := newRepoWorld(t)
 	ctx := t.Context()
 
-	assert.Equal(t, []string{"acme/beyondpilot"}, w.beyond.Repos)
+	assert.Equal(t, []string{"acme/atlas"}, w.atlas.Repos)
 
-	_, err := w.s.AddRepo(ctx, "beyondpilot", "acme/BeyondPilot", "", "", "", "")
+	_, err := w.s.AddRepo(ctx, "atlas", "acme/Atlas", "", "", "", "")
 	require.NoError(t, err)
 
 	repos, err := w.s.ListRepos(ctx)
 	require.NoError(t, err)
 	require.Len(t, repos, 1)
-	assert.Equal(t, w.beyond.ID, repos[0].Bot, "the registered repository names the Bot that owns it")
+	assert.Equal(t, w.atlas.ID, repos[0].Bot, "the registered repository names the Bot that owns it")
 
-	vmap, err := w.s.PutBot(ctx, Bot{Name: "VMAP"})
+	orbit, err := w.s.PutBot(ctx, Bot{Name: "Orbit"})
 	require.NoError(t, err)
 
-	for _, claim := range []string{"acme/beyondpilot", "https://github.com/ACME/BeyondPilot", "beyondpilot"} {
-		_, err = w.s.SetBotRepos(ctx, vmap.ID, []string{"acme/vmap", claim})
+	for _, claim := range []string{"acme/atlas", "https://github.com/ACME/Atlas", "atlas"} {
+		_, err = w.s.SetBotRepos(ctx, orbit.ID, []string{"acme/orbit", claim})
 		require.ErrorIs(t, err, storeerr.ErrConflict, claim)
-		assert.Contains(t, err.Error(), "BeyondPilot", "the refusal names the Bot that holds it")
+		assert.Contains(t, err.Error(), "Atlas", "the refusal names the Bot that holds it")
 	}
 
-	got, err := w.s.GetBot(ctx, vmap.ID)
+	got, err := w.s.GetBot(ctx, orbit.ID)
 	require.NoError(t, err)
 	assert.Empty(t, got.Repos, "a refused claim changes nothing")
 
 	_, err = w.s.SetBotRepos(ctx, DefaultBotID, []string{"acme/other"})
 	require.ErrorIs(t, err, storeerr.ErrInvalid, "the main Bot owns no repository")
 
-	_, err = w.s.ForceDeleteBot(ctx, w.beyond.ID)
+	_, err = w.s.ForceDeleteBot(ctx, w.atlas.ID)
 	require.NoError(t, err)
 
-	vmapNow, err := w.s.SetBotRepos(ctx, vmap.ID, []string{"acme/beyondpilot"})
+	orbitNow, err := w.s.SetBotRepos(ctx, orbit.ID, []string{"acme/atlas"})
 	require.NoError(t, err, "removing the Bot freed its repository")
-	assert.Equal(t, []string{"acme/beyondpilot"}, vmapNow.Repos)
+	assert.Equal(t, []string{"acme/atlas"}, orbitNow.Repos)
 
-	freed, err := w.s.SetBotRepos(ctx, vmap.ID, nil)
+	freed, err := w.s.SetBotRepos(ctx, orbit.ID, nil)
 	require.NoError(t, err)
 	assert.Empty(t, freed.Repos, "an empty list frees them all")
 }
@@ -108,20 +108,20 @@ func TestAnOwnerRunGoesToTheBotThatOwnsItsRepository(t *testing.T) {
 	ctx := t.Context()
 
 	owned, err := w.s.CreateChatRunOnce(ctx, Once{}, NewRun{
-		Objective: "Fix the pilot's report", CreatedBy: "laptop", Repo: "acme/BeyondPilot",
+		Objective: "Fix the report", CreatedBy: "laptop", Repo: "acme/Atlas",
 	}, w.parent.Name)
 	require.NoError(t, err)
 
-	beyond, err := w.s.GetBot(ctx, w.beyond.ID)
+	atlas, err := w.s.GetBot(ctx, w.atlas.ID)
 	require.NoError(t, err)
-	require.NotEmpty(t, beyond.MainChat, "the owning Bot's main chat is made when it has none")
-	assert.Equal(t, beyond.MainChat, owned.ChatID)
-	assert.Equal(t, w.beyond.ID, owned.Bot)
+	require.NotEmpty(t, atlas.MainChat, "the owning Bot's main chat is made when it has none")
+	assert.Equal(t, atlas.MainChat, owned.ChatID)
+	assert.Equal(t, w.atlas.ID, owned.Bot)
 	assert.Equal(t, RoutedRepoOwner, owned.RoutedBy)
 	assert.Equal(t, w.parent.ID, owned.CoordinatorTokenID)
 
 	named, err := w.s.CreateChatRunOnce(ctx, Once{}, NewRun{
-		Objective: "Fix it here", CreatedBy: "laptop", Repo: "acme/beyondpilot", ChatID: w.main.ID, ChatNamed: true,
+		Objective: "Fix it here", CreatedBy: "laptop", Repo: "acme/atlas", ChatID: w.main.ID, ChatNamed: true,
 	}, w.parent.Name)
 	require.NoError(t, err)
 	assert.Equal(t, w.main.ID, named.ChatID, "the chat named wins")
@@ -146,49 +146,49 @@ func TestABotsRunOnARepositoryAnotherBotOwnsGoesToThatBot(t *testing.T) {
 	w := newRepoWorld(t)
 	ctx := t.Context()
 
-	routed, err := w.fromBot(DefaultBotID, w.main.ID, "acme/beyondpilot", false)
+	routed, err := w.fromBot(DefaultBotID, w.main.ID, "acme/atlas", false)
 	require.NoError(t, err)
 
-	beyond, err := w.s.GetBot(ctx, w.beyond.ID)
+	atlas, err := w.s.GetBot(ctx, w.atlas.ID)
 	require.NoError(t, err)
-	assert.Equal(t, beyond.MainChat, routed.ChatID)
-	assert.Equal(t, w.beyond.ID, routed.Bot)
+	assert.Equal(t, atlas.MainChat, routed.ChatID)
+	assert.Equal(t, w.atlas.ID, routed.Bot)
 	assert.Equal(t, RoutedRepoOwner, routed.RoutedBy)
 	assert.Equal(t, w.parent.ID, routed.CoordinatorTokenID, "the owning Bot's pi, under the same coordinator, takes it")
 
-	assert.Contains(t, w.lastLine(w.main.ID), "Run "+routed.ID+" went to chat "+beyond.MainChat+" of BeyondPilot")
+	assert.Contains(t, w.lastLine(w.main.ID), "Run "+routed.ID+" went to chat "+atlas.MainChat+" of Atlas")
 
-	notice := w.undelivered(beyond.MainChat)
+	notice := w.undelivered(atlas.MainChat)
 	require.Len(t, notice, 1)
-	assert.Contains(t, notice[0].Text, "created run "+routed.ID+" on acme/beyondpilot from its chat "+w.main.ID)
+	assert.Contains(t, notice[0].Text, "created run "+routed.ID+" on acme/atlas from its chat "+w.main.ID)
 	assert.Contains(t, notice[0].Text, "hypomnema runs show "+routed.ID)
 
-	kept, err := w.fromBot(DefaultBotID, w.main.ID, "acme/beyondpilot", true)
+	kept, err := w.fromBot(DefaultBotID, w.main.ID, "acme/atlas", true)
 	require.NoError(t, err)
 	assert.Equal(t, w.main.ID, kept.ChatID, "a chat named is kept")
 	assert.Equal(t, RoutedChat, kept.RoutedBy)
 
-	own, err := w.fromBot(w.beyond.ID, beyond.MainChat, "acme/beyondpilot", false)
+	own, err := w.fromBot(w.atlas.ID, atlas.MainChat, "acme/atlas", false)
 	require.NoError(t, err)
-	assert.Equal(t, beyond.MainChat, own.ChatID)
+	assert.Equal(t, atlas.MainChat, own.ChatID)
 	assert.Equal(t, RoutedOwnChat, own.RoutedBy)
 
 	// Review round 1 of PR #1343: a project Bot that owns a repository does not keep a Run on one no Bot owns; it goes
 	// to the main Bot, routed by default, as the issue's row 3 says ("whose Bot owns X or owns nothing").
-	unowned, err := w.fromBot(w.beyond.ID, beyond.MainChat, "acme/tooling", false)
+	unowned, err := w.fromBot(w.atlas.ID, atlas.MainChat, "acme/tooling", false)
 	require.NoError(t, err)
 	assert.Equal(t, w.main.ID, unowned.ChatID)
 	assert.Equal(t, DefaultBotID, unowned.Bot)
 	assert.Equal(t, RoutedDefault, unowned.RoutedBy)
-	assert.Contains(t, w.lastLine(beyond.MainChat), "Run "+unowned.ID+" went to chat "+w.main.ID)
+	assert.Contains(t, w.lastLine(atlas.MainChat), "Run "+unowned.ID+" went to chat "+w.main.ID)
 
 	// A Bot that owns nothing keeps its Run on a repository no Bot owns.
-	vmap, err := w.s.PutBot(ctx, Bot{Name: "VMAP"})
+	orbit, err := w.s.PutBot(ctx, Bot{Name: "Orbit"})
 	require.NoError(t, err)
-	side, err := w.s.CreateChat(ctx, vmap.ID, "VMAP's chat")
+	side, err := w.s.CreateChat(ctx, orbit.ID, "Orbit's chat")
 	require.NoError(t, err)
 
-	kept2, err := w.fromBot(vmap.ID, side.ID, "acme/tooling", false)
+	kept2, err := w.fromBot(orbit.ID, side.ID, "acme/tooling", false)
 	require.NoError(t, err)
 	assert.Equal(t, side.ID, kept2.ChatID)
 	assert.Equal(t, RoutedOwnChat, kept2.RoutedBy)
@@ -273,7 +273,7 @@ func TestAPassToARemovedBotIsRefused(t *testing.T) {
 	w := newPassWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.SetBotRepos(ctx, w.beyond.ID, []string{"acme/beyondpilot"})
+	_, err := w.s.SetBotRepos(ctx, w.beyond.ID, []string{"acme/atlas"})
 	require.NoError(t, err)
 
 	require.NoError(t, w.s.DeleteBot(ctx, w.vmap.ID))
@@ -294,6 +294,6 @@ func TestAPassToARemovedBotIsRefused(t *testing.T) {
 	wakes := w.wakes(other.Chat)
 	require.Len(t, wakes, 1)
 	assert.NotContains(t, wakes[0], w.vmap.ID, "a removed Bot is not offered")
-	assert.Contains(t, wakes[0], "Repositories: acme/beyondpilot.")
+	assert.Contains(t, wakes[0], "Repositories: acme/atlas.")
 	assert.Contains(t, wakes[0], "not_passed")
 }

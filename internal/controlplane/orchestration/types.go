@@ -139,8 +139,10 @@ type NewRun struct {
 	// ChatID names the chat whose coordinator creates it, if any.
 	ChatID string
 	// ChatNamed says the caller named ChatID itself (`runs create --chat`), rather than it being the chat of the Bot
-	// whose token creates the Run: a named chat is kept whatever Bot owns the Run's repository (issue #1334).
-	ChatNamed bool
+	// whose token creates the Run: a named chat is kept whatever Bot owns the Run's repository (issue #1334). False is
+	// left out of the request's hash (omitempty), so a retry of a create made before the field existed still matches
+	// its receipt and returns the first Run (review round 1 of PR #1343).
+	ChatNamed bool `json:",omitempty"`
 	// Uses are the Connections the Run's workers may use ("google:work").
 	Uses []string
 	// Bot is the Bot whose token creates it, if any: it gives the Run only

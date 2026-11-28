@@ -64,7 +64,7 @@ export type Run = {
 };
 
 /**
- * Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository or which no Bot owns; repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat. Absent for a Run made before, or without a chat.
+ * Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
  */
 export type RoutedBy = 'chat' | 'own_chat' | 'repo_owner' | 'default';
 
@@ -145,7 +145,7 @@ export type NewRun = {
   repo?: string;
   base?: string;
   /**
-   * The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses its own chat when its Bot owns the repository or no Bot does; else the Run goes to the main chat of the Bot that owns the repository, and the creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
+   * The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses its own chat when its Bot owns the repository, or owns none and no Bot owns the repository; else the Run goes to the main chat of the Bot that owns the repository, or of the main Bot when none does, and the creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
    */
   chat_id?: string;
   /**

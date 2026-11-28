@@ -58,11 +58,13 @@ type RoutedBy string
 const (
 	// RoutedChat: the chat its creator named (`runs create --chat`).
 	RoutedChat RoutedBy = "chat"
-	// RoutedOwnChat: the Bot chat that created it, whose Bot owns its repository or which no Bot owns.
+	// RoutedOwnChat: the Bot chat that created it, whose Bot owns its repository, or owns none on a repository no Bot
+	// owns; also a Bot chat's Run without a repository.
 	RoutedOwnChat RoutedBy = "own_chat"
 	// RoutedRepoOwner: the main chat of the Bot that owns its repository (Bot.Repos).
 	RoutedRepoOwner RoutedBy = "repo_owner"
-	// RoutedDefault: the main Bot's main chat, for a Run made outside a Bot chat on a repository no Bot owns.
+	// RoutedDefault: the main Bot's main chat, for a Run on a repository no Bot owns made outside a Bot chat or from
+	// the chat of a Bot that owns other repositories.
 	RoutedDefault RoutedBy = "default"
 )
 
@@ -76,8 +78,8 @@ type runRoute struct {
 
 // routeRun picks the chat of a new Run and sets nr's chat, Bot and coordinator token to it (issue #1334). The order
 // is OpenClaw's (src/routing/resolve-route.ts:578-602): the chat named; else, from a Bot chat whose Bot owns the
-// repository, or a repository no Bot owns, that chat; else the main chat of the Bot that owns the repository; else
-// the main Bot's main chat. As Paperclip resolves an imported issue's assignee before the issue is made
+// repository or owns nothing (the issue's row 3), that chat, which a repository owned by another Bot does not
+// keep (row 4); else the main chat of the Bot that owns the repository; else the main Bot's main chat. As Paperclip resolves an imported issue's assignee before the issue is made
 // (docs/specs/external-task-protocol.md, section 8.1), the Run is made in the chat chosen; it is not moved after.
 // With coordinator, the create is the owner's or a coordinator token's, outside a Bot chat (CreateChatRunOnce); a
 // Bot's token gives nr.Bot and its own chat. A Run of a Routine's script, with neither chat nor coordinator, keeps
@@ -131,16 +133,31 @@ func (s *Service) routeRun(ctx context.Context, q *store.Queries, now int64, nr 
 	switch {
 	case nr.Bot == "" || nr.ChatNamed:
 		return runRoute{by: RoutedChat}, nil
-	case owner == "" || owner == nr.Bot:
+	case owner == nr.Bot || repo.Path == "":
 		return runRoute{by: RoutedOwnChat}, nil
 	}
 
-	chat, err := s.runChat(ctx, q, now, "", owner)
+	// A repository no Bot owns stays with a calling Bot that owns nothing; a Bot that owns repositories, none of them
+	// this one, gives the Run to the main Bot (the issue's row 3, "whose Bot owns X or owns nothing"; review round 1).
+	route, bot := runRoute{by: RoutedRepoOwner, from: nr.ChatID, fromBot: nr.Bot}, owner
+	if owner == "" {
+		owns, err := q.ListReposOfBot(ctx, nr.Bot)
+		if err != nil {
+			return runRoute{}, fmt.Errorf("listing the repositories of bot %s: %w", nr.Bot, err)
+		}
+
+		if len(owns) == 0 {
+			return runRoute{by: RoutedOwnChat}, nil
+		}
+
+		route.by, bot = RoutedDefault, DefaultBotID
+	}
+
+	chat, err := s.runChat(ctx, q, now, "", bot)
 	if err != nil {
 		return runRoute{}, err
 	}
 
-	route := runRoute{by: RoutedRepoOwner, from: nr.ChatID, fromBot: nr.Bot}
 	nr.ChatID, nr.Bot = chat.ID, chat.BotID
 
 	return route, nil
@@ -164,10 +181,11 @@ func ownerOfRepo(ctx context.Context, q *store.Queries, repo githost.Repo) (stri
 	return row.BotID, nil
 }
 
-// tellRouted writes, when a Bot chat's Run went to the Bot that owns its repository, a line in the creating chat
-// naming the Run and the chat it went to (issue #1334, decision 4), as moveMainRunsTx tells the chat a Run left; and
-// wakes the owning Bot's chat with the Run, as AdoptRun tells the chat a Run is assigned to: the creating Bot's token
-// may not add the Run's Tasks (clientapi policy, "belongs to another chat"), so the owning Bot plans them.
+// tellRouted writes, when a Bot chat's Run went to another Bot's main chat (the Bot that owns its repository, or the
+// main Bot for a repository no Bot owns), a line in the creating chat naming the Run and the chat it went to (issue
+// #1334, decision 4), as moveMainRunsTx tells the chat a Run left; and wakes that chat with the Run, as AdoptRun tells
+// the chat a Run is assigned to: the creating Bot's token may not add the Run's Tasks (clientapi policy, "belongs to
+// another chat"), so the Bot it went to plans them.
 func tellRouted(ctx context.Context, q *store.Queries, now int64, runID string, repo githost.Repo, route runRoute,
 	to, toBot string,
 ) error {
@@ -185,9 +203,15 @@ func tellRouted(ctx context.Context, q *store.Queries, now int64, runID string, 
 		return notFound(err, "bot", toBot)
 	}
 
-	text := fmt.Sprintf("%s created run %s on %s from its chat %s; it is yours, since this Bot owns %s. Read its "+
-		"objective, plan its Tasks and coordinate it to its end: hypomnema runs show %s --json",
-		from.Name, runID, repo, route.from, repo, runID)
+	why, whose := "this Bot owns "+repo.String(), "which owns "+repo.String()
+	if route.by == RoutedDefault {
+		why = "no Bot owns " + repo.String() + " and " + from.Name + " owns other repositories"
+		whose = "the main Bot, since no Bot owns " + repo.String()
+	}
+
+	text := fmt.Sprintf("%s created run %s on %s from its chat %s; it is yours, since %s. Read its objective, plan "+
+		"its Tasks and coordinate it to its end: hypomnema runs show %s --json", from.Name, runID, repo, route.from,
+		why, runID)
 	if err := q.InsertRunAdoptionNotice(ctx, store.InsertRunAdoptionNoticeParams{
 		ChatID: to, Text: text, Now: now,
 	}); err != nil {
@@ -200,8 +224,8 @@ func tellRouted(ctx context.Context, q *store.Queries, now int64, runID string, 
 
 	_, err = q.InsertChatMessage(ctx, store.InsertChatMessageParams{
 		ChatID: route.from, Role: string(ChatSystem), Kind: string(ChatWake), Now: now,
-		Text: fmt.Sprintf("Run %s went to chat %s of %s, which owns %s; that chat plans and coordinates it, and its "+
-			"events wake it.", runID, to, owner.Name, repo),
+		Text: fmt.Sprintf("Run %s went to chat %s of %s, %s; that chat plans and coordinates it, and its events "+
+			"wake it.", runID, to, owner.Name, whose),
 	})
 
 	return err

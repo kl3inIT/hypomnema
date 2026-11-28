@@ -1460,11 +1460,11 @@ sequenceDiagram
     without case, a repository at most one Bot's, `ON DELETE CASCADE` with the Bot; `SetBotRepos`, the owner's
     `PUT /bots/{bot_id}/repos`, `bots set --repos`, the Bot page's Repositories; the main Bot owns none and a claim
     on another Bot's repository is a conflict naming it). A new Run's chat is, in order: the chat named (`--chat`,
-    `chat_id`; `chat`); from a Bot chat whose Bot owns the repository or a repository no Bot owns, that chat
-    (`own_chat`); the main chat of the Bot that owns the repository (`repo_owner`); else the main Bot's main chat
-    (`default`). `runs.routed_by` keeps which, shown as the Run's `routed_by` and printed by `runs create`. A Bot
+    `chat_id`; `chat`); from a Bot chat whose Bot owns the repository, or owns none on a repository no Bot owns (or
+    with no repository), that chat (`own_chat`); the main chat of the Bot that owns the repository (`repo_owner`);
+    else the main Bot's main chat (`default`), also for a Run of a Bot that owns other repositories. `runs.routed_by` keeps which, shown as the Run's `routed_by` and printed by `runs create`. A Bot
     chat's Run that goes to another Bot keeps the coordinator token (the one every pi's token is made under, so the
-    owning Bot's pi changes it and the creating pi does not); the owning Bot's chat gets one undelivered notice to
+    receiving Bot's pi changes it and the creating pi does not); the receiving Bot's chat gets one undelivered notice to
     plan it and the creating chat a line (not given to pi) naming the Run and the chat. A Run is not moved after it
     is made; a Routine's script Run stays chatless.
     From: OpenClaw `3320cd365`, `src/routing/resolve-route.ts:317-326,578-602` (`matchedBy`; an explicit target

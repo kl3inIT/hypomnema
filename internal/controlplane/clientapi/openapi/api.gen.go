@@ -6099,7 +6099,7 @@ type NewRepo struct {
 type NewRun struct {
 	Base *string `json:"base,omitempty"`
 
-	// ChatId The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses its own chat when its Bot owns the repository or no Bot does; else the Run goes to the main chat of the Bot that owns the repository, and the creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
+	// ChatId The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses its own chat when its Bot owns the repository, or owns none and no Bot owns the repository; else the Run goes to the main chat of the Bot that owns the repository, or of the main Bot when none does, and the creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
 	ChatId    *string `json:"chat_id,omitempty"`
 	Objective string  `json:"objective"`
 
@@ -6686,7 +6686,7 @@ type RoleMetric struct {
 	Unpriced   int64    `json:"unpriced"`
 }
 
-// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository or which no Bot owns; repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat. Absent for a Run made before, or without a chat.
+// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
 type RoutedBy string
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
@@ -6919,7 +6919,7 @@ type Run struct {
 	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
 	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
 
-	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository or which no Bot owns; repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat. Absent for a Run made before, or without a chat.
+	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
 	RoutedBy  *RoutedBy `json:"routed_by,omitempty"`
 	Status    RunStatus `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -6964,7 +6964,7 @@ type RunDetail struct {
 	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
 	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
 
-	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository or which no Bot owns; repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat. Absent for a Run made before, or without a chat.
+	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
 	RoutedBy  *RoutedBy    `json:"routed_by,omitempty"`
 	Status    RunStatus    `json:"status"`
 	Tasks     []TaskDetail `json:"tasks"`

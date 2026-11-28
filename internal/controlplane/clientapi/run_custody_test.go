@@ -165,48 +165,48 @@ func TestARunGoesToTheBotThatOwnsItsRepository(t *testing.T) {
 	owner, _ := w.token("owner", bearertoken.Owner)
 	main, _, err := w.svc.OpenMainChat(ctx, "", "", "", orchestration.ChatModel{})
 	require.NoError(t, err)
-	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot"})
+	atlas, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "Atlas"})
 	require.NoError(t, err)
-	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "VMAP"})
+	orbit, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "Orbit"})
 	require.NoError(t, err)
 	hypo := w.piToken(testRunCoordinator, main.ID, orchestration.DefaultBotID)
-	claim := openapi.BotRepos{Repos: []string{"acme/beyondpilot"}}
+	claim := openapi.BotRepos{Repos: []string{"acme/atlas"}}
 
-	denied, err := hypo.SetBotReposWithResponse(ctx, beyond.ID, claim)
+	denied, err := hypo.SetBotReposWithResponse(ctx, atlas.ID, claim)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, denied.StatusCode(), "only the owner sets a Bot's repositories")
-	set, err := owner.SetBotReposWithResponse(ctx, beyond.ID, claim)
+	set, err := owner.SetBotReposWithResponse(ctx, atlas.ID, claim)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, set.StatusCode(), string(set.Body))
-	assert.Equal(t, []string{"acme/beyondpilot"}, val(set.JSON200.Repos))
-	taken, err := owner.SetBotReposWithResponse(ctx, vmap.ID, claim)
+	assert.Equal(t, []string{"acme/atlas"}, val(set.JSON200.Repos))
+	taken, err := owner.SetBotReposWithResponse(ctx, orbit.ID, claim)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusConflict, taken.StatusCode())
-	assert.Contains(t, string(taken.Body), "BeyondPilot")
+	assert.Contains(t, string(taken.Body), "Atlas")
 
 	routed, err := hypo.CreateRunWithResponse(ctx, nil, openapi.NewRun{
-		Objective: "Fix the pilot's report", Repo: ptr("acme/beyondpilot"),
+		Objective: "Fix the report", Repo: ptr("acme/atlas"),
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, routed.StatusCode(), string(routed.Body))
 	run := routed.JSON201
-	owned, err := w.svc.GetBot(ctx, beyond.ID)
+	owned, err := w.svc.GetBot(ctx, atlas.ID)
 	require.NoError(t, err)
 	assert.Equal(t, owned.MainChat, val(run.ChatId))
-	assert.Equal(t, beyond.ID, val(run.Bot))
+	assert.Equal(t, atlas.ID, val(run.Bot))
 	assert.Equal(t, openapi.RoutedByRepoOwner, val(run.RoutedBy))
 
 	tasks := openapi.NewTasks{Tasks: []openapi.NewTask{{Ref: "fix", Spec: "fix the report"}}}
 	refused, err := hypo.CreateTasksWithResponse(ctx, run.Id, nil, tasks)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode(), "the Run is the owning Bot's to plan")
-	planned, err := w.piToken(testRunCoordinator, owned.MainChat, beyond.ID).CreateTasksWithResponse(ctx, run.Id, nil,
+	planned, err := w.piToken(testRunCoordinator, owned.MainChat, atlas.ID).CreateTasksWithResponse(ctx, run.Id, nil,
 		tasks)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, planned.StatusCode(), string(planned.Body))
 
 	kept, err := hypo.CreateRunWithResponse(ctx, nil, openapi.NewRun{
-		Objective: "Look here", Repo: ptr("acme/beyondpilot"), ChatId: ptr(main.ID),
+		Objective: "Look here", Repo: ptr("acme/atlas"), ChatId: ptr(main.ID),
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, kept.StatusCode(), string(kept.Body))
@@ -225,8 +225,8 @@ func TestARunGoesToTheBotThatOwnsItsRepository(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, repos.JSON200)
 	for _, b := range repos.JSON200.Data {
-		if b.Id == beyond.ID {
-			assert.Equal(t, []string{"acme/beyondpilot"}, val(b.Repos), "the Bots list carries each one's repositories")
+		if b.Id == atlas.ID {
+			assert.Equal(t, []string{"acme/atlas"}, val(b.Repos), "the Bots list carries each one's repositories")
 		}
 	}
 }

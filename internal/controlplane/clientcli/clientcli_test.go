@@ -1631,29 +1631,29 @@ func TestRunsCreatedByPiGoToTheBotThatOwnsTheRepository(t *testing.T) {
 
 	chat, _, err := w.svc.OpenMainChat(ctx, "", "", "", orchestration.ChatModel{})
 	require.NoError(t, err)
-	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot"})
+	atlas, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "Atlas"})
 	require.NoError(t, err)
 
-	out, err := w.cmd(t, "bots", "set", "BeyondPilot", "--repos", "acme/beyondpilot")
+	out, err := w.cmd(t, "bots", "set", "Atlas", "--repos", "acme/atlas")
 	require.NoError(t, err)
-	assert.Contains(t, out, "repositories: acme/beyondpilot")
+	assert.Contains(t, out, "repositories: acme/atlas")
 
-	_, err = w.cmd(t, "repos", "add", "acme/beyondpilot")
+	_, err = w.cmd(t, "repos", "add", "acme/atlas")
 	require.NoError(t, err)
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)
-	assert.Contains(t, out, "bot: BeyondPilot")
+	assert.Contains(t, out, "bot: Atlas")
 
 	secret, err := w.svc.AddBotToken(ctx, testChatCoordinator, chat.ID, chat.Bot)
 	require.NoError(t, err)
 	w.loginWith(t, secret)
 
-	out, err = w.cmd(t, "runs", "create", "--repo", "acme/beyondpilot", "fix the pilot's report")
+	out, err = w.cmd(t, "runs", "create", "--repo", "acme/atlas", "fix the report")
 	require.NoError(t, err)
-	owned, err := w.svc.GetBot(ctx, beyond.ID)
+	owned, err := w.svc.GetBot(ctx, atlas.ID)
 	require.NoError(t, err)
 	assert.Contains(t, out, "in chat "+owned.MainChat)
-	assert.Contains(t, out, "routed_by repo_owner: bot "+beyond.ID+" owns acme/beyondpilot")
+	assert.Contains(t, out, "routed_by repo_owner: bot "+atlas.ID+" owns acme/atlas")
 
 	var own openapi.Run
 	w.jsonCmd(t, &own, "", "runs", "create", "--repo", "kl3inIT/demo", "health page")

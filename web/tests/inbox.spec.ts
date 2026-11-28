@@ -248,7 +248,7 @@ function world({
       used: false,
       created_at: at(-30 * 60_000),
     },
-  ].filter(() => !quiet)
+  ].filter(() => !quiet && !notPassed)
   let questions = [
     {
       id: "qst_1",
@@ -262,7 +262,7 @@ function world({
       status: "open",
       created_at: at(-40 * 60_000),
     },
-  ].filter(() => !quiet)
+  ].filter(() => !quiet && !notPassed)
   if (passed)
     todos.push(
       todo("tdo_pilot", "Send Kai the pilot's report", {
@@ -272,13 +272,20 @@ function world({
         source: { kind: "owner" },
       }),
     )
-  // Hypo kept a to-do no project Bot fits and said why (issue #1334).
+  // Hypo kept a to-do no project Bot fits and said why (issue #1334). Its pictures are public, so this Inbox holds
+  // only made-up items: the others go.
   if (notPassed)
-    todos.push(
-      todo("tdo_billing", "Pay the Vercel invoice for ELITEX", {
+    todos.splice(
+      0,
+      todos.length,
+      todo("tdo_billing", "Pay the hosting invoice for Acme", {
         assignee: { kind: "bot", name: "bot_main" },
-        not_passed: "It needs the ELITEX billing account, and no project Bot has it.",
+        not_passed: "It needs the Acme billing account, and no project Bot has it.",
         chat_id: "cht_billing",
+        source: { kind: "owner" },
+      }),
+      todo("tdo_domain", "Renew the example.com domain", {
+        due: { kind: "date", date: dayIn(3), zone: "Asia/Ho_Chi_Minh" },
         source: { kind: "owner" },
       }),
     )
@@ -494,7 +501,7 @@ function world({
         actor: { kind: "bot", id: "bot_main" },
         kind: "edited",
         before: { not_passed: null },
-        after: { not_passed: "It needs the ELITEX billing account, and no project Bot has it." },
+        after: { not_passed: "It needs the Acme billing account, and no project Bot has it." },
       },
     ]
   if (waiting)
@@ -998,7 +1005,8 @@ function world({
                 },
                 {
                   id: "bot_beyond",
-                  name: "BeyondPilot",
+                  // A made-up name where the pictures are public (issue #1334).
+                  name: notPassed ? "Atlas" : "BeyondPilot",
                   main: false,
                   ...(withProjects ? { department: "dep_bp" } : {}),
                   persona: "",
@@ -1691,17 +1699,17 @@ test("a to-do the main Bot passed to no Bot shows Not passed with its reason", a
   const w = world({ notPassed: true })
   await w.serve(page)
   await page.goto("/inbox")
-  const row = page.getByTestId("inbox-row").filter({ hasText: "Pay the Vercel invoice for ELITEX" })
+  const row = page.getByTestId("inbox-row").filter({ hasText: "Pay the hosting invoice for Acme" })
   await expect(row.locator('[data-slot="not-passed"]')).toHaveText("Not passed")
   await shot(page, "inbox-not-passed-list")
 
   await page.goto("/inbox?item=todo%3Atdo_billing")
   const detail = item(page)
   await expect(detail).toContainText(
-    /Not passed\s*It needs the ELITEX billing account, and no project Bot has it\./,
+    /Not passed\s*It needs the Acme billing account, and no project Bot has it\./,
   )
   await expect(detail.getByRole("region", { name: "Comments" })).toContainText(
-    "Hypo passed it to no Bot: It needs the ELITEX billing account",
+    "Hypo passed it to no Bot: It needs the Acme billing account",
   )
   await shot(page, "inbox-not-passed")
 })
