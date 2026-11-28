@@ -291,6 +291,15 @@ func (s *Service) record(ctx context.Context, r sourceRead) {
 			return nil
 		}
 
+		// A signed-in source failing with its account's own state was told when the account came to it (accounts.go
+		// met): the same expired session is not told again, after its fallback served in between too.
+		if r.code == CodeNeedLogin || r.code == CodeRefused {
+			a, err := q.GetListeningAccount(ctx, r.source)
+			if err == nil && a.State == string(r.code) {
+				return nil
+			}
+		}
+
 		n, err := q.FlagListeningTold(ctx, store.FlagListeningToldParams{Source: r.source, Now: now})
 		flagged = n == 1
 

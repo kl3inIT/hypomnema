@@ -460,10 +460,16 @@ func (s *Service) keep(ctx context.Context, p Platform, raw, label string) error
 
 	s.clearRests(p)
 
+	// A new session starts with nothing told of it, so its own end is told (postiz clears refreshNeeded when a
+	// channel is connected again, integration.repository.ts:288).
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.PutListeningAccount(ctx, store.PutListeningAccountParams{
+		if err := q.PutListeningAccount(ctx, store.PutListeningAccountParams{
 			Source: p.Name, Label: label, Secret: name, Now: now,
-		})
+		}); err != nil {
+			return err
+		}
+
+		return q.ClearListeningTold(ctx, store.ClearListeningToldParams{Source: p.Name, Now: now})
 	})
 }
 
@@ -683,9 +689,10 @@ func (se *Session) Page(ctx context.Context) (Page, error) {
 
 // met keeps what a real call's failure says of the account: a sign-in asked marks it need_login, a refusal refused,
 // and a throttling page stops the site for its source's Throttle, a candidate's call too, since it went to the same
-// site. The owner is told once: when the account's state changes and the source's told flag is not already set,
-// the flag a broken reading sets too (health.go record), so one expired session is one notice (review round 1 of PR
-// #1359; postiz notifies only where it sets refreshNeeded, integration.repository.ts:603-616).
+// site. The owner is told of each session's change into need_login or refused, once: postiz notifies where it sets
+// refreshNeeded (integration.repository.ts:603-616), which a new connection clears (:288); the change also sets the source's
+// told flag, so the broken reading of the same search tells nothing more (health.go record), nor any later reading
+// whose code is the account's own state (review rounds 1 and 2 of PR #1359). A sign-in clears the flag (keep).
 func (se *Session) met(ctx context.Context, f *SourceError) {
 	if f == nil || f.resting || se.candidate != nil && f.Code != CodeRateLimited {
 		return
@@ -705,8 +712,8 @@ func (se *Session) met(ctx context.Context, f *SourceError) {
 				return err
 			}
 
-			told, err := q.FlagListeningTold(ctx, store.FlagListeningToldParams{Source: se.source, Now: now})
-			flagged = told == 1
+			flagged = true
+			_, err = q.FlagListeningTold(ctx, store.FlagListeningToldParams{Source: se.source, Now: now})
 
 			return err
 		})
@@ -722,26 +729,36 @@ func (se *Session) met(ctx context.Context, f *SourceError) {
 				time.Time{})})
 		}
 	case CodeRateLimited:
-		if se.signed.Throttle == 0 {
-			return
-		}
-
-		until := se.s.now().Add(se.signed.Throttle)
-		if f.Until.After(until) {
-			until = f.Until
-		}
-
-		err := se.s.write(ctx, func(q *store.Queries, now int64) error {
-			return q.StopListeningSource(ctx, store.StopListeningSourceParams{
-				Source: se.source, Until: until.UnixMilli(), Cause: cut(f.Detail, maxCause), Now: now,
-			})
-		})
-		if err != nil {
-			se.s.logger.ErrorContext(ctx, "a listening account's stop was not kept", slog.String("event",
-				"listening.account_unkept"), slog.String("source", se.source), slog.String("error", err.Error()))
-		}
+		se.stop(ctx, f)
 	default:
 		// Any other failure is the read's, not the account's.
+	}
+}
+
+// stop keeps a throttle's stop of the source's site for its Throttle, or longer when the site named a later time; an
+// earlier stop is never shortened (StopListeningSource). A backend calls it before its turn at the site ends, so a
+// read queued behind it reads the stop once its turn comes, as call.do rests a path before its turn ends
+// (http.go:72-101).
+func (se *Session) stop(ctx context.Context, f *SourceError) {
+	if f == nil || f.resting || f.Code != CodeRateLimited || se.signed.Throttle == 0 {
+		return
+	}
+
+	ctx = context.WithoutCancel(ctx)
+
+	until := se.s.now().Add(se.signed.Throttle)
+	if f.Until.After(until) {
+		until = f.Until
+	}
+
+	err := se.s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.StopListeningSource(ctx, store.StopListeningSourceParams{
+			Source: se.source, Until: until.UnixMilli(), Cause: cut(f.Detail, maxCause), Now: now,
+		})
+	})
+	if err != nil {
+		se.s.logger.ErrorContext(ctx, "a listening account's stop was not kept", slog.String("event",
+			"listening.account_unkept"), slog.String("source", se.source), slog.String("error", err.Error()))
 	}
 }
 

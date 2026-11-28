@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,6 +130,20 @@ func TestATabKeepsTheStatusesOfItsOwnRequestsSinceItsNavigation(t *testing.T) {
 	got, err = p.Responses(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, got, "a navigation starts the record again")
+	// Past the record's bound, ordinary answers are dropped and a refusal is still kept (review round 2 of PR #1359).
+	for i := range maxResponses + 5 {
+		id := fmt.Sprint("r", i)
+		event("S1", "Network.requestWillBeSent", `{"requestId":"`+id+`"}`)
+		event("S1", "Network.responseReceived", `{"requestId":"`+id+`","response":{"url":"https://a","status":200}}`)
+	}
+
+	event("S1", "Network.requestWillBeSent", `{"requestId":"late"}`)
+	event("S1", "Network.responseReceived", `{"requestId":"late","response":{"url":"https://www.linkedin.com/r","status":999}}`)
+
+	got, err = p.Responses(t.Context())
+	require.NoError(t, err)
+	assert.Len(t, got, maxResponses+1)
+	assert.Equal(t, 999, got[len(got)-1].Status)
 }
 
 // holdOf is a tab's hold, the one its views take.

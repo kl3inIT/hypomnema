@@ -116,13 +116,15 @@ func linkedInBackend() Backend {
 	return sessionBackend(Backend{Name: BackendRenderedPage, Host: "linkedin.com", Search: linkedInSearch})
 }
 
+// linkedInSearch reads one search in LinkedIn's turn. The site's stop is read again once the turn came, right before
+// the page is opened, and a stop the read meets is kept before the turn ends, so a read or a sign-in's check queued
+// behind it sends nothing, as call.do checks a path's rest inside its turn and rests it before the turn ends
+// (http.go:72-101; Agent-Reach checks a cooldown again inside its slot, runtime/dispatch.py:247-257).
 func linkedInSearch(ctx context.Context, r Request) (Result, error) {
 	page, err := r.Session.Page(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-
-	address := linkedInSearchURL(r.Query, r.From, r.To)
 
 	if r.Read != nil {
 		done, err := r.Read(ctx, "linkedin.com", linkedInCadence)
@@ -132,6 +134,27 @@ func linkedInSearch(ctx context.Context, r Request) (Result, error) {
 
 		defer done()
 	}
+
+	if f := r.Session.Ready(ctx); f != nil {
+		// Not asked: skipped, and no new stop is made of the old one.
+		return Result{}, &SourceError{Code: f.Code, Detail: f.Detail, Until: f.Until, resting: true,
+			transient: f.transient}
+	}
+
+	res, err := linkedInRead(ctx, r, page)
+
+	if err != nil {
+		r.Session.stop(ctx, AsFailure(err))
+	} else {
+		r.Session.stop(ctx, res.Failed)
+	}
+
+	return res, err
+}
+
+// linkedInRead opens the search in the account's tab and reads its posts.
+func linkedInRead(ctx context.Context, r Request, page Page) (Result, error) {
+	address := linkedInSearchURL(r.Query, r.From, r.To)
 
 	if err := page.Navigate(ctx, address); err != nil {
 		return Result{}, Fail(CodeBroken, "opening LinkedIn's search: %s", err.Error())
@@ -153,7 +176,7 @@ func linkedInSearch(ctx context.Context, r Request) (Result, error) {
 			return Result{}, AsFailure(err)
 		}
 
-		next, err := linkedInRead(ctx, page)
+		next, err := linkedInSnap(ctx, page)
 		if err != nil {
 			break
 		}
@@ -177,13 +200,19 @@ func linkedInSearch(ctx context.Context, r Request) (Result, error) {
 		items = items[:r.Limit]
 	}
 
-	// A refused request of the page's own, its results' above all, is LinkedIn throttling the account; a read that
-	// found posts anyway is left as it is, as linkedin-mcp-server leaves a call that succeeds untouched by its record
-	// (docs/decisions/2026-09-23-throttling-is-a-status.md:28-30), and an empty state beside it is no clean zero.
-	if len(items) == 0 {
-		if f := linkedInThrottled(ctx, page, r.now()); f != nil {
+	// A refused request of the page's own, its results' or the next page's a scroll asked for, is LinkedIn throttling
+	// the account: the read is rate limited and the site stopped, the posts read before it kept as a part read, as X's
+	// search keeps the pages read before a failure (x.go search), and an empty state beside it is no clean zero
+	// (review round 2 of PR #1359; linkedin-mcp-server AGENTS.md:222-223 stops on a rate-limit page).
+	if f := linkedInThrottled(ctx, page, r.now()); f != nil {
+		if len(items) == 0 {
 			return Result{}, f
 		}
+
+		f.restBackend = true
+
+		return Result{Items: items, Failed: f, Detail: fmt.Sprintf("LinkedIn's Posts search showed %d posts before "+
+			"it throttled", len(items))}, nil
 	}
 
 	switch {
@@ -232,7 +261,7 @@ func linkedInSearchURL(query string, from, to time.Time) string {
 func linkedInWait(ctx context.Context, r Request, page Page, address string, done func(linkedInPage) bool,
 ) (linkedInPage, error) {
 	for look := 1; ; look++ {
-		snap, err := linkedInRead(ctx, page)
+		snap, err := linkedInSnap(ctx, page)
 		if err == nil {
 			if f := linkedInBarrier(snap); f != nil {
 				return linkedInPage{}, f
@@ -276,9 +305,12 @@ func linkedInOurs(s linkedInPage, address string) bool {
 		return false
 	}
 
+	// The keywords and the date filter both: a page of the same words under the last search's filter is not this one's
+	// (review round 2 of PR #1359).
 	return strings.EqualFold(got.Hostname(), want.Hostname()) &&
 		strings.TrimSuffix(got.Path, "/") == strings.TrimSuffix(want.Path, "/") &&
-		got.Query().Get("keywords") == want.Query().Get("keywords")
+		got.Query().Get("keywords") == want.Query().Get("keywords") &&
+		got.Query().Get("datePosted") == want.Query().Get("datePosted")
 }
 
 // linkedInThrottled is LinkedIn refusing a request the page sent since it was opened, 429 or its 999, on its own
@@ -321,7 +353,7 @@ func linkedInThrottled(ctx context.Context, page Page, now time.Time) *SourceErr
 	return nil
 }
 
-func linkedInRead(ctx context.Context, page Page) (linkedInPage, error) {
+func linkedInSnap(ctx context.Context, page Page) (linkedInPage, error) {
 	var snap linkedInPage
 
 	err := page.Evaluate(ctx, linkedInSnapshot, &snap)

@@ -171,7 +171,7 @@ func (x *xReader) discover(ctx context.Context, r Request) (string, []string, er
 	var bundles []string
 
 	for _, page := range xDiscoveryPages {
-		a, err := x.discoveryPage(ctx, r, page)
+		a, err := x.discoveryPage(ctx, r, page, "x.com/bundles", "text/html")
 		if err != nil {
 			continue
 		}
@@ -197,12 +197,9 @@ func (x *xReader) discover(ctx context.Context, r Request) (string, []string, er
 	)
 
 	for _, u := range bundles {
-		if !xDiscoveryURL(u) {
-			continue
-		}
-
-		a, err := call{host: "abs.twimg.com", gap: 0, address: u, userAgent: xUserAgent, accept: "*/*"}.do(ctx,
-			x.client, r)
+		// Each hop of a bundle's redirects is checked as a page's are (runtime-query-ids.js:257-268 checks every
+		// hop of every discovery fetch).
+		a, err := x.discoveryPage(ctx, r, u, "abs.twimg.com", "*/*")
 		if err != nil {
 			continue
 		}
@@ -233,17 +230,17 @@ func (x *xReader) discover(ctx context.Context, r Request) (string, []string, er
 	return bearer, ids, nil
 }
 
-// discoveryPage reads one of X's pages for its bundles, following its redirects by hand, each hop only to an https
+// discoveryPage reads one of X's pages or bundles, following its redirects by hand, each hop only to an https
 // address of x.com or abs.twimg.com with no credentials and no port (runtime-query-ids.js:12, 80-101,
 // validateDiscoveryUrl; :11, at most five redirects).
-func (x *xReader) discoveryPage(ctx context.Context, r Request, address string) (answer, error) {
+func (x *xReader) discoveryPage(ctx context.Context, r Request, address, host, accept string) (answer, error) {
 	for range maxRedirects + 1 {
 		if !xDiscoveryURL(address) {
 			return answer{}, Fail(CodeBroken, "x.com sent its page to an address its bundles are not read from")
 		}
 
-		a, err := call{host: "x.com/bundles", gap: webGap, address: address, userAgent: xUserAgent,
-			accept: "text/html", redirect: true}.do(ctx, x.client, r)
+		a, err := call{host: host, gap: webGap, address: address, userAgent: xUserAgent, accept: accept,
+			redirect: true}.do(ctx, x.client, r)
 		if err != nil || a.location == "" {
 			return a, err
 		}

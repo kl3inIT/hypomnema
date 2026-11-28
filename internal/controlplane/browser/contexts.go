@@ -67,7 +67,9 @@ type Response struct {
 	RetryAfter string
 }
 
-// maxResponses bounds the responses a tab keeps between two navigations.
+// maxResponses bounds the ordinary responses a tab keeps between two navigations; a refusal (a status of 400 or more)
+// is kept past it, so a throttle is never dropped. Inferred, no reference bounds its record: linkedin-mcp-server keeps
+// only a count and the latest refusal (core/throttle.py:55-57), and this record is kept for one page's read.
 const maxResponses = 1000
 
 // isolated is one browser context of the engine's own, with its connection
@@ -121,7 +123,7 @@ func (iso *isolated) event(ev cdpEvent) {
 		return
 	}
 
-	if !iso.sent[got.RequestID] || len(iso.responses) >= maxResponses {
+	if !iso.sent[got.RequestID] || len(iso.responses) >= maxResponses && got.Response.Status < 400 {
 		return
 	}
 
