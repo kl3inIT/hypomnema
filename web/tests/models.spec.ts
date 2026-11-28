@@ -586,6 +586,71 @@ for (const theme of ["light", "dark"] as const) {
   })
 }
 
+// Scenario: the gateway rests an account whose sign-in was refused, or whose credits are spent, for the usage wait
+// (issue #1335, row 4): nothing changes until the owner acts, so its row says what to do, "Sign in again" or "Add
+// credits", beside why it rests.
+test("an account that only the owner can bring back says what to do", async ({ page }) => {
+  const resets = iso(now + 3600_000)
+  await fakeServer(page, [
+    {
+      id: "acc_refused",
+      runtime: "claude",
+      label: "refused",
+      status: "active",
+      position: 1,
+      email: "owner@example.com",
+      sign_in: "active",
+      cooling_until: resets,
+      cooling_code: "auth",
+      cooling_reason: "Invalid bearer token",
+    },
+    {
+      id: "acc_spent",
+      runtime: "claude",
+      label: "spent",
+      status: "active",
+      position: 2,
+      sign_in: "active",
+      cooling_until: resets,
+      cooling_code: "billing",
+      cooling_reason: "Your credit balance is too low",
+    },
+    {
+      id: "acc_throttled",
+      runtime: "claude",
+      label: "throttled",
+      status: "active",
+      position: 3,
+      sign_in: "active",
+      cooling_until: resets,
+      cooling_code: "rate_limit",
+      cooling_reason: "Too many requests",
+    },
+  ])
+  await page.goto("/settings/models")
+
+  const claude = card(page, "Claude")
+  const refused = claude.getByLabel("Claude account refused")
+  await expect(refused.getByTestId("rest-action")).toContainText("Sign in again")
+  await expect(claude.getByLabel("Claude account spent").getByTestId("rest-action")).toContainText(
+    "Add credits",
+  )
+  // A throttle ends by itself: nothing to do.
+  await expect(claude.getByLabel("Claude account throttled").getByTestId("rest-action")).toHaveCount(0)
+
+  expect(await fits(page)).toBe(true)
+  await refused.scrollIntoViewIfNeeded()
+  await shot(page, "models-rest-action")
+
+  if (process.env.UI_CHECK) {
+    await page.evaluate(() => localStorage.setItem("theme", "light"))
+    await page.reload()
+    await expect(refused.getByTestId("rest-action")).toBeVisible()
+    await refused.scrollIntoViewIfNeeded()
+    await shot(page, "models-rest-action-light")
+  }
+})
+
 // Scenario: the owner opens Models from Settings. Each subscription shows whether it serves now and its accounts
 // in the order the gateway tries them, each with the one thing wrong with it; the gateway's models show where
 // each is served from, in order, and which an agent may name.

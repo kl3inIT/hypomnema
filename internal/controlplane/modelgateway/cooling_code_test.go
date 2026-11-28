@@ -192,7 +192,7 @@ func TestEveryAdapterNamesWhyItsAccountRests(t *testing.T) {
 
 // Scenario: Claude's 429 is its 5-hour or weekly window used up only when Anthropic says the window is rejected
 // (anthropic-ratelimit-unified-status, OmniRoute open-sse/services/claudeLowPriority.ts:241-246); without it, a 429 is
-// a rate limit. Either rests the account as long as before (row 8).
+// a rate limit. How long each rests is TestAClaude429RestsByItsCode's (issue #1335, row 3).
 func TestAClaude429IsAUsageLimitWhenItsWindowIsRejected(t *testing.T) {
 	t.Parallel()
 
@@ -223,8 +223,6 @@ func TestAClaude429IsAUsageLimitWhenItsWindowIsRejected(t *testing.T) {
 			assert.Equal(t, c.code, acc.lastCode())
 			assert.Equal(t, "This request would exceed your account's rate limit. Please try again later.",
 				acc.lastReason())
-			assert.WithinDuration(t, time.Now().Add(time.Hour), acc.cooledUntil(), time.Minute,
-				"a Claude 429 rests the account an hour when Anthropic names no reset, as before")
 		})
 	}
 }
