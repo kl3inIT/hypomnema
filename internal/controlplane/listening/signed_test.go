@@ -196,6 +196,8 @@ type pageFake struct {
 	responses []browser.Response
 	respond   func(address string, scrolls int) []browser.Response
 	bodies    map[string]string
+	// bodyFails is how many reads of each body fail first, as a body not loaded yet does.
+	bodyFails map[string]int
 	scrolls   int
 	snapshot  func(address string, scrolls int) map[string]any
 	// eval, when set, answers every script but a scroll, by the script and the address.
@@ -218,6 +220,12 @@ func (p *pageFake) Responses(context.Context) ([]browser.Response, error) {
 func (p *pageFake) Body(_ context.Context, r browser.Response) ([]byte, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.bodyFails[r.RequestID] > 0 {
+		p.bodyFails[r.RequestID]--
+
+		return nil, fmt.Errorf("the body of %q has not loaded yet", r.RequestID)
+	}
 
 	body, ok := p.bodies[r.RequestID]
 	if !ok {
