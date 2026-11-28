@@ -24,6 +24,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/gotd/contrib/middleware/floodwait"
 	"github.com/gotd/contrib/middleware/ratelimit"
+	"github.com/gotd/log"
 	"github.com/gotd/log/logslog"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/updates"
@@ -188,6 +189,8 @@ type Account struct {
 	// fetchMessagesSema (client.go:209).
 	pause   func(ctx context.Context, page int) error
 	fetchMu sync.Mutex
+	// syncMu makes the listing of dialogs one at a time, as mautrix's syncChatsLock (chatsync.go:58-62).
+	syncMu sync.Mutex
 
 	// cancel and done end the connection that start began.
 	cancel context.CancelFunc
@@ -389,28 +392,11 @@ func errText(err error) string {
 func (a *Account) connect(ctx context.Context, appID int, appHash string) error {
 	logger := logslog.New(a.log.With(slog.String("module", "gotd"), slog.String("account", a.key)))
 	jobs := &background{}
+	// The manager's callbacks have no context: they run on the connection's (updatesConfig).
+	manager := updates.New(a.updatesConfig(jobs, logger)) //nolint:contextcheck // As above.
 
-	manager := updates.New(updates.Config{
-		Handler:      a.handler(),
-		Storage:      a.states,
-		AccessHasher: a.states,
-		Logger:       logger,
-		// gotd gives these no context: each fetch runs on the connection's (background.spawn).
-		OnChannelGap: func(gap updates.ChannelGap) { //nolint:contextcheck // As above.
-			jobs.spawn(func(ctx context.Context, c api) {
-				a.spawned(ctx, "recovering a channel's gap", a.recoverGap(ctx, c, gap))
-			})
-		},
-		OnTooLong: func() { //nolint:contextcheck // As above.
-			jobs.spawn(func(ctx context.Context, c api) { a.spawned(ctx, "catching up", a.syncDialogs(ctx, c, true)) })
-		},
-		OnLoadUserStateFailed: func() { //nolint:contextcheck // As above.
-			jobs.spawn(func(ctx context.Context, c api) {
-				a.spawned(ctx, "listing the dialogs", a.syncDialogs(ctx, c, true))
-			})
-		},
-	})
-
+	// gotd's waiter retries a request Telegram answers FLOOD_WAIT, waiting as long as it says up to a minute, five
+	// times at most (gotd/contrib middleware/floodwait/waiter.go:20-24); a longer wait fails the request.
 	waiter := floodwait.NewWaiter().WithCallback(func(ctx context.Context, wait floodwait.FloodWait) {
 		a.log.WarnContext(ctx, "telegram: flood wait", slog.String("account", a.key), slog.String("request", wait.Name),
 			slog.Duration("wait", wait.Duration))
@@ -452,7 +438,7 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 			a.named(ctx, self)
 
 			raw := client.API()
-			jobs.start(ctx, raw)
+			jobs.start(ctx, conn{api: raw, tracker: manager})
 			defer jobs.stop()
 
 			a.setClient(raw)
@@ -465,10 +451,77 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 			}
 
 			return manager.Run(ctx, raw, self.ID, updates.AuthOptions{
-				OnStart: func(context.Context) { a.connected() },
+				// The listing runs on the connection's context, as every background fetch.
+				OnStart: func(context.Context) { a.onStart(jobs) }, //nolint:contextcheck // As above.
 			})
 		})
 	})
+}
+
+// updatesConfig is the updates manager's: the handler over the mirror, the state and access hashes in telegram.db, and
+// what the manager reports it could not recover. gotd gives these callbacks no context: what they read or write now
+// runs on the connection's (background.context), and each fetch in the background (background.spawn).
+func (a *Account) updatesConfig(jobs *background, logger log.Logger) updates.Config {
+	return updates.Config{
+		Handler:      a.handler(),
+		Storage:      a.states,
+		AccessHasher: a.states,
+		Logger:       logger,
+		// The last message known before the gap is read now, before the channel's next updates are kept (gotd
+		// telegram/updates/config.go:55-65: what lies between it and gap.Messages is to be fetched).
+		OnChannelGap: func(gap updates.ChannelGap) {
+			newest, err := a.newestOf(jobs.context(), channelID(gap.ChannelID))
+			a.spawned(jobs.context(), "reading a channel's last message before its gap", err)
+
+			jobs.spawn(func(ctx context.Context, c conn) {
+				a.spawned(ctx, "recovering a channel's gap", a.recoverGap(ctx, c.api, newest, gap))
+			})
+		},
+		// A channel the account lost (CHANNEL_PRIVATE on getChannelDifference, config.go:66-70) leaves the list.
+		OnChannelInaccessible: func(id int64) {
+			if ctx := jobs.context(); ctx != nil {
+				a.spawned(ctx, "taking a lost channel off the list", a.store.unlist(ctx, a.key, channelID(id)))
+			}
+		},
+		// A gap of the account's own updates the manager could not recover (differenceTooLong), or a state it did not
+		// find (the first start after a link, or a state lost), lists every dialog again and catches each up.
+		OnTooLong:             func() { a.relist(jobs) },
+		OnLoadUserStateFailed: func() { a.relist(jobs) },
+	}
+}
+
+// relist starts a new listing of the dialogs that catches each chat up, and runs it in the background.
+func (a *Account) relist(jobs *background) {
+	ctx := jobs.context()
+	if ctx == nil {
+		return
+	}
+
+	if err := a.store.restartDialogs(ctx, a.key, true); err != nil {
+		a.spawned(ctx, "restarting the listing of dialogs", err)
+
+		return
+	}
+
+	jobs.spawn(func(ctx context.Context, c conn) { a.spawned(ctx, "listing the dialogs", a.syncDialogs(ctx, c)) })
+}
+
+// onStart marks the session open once the updates manager runs, and goes on with a listing of the dialogs a former
+// connection left unfinished, as mautrix resumes its chat sync on each connection (pkg/connector/client.go:603-612).
+func (a *Account) onStart(jobs *background) {
+	a.connected()
+	jobs.spawn(func(ctx context.Context, c conn) { a.spawned(ctx, "listing the dialogs", a.syncDialogs(ctx, c)) })
+}
+
+// newestOf is the id of a chat's newest message kept, zero when none is or ctx is nil.
+func (a *Account) newestOf(ctx context.Context, chat string) (int, error) {
+	if ctx == nil {
+		return 0, nil
+	}
+
+	_, newest, err := a.store.edges(ctx, a.key, chat)
+
+	return newest, err
 }
 
 // named keeps the account's name as Telegram gives it: its number, else its name.
@@ -487,25 +540,49 @@ func (a *Account) named(ctx context.Context, self *tg.User) {
 	}
 }
 
+// conn is one connection to Telegram, as the background fetches use it: its API, and its updates manager to track
+// channels with (*updates.Manager).
+type conn struct {
+	api     api
+	tracker channelTracker
+}
+
+// channelTracker has the updates manager track a channel; *updates.Manager is it.
+type channelTracker interface {
+	TrackChannel(ctx context.Context, channelID, accessHash int64, pts int) error
+}
+
 // background is the fetches the updates manager asked for during one connection.
 type background struct {
 	mu     sync.Mutex
 	ctx    context.Context //nolint:containedctx // The connection's, which every fetch ends with.
 	cancel context.CancelFunc
-	client api
+	conn   conn
 	wg     sync.WaitGroup
 }
 
-func (b *background) start(ctx context.Context, c api) {
+func (b *background) start(ctx context.Context, c conn) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.ctx, b.cancel = context.WithCancel(ctx)
-	b.client = c
+	b.conn = c
+}
+
+// context is the connection's context, nil before it started or after it ended.
+func (b *background) context() context.Context {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.ctx == nil || b.ctx.Err() != nil {
+		return nil
+	}
+
+	return b.ctx
 }
 
 // spawn runs f while the connection lasts; asked before it started or after it ended, it does nothing.
-func (b *background) spawn(f func(ctx context.Context, c api)) {
+func (b *background) spawn(f func(ctx context.Context, c conn)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -513,7 +590,7 @@ func (b *background) spawn(f func(ctx context.Context, c api)) {
 		return
 	}
 
-	ctx, c := b.ctx, b.client
+	ctx, c := b.ctx, b.conn
 
 	b.wg.Go(func() { f(ctx, c) })
 }

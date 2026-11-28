@@ -196,6 +196,18 @@ func TestAMessageIsConvertedAsWhatsAppsAre(t *testing.T) {
 	both.SetReplyToTopID(3)
 	replyInTopic.SetReplyTo(both)
 
+	topicRoot := message(forum, 16, "on the topic's first message")
+	root := &tg.MessageReplyHeader{ForumTopic: true}
+	root.SetReplyToMsgID(3)
+	root.SetReplyToTopID(3)
+	topicRoot.SetReplyTo(root)
+
+	elsewhere := message(forum, 17, "about another chat's message")
+	other := &tg.MessageReplyHeader{}
+	other.SetReplyToMsgID(5)
+	other.SetReplyToPeerID(&tg.PeerUser{UserID: 7})
+	elsewhere.SetReplyTo(other)
+
 	photo := message(forum, 13, "the slide")
 	media := &tg.MessageMediaPhoto{}
 	media.SetPhoto(&tg.Photo{ID: 1})
@@ -213,6 +225,8 @@ func TestAMessageIsConvertedAsWhatsAppsAre(t *testing.T) {
 		reply:        {quotedID: "8", text: "agreed"},
 		inTopic:      {text: "in the topic"},
 		replyInTopic: {quotedID: "10", text: "answer in the topic"},
+		topicRoot:    {text: "on the topic's first message"},
+		elsewhere:    {text: "about another chat's message"},
 		photo:        {mediaType: mediaImage, caption: "the slide", mime: "image/jpeg"},
 		doc:          {mediaType: mediaDocument, fileName: "faq.pdf", mime: "application/pdf"},
 		voice:        {mediaType: mediaAudio, mime: "audio/ogg"},

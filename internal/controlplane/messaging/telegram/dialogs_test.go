@@ -86,6 +86,7 @@ func TestTheConnectionsStartResumesTheListing(t *testing.T) {
 	cfg := a.updatesConfig(jobs, nil)
 	cfg.OnLoadUserStateFailed()
 	a.onStart(jobs)
+	jobs.wg.Wait()
 	jobs.stop()
 
 	assert.Equal(t, messaging.StatusConnected, a.State().Status)
@@ -178,6 +179,7 @@ func TestAGapIsFilledFromTheMessageKnownBeforeIt(t *testing.T) {
 		Chats:   []tg.ChatClass{channel(9, "VMAP AI")},
 	}))
 	a.fetchMu.Unlock()
+	jobs.wg.Wait()
 	jobs.stop()
 
 	assert.Equal(t, strs(ids(10, 14)), keptIDs(t, a, "channel:9"))
@@ -199,6 +201,7 @@ func TestAnInaccessibleChannelLeavesTheList(t *testing.T) {
 	jobs := &background{}
 	jobs.start(ctx, newFakeTelegram().conn())
 	a.updatesConfig(jobs, nil).OnChannelInaccessible(9)
+	jobs.wg.Wait()
 	jobs.stop()
 
 	chats, err := a.Chats(ctx, 0)

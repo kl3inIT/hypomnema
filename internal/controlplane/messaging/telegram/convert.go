@@ -68,19 +68,20 @@ func senderOf(self int64, m *tg.Message) string {
 	return peerID(m.PeerID)
 }
 
-// quotedID is the message a reply quotes. In a forum a message in a topic carries the topic's first message as its
-// reply_to_msg_id without replying to it (ForumTopic set and no reply_to_top_id); a reply to a message of another
-// chat is not one of this chat's.
+// quotedID is the message a reply quotes, by mautrix's rule (pkg/connector/tomatrix.go:305): a header is a reply
+// unless it only says the forum topic the message is in (ForumTopic set without reply_to_top_id: reply_to_msg_id is
+// then the topic's first message), and unless it names the topic's first message itself (reply_to_top_id equal to
+// reply_to_msg_id). A reply to a message of another chat (reply_to_peer_id) is left out: mautrix names it by that
+// chat (tomatrix.go:307-308), and messaging.Message.QuotedID can name a message of its own chat only.
 func quotedID(h *tg.MessageReplyHeader) string {
 	id, ok := h.GetReplyToMsgID()
 	if !ok || id == 0 {
 		return ""
 	}
 
-	if h.ForumTopic {
-		if _, inTopic := h.GetReplyToTopID(); !inTopic {
-			return ""
-		}
+	top, _ := h.GetReplyToTopID()
+	if (top == 0 && h.ForumTopic) || top == id {
+		return ""
 	}
 
 	if _, other := h.GetReplyToPeerID(); other {

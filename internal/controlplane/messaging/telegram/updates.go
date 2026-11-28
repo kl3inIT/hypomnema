@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/gotd/td/tg"
 )
@@ -63,6 +64,10 @@ func (a *Account) handler() updateHandler {
 // keepUpdate keeps a message an update brought, with what its entities say of its chat and of the people in it. An
 // edit Telegram hides (a reaction's) changes nothing kept.
 func (a *Account) keepUpdate(ctx context.Context, e tg.Entities, mc tg.MessageClass, edit bool) error {
+	if svc, ok := mc.(*tg.MessageService); ok {
+		return a.keepService(ctx, e, svc)
+	}
+
 	k, ok := convert(a.userID, mc)
 	if !ok || (edit && !k.edited) {
 		return nil
@@ -71,6 +76,34 @@ func (a *Account) keepUpdate(ctx context.Context, e tg.Entities, mc tg.MessageCl
 	_, err := a.keep(ctx, e, k)
 
 	return err
+}
+
+// keepService keeps what a service message says of its chat, as mautrix reads the same actions
+// (pkg/connector/handletelegram.go:495-540): a group created, or a channel, is a chat from then on, listed at once
+// rather than at its first message (MessageActionChatCreate and MessageActionChannelCreate create the portal); the
+// account removed from a basic group leaves it (MessageActionChatDeleteUser of itself, selfLeaveChat). A service
+// message is not kept as a message: the mirror keeps what people wrote.
+func (a *Account) keepService(ctx context.Context, e tg.Entities, svc *tg.MessageService) error {
+	chat := peerID(svc.PeerID)
+	if chat == "" {
+		return nil
+	}
+
+	switch action := svc.Action.(type) {
+	case *tg.MessageActionChatCreate, *tg.MessageActionChannelCreate:
+		info, ok := entityChat(e, chat)
+		if !ok {
+			info = fallbackChat(chat)
+		}
+
+		return a.store.keepChatAt(ctx, a.key, info, time.Unix(int64(svc.Date), 0))
+	case *tg.MessageActionChatDeleteUser:
+		if action.UserID == a.userID {
+			return a.store.unlist(ctx, a.key, chat)
+		}
+	}
+
+	return nil
 }
 
 // keep keeps a converted message in its chat, and says whether it was new.

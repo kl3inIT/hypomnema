@@ -53,6 +53,18 @@ CREATE TABLE IF NOT EXISTS tg_access_hashes (
 	PRIMARY KEY (user_id, kind, id)
 );
 
+CREATE TABLE IF NOT EXISTS tg_dialog_sync (
+	account TEXT NOT NULL PRIMARY KEY,
+	generation INTEGER NOT NULL DEFAULT 0,
+	done INTEGER NOT NULL DEFAULT 0,
+	catch_up INTEGER NOT NULL DEFAULT 0,
+	offset_peer TEXT NOT NULL DEFAULT '',
+	offset_hash INTEGER NOT NULL DEFAULT 0,
+	offset_id INTEGER NOT NULL DEFAULT 0,
+	offset_date INTEGER NOT NULL DEFAULT 0,
+	received INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS tg_users (
 	account TEXT NOT NULL,
 	id TEXT NOT NULL,
@@ -296,15 +308,29 @@ func (s *store) revoke(ctx context.Context, account, chat string, ids []int) err
 	return nil
 }
 
-// keepChat keeps a chat as its entity says it is now: its kind, its name and whether it is listed. A min entity
-// (Telegram's partial copy) never replaces a known name with its own, as mautrix keeps a ghost's name from a min user
-// (pkg/connector/userinfo.go:290-292).
+// keepChat keeps a chat as its entity says it is now: its kind, its name and whether it is listed; keepChatAt also
+// moves its last message on to at when it is later (a group's creation). A min entity (Telegram's partial copy) never replaces a
+// known name with its own, as mautrix keeps a ghost's name from a min user (pkg/connector/userinfo.go:290-292), nor
+// whether the account is in the chat: a min channel does not carry the account's membership
+// (core.telegram.org/api/min), so it never lists again a channel the account left.
 func (s *store) keepChat(ctx context.Context, account string, c chatInfo) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO tg_chats (account, id, kind, name, listed) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (account, id) DO UPDATE SET kind = excluded.kind, listed = excluded.listed,
+	return s.keepChatAt(ctx, account, c, time.Time{})
+}
+
+func (s *store) keepChatAt(ctx context.Context, account string, c chatInfo, at time.Time) error {
+	var ts int64
+	if !at.IsZero() {
+		ts = at.Unix()
+	}
+
+	_, err := s.db.ExecContext(ctx, `INSERT INTO tg_chats (account, id, kind, name, listed, last_message_ts)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (account, id) DO UPDATE SET kind = excluded.kind,
+			listed = CASE WHEN ? THEN tg_chats.listed ELSE excluded.listed END,
 			name = CASE WHEN excluded.name = '' OR (? AND tg_chats.name <> '') THEN tg_chats.name
-				ELSE excluded.name END`,
-		account, c.id, c.kind, c.name, c.listed, c.min)
+				ELSE excluded.name END,
+			last_message_ts = max(tg_chats.last_message_ts, excluded.last_message_ts)`,
+		account, c.id, c.kind, c.name, c.listed, ts, c.min, c.min)
 	if err != nil {
 		return fmt.Errorf("telegram: keeping chat %s: %w", c.id, err)
 	}
@@ -313,16 +339,90 @@ func (s *store) keepChat(ctx context.Context, account string, c chatInfo) error 
 }
 
 // refreshChat brings a chat already kept to what its entity says now, and keeps nothing new: an update's entities
-// name every member it mentions, and a member is not a chat.
+// name every member it mentions, and a member is not a chat. A min entity changes neither a known name nor whether
+// the chat is listed, as keepChat.
 func (s *store) refreshChat(ctx context.Context, account string, c chatInfo) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE tg_chats SET kind = ?, listed = ?,
+	_, err := s.db.ExecContext(ctx, `UPDATE tg_chats SET kind = ?, listed = CASE WHEN ? THEN listed ELSE ? END,
 			name = CASE WHEN ? = '' OR (? AND name <> '') THEN name ELSE ? END
-		WHERE account = ? AND id = ?`, c.kind, c.listed, c.name, c.min, c.name, account, c.id)
+		WHERE account = ? AND id = ?`, c.kind, c.min, c.listed, c.name, c.min, c.name, account, c.id)
 	if err != nil {
 		return fmt.Errorf("telegram: keeping chat %s: %w", c.id, err)
 	}
 
 	return nil
+}
+
+// unlist takes a chat off the list, its messages kept: the account left it or lost it.
+func (s *store) unlist(ctx context.Context, account, chat string) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE tg_chats SET listed = 0 WHERE account = ? AND id = ?`, account,
+		chat); err != nil {
+		return fmt.Errorf("telegram: taking chat %s off the list: %w", chat, err)
+	}
+
+	return nil
+}
+
+// dialogCursor is where the listing of an account's dialogs is, kept page by page so that a listing cut short goes
+// on from it, as mautrix keeps DialogSyncCursor, its offsets and DialogSyncComplete (pkg/connector/chatsync.go:157-187).
+// generation changes with each new listing, so that one running when another starts stops writing.
+type dialogCursor struct {
+	generation int
+	done       bool
+	catchUp    bool
+	peer       string
+	hash       int64
+	offsetID   int
+	offsetDate int
+	received   int
+}
+
+// dialogCursor is the account's listing as kept; an account never listed has one not done.
+func (s *store) dialogCursor(ctx context.Context, account string) (dialogCursor, error) {
+	var c dialogCursor
+
+	err := s.db.QueryRowContext(ctx, `SELECT generation, done, catch_up, offset_peer, offset_hash, offset_id,
+		offset_date, received FROM tg_dialog_sync WHERE account = ?`, account).
+		Scan(&c.generation, &c.done, &c.catchUp, &c.peer, &c.hash, &c.offsetID, &c.offsetDate, &c.received)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dialogCursor{}, nil
+	}
+
+	if err != nil {
+		return dialogCursor{}, fmt.Errorf("telegram: reading where the listing of dialogs is: %w", err)
+	}
+
+	return c, nil
+}
+
+// restartDialogs starts a new listing from the first page, catching each chat up or not.
+func (s *store) restartDialogs(ctx context.Context, account string, catchUp bool) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO tg_dialog_sync (account, generation, catch_up) VALUES (?, 1, ?)
+		ON CONFLICT (account) DO UPDATE SET generation = tg_dialog_sync.generation + 1, done = 0,
+			catch_up = excluded.catch_up, offset_peer = '', offset_hash = 0, offset_id = 0, offset_date = 0,
+			received = 0`, account, catchUp)
+	if err != nil {
+		return fmt.Errorf("telegram: restarting the listing of dialogs: %w", err)
+	}
+
+	return nil
+}
+
+// advanceDialogs keeps where the listing is, and says false when another listing started meanwhile.
+func (s *store) advanceDialogs(ctx context.Context, account string, c dialogCursor) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO tg_dialog_sync (account, generation, done, catch_up, offset_peer,
+			offset_hash, offset_id, offset_date, received) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (account) DO UPDATE SET done = excluded.done, offset_peer = excluded.offset_peer,
+			offset_hash = excluded.offset_hash, offset_id = excluded.offset_id, offset_date = excluded.offset_date,
+			received = excluded.received
+		WHERE tg_dialog_sync.generation = excluded.generation`,
+		account, c.generation, c.done, c.catchUp, c.peer, c.hash, c.offsetID, c.offsetDate, c.received)
+	if err != nil {
+		return false, fmt.Errorf("telegram: keeping where the listing of dialogs is: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+
+	return n > 0, err
 }
 
 // nameUser keeps a person's name, for the messages he sends where Telegram gives his id alone.
@@ -494,6 +594,7 @@ func (s *store) forget(ctx context.Context, account string, userID int64) error 
 		{`DELETE FROM tg_messages WHERE account = ?`, account},
 		{`DELETE FROM tg_chats WHERE account = ?`, account},
 		{`DELETE FROM tg_users WHERE account = ?`, account},
+		{`DELETE FROM tg_dialog_sync WHERE account = ?`, account},
 		{`DELETE FROM tg_sessions WHERE account = ?`, account},
 		{`DELETE FROM tg_state WHERE user_id = ?`, userID},
 		{`DELETE FROM tg_channel_state WHERE user_id = ?`, userID},

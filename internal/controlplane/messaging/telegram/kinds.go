@@ -79,8 +79,11 @@ func userChat(u *tg.User) chatInfo {
 	return c
 }
 
-// userName is a person as people know him: his name, else his username, else his number (mautrix's
-// FormatDisplayname takes the same fields, userinfo.go:285).
+// userName is a person as people know him: his full name, as mautrix's default display name
+// (pkg/connector/example-config.yaml:147, FullName), else his username, which mautrix's template may use (:144),
+// else his number, as whatsapp names a person by his (messaging/whatsapp/whatsapp.go:441-442, phoneOf). mautrix's
+// default leaves a person without a name nameless; a chat named by nothing cannot be told apart on the chat-selection
+// page (#1270), so the next field Telegram gives is taken.
 func userName(u *tg.User) string {
 	if name := strings.TrimSpace(u.FirstName + " " + u.LastName); name != "" {
 		return name
