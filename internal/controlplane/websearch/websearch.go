@@ -147,9 +147,10 @@ type Failure struct {
 // Answer is a search's results and where they came from.
 type Answer struct {
 	// Provider is the provider that answered.
-	Provider string
-	Query    string
-	Results  []Result
+	Provider    string
+	Query       string
+	Results     []Result
+	WindowBasis WindowBasis
 	// Cached says the answer was not asked of the provider for this call.
 	Cached bool
 	// Errors are the providers tried before Provider answered, and why each did not.
@@ -337,12 +338,15 @@ func (s *Service) SearchIn(ctx context.Context, scope Scope, query string, limit
 	query = strings.TrimSpace(query)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 
+	dates := searchWindow(ctx)
 	set, err := s.settings(ctx)
 	if err != nil {
 		return Answer{}, err
 	}
 
 	switch {
+	case dates.from > dates.to:
+		return Answer{}, fmt.Errorf("%w: the search window ends before it starts", ErrInvalid)
 	case query == "":
 		return Answer{}, fmt.Errorf("%w: a search needs a query", ErrInvalid)
 	case provider != "" && !validProvider(provider):
@@ -359,7 +363,7 @@ func (s *Service) SearchIn(ctx context.Context, scope Scope, query string, limit
 
 	limit = min(limit, MaxResults)
 	// A setting the owner changes makes another search: an answer kept from before is not given for it.
-	key := cacheKey(query, provider, limit, set, scope)
+	key := cacheKey(query, provider, limit, set, scope, dates)
 
 	if a, ok := s.cached(key); ok {
 		a.Cached = true
@@ -558,6 +562,7 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 
 		return Answer{
 			Provider: r.provider, Query: query, Results: rep.results[:min(len(rep.results), limit)], Errors: failures,
+			WindowBasis: rep.windowBasis,
 		}, nil
 	}
 
@@ -633,6 +638,7 @@ func failureText(failures []Failure) string {
 type reply struct {
 	results     []Result
 	costDollars float64
+	windowBasis WindowBasis
 }
 
 // route is one way of asking a provider: with one of its keys, without a
