@@ -2,34 +2,34 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
 import {
-  getAgentMemoryOptions,
-  getAgentMemoryQueryKey,
+  getProfileMemoryOptions,
+  getProfileMemoryQueryKey,
   getOwnerMemoryOptions,
   getOwnerMemoryQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
-import { setAgentMemory, setOwnerMemory } from "@/api/generated/sdk.gen"
+import { setOwnerMemory, setProfileMemory } from "@/api/generated/sdk.gen"
 
-// An agent's memory, shared by all its workers, and the one about the owner, which every worker and Bot gets
-// (issue #21). Workers write them while they run, so a page reads them again when it is looked at again.
+// A profile's memory, shared by all its workers (the web's Agents are the API's profiles, issue #1336), and the one
+// about the owner, which every worker and Bot gets (issue #21). Workers write them while they run, so a page reads them again when it is looked at again.
 
-export function useAgentMemory(name: string) {
-  return useQuery(getAgentMemoryOptions({ path: { name } }))
+export function useProfileMemory(name: string) {
+  return useQuery(getProfileMemoryOptions({ path: { name } }))
 }
 
 export function useOwnerMemory() {
   return useQuery(getOwnerMemoryOptions())
 }
 
-// useSetAgentMemory replaces an agent's whole memory with the owner's text, a line an entry. The memory as kept is
+// useSetProfileMemory replaces a profile's whole memory with the owner's text, a line an entry. The memory as kept is
 // the body its read caches, so it goes in as it is.
-export function useSetAgentMemory(name: string) {
+export function useSetProfileMemory(name: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (memory: string) =>
-      (await setAgentMemory({ path: { name }, body: { memory } })).data,
+      (await setProfileMemory({ path: { name }, body: { memory } })).data,
     onSuccess: (stored) =>
-      queryClient.setQueryData(getAgentMemoryQueryKey({ path: { name } }), stored),
+      queryClient.setQueryData(getProfileMemoryQueryKey({ path: { name } }), stored),
   })
 }
 

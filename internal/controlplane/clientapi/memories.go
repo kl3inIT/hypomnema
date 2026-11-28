@@ -7,37 +7,37 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 )
 
-// GetAgentMemory returns an agent's memory (issue #21).
-func (s *Server) GetAgentMemory(ctx context.Context, req openapi.GetAgentMemoryRequestObject,
-) (openapi.GetAgentMemoryResponseObject, error) {
+// GetProfileMemory returns a profile's memory (issue #21); GetAgentMemory until 2026-11-28 (issue #1336).
+func (s *Server) GetProfileMemory(ctx context.Context, req openapi.GetProfileMemoryRequestObject,
+) (openapi.GetProfileMemoryResponseObject, error) {
 	m, err := s.svc.Memories().AgentMemory(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.GetAgentMemory200JSONResponse(toMemory(m)), nil
+	return openapi.GetProfileMemory200JSONResponse(toMemory(m)), nil
 }
 
-// SetAgentMemory replaces an agent's memory with the owner's text.
-func (s *Server) SetAgentMemory(ctx context.Context, req openapi.SetAgentMemoryRequestObject,
-) (openapi.SetAgentMemoryResponseObject, error) {
+// SetProfileMemory replaces a profile's memory with the owner's text.
+func (s *Server) SetProfileMemory(ctx context.Context, req openapi.SetProfileMemoryRequestObject,
+) (openapi.SetProfileMemoryResponseObject, error) {
 	m, err := s.svc.Memories().SetAgentMemory(ctx, req.Name, req.Body.Memory)
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.SetAgentMemory200JSONResponse(toMemory(m)), nil
+	return openapi.SetProfileMemory200JSONResponse(toMemory(m)), nil
 }
 
-// ChangeAgentMemory makes one change to an agent's memory for the owner.
-func (s *Server) ChangeAgentMemory(ctx context.Context, req openapi.ChangeAgentMemoryRequestObject,
-) (openapi.ChangeAgentMemoryResponseObject, error) {
+// ChangeProfileMemory makes one change to a profile's memory for the owner.
+func (s *Server) ChangeProfileMemory(ctx context.Context, req openapi.ChangeProfileMemoryRequestObject,
+) (openapi.ChangeProfileMemoryResponseObject, error) {
 	m, err := s.svc.Memories().ChangeAgentMemory(ctx, req.Name, memoryOp(*req.Body))
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.ChangeAgentMemory200JSONResponse(toMemory(m)), nil
+	return openapi.ChangeProfileMemory200JSONResponse(toMemory(m)), nil
 }
 
 // GetOwnerMemory returns the memory about the owner.
@@ -78,8 +78,10 @@ func memoryOp(c openapi.MemoryChange) memorystore.Op {
 	return memorystore.Op{Kind: string(c.Kind), Text: val(c.Text), Match: val(c.Match)}
 }
 
+// toMemory is a profile's memory, or the one about the owner. It names the profile as profile and, for one release,
+// as agent, its name until 2026-11-28 (issue #1336).
 func toMemory(m memorystore.Memory) openapi.Memory {
-	out := openapi.Memory{Agent: ptr(m.Agent), Memory: m.Text, MemoryLimit: m.Limit}
+	out := openapi.Memory{Profile: ptr(m.Agent), Agent: ptr(m.Agent), Memory: m.Text, MemoryLimit: m.Limit}
 
 	if !m.UpdatedAt.IsZero() {
 		out.UpdatedAt = &m.UpdatedAt

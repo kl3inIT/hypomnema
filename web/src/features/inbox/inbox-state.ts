@@ -459,6 +459,7 @@ export type Source =
   | "lark"
   | "gmail"
   | "meeting"
+  | "github"
   | "chat"
   | "hand"
   | "routine"
@@ -470,12 +471,21 @@ export const sourceNames: Record<Source, string> = {
   lark: "Lark",
   gmail: "Gmail",
   meeting: "Meeting",
+  github: "GitHub",
   chat: "Chat",
   hand: "Added by you",
   routine: "Routine",
 }
 
-export const filterSources: Source[] = ["zalo", "whatsapp", "lark", "gmail", "meeting", "chat"]
+export const filterSources: Source[] = [
+  "zalo",
+  "whatsapp",
+  "lark",
+  "gmail",
+  "meeting",
+  "github",
+  "chat",
+]
 
 const sourceOfKind: Record<TodoSourceKind, Source> = {
   owner: "hand",
@@ -486,6 +496,7 @@ const sourceOfKind: Record<TodoSourceKind, Source> = {
   whatsapp: "whatsapp",
   gmail: "gmail",
   meeting: "meeting",
+  github: "github",
 }
 
 export function sourceOf(row: Row): Source {

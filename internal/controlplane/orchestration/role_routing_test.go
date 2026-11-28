@@ -88,6 +88,34 @@ func TestRoleMatrixRoutesKindsAndValidatesAtomically(t *testing.T) {
 	}
 }
 
+// Scenario (issue #1336, review of PR #1344): a reviewer Task of a review_of runs down the role's chain even when the
+// reviewer profile names its own runtime and effort, so it takes the role's effort, as it did before profiles had
+// fallbacks, and is offered as the role.
+func TestAReviewOfTakesTheRolesEffortOverItsProfiles(t *testing.T) {
+	t.Parallel()
+	w := roleWorld(t)
+	ctx := t.Context()
+	_, _, err := w.s.Profiles().ApplyProfile(ctx, "reviewer", "name: reviewer\ndescription: d\nruntime: claude\n"+
+		"model: {provider: claude-subscription, name: claude-sonnet-5-5, effort: low}\n")
+	require.NoError(t, err)
+	author := w.tasks(NewTask{Ref: "author", Kind: "narrow", Spec: "code"})[0]
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	require.NoError(t, w.finish(w.begin(created[0]), success("code")))
+
+	w.tasks(NewTask{Ref: "review", Profile: "reviewer", Kind: "narrow", ReviewOf: author.ID, Spec: "review"})
+	created = w.schedule().Created
+	require.Len(t, created, 1)
+	review := w.dispatchOf(created[0])
+	assert.Equal(t, "claude-subscription/claude-opus-5-5", review.Model)
+	assert.Equal(t, "high", review.Effort, "the role's effort, not the profile's")
+	row, err := w.s.read().GetDispatch(ctx, review.ID)
+	require.NoError(t, err)
+	offer, err := offerOf(ctx, w.s.read(), row)
+	require.NoError(t, err)
+	assert.True(t, offer.RoleRouted)
+}
+
 func TestRoleHandoffPinsEntryAndSharesMemory(t *testing.T) {
 	t.Parallel()
 	w := roleWorld(t)
@@ -120,6 +148,7 @@ func TestRoleHandoffPinsEntryAndSharesMemory(t *testing.T) {
 	offer, err := offerOf(ctx, w.s.read(), row)
 	require.NoError(t, err)
 	assert.Equal(t, "Shared role fact.", offer.Memory)
+	assert.True(t, offer.RoleRouted, "a role's backup is still the role")
 	require.NoError(t, w.finish(w.begin(second.ID), success("done")))
 	metrics, err := w.s.RoleMetrics(ctx, time.Time{})
 	require.NoError(t, err)

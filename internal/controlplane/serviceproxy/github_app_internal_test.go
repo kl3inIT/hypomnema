@@ -1,12 +1,16 @@
 package serviceproxy
 
 import (
+	"bytes"
+	"compress/gzip"
+	"compress/zlib"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Scenario (issue #1262): a Bot's gh on a repository the owner's GitHub App is installed on goes with the App's
@@ -37,4 +41,31 @@ func TestTheRepositoryAGitHubRequestNamesIsReadFromWhatGhSends(t *testing.T) {
 		assert.Equal(t, c.want, got, c.path+" "+c.body)
 		assert.Equal(t, c.want != "", ok, c.path+" "+c.body)
 	}
+}
+
+// Scenario (review round 3 of PR #1323): GitHub answers gh's request for gzip with a gzipped body; the review the App
+// made is read from it unpacked, by its Content-Encoding, deflate too, and a coding not known is not read.
+func TestAnAnswerIsReadByItsContentEncoding(t *testing.T) {
+	t.Parallel()
+
+	plain := []byte(`{"id":880,"html_url":"https://github.com/o/r/pull/1#pullrequestreview-880"}`)
+
+	var gz, zl bytes.Buffer
+
+	gw := gzip.NewWriter(&gz)
+	_, _ = gw.Write(plain)
+	_ = gw.Close()
+
+	zw := zlib.NewWriter(&zl)
+	_, _ = zw.Write(plain)
+	_ = zw.Close()
+
+	for coding, body := range map[string][]byte{"": plain, "identity": plain, "gzip": gz.Bytes(), "deflate": zl.Bytes()} {
+		got, err := unpacked(body, coding)
+		require.NoError(t, err, coding)
+		assert.Equal(t, string(plain), string(got), coding)
+	}
+
+	_, err := unpacked(plain, "br")
+	assert.Error(t, err)
 }

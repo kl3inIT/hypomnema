@@ -16,7 +16,7 @@ const bot = (id: string, position: number, more: object = {}) => ({
   main: id === "coordinator",
   name: id,
   position,
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   skills: [],

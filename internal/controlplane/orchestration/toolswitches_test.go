@@ -66,7 +66,10 @@ func TestDispatchToolAccessIsCappedOnlyForBotRuns(t *testing.T) {
 	_, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\ntools: [phone]\ntools_off: [web_fetch]\n")
 	require.NoError(t, err)
-	bot, err := w.s.PutBot(ctx, Bot{Name: "reporter", Preset: agenttool.PresetReport, ToolsOff: []string{"web_search"}})
+	bot, err := w.s.PutBot(ctx, Bot{
+		Name:      "reporter",
+		AgentSpec: AgentSpec{Preset: agenttool.PresetReport, ToolsOff: []string{"web_search"}},
+	})
 	require.NoError(t, err)
 
 	for _, botID := range []string{"", bot.ID} {
@@ -103,7 +106,7 @@ func TestABotsToolSwitchesAreKeptAndUndone(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", ToolsOff: []string{"not-a-tool"}})
+	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", AgentSpec: AgentSpec{ToolsOff: []string{"not-a-tool"}}})
 	require.ErrorIs(t, err, ErrInvalid)
 
 	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})

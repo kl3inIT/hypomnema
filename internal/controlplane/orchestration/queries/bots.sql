@@ -1,15 +1,15 @@
 -- name: InsertBot :exec
 -- A new Bot goes last in the order (issue #470).
-INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, tools, tools_off, connections,
+INSERT INTO bots (id, name, provider, model, effort, instructions, skills, skills_off, tools, tools_off, connections,
                   workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at, fallbacks,
                   owner_accounts)
-VALUES (@id, @name, @provider, @model, @effort, @persona, @skills, @skills_off, @tools, @tools_off, @connections,
+VALUES (@id, @name, @provider, @model, @effort, @instructions, @skills, @skills_off, @tools, @tools_off, @connections,
         @workers, @tool_display, (SELECT coalesce(max(position) + 1, 0) FROM bots), @connection_scopes,
         @guaranteed_dispatches, @preset, @now, @now, @fallbacks, @owner_accounts);
 
 -- name: UpdateBot :exec
 -- A Bot's settings; its name and memory stay.
-UPDATE bots SET provider = @provider, model = @model, effort = @effort, persona = @persona, skills = @skills,
+UPDATE bots SET provider = @provider, model = @model, effort = @effort, instructions = @instructions, skills = @skills,
     skills_off = @skills_off, tools = @tools, tools_off = @tools_off, connections = @connections, workers = @workers, tool_display = @tool_display,
     connection_scopes = @connection_scopes, guaranteed_dispatches = @guaranteed_dispatches, preset = @preset, updated_at = @now,
     fallbacks = @fallbacks
@@ -118,3 +118,18 @@ UPDATE setup_changes SET undone_at = @now WHERE id = @id AND undone_at IS NULL;
 -- The model each Bot runs, for a check of the provider it names; no other column, so the check reads any schema
 -- since bots had a model.
 SELECT name, provider, model FROM bots ORDER BY created_at, name;
+
+-- name: InsertBotVersion :exec
+-- One save of a Bot's settings (issue #1336); its number follows the Bot's last.
+INSERT INTO bot_versions (id, bot_id, version, settings, source, saved_by, chat_id, restored_from, created_at)
+VALUES (@id, @bot_id, (SELECT coalesce(max(version), 0) + 1 FROM bot_versions WHERE bot_id = @bot_id), @settings,
+        @source, @saved_by, @chat_id, @restored_from, @now);
+
+-- name: CountBotVersions :one
+SELECT count(*) FROM bot_versions WHERE bot_id = @bot_id;
+
+-- name: ListBotVersions :many
+SELECT * FROM bot_versions WHERE bot_id = @bot_id ORDER BY version DESC;
+
+-- name: GetBotVersion :one
+SELECT * FROM bot_versions WHERE id = @id AND bot_id = @bot_id;

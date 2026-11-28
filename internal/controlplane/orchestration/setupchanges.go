@@ -59,19 +59,22 @@ type SetupChange struct {
 type botSettings struct {
 	// Name is what the Bot was called; it is not part of its revision, so a revision from before a Bot could be
 	// renamed stays the same (issue #466).
-	Name        string    `json:"name,omitempty"`
-	Provider    string    `json:"provider,omitempty"`
-	Model       string    `json:"model,omitempty"`
-	Fallbacks   []string  `json:"fallbacks,omitempty"`
-	Effort      string    `json:"effort,omitempty"`
-	Persona     string    `json:"persona,omitempty"`
-	Skills      []string  `json:"skills,omitempty"`
-	SkillsOff   []string  `json:"skills_off,omitempty"`
-	Preset      string    `json:"preset,omitempty"`
-	Tools       []string  `json:"tools,omitempty"`
-	ToolsOff    []string  `json:"tools_off,omitempty"`
-	Connections AllowList `json:"connections"`
-	Workers     AllowList `json:"workers"`
+	Name      string   `json:"name,omitempty"`
+	Provider  string   `json:"provider,omitempty"`
+	Model     string   `json:"model,omitempty"`
+	Fallbacks []string `json:"fallbacks,omitempty"`
+	Effort    string   `json:"effort,omitempty"`
+	// Instructions keep the key they were recorded under while they were the Bot's persona (until 2026-11-28,
+	// issue #1336), as GuaranteedDispatches keeps max_dispatches: an undo compares a hash of these settings, which
+	// another key would make stale.
+	Instructions string    `json:"persona,omitempty"`
+	Skills       []string  `json:"skills,omitempty"`
+	SkillsOff    []string  `json:"skills_off,omitempty"`
+	Preset       string    `json:"preset,omitempty"`
+	Tools        []string  `json:"tools,omitempty"`
+	ToolsOff     []string  `json:"tools_off,omitempty"`
+	Connections  AllowList `json:"connections"`
+	Workers      AllowList `json:"workers"`
 	// ToolDisplay is empty for ToolsOn, so a Bot's revision from before it was a setting stays the same.
 	ToolDisplay ToolDisplay `json:"tool_display,omitempty"`
 	// Scopes are left out when there are none, so a Bot's revision from before they were a setting stays the same.
@@ -91,7 +94,8 @@ func settingsOfBot(b Bot) botSettings {
 	}
 
 	return botSettings{
-		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
+		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Instructions: b.Instructions,
+		Skills:    b.Skills,
 		Fallbacks: b.Fallbacks,
 		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
 		Connections: b.Connections, Workers: b.Workers,
@@ -117,9 +121,11 @@ func (b botSettings) bot(id string) Bot {
 	}
 
 	return Bot{
-		ID: id, Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
-		Fallbacks: b.Fallbacks,
-		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
+		ID: id, Name: name,
+		AgentSpec: AgentSpec{
+			Provider: b.Provider, Model: b.Model, Effort: b.Effort, Instructions: b.Instructions, Skills: b.Skills,
+			Fallbacks: b.Fallbacks, SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
+		},
 		Connections: b.Connections, Workers: b.Workers,
 		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
 		OwnerAccounts: b.OwnerAccounts,
@@ -354,19 +360,6 @@ func profileUndoProblem(ctx context.Context, q *store.Queries, r store.SetupChan
 		return fmt.Errorf("%w: profile %s %s", ErrConflict, r.Name, undoStale)
 	}
 
-	if r.Action != actionMade {
-		return nil
-	}
-
-	named, err := q.CountFallbacksNaming(ctx, r.Name)
-	if err != nil {
-		return fmt.Errorf("reading the backups naming profile %s: %w", r.Name, err)
-	}
-
-	if named > 0 {
-		return fmt.Errorf("%w: %d profiles name %s as a backup; change them first", ErrConflict, named, r.Name)
-	}
-
 	return nil
 }
 
@@ -447,7 +440,29 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 		return err
 	}
 
-	return restoreBot(ctx, q, now, b, r.Action == actionRemoved)
+	var had *Bot
+
+	if r.Action != actionRemoved {
+		row, err := q.GetBot(ctx, b.ID)
+		if err != nil {
+			return notFound(err, "bot", b.ID)
+		}
+
+		current := botFromRow(row)
+		had = &current
+	}
+
+	if err := restoreBot(ctx, q, now, b, r.Action == actionRemoved); err != nil {
+		return err
+	}
+
+	// The undo is a save of the Bot's settings by the owner, kept as a version (issue #1336).
+	row, err := q.GetBot(ctx, b.ID)
+	if err != nil {
+		return notFound(err, "bot", b.ID)
+	}
+
+	return s.keepBotVersion(ctx, q, now, "", had, botFromRow(row), botSave{source: BotVersionUndo})
 }
 
 func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, r store.SetupChange) error {

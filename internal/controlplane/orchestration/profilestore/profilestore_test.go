@@ -92,8 +92,8 @@ func TestTheStartingSetIsThere(t *testing.T) {
 		copied, _, err := s.ApplyProfile(ctx, "",
 			strings.Replace(p.Source, "name: "+p.Name+"\n", "name: copy-"+p.Name+"\n", 1))
 		require.NoError(t, err, p.Name)
-		assert.Equal(t, []string{p.Description, p.Runtime, p.Model, p.Effort, p.Instruction},
-			[]string{copied.Description, copied.Runtime, copied.Model, copied.Effort, copied.Instruction}, p.Name)
+		assert.Equal(t, []string{p.Description, p.Runtime, p.Model, p.Effort, p.Instructions},
+			[]string{copied.Description, copied.Runtime, copied.Model, copied.Effort, copied.Instructions}, p.Name)
 	}
 
 	assert.Equal(t, map[string]string{"explorer": "claude", "implementer": "claude", "reviewer": "claude"}, names,

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/profilestore"
@@ -233,9 +234,10 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 		return resolved{}, notFound(err, "profile", task.Profile)
 	}
 
-	// A Task that runs under a backup of its profile keeps that backup for
-	// the rest of its open Conversation: a later Dispatch continues a session
-	// of the backup's CLI, with the backup's model and instruction.
+	// A Task that runs down a chain, its role's or its profile's fallbacks, keeps the entry it runs for the rest
+	// of its open Conversation. One that ran under a backup profile, before a profile's fallbacks were models
+	// (issue #1336), keeps that backup: a later Dispatch continues a session of the backup's CLI, with the backup's
+	// model and instructions.
 	last, err := q.LastDispatchOfTask(ctx, task.ID)
 
 	switch {
@@ -281,7 +283,7 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 			return r, err
 		}
 	}
-	if v.Runtime == profilestore.RoleRuntime || task.AuthorVendor != "" {
+	if roleRouted(v, task) {
 		chain, err := chosenRoleChain(ctx, q, task)
 		if err != nil {
 			return resolved{}, err
@@ -293,7 +295,29 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 		return resolveRoleEntry(ctx, q, v, task, chain, 0)
 	}
 
+	if chain := profileChain(v, task); len(chain) > 0 {
+		return resolveRoleEntry(ctx, q, v, task, chain, 0)
+	}
+
 	return resolveVersion(ctx, q, task, v)
+}
+
+// profileChain is the chain a Task of a profile with fallbacks runs down (issue #1336): its own model first, then
+// each fallback, on the profile's runtime, as role routing's chains are run (role_placement.go), and as OpenClaw
+// tries an agent's model fallbacks after its primary (src/config/zod-schema.agent-model.ts). A Task that names its
+// own runtime or model, a choice that is strict (OpenClaw, t3code), and a profile without fallbacks have none.
+func profileChain(v store.ProfileVersion, task store.Task) []profilestore.RoleEntry {
+	if v.Fallbacks == "" || v.Runtime == profilestore.RoleRuntime || task.Runtime.Valid || task.Model.Valid {
+		return nil
+	}
+
+	chain := []profilestore.RoleEntry{{Runtime: v.Runtime, Provider: v.Provider.String, Model: v.Model.String}}
+	for _, ref := range splitNames(v.Fallbacks) {
+		provider, model, _ := strings.Cut(ref, "/")
+		chain = append(chain, profilestore.RoleEntry{Runtime: v.Runtime, Provider: provider, Model: model})
+	}
+
+	return chain
 }
 
 // resolveVersion is the Task's own values over one profile version.

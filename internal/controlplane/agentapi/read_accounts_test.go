@@ -74,10 +74,11 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	require.NoError(t, err)
 
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
-		Name: "brief", Connections: orchestration.AllowList{
+		Name: "brief",
+		Connections: orchestration.AllowList{
 			Limited: true, Names: []string{"lark:me", "lark:work", "google:me", "zalo:me"},
 		},
-		Tools: []string{"device_*"},
+		AgentSpec: orchestration.AgentSpec{Tools: []string{"device_*"}},
 	})
 	require.NoError(t, err)
 	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)

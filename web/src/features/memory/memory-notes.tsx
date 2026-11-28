@@ -30,8 +30,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { said } from "@/lib/said"
 import { since } from "@/lib/time"
 
-// Whose memory: a Bot's, by its id, or an agent's, by its profile's name.
-export type MemoryOf = { bot: string } | { agent: string }
+// Whose memory: a Bot's, by its id, or an Agent's, by its profile's name (the API's query names it profile, issue
+// #1336).
+export type MemoryOf = { bot: string } | { profile: string }
 
 // MemoryNotes is the rest of a memory's directory (issue #589): the notes its agent reads only when their subject
 // comes up, listed under the memory itself, as OpenMausBot's Memory panel lists a bot's topic files under

@@ -11,9 +11,9 @@ import (
 )
 
 // Bots (issue #169). Every token reads them and changes a memory: pi's
-// launcher reads its Bot's persona when it starts, and pi writes its memory.
+// launcher reads its Bot's instructions when it starts, and pi writes its memory.
 // A pi's own token (issue #260) reads and changes its own Bot only, so one
-// Bot never reads another's persona or memory. The owner makes, changes and
+// Bot never reads another's instructions or memory. The owner makes, changes and
 // removes a Bot, and the main Bot from its chat (setupchanges.go). A Bot is named by its id, which never changes;
 // its name is only shown (issue #466).
 
@@ -129,11 +129,19 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 	return openapi.PutBot200JSONResponse(toBot(b)), nil
 }
 
-// withSettings is a Bot with the settings given: its model and persona as given, and its skills, lists and tool
-// display as given or, left out, as it had them, so that a client that does not know them does not take them away.
+// withSettings is a Bot with the settings given: its model and instructions as given, and its skills, lists and
+// tool display as given or, left out, as it had them, so that a client that does not know them does not take them
+// away. persona, the instructions' name until 2026-11-28, is read for one release when instructions is left out
+// (issue #1336).
 func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.Bot {
 	bot := had
-	bot.Provider, bot.Model, bot.Effort, bot.Persona = val(in.Provider), val(in.Model), val(in.Effort), val(in.Persona)
+	bot.Provider, bot.Model, bot.Effort = val(in.Provider), val(in.Model), val(in.Effort)
+
+	bot.Instructions = val(in.Persona)
+	if in.Instructions != nil {
+		bot.Instructions = *in.Instructions
+	}
+
 	if in.Fallbacks != nil {
 		bot.Fallbacks = *in.Fallbacks
 	}
@@ -317,6 +325,21 @@ func (s *Server) forceDeleteBot(ctx context.Context, id string) error {
 	return nil
 }
 
+// GetBotMemory returns a Bot's memory in the shape of a profile's (issue #1336).
+func (s *Server) GetBotMemory(ctx context.Context, req openapi.GetBotMemoryRequestObject,
+) (openapi.GetBotMemoryResponseObject, error) {
+	if err := botReadable(principal(ctx), req.BotId); err != nil {
+		return nil, err
+	}
+
+	b, err := s.svc.GetBot(ctx, req.BotId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetBotMemory200JSONResponse(botMemory(b)), nil
+}
+
 // ChangeBotMemory applies one change to a Bot's memory.
 func (s *Server) ChangeBotMemory(ctx context.Context, req openapi.ChangeBotMemoryRequestObject,
 ) (openapi.ChangeBotMemoryResponseObject, error) {
@@ -331,7 +354,7 @@ func (s *Server) ChangeBotMemory(ctx context.Context, req openapi.ChangeBotMemor
 		return nil, err
 	}
 
-	return openapi.ChangeBotMemory200JSONResponse(toBot(b)), nil
+	return openapi.ChangeBotMemory200JSONResponse(botMemory(b)), nil
 }
 
 // SetBotMemory replaces a Bot's memory with the owner's text.
@@ -342,14 +365,83 @@ func (s *Server) SetBotMemory(ctx context.Context, req openapi.SetBotMemoryReque
 		return nil, err
 	}
 
-	return openapi.SetBotMemory200JSONResponse(toBot(b)), nil
+	return openapi.SetBotMemory200JSONResponse(botMemory(b)), nil
+}
+
+// botMemory is a Bot's memory as a Memory, the shape a profile's has (issue #1336). A Bot keeps no time its memory
+// changed apart from its own.
+func botMemory(b orchestration.Bot) openapi.Memory {
+	return openapi.Memory{Bot: &b.ID, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory}
+}
+
+// ListBotVersions returns a Bot's versions, newest first (issue #1336), to the tokens that read the Bot.
+func (s *Server) ListBotVersions(ctx context.Context, req openapi.ListBotVersionsRequestObject,
+) (openapi.ListBotVersionsResponseObject, error) {
+	if err := botReadable(principal(ctx), req.BotId); err != nil {
+		return nil, err
+	}
+
+	versions, err := s.svc.ListBotVersions(ctx, req.BotId)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListBotVersions200JSONResponse{Data: make([]openapi.BotVersion, 0, len(versions))}
+	for _, v := range versions {
+		out.Data = append(out.Data, toBotVersion(v))
+	}
+
+	return out, nil
+}
+
+// RestoreBotVersion saves one of a Bot's versions again: the owner, or the main Bot from its chat, as PutBot.
+func (s *Server) RestoreBotVersion(ctx context.Context, req openapi.RestoreBotVersionRequestObject,
+) (openapi.RestoreBotVersionResponseObject, error) {
+	chat, err := setupChat(principal(ctx))
+	if err != nil {
+		return nil, err
+	}
+
+	var b orchestration.Bot
+	if chat == "" {
+		b, err = s.svc.RestoreBotVersion(ctx, req.BotId, req.VersionId)
+	} else {
+		b, err = s.svc.RestoreBotVersionFromChat(ctx, chat, req.BotId, req.VersionId)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.RestoreBotVersion200JSONResponse(toBot(b)), nil
+}
+
+func toBotVersion(v orchestration.BotVersion) openapi.BotVersion {
+	b := v.Bot
+
+	return openapi.BotVersion{
+		Id: v.ID, Version: v.Version, Source: openapi.BotVersionSource(v.Source),
+		SavedBy: ptr(openapi.BotVersionSavedBy(v.SavedBy)), ChatId: ptr(v.ChatID), RestoredFrom: ptr(v.RestoredFrom),
+		CreatedAt: v.CreatedAt,
+		Settings: openapi.BotSettings{
+			Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort), Instructions: &b.Instructions,
+			Fallbacks: new(append([]string{}, b.Fallbacks...)), Skills: new(append([]string{}, b.Skills...)),
+			SkillsOff: new(append([]string{}, b.SkillsOff...)), Preset: new(openapi.ToolPreset(b.Preset)),
+			Tools: new(append([]string{}, b.Tools...)), ToolsOff: new(append([]string{}, b.ToolsOff...)),
+			Connections: new(toAllowList(b.Connections)), Workers: new(toAllowList(b.Workers)),
+			Scopes: new(toScopes(b.Scopes)), ToolDisplay: new(openapi.ToolDisplay(b.ToolDisplay)),
+			GuaranteedDispatches: new(b.Guarantee()),
+			OwnerAccounts:        new(openapi.OwnerAccounts(cmp.Or(b.OwnerAccounts, orchestration.OwnerAccountsUse))),
+		},
+	}
 }
 
 func toBot(b orchestration.Bot) openapi.Bot {
 	return openapi.Bot{
 		Id: b.ID, Name: b.Name, Main: b.Main(), Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
 		Fallbacks: append([]string{}, b.Fallbacks...),
-		Persona:   b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
+		// persona is the instructions under their name until 2026-11-28, given for one release (issue #1336).
+		Instructions: b.Instructions, Persona: &b.Instructions, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
 		Preset: openapi.ToolPreset(b.Preset), Tools: append([]string{}, b.Tools...),
 		ToolsOff:    append([]string{}, b.ToolsOff...),

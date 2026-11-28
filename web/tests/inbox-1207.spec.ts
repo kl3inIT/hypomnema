@@ -161,7 +161,7 @@ async function serve(page: Page) {
               id: "bot_main",
               name: "Hypo",
               main: true,
-              persona: "",
+              instructions: "",
               memory: "",
               memory_limit: 2200,
               skills: [],

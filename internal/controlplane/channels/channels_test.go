@@ -750,7 +750,10 @@ func (w *world) setUp(mode channelstore.ChannelMode) {
 func (w *world) setUpMaps(mode channelstore.ChannelMode) {
 	w.t.Helper()
 
-	vmap, err := w.orch.PutBot(w.t.Context(), orchestration.Bot{Name: "vmap", Persona: "You answer about maps."})
+	vmap, err := w.orch.PutBot(w.t.Context(), orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about maps."},
+	})
 	require.NoError(w.t, err)
 
 	w.vmap = vmap.ID

@@ -35,12 +35,17 @@ func newPassWorld(t *testing.T) passWorld {
 
 	beyond, err := w.s.PutBot(ctx, Bot{
 		Name:        "BeyondPilot",
-		Persona:     "The BeyondPilot project for GenAI Fund: Kai Yong and Eugene, the pilot's mail and its repository.",
 		Connections: AllowList{Limited: true, Names: []string{"google:beyondpilot", "whatsapp:beyondpilot"}},
+		AgentSpec: AgentSpec{
+			Instructions: "The BeyondPilot project for GenAI Fund: Kai Yong and Eugene, the pilot's mail and its repository.",
+		},
 	})
 	require.NoError(t, err)
 
-	vmap, err := w.s.PutBot(ctx, Bot{Name: "VMAP", Persona: "VMAP at VTII: the map app's data and its Lark groups."})
+	vmap, err := w.s.PutBot(ctx, Bot{
+		Name:      "VMAP",
+		AgentSpec: AgentSpec{Instructions: "VMAP at VTII: the map app's data and its Lark groups."},
+	})
 	require.NoError(t, err)
 
 	item, err := w.s.Inbox().Create(ctx, inboxOwner, inboxstore.NewTodo{

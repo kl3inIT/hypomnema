@@ -28,7 +28,7 @@ func TestDeploymentProfilesDoNotPinModels(t *testing.T) {
 		assert.Empty(t, sample.Runtime)
 		assert.Nil(t, sample.Model)
 		assert.Empty(t, sample.Fallbacks)
-		assert.NotEmpty(t, sample.Instruction)
+		assert.NotEmpty(t, sample.Instructions)
 	}
 }
 
@@ -60,12 +60,12 @@ func TestTheReviewerSampleBlocksOnlyOnBugsSupportedUseReaches(t *testing.T) {
 		"blocked: you could not run it, never a pass":                                                    "orchestrate skills/orchestrate/prompts/verifier.md:38-61",
 		"Verify only that its cited code exists":                                                         "oh-my-opencode packages/senpi-task/src/agents/builtin/plan-reviewer.ts:120-151",
 	} {
-		assert.Equal(t, 1, strings.Count(sample.Instruction, rule), rule)
+		assert.Equal(t, 1, strings.Count(sample.Instructions, rule), rule)
 		assert.Contains(t, raw, from, rule)
 	}
 
-	assert.NotContains(t, sample.Instruction, "pstack", "sources are comments")
-	assert.Equal(t, strings.Count(sample.Instruction, "\n"), strings.Count(raw, "\n# Line "),
+	assert.NotContains(t, sample.Instructions, "pstack", "sources are comments")
+	assert.Equal(t, strings.Count(sample.Instructions, "\n"), strings.Count(raw, "\n# Line "),
 		"each line of the instruction has its source comment")
 }
 
@@ -83,22 +83,22 @@ func TestTheReviewerSampleAsksPullRequestFieldsOnlyOfAPullRequestReview(t *testi
 
 	pullRequestOnly := []string{"`Merge state:", "`Mergeable:", "`Checks:", "gh pr checks", "the reviewed pull request"}
 	for _, field := range pullRequestOnly {
-		at := strings.Index(sample.Instruction, field)
+		at := strings.Index(sample.Instructions, field)
 		require.NotEqual(t, -1, at, field)
 
-		start := strings.LastIndex(sample.Instruction[:at], "\n") + 1
-		sentence := strings.LastIndex(sample.Instruction[start:at], ". ")
+		start := strings.LastIndex(sample.Instructions[:at], "\n") + 1
+		sentence := strings.LastIndex(sample.Instructions[start:at], ". ")
 		if sentence >= 0 {
 			start += sentence
 		}
 
-		assert.Contains(t, sample.Instruction[start:at], scope, "%s is asked of a plan review too", field)
+		assert.Contains(t, sample.Instructions[start:at], scope, "%s is asked of a plan review too", field)
 	}
 
 	for _, every := range []string{"`Verdict: correct`", "`Head: <sha>`", "`Evidence: <level>`"} {
-		at := strings.Index(sample.Instruction, every)
+		at := strings.Index(sample.Instructions, every)
 		require.NotEqual(t, -1, at, every)
-		line := sample.Instruction[strings.LastIndex(sample.Instruction[:at], "\n")+1 : at]
+		line := sample.Instructions[strings.LastIndex(sample.Instructions[:at], "\n")+1 : at]
 		assert.NotContains(t, line, scope, "%s is asked of every review", every)
 	}
 }

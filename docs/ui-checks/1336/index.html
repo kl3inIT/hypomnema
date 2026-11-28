@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bots and Profiles: one agent spec, model fallbacks, Bot versions (#1336)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 48rem) {
+      .screens { grid-template-columns: minmax(0, 1fr); }
+      .phone { max-width: 25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Bots and Profiles: one agent spec, model fallbacks, Bot versions (#1336)</h1>
+    <p>
+      The web keeps "Agents" for the worker definitions (owner, 2026-11-28). Taken by
+      <code>web/tests/agents.spec.ts</code> and <code>web/tests/bots.spec.ts</code> against their fake client API,
+      on a desktop and a phone (Pixel 7), dark theme.
+    </p>
+    <section>
+      <h2>The Agents screen (still called Agents, its route /settings/agents): the reviewer's card names its fallback model</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="agents-grid-desktop.png" alt="The Agents screen (still called Agents, its route /settings/agents): the reviewer's card names its fallback model, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="agents-grid-phone.png" alt="The Agents screen (still called Agents, its route /settings/agents): the reviewer's card names its fallback model, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>An Agent's builder: Instructions, the model and its effort</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="agent-builder-desktop.png" alt="An Agent's builder: Instructions, the model and its effort, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="agent-builder-phone.png" alt="An Agent's builder: Instructions, the model and its effort, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>An Agent's Fallback models, the Bot page's picker: Claude Sonnet, then GPT-6.1-Sol added</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="agent-fallbacks-desktop.png" alt="An Agent's Fallback models, the Bot page's picker: Claude Sonnet, then GPT-6.1-Sol added, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="agent-fallbacks-phone.png" alt="An Agent's Fallback models, the Bot page's picker: Claude Sonnet, then GPT-6.1-Sol added, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>An Agent's versions, unchanged</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="agent-versions-desktop.png" alt="An Agent's versions, unchanged, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="agent-versions-phone.png" alt="An Agent's versions, unchanged, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>An Agent's memory, read from GetProfileMemory</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="agent-memory-desktop.png" alt="An Agent's memory, read from GetProfileMemory, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="agent-memory-phone.png" alt="An Agent's memory, read from GetProfileMemory, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Deleting an Agent a Bot's workers list names is refused (no backup profiles any more)</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="agent-delete-refused-desktop.png" alt="Deleting an Agent a Bot's workers list names is refused (no backup profiles any more), desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="agent-delete-refused-phone.png" alt="Deleting an Agent a Bot's workers list names is refused (no backup profiles any more), phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>A Bot's page: the Instructions field (Persona until now)</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="bot-desktop.png" alt="A Bot's page: the Instructions field (Persona until now), desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="bot-phone.png" alt="A Bot's page: the Instructions field (Persona until now), phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>A Bot's fallback models, the same component as an Agent's</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="bot-fallback-models-desktop.png" alt="A Bot's fallback models, the same component as an Agent's, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="bot-fallback-models-phone.png" alt="A Bot's fallback models, the same component as an Agent's, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>A Bot's Versions: who saved each and when, one opened with its model, fallbacks and instructions</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="bot-versions-desktop.png" alt="A Bot's Versions: who saved each and when, one opened with its model, fallbacks and instructions, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="bot-versions-phone.png" alt="A Bot's Versions: who saved each and when, one opened with its model, fallbacks and instructions, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Restoring a Bot's version asks first: its name and memory stay</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="bot-version-restore-desktop.png" alt="Restoring a Bot's version asks first: its name and memory stay, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="bot-version-restore-phone.png" alt="Restoring a Bot's version asks first: its name and memory stay, phone">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>After the restore the form shows the version's instructions</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="bot-version-restored-desktop.png" alt="After the restore the form shows the version's instructions, desktop">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="bot-version-restored-phone.png" alt="After the restore the form shows the version's instructions, phone">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

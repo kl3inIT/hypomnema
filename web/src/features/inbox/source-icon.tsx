@@ -3,6 +3,7 @@ import type { ComponentType, SVGProps } from "react"
 
 import { AgentAvatar } from "@/components/agent-avatar"
 import {
+  GitHubIcon,
   GmailIcon,
   LarkIcon,
   TelegramIcon,
@@ -25,6 +26,7 @@ const marks: Record<Source, ComponentType<SVGProps<SVGSVGElement>> | LucideIcon>
   lark: LarkIcon,
   gmail: GmailIcon,
   meeting: Mic,
+  github: GitHubIcon,
   chat: BotMessageSquare,
   hand: PenLine,
   routine: Repeat2,

@@ -14,6 +14,7 @@ const profile = (name: string, m: object = {}) => ({
   version_id: `pfv_${name}`,
   version: 1,
   runtime: "claude",
+  instructions: "",
   fallbacks: [],
   skills: [],
   skills_off: [],
@@ -30,7 +31,7 @@ const reviewerSource =
   "name: reviewer\n" +
   "description: >-\n  Reviews a change against its spec and reports problems with file and line; changes files only when the task asks for fixes.\n" +
   "runtime: claude\nmodel:\n  name: claude-opus-5-5\n  effort: xhigh\n" +
-  "instruction: |\n  Review the change the task names. Report what is wrong or missing, with file and line, as the summary of\n  `finish`; change files only when the task asks for fixes.\n"
+  "instructions: |\n  Review the change the task names. Report what is wrong or missing, with file and line, as the summary of\n  `finish`; change files only when the task asks for fixes.\n"
 
 const reviewer = profile("reviewer", {
   tool_access: fullToolAccess,
@@ -41,14 +42,14 @@ const reviewer = profile("reviewer", {
   model: "claude-opus-5-5",
   provider: "claude-subscription",
   effort: "xhigh",
-  instruction:
+  instructions:
     "Review the change the task names. Report what is wrong or missing, with file and line, as the summary of\n`finish`; change files only when the task asks for fixes.\n",
   source: reviewerSource,
   created_at: hours(2),
   available: false,
   unavailable_reason: "accounts_cooling",
   available_at: new Date(Date.now() + 95 * 60_000).toISOString(),
-  fallbacks: ["codex-implementer"],
+  fallbacks: ["claude-subscription/claude-sonnet-5-5"],
 })
 
 const models = [
@@ -136,13 +137,13 @@ async function fakeServer(page: Page, extras: ReturnType<typeof profile>[] = [])
       return found ? json(found) : json({ code: "not_found", message: "no such profile" }, 404)
     }
 
-    // A profile another names as its fallback is refused, as the server refuses it (issue #485).
+    // A profile a Bot's workers list names is refused, as the server refuses it (issue #485).
     if (one && request.method() === "DELETE") {
-      if (profiles.some((p) => (p.fallbacks as string[]).includes(one[1]!))) {
+      if (one[1] === "codex-implementer") {
         return json(
           {
             code: "conflict",
-            message: `deleting profile ${one[1]}: 1 profiles name ${one[1]} as a backup; change them first`,
+            message: `deleting profile ${one[1]}: the workers list of bots vmap names profile ${one[1]}; change them first`,
           },
           409,
         )
@@ -194,7 +195,7 @@ async function fakeServer(page: Page, extras: ReturnType<typeof profile>[] = [])
         return json({ data: toolFamilies })
       case "GET /profiles/reviewer/memory":
         return json({
-          agent: "reviewer",
+          profile: "reviewer",
           memory: "Run make verify before a review.\nLinh wants findings ranked by severity.",
           memory_limit: 2200,
         })
@@ -251,9 +252,9 @@ test("the agents show as cards and as a table, each saying whether it can run", 
   await expect(page.getByRole("article", { name: "implementer", exact: true })).toContainText(
     "Can run now",
   )
-  // The agent that takes its Tasks while it is out of quota (issue #171).
+  // The model its Tasks run while its own cannot be served (issue #1336).
   await expect(page.getByRole("article", { name: "reviewer" })).toContainText(
-    "Fallback:codex-implementer",
+    "Fallback:claude-subscription/claude-sonnet-5-5",
   )
   await shot(page, "agents-grid")
 
@@ -329,13 +330,15 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
   await shot(page, "agent-builder")
 
-  // Its fallbacks, in order; another worker is added and the list is one longer.
-  await expect(page.getByLabel("Fallback 1")).toContainText("codex-implementer")
-  await choose(page, page.getByLabel("Fallbacks", { exact: true }), "explorer")
-  await expect(page.getByLabel("Fallback 2")).toContainText("explorer")
-  await page.getByLabel("Fallback 2").scrollIntoViewIfNeeded()
+  // Its fallback models, in order, as a Bot's (issue #1336); another model is added and the list is one longer.
+  await expect(page.locator("#profile-fallback-1")).toContainText("Claude Sonnet")
+  await page.locator("#profile-fallback-add").click()
+  await page.getByLabel("Search models").fill("gpt-6.1")
+  await page.getByRole("option", { name: /gpt-6\.1-sol/ }).click()
+  await expect(page.locator("#profile-fallback-2")).toContainText("codex-subscription")
+  await page.locator("#profile-fallback-2").scrollIntoViewIfNeeded()
   await shot(page, "agent-fallbacks")
-  await page.getByRole("button", { name: "Remove fallback explorer" }).click()
+  await page.getByRole("button", { name: "Remove fallback 2" }).click()
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   // Its skills (issue #21): the one for everyone is on; one is added, then taken away again.
@@ -453,9 +456,9 @@ test("an agent is duplicated", async ({ page }) => {
   expect(applied.at(-1)?.name).toBe("reviewer-copy")
 })
 
-// Scenario: the owner deletes an agent from the bottom of its page (issue #485), after a question. One another
-// agent names as its fallback is refused and the dialog says why; a deleted one leaves the list.
-test("an agent is deleted after a question, unless another names it", async ({ page }) => {
+// Scenario: the owner deletes an agent from the bottom of its page (issue #485), after a question. One a Bot's
+// workers list names is refused and the dialog says why; a deleted one leaves the list.
+test("an agent is deleted after a question, unless a Bot names it", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/settings/agents/codex-implementer")
 
@@ -468,7 +471,7 @@ test("an agent is deleted after a question, unless another names it", async ({ p
   const refused = page.getByRole("alertdialog")
   await expect(refused).toContainText("Delete codex-implementer?")
   await refused.getByRole("button", { name: "Delete", exact: true }).click()
-  await expect(refused).toContainText("as a backup; change them first")
+  await expect(refused).toContainText("names profile codex-implementer; change them first")
   await shot(page, "agent-delete-refused")
   await refused.getByRole("button", { name: "Cancel" }).click()
 

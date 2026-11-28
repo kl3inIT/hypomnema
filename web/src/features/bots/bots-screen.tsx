@@ -99,7 +99,7 @@ export function BotsScreen() {
         ) : list.length === 0 ? (
           <div className="mx-auto flex max-w-sm flex-col items-center gap-4 py-16 text-center">
             <p className="text-sm text-muted-foreground">
-              No Bots yet. A Bot has a name, a model, a persona you write and a memory it keeps.
+              No Bots yet. A Bot has a name, a model, instructions you write and a memory it keeps.
             </p>
             <Link to="/bots/new" className={buttonVariants()}>
               New bot
@@ -119,7 +119,7 @@ export function BotsScreen() {
   )
 }
 
-// BotCard is the Agents page's card: a header with the face and the name, then the persona and one row a fact,
+// BotCard is the Agents page's card: a header with the face and the name, then the instructions and one row a fact,
 // each with its icon and its name. The name is a link that covers the card and opens the Bot's main chat (issue
 // #471); Settings beside it opens the Bot's page. names are the Integrations' names by their id.
 function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
@@ -180,7 +180,7 @@ function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
         <SettingsLink bot={bot} />
       </header>
       <p className="line-clamp-3 px-5 pt-3.5 text-sm text-foreground/85">
-        {bot.persona || "No persona."}
+        {bot.instructions || "No instructions."}
       </p>
       <dl
         className="grid gap-2.5 px-5 pt-3.5 pb-4 text-sm"
@@ -219,7 +219,7 @@ function BotLink({ bot, className }: { bot: Bot; className?: string }) {
   )
 }
 
-// SettingsLink opens a Bot's page: its model, persona, memory, access, Routines and other chats.
+// SettingsLink opens a Bot's page: its model, instructions, memory, access, Routines and other chats.
 function SettingsLink({ bot }: { bot: Bot }) {
   return (
     <Link
@@ -293,7 +293,7 @@ function BotsTable({ bots }: { bots: Bot[] }) {
                   <span className="min-w-0 flex-1">
                     <BotLink bot={bot} className="font-medium hover:underline" />
                     <span className="block truncate text-xs text-muted-foreground">
-                      {bot.persona || "No persona."}
+                      {bot.instructions || "No instructions."}
                     </span>
                   </span>
                   <SettingsLink bot={bot} />

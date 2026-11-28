@@ -429,8 +429,11 @@ func TestAForwardedQuestionAConnectionRequestAndAToDoEachReachTheDeviceOnce(t *t
 		require.NoError(t, err)
 	}
 
-	hr, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "hr", Persona: "people",
-		Connections: orchestration.AllowList{Limited: true, Names: []string{"google:work"}}})
+	hr, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:        "hr",
+		Connections: orchestration.AllowList{Limited: true, Names: []string{"google:work"}},
+		AgentSpec:   orchestration.AgentSpec{Instructions: "people"},
+	})
 	require.NoError(t, err)
 	main, _, err := w.svc.OpenMainChat(ctx, hr.ID, "", "", orchestration.ChatModel{})
 	require.NoError(t, err)

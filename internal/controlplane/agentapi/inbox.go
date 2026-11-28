@@ -238,8 +238,9 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
 		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did on it in this attempt, " +
 			"only for your own work (the Run you started from the item's chat, that Run's pull request, your " +
-			"comment on it with the file you made, comment by its revision, or the message you sent for it with " +
-			"its account and chat), never his answer or a link he gave; with for_owner, his own message that he " +
+			"comment on it with the file you made, comment by its revision, the message you sent for it with " +
+			"its account and chat, or the review the GitHub App left on its pull request, url by its address), " +
+			"never his answer or a link he gave; with for_owner, his own message that he " +
 			"did it (his comment on the item, comment by its " +
 			"revision; in this chat; or one he sent after it was made in the item's Zalo, " +
 			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
