@@ -386,6 +386,12 @@ func (mr *museReader) list(ctx context.Context, r Request, lane *museLane, promp
 		lastEnd = r.now()
 
 		if err != nil {
+			// A continuation cut by the deadline keeps why the answers before it were not taken.
+			if f := AsFailure(err); f.Code == CodeTimeout && why != "" {
+				return out, Fail(CodeTimeout, "%s (thread %s); before it, %s", f.Detail, muse.ThreadURL(out.thread),
+					why)
+			}
+
 			return out, err
 		}
 
@@ -475,7 +481,17 @@ func (mr *museReader) ask(ctx context.Context, r Request, lane *museLane, prompt
 		return res, Fail(CodeBroken, "%s", oneLine(err.Error()))
 	}
 
-	return res, outcomeFailure(res)
+	failed := outcomeFailure(res)
+
+	// The pool answers a question its deadline cut with an error or an unknown end and no Go error ("Muse was not
+	// asked: context deadline exceeded", muse/ask.go): the search's time ran out, a timeout by the closed codes,
+	// whatever the pool's outcome (review of #1292, round 3).
+	if failed != nil && (res.Outcome == muse.OutcomeError || res.Outcome == muse.OutcomeUnknown) &&
+		(ctx.Err() != nil || lane.askLeft(r.now()) <= 0) {
+		return res, Fail(CodeTimeout, "Muse's time for this search ran out: %s", oneLine(res.Note))
+	}
+
+	return res, failed
 }
 
 // outcomeFailure is a question's outcome as a failure, nil for an answer: Muse asking for a permission waits for the
@@ -585,6 +601,9 @@ func (st *museStream) more(ctx context.Context) Result {
 		st.asks += got.asks
 
 		switch {
+		case errors.Is(err, errExtraSpent) && got.asks > 0:
+			notes = append(notes, fmt.Sprintf("more from %s: asked %d times, no usable list before the search's %d "+
+				"extra questions were spent", where, got.asks, museDepth))
 		case errors.Is(err, errExtraSpent):
 			notes = append(notes, fmt.Sprintf("more from %s not asked: the search's %d extra questions are spent",
 				where, museDepth))

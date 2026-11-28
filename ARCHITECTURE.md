@@ -5057,7 +5057,9 @@ writes no prose (last30days SKILL.md LAW 7).
   25 s before it (ten links at a second each and one page's 15 s), none starts, nor is a continuation waited for, with less than 30 s to that end, no
   page is opened after the deadline (`not checked: the search's time ran out`), and a stream that could not be asked
   is `timeout`. Pool outcomes become codes: no account that can take it `need_login`, a permission card `refused`, a
-  spent quota `limit_reached`, interrupted or unknown `timeout`, other errors `broken`. `HYPOMNEMA_LISTENING_LIVE=1
+  spent quota `limit_reached`, interrupted or unknown `timeout`, an error once the questions' time is spent (the pool's
+  "Muse was not asked: context deadline exceeded") `timeout`, other errors `broken`; a question cut by the deadline
+  keeps why the answers before it were not taken. `HYPOMNEMA_LISTENING_LIVE=1
   go test ./internal/controlplane/listening -run LiveMuse` checks the ten posts of the 2026-11-27 probe against the
   real threads.com.
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
