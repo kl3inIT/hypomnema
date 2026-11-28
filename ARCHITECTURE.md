@@ -2616,7 +2616,8 @@ flowchart LR
     [docs/github-app.md](docs/github-app.md)). Workers and the coordinator act on the repositories it is installed
     on with its installations' tokens, which count against the App's own rate limit, not the owner's token's
     (GitHub's "Rate limits for GitHub Apps"); GitHub's events end the waits for CI. The owner's token stays for his
-    own actions and for the repositories the App does not cover, so nothing changes before the App exists.
+    own actions and for the repositories the App does not cover. Opening pull requests and the coordinator's
+    CodeRabbit trigger use the owner's GitHub Connection (#1339).
     - **Registering it** from a manifest (GitHub's "Registering a GitHub App from a manifest"; Omnara's guided
       setup, `docs/integrations/github.mdx:20-75`, `internal/httpapi/github_app_setup_routes.go:88-107`): the page
       `/api/v1/integrations/github/app/setup`, which only the owner's session or token opens, posts the manifest to
@@ -2666,6 +2667,9 @@ flowchart LR
       gives none (the App no longer covers the repository, or the node reconnected to a control plane of an earlier
       release, without the route), gh and git fail closed, saying why, as Omnara's `RunGitHubCLI` returns its
       credential error: no token is kept on the node, and the machine's own login may reach more than the owner's.
+      For `gh pr create` the shim asks `POST /agent/v1/github/pr-create-token` with the same Dispatch key. The
+      control plane selects the repository's Connection, with the same owner identity match as commit attribution.
+      The shim uses that token for the create command. See [the GitHub App guide](docs/github-app.md).
       A Bot's gh through the service proxy goes with the App's token
       when its request names a repository the App covers (a REST path under `/repos/{owner}/{repo}`, or GraphQL
       variables `owner` with `repo` or `name`, as gh sends them); the control plane's own reads of a followed pull
@@ -3410,6 +3414,44 @@ flowchart LR
       (types named as zlog's worker_sync names them, a message taken back left out), the phone's ids turned into
       Zalo Web's through `/api/znoise`; a chat Zalo does not know is skipped. The session's `phone_sync` says the
       stage (asking, sending, importing, done, failed) and what was kept; the backup is removed after.
+  - Telegram, the owner's personal account as a user client of MTProto, never a bot
+    ([issue #1184](https://github.com/kl3inIT/hypomnema/issues/1184), part 1; `messaging/telegram`): the package and
+    its store only. It is not wired into the control plane yet: no Integration, link, tools or Inbox tab (part 2).
+    - **The client**: `github.com/gotd/td` in the control plane's process, with `gotd/contrib`'s flood-wait
+      middleware and a rate limit of 10 requests a second (burst 5), as gotd's `examples/userbot`. The owner's
+      `api_id` and `api_hash` are the vault's generic secrets `telegram-api-id` and `telegram-api-hash`; without
+      them `Ready` answers that the `api_id` is missing and a kept account opens `disconnected`, saying so.
+    - **`telegram.db`** beside the control plane's database (private): gotd's session (`tg_sessions`, keyed by the
+      owner's Telegram user id), the update state (`tg_state`, `tg_channel_state`) and access hashes
+      (`tg_access_hashes`) as mautrix/telegram keeps them, the people's names (`tg_users`), and the mirror
+      `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s; `tg_version` 0. A new update
+      state keeps the channels' pts, as mautrix's store does (gotd's file storage forgets them).
+    - **Every chat kept**: gotd's updates manager recovers gaps itself and hands new, edited and deleted messages to
+      the mirror; a group or channel created is listed from its service message, and one the account is removed
+      from (or loses, `OnChannelInaccessible`) leaves the list. A channel gap it cannot recover (`OnChannelGap`)
+      keeps the latest messages it came with when it is reported, and fetches those since the last message kept
+      before the gap (read then too), at most 500 (mautrix's `max_catchup_messages`), keeping them once all are
+      fetched, then applying again the deletions that came meanwhile. A fetched service message is skipped, as
+      mautrix's backfill: only live updates change a chat.
+    - **The listing of dialogs** (`tg_dialog_sync`): every dialog, 100 a page, each chat kept with its latest message
+      and each listed channel tracked by the updates manager from its dialog's pts. It runs after a link and goes on
+      from its kept page cursor on each session's start and each reconnection until done, as mautrix's chat sync,
+      and after a failure again with gotd's reconnection backoff; a gap of the account's own updates (`OnTooLong`)
+      or a state not found starts it again, catching each chat up as a channel gap is, a chat's latest message kept
+      only after its gap. A short page ends it only when the count is reached, and a page without a latest message
+      keeps the offset before (gotd's dialogs iterator).
+    - **The past**: `Backfill` fetches older messages with `messages.getHistory`, 100 a page, one fetch at a time,
+      waiting 2 s more each page up to 15 s (20 s at most for one fetch of 500); no takeout. gotd's flood-wait
+      middleware waits out a `FLOOD_WAIT` of up to a minute, five times; a longer one fails the request (a listing
+      tries again after its backoff). `messages.readHistory` is never called, so nothing is marked read.
+    - **Chats**: ids `user:<id>`, `chat:<id>`, `channel:<id>`. A person is `dm`; a bot or an account Telegram marks
+      verified, support, scam or fake is `bot`; a basic group, a megagroup or a forum (one chat) is `group`; a
+      broadcast channel or a gigagroup is `broadcast`. A deleted account and a chat left or lost are not listed;
+      their messages stay.
+    - **State**: from gotd's `AuthLostKindOf`: banned is `banned`; revoked, unregistered, expired, an invalid key or a
+      deleted account is `logged_out`; `AUTH_KEY_DUPLICATED` is `replaced`, and these end the session. A frozen
+      account is shown as `banned` with its end date and appeal link while it keeps reading. Any other end is
+      `disconnected`, connected again with gotd's backoff.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
@@ -4980,7 +5022,7 @@ not checked against the live site in the change that wrote them.
 - Not built: Muse's images and videos as tools (#781, step 3), a history screen for `muse.db`, watching an account's
   tab live, Muse Spark through `api.meta.ai`.
 
-Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issue #1287, step 2 of #781,
+Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issues #1287 and #1289, step 2 of #781,
 [research](docs/research/2026-11-27-social-listening.md)): the tool `listen_search` finds what people say about a
 topic. The calling model writes the plan; the tool answers with items, clusters and each source's coverage, and
 writes no prose (last30days SKILL.md LAW 7).
@@ -5002,6 +5044,72 @@ writes no prose (last30days SKILL.md LAW 7).
   none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. That failure rests the archive's path only, not
   `web_arctic`: the next subquery still searches the web and keeps its threads as the search showed them. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
   `web_arctic` was added for that (owner, 2026-11-27).
+- The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
+  - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
+    and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the
+    videos read with their metadata, and with fewer than 3 in the window the results page asked again for recent
+    uploads (YouTube's upload-date filter); then the top comments (top-level, not the channel's, 5 each) of the 3 most
+    watched and the captions (`vi-orig,en-orig,vi,en`) of the 2 most watched, a video's text being its transcript's
+    most quotable sentences. A bot check is `refused`, a 429 `rate_limited`; a failed comment or caption read is named
+    in the detail.
+  - `google_play` (`play_reviews`, `stores.go`): the app the query names by its package, else the first app of Play's
+    search; google-play-scraper's batchexecute call, `hl=vi`, `gl=vn`, newest first, page after page until the
+    stream's limit or a review older than the window; an error on any page fails the stream, Play's gateway error is
+    `rate_limited`, a review's date is Play's epoch in UTC, TLS verified.
+  - `app_store` (`rss_reviews`): the app named by its id, else the first of Apple's search in Vietnam's store; its
+    public reviews feed (JSON, the first page's four spellings, one answering 400 or 404 passed for the next), at most
+    10 pages 300 ms apart, until the window ends. The feed links every review to its app's page, so a review's
+    address carries its id (`reviewId=`) and two reviews never fold into one. A review's `engagement` holds its
+    `rating` (and Play's `thumbs_up`), which no score is made of.
+  - `hackernews` (`algolia`, `apis.go`), `github` (`issues_search`), `arxiv` (`arxiv_api`), `techmeme`
+    (`techmeme_search`), `devto` (`forem_api`), `bluesky` (`appview`): Algolia's stories and comments in the window
+    (a story of 2 points or fewer, and a hit naming no query word, left out; a comment's `parent` is its story);
+    GitHub's keyless issue search by title, 10 at most, kept when its title or repository names the topic, a 403 with
+    no requests left `rate_limited` until GitHub's reset; arXiv's Atom API, the phrase quoted then its words, one call
+    every 3 s (arXiv's terms); Techmeme's archive search with its `date:[…]` operator, pages of 10; DEV.to's search
+    kept at relevance 0.25; Bluesky's searchPosts on `api.bsky.app` without a session.
+  - `toutiao` (`so_search`, `chinese.go`) and `bilibili` (`visitor_search`), added by the owner on 2026-11-28 (research
+    note §8). `toutiao` is off by default (an opt-in backend, read only when a plan pins it) until the owner decides
+    on its terms: its robots.txt allows only `/`, and its user agreement limits automated collection and commercial
+    reuse without written leave (review of PR #1321). Both are asked as a whole desktop browser (Chinese `Accept-Language`, the site's page as `Referer`): Toutiao's
+    `so.toutiao.com/search` information channel, the JSON cards its page embeds (title, source, publish time, reads,
+    comments, likes), up to 3 pages, a page shell asked again up to 3 times 0.8 s × try apart, its verify page
+    `refused` (by the address's path or host, never a keyword), then the hot board's entries naming the topic
+    (undated), read even when the search failed, that failure kept beside them; Bilibili as a visitor (`buvid3`/`buvid4` from
+    `finger/spi`), the WBI-signed video search (keys from `nav`, kept 6 hours) with the window as
+    `pubtime_begin_s`/`pubtime_end_s` in Beijing days, by rank then by clicks; a risk answer (HTTP 412, code -412 or
+    -352) gets fresh cookies and the legacy search; an answer of code 0 holding only a `v_voucher` is `refused`, never
+    a clean zero, and stays `refused` when the legacy search then finds nothing; a later order that fails beside
+    results makes the read partial. Neither has an engagement score (no reference gives one an absolute scale).
+  - `careers` (`careers_page`, `careers.go`, `signals.go`): the web search `<company> careers jobs`, its first careers
+    address read, its roles from the schema.org JobPosting of the page or of the role pages it links on its own site;
+    an item's `signals` mark a role out of character (`founding`, `leadership`, `specialized`, `new-geo`; a place is
+    its city folded, so "Hà Nội", "Ha Noi" and "Hanoi" are one). A role page not read makes the read partial.
+  - `voz`, `tinhte`, `otofun` (`web_thread`, `forums.go`, `robots.go`): the web search `site:<forum> <query>`, its
+    thread links, each read (title, first post, date, author) only where the forum's robots.txt, the group naming
+    `hypomnema` else `*`, allows the path and its Content-Signal allows an AI's input and not only reference use; else
+    the search's excerpt and link. voz.vn says `use=reference`, so it is excerpts only. robots.txt is kept 24 hours; a
+    4xx is no rules, a 5xx or no answer disallows all (RFC 9309), checked again at every redirect; a robots.txt 429
+    rests the forum's pages like a thread's, so neither is asked until its `Retry-After`. The robots.txt itself is
+    read one redirect at a time, each hop resting on its own host (Otofun's old host sends it to the new one). A thread that could not be
+    read keeps its excerpt and makes the read partial.
+  - A page a search named (a careers page, a role, a thread, a robots.txt) is read through the web fetch's client
+    (`websearch.PageClient`: public addresses only, each redirect followed by hand), as `hypomnema/1 (+…)`. A refusal
+    or a rate limit rests that host's pages (`Retry-After` kept), so the next search sends nothing there.
+- A backend that read in part (`Result.Failed`: a page, an order, a thread or YouTube's recent-uploads search not
+  read) keeps that failure's code on its stream beside the items: the source is `partial` and its health
+  `unverified`. With no item left, the failure is the stream's, never a clean zero, and rests the backend as any
+  failure does. YouTube's recent-uploads search
+  refused or rate limited stops that search's captions and comments and rests the backend; so does a bot check
+  or a 429 met while listing or reading the videos, even after yt-dlp printed some (they are kept).
+- Ranking per source: engagement weights and references, YouTube on its view scale, a comment scored on its votes
+  alone, and each source's quality from last30days' `signals.py`; arXiv, Techmeme, careers, forums and the app stores
+  have no engagement score.
+- Health (`health.go`, `Service.Health`): per source `working` after a search read it (in full or empty),
+  `unverified` before any or after one read in part, `not_working` after one that could not read it, with the last
+  success, the last failure, its code and detail; in memory. A search that asked none of a source's backends (off
+  by default and not pinned, or every backend resting) leaves its health as it was. Each source names the query its live test reads
+  (`Platform.LiveQuery`); `TestLiveEverySource` (`HYPOMNEMA_LISTENING_LIVE=1`, yt-dlp on PATH) reads every source.
 - A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
   refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
   first with items serves. An opt-in backend is asked only when pinned. After `need_login`, `refused`,
@@ -5009,8 +5117,8 @@ writes no prose (last30days SKILL.md LAW 7).
   subqueries run one after another; sources run at once.
 - Failure codes, a closed set: `need_login` (401), `refused` (403, a page where JSON was asked), `rate_limited` (429,
   Arctic Shift's 422), `limit_reached` (402), `not_found` (404, 410), `timeout`, `broken`, and `no_results`, the only
-  clean zero. Rests, in memory: a wait the source or the chain named, else refused 6 hours, rate limited what the source said (`Retry-After`,
-  `x-ratelimit-reset`) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
+  clean zero. Rests, in memory: a wait the source or the chain named, else refused 6 hours, rate limited what the source said (`Retry-After` in
+  seconds or as an HTTP date, `x-ratelimit-reset`, kept however long; a value past 10^8 is a Unix time) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
 - Pacing: one call at a time per host, Reddit's at least 1 s apart, Arctic Shift's 400 ms (`Pacer`), whoever asks.
   The web searches a plan makes wait in the chain for their route's turn, one call at a time per key or keyless
   provider and 1 s apart (`websearch.WithPace`); a provider's rest is stored before its turn ends, and a route that
@@ -5089,16 +5197,17 @@ writes no prose (last30days SKILL.md LAW 7).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
-  search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
-  with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
+  search page has (owner, 2026-11-27: no paid services). Every source is read without an account or a key. `go test
+  ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources.
 - The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
   `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
   agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
   leads once and caps web supplements. Both web phases use the `web` source of `listen_search` for keyless
   search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
   risks and next focus, then reviews it once.
-- Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1289 to #1295).
+- Not built: the Sources screen and its daily run of the live tests, the keyed and signed-in sources, the hosted job
+  boards' APIs, and saved topics (issues #1290 to #1295). yt-dlp is not on the PATH of zm's control plane user
+  (`command -v yt-dlp`, 2026-11-28): until it is, `youtube` answers `broken`.
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
@@ -6294,11 +6403,14 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told the verdict and findings, without adding a Task; the reviewer first reads
-  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1
-  of its own) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
-  permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
-  nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  and the owner told the verdict and findings, without adding a Task. Once an important GitHub pull request's
+  author Task succeeds, the coordinator requests a CodeRabbit review through `gh api` at most once an hour
+  across the owner's repositories (#1339). The service proxy sends this REST comment with the GitHub Connection
+  token and the owner's standing approval. The coordinator waits for a completed review on the head before
+  dispatching the reviewer, except on a CodeRabbit rate limit or its own hourly limit. A failed or cancelled
+  review gets one retry under the same limit. A fix head gets an incremental request only if a Critical or Major
+  finding was fixed. The reviewer answers findings against the head. CodeRabbit is never a merge condition.
+  The model is the profile's unless the owner names one, and a profile or model that cannot be served is
   reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
   each rule's source is in `docs/role-routing.md` (issue #1051).
   A worker that turned auto-merge on finishes without waiting for CI, and the control plane follows its pull

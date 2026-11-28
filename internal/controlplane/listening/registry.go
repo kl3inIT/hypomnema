@@ -35,12 +35,19 @@ type Result struct {
 	provider    string
 	windowBasis websearch.WindowBasis
 	dropped     Drops
+	// Failed is a failure beside the items read: a part of the read that could not be done (a page, an order, a
+	// thread). With items the stream is partial, without it is not read: a failure is never a clean zero
+	// (last30days doctor.audit_state, lib/doctor.py:128-161, a partial read is unverified).
+	Failed *SourceError
 }
 
 // Platform is a source and its backends, in the order they are tried (Agent-Reach Action.backends).
 type Platform struct {
 	Name     string
 	Backends []Backend
+	// LiveQuery is what the source's live test searches, one a day (Agent-Reach Action.live_test, channels/base.py;
+	// last30days doctor's probes): a topic it has data on.
+	LiveQuery string
 	// Read reads one of its items in full, the post and its top comments, for the semantic pass's full read
 	// (Agent-Reach's read action beside search, channels/base.py:30-50; last30days reads a kept thread's comments
 	// after ranking, reddit_hydrate.py); nil: its items are not read.
@@ -227,6 +234,29 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 		}
 
 		items := s.inWindow(res, p.Name, b.Name, sq.Label, req, &st.report.dropped)
+		if f := res.Failed; f != nil && len(items) == 0 {
+			// Nothing left beside the failure: it is the stream's, rested as the failure path above rests one, so
+			// a block met after some output still keeps the next search away (review round 4 of PR #1321).
+			until := f.Until
+			if !f.pathRest {
+				until = s.rest(id, f)
+			}
+
+			attempt.Result, attempt.Detail = string(f.Code), joinDetail(res.Detail, f.Detail)
+			if !until.IsZero() {
+				attempt.Until = until.UTC().Format(time.RFC3339)
+			}
+
+			st.report.Tried = append(st.report.Tried, attempt)
+			failed = append(failed, f.Code)
+
+			if stopsHost(f.Code) {
+				stopped[b.Host] = f.Code
+			}
+
+			continue
+		}
+
 		if len(items) == 0 {
 			clean = true
 
@@ -237,6 +267,21 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 		}
 
 		attempt.Result = resultOK
+		if f := res.Failed; f != nil {
+			// Read in part: the stream keeps the failure's code, so its source is partial.
+			st.report.Code = f.Code
+			attempt.Detail = joinDetail(res.Detail, "part not read: "+f.Error())
+
+			until := f.Until
+			if f.restBackend {
+				until = s.rest(id, f)
+			}
+
+			if !until.IsZero() {
+				attempt.Until = until.UTC().Format(time.RFC3339)
+			}
+		}
+
 		st.report.Tried = append(st.report.Tried, attempt)
 		st.report.ServedBy = b.Name
 		st.report.Items = len(items)
@@ -253,9 +298,15 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 	case len(failed) > 0:
 		st.report.Code = slices.MinFunc(failed, func(a, b Code) int { return specificity(a) - specificity(b) })
 	default:
+		detail := "no backend of this source can be asked"
+		if pin == "" && slices.ContainsFunc(p.Backends, func(b Backend) bool { return b.OptIn }) {
+			detail = "off by default: pin one of its backends (" + strings.Join(p.backendNames(), ", ") +
+				") in `backends` to ask it"
+		}
+
 		st.report.Code = CodeBroken
 		st.report.Tried = append(st.report.Tried, Attempt{
-			Backend: "", Result: string(CodeBroken), Detail: "no backend of this source can be asked", Skipped: true,
+			Backend: "", Result: string(CodeBroken), Detail: detail, Skipped: true,
 		})
 	}
 
@@ -315,4 +366,30 @@ func inDays(published *time.Time, from, to time.Time) bool {
 	day := published.UTC().Format(time.DateOnly)
 
 	return day >= from.UTC().Format(time.DateOnly) && day <= to.UTC().Format(time.DateOnly)
+}
+
+// joinDetail joins two details, either of which may be empty.
+func joinDetail(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "; " + b
+	}
+}
+
+// worse is the more actionable of two failures, the first on a tie (Codes' order); nil is no failure.
+func worse(a, b *SourceError) *SourceError {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case specificity(b.Code) < specificity(a.Code):
+		return b
+	default:
+		return a
+	}
 }

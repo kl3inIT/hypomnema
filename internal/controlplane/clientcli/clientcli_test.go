@@ -934,6 +934,22 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	require.NoError(t, err)
 	assert.Contains(t, out, "# Coordinating Hypomnema workers")
 
+	for _, want := range []string{
+		"Ask CodeRabbit only on important GitHub pull requests",
+		"adds a migration, changes security or permissions, changes merging or auto-merge, or is a large change",
+		"without asking for approval",
+		"at most once an hour across the owner's repositories",
+		"Only a CodeRabbit Rate limited check or the coordinator's hourly limit skips the CodeRabbit review",
+		"Create the reviewer Task only after the head's CodeRabbit check has completed with a review",
+		"Wait while the check is missing, queued or in progress",
+		"Ask once more on Failed or Cancelled, within the hourly limit", //nolint:misspell // CodeRabbit state
+		"Request a fix round's new head only when a Critical or Major finding was fixed",
+		"CodeRabbit is never a merge condition",
+	} {
+		assert.Contains(t, strings.Join(strings.Fields(out), " "), want,
+			"the coordinator's CodeRabbit rules (issue #1339): %s", want)
+	}
+
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--references")
 	require.NoError(t, err)
 	assert.Equal(t, "investigate\nrecovery\nreview\n", out)
@@ -961,8 +977,19 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	}
 	assert.Contains(t, out, "how it answers CodeRabbit",
 		"a review answers CodeRabbit's findings, as the reviewer profile says (issues #766, #1051)")
-	assert.Contains(t, out, `gh pr comment <url> --body
-   "@coderabbitai review"`, "the coordinator may ask CodeRabbit on an important pull request")
+	assert.Contains(t, out, `gh api --method POST repos/<repo>/issues/<number>/comments -f body='@coderabbitai review'`,
+		"the coordinator triggers an incremental CodeRabbit review (issue #1339)")
+	for _, want := range []string{
+		"Skip the request if you already asked within the past hour",
+		"Only Rate limited or the coordinator's hourly limit lets an eligible review proceed without CodeRabbit",
+		"Wait while the check is missing, queued or in progress",
+		"Create the reviewer Task only once the check has completed with a review on that head",
+		"For Failed or Cancelled, ask once more within the same hourly limit", //nolint:misspell // CodeRabbit state
+		"Request CodeRabbit on a fix round's new head only when a Critical or Major finding was fixed",
+	} {
+		assert.Contains(t, strings.Join(strings.Fields(out), " "), want,
+			"the CodeRabbit review reference (issue #1339): %s", want)
+	}
 	assert.Contains(t, out, "CodeRabbit is never a condition of its own")
 	assert.Contains(t, out, "Do not rerun a failing test to get a green check.", "flake policy (issue #1281)")
 	assert.Contains(t, out, "the test is quarantined with an issue and a note visible to the owner",
@@ -994,7 +1021,6 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator")
 	require.NoError(t, err)
-	assert.Contains(t, out, "it\n  is never a merge condition")
 	assert.Contains(t, out, "For a bug fix, ask for a test that fails without the fix, committed before the fix",
 		"a disputed finding is settled by a test (issue #952)")
 	assert.Contains(t, out,

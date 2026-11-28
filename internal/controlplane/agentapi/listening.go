@@ -15,7 +15,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// An agent's social listening tool (issue #1287): listen_search runs a plan the agent's model wrote against the
+// An agent's social listening tool (issues #1287, #1289): listen_search runs a plan the agent's model wrote against the
 // control plane's listening sources (internal/controlplane/listening) and answers with items, clusters and each
 // source's coverage, never prose (last30days SKILL.md LAW 7). It is given as the gateway's other tools are (web.go):
 // a worker by its runtime, every runtime, none having it of its own, and a Bot's pi; not a Routine's script, the
@@ -46,12 +46,18 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 
 	return agenttool.BrowserTool{
 		Name: agenttool.ToolListenSearch,
-		Description: "Find what people say about a topic: posts, threads and comments from the web and Reddit, each " +
-			"with its link, author, date, text and counts. Use it to learn what the public says (complaints, " +
-			"praise, questions, comparisons) rather than what the press or a company says; for a fact or one page, " +
-			"use web_search and web_fetch instead. You write the plan: up to " + strconv.Itoa(listening.MaxSubqueries) +
-			" subqueries, each a short search in the words people use (in their language), with the sources it " +
-			"reads; give `topic` in a few words, and `depth` (quick, standard or deep). It answers JSON, no prose: " +
+		Description: "Find what people say about a topic: posts, threads, comments, reviews and videos from the " +
+			"web, Reddit, YouTube (with what the video says and its top comments), Google Play and App Store " +
+			"reviews, Hacker News, GitHub, arXiv, Techmeme, DEV.to, Bluesky, Bilibili and Toutiao (in Chinese; " +
+			"Toutiao is off unless `backends` pins it), the Vietnamese forums Voz, Tinhte and Otofun, and companies' " +
+			"careers pages, each item with its link, author, date, text and counts. Use it to learn what the public " +
+			"says (complaints, praise, questions, comparisons) rather than what the press or a company says; for a " +
+			"fact or one page, use web_search and web_fetch instead. You write the plan: up to " +
+			strconv.Itoa(listening.MaxSubqueries) + " subqueries, each a short search in the words people use (in " +
+			"their language), with the sources it reads; give `topic` in a few words, and `depth` (quick, standard " +
+			"or deep). For google_play and app_store a subquery's query names the app (its name, its Play package " +
+			"or its App Store id), for careers the company; a careers item's `signals` mark a role out of character " +
+			"for the company (founding, leadership, specialized, new-geo). It answers JSON, no prose: " +
 			"`items` (the best of the pool, best first, each with its cluster; `provenance` llm when a model scored " +
 			"its relevance, with its `reason`, fallback when the code did; `fit` core, supporting or counter in its " +
 			"cluster; `direct` when read from the post itself, not a search card; `quotes`, verbatim and checked " +

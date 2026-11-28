@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -70,6 +71,9 @@ type SourceError struct {
 	// pathRest: the failure is a path's, already resting on its own (Request.Rest); the backend is not rested for
 	// it, so its other paths serve the next stream.
 	pathRest bool
+	// restBackend: a part not read beside items (Result.Failed) rests the backend as a failure does, the site having
+	// refused or asked to slow down (YouTube's recent-uploads search).
+	restBackend bool
 }
 
 func (f *SourceError) Error() string {
@@ -119,7 +123,7 @@ func HTTPFailure(status int, header http.Header, now time.Time) *SourceError {
 		return Fail(CodeNotFound, "%s", detail)
 	case http.StatusTooManyRequests:
 		f := Fail(CodeRateLimited, "%s", detail)
-		if wait, ok := retryAfter(header); ok {
+		if wait, ok := retryAfter(header, now); ok {
 			f.Until = now.Add(wait)
 		}
 
@@ -133,18 +137,42 @@ func HTTPFailure(status int, header http.Header, now time.Time) *SourceError {
 	}
 }
 
-// retryAfter is the wait a 429 names: Retry-After, else Reddit's x-ratelimit-reset, in seconds (last30days
-// retry_delay_from_headers, lib/http.py:77-121; openmagpie parse_rate_limit_wait, connectors/base.py:94-115).
-func retryAfter(header http.Header) (time.Duration, bool) {
+// retryAfter is the wait a 429 names: Retry-After, in seconds or as an HTTP date (RFC 9110 §10.2.3), else Reddit's
+// x-ratelimit-reset, in seconds (last30days retry_delay_from_headers, lib/http.py:77-121; openmagpie
+// parse_rate_limit_wait, apps/core/sources/connectors/base.py:92-112, which leaves the date form to its backoff,
+// :97-99; the date is RFC 9110's, which a review of PR #1321 asked to keep). A value of epochReset or more is a
+// time, not a wait, as last30days reads it (_EPOCH_RESET_THRESHOLD, lib/http.py:74). The wait the server names is
+// kept however long: last30days caps it at a minute (MAX_RETRY_DELAY_SECONDS, :72) because it sleeps in place, while
+// a rest here only skips the source, and the answer says until when (review round 3 of PR #1321).
+func retryAfter(header http.Header, now time.Time) (time.Duration, bool) {
+	if at, err := http.ParseTime(strings.TrimSpace(header.Get("Retry-After"))); err == nil {
+		if wait := at.Sub(now); wait > 0 {
+			return wait, true
+		}
+	}
+
 	for _, name := range []string{"Retry-After", "X-Ratelimit-Reset"} {
 		seconds, err := strconv.ParseFloat(strings.TrimSpace(header.Get(name)), 64)
-		if err == nil && seconds > 0 && seconds < 7*24*3600 {
-			return time.Duration(seconds * float64(time.Second)), true
+		if err != nil || seconds <= 0 || math.IsInf(seconds, 0) {
+			continue
 		}
+
+		if seconds >= epochReset {
+			if wait := time.Unix(int64(seconds), 0).Sub(now); wait > 0 {
+				return wait, true
+			}
+
+			continue
+		}
+
+		return time.Duration(seconds * float64(time.Second)), true
 	}
 
 	return 0, false
 }
+
+// epochReset is where a reset header's seconds become a Unix time (last30days _EPOCH_RESET_THRESHOLD).
+const epochReset = 100_000_000
 
 func oneLine(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
