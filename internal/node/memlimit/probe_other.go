@@ -26,3 +26,18 @@ func ScopeOf(int) (string, error) { return "", errors.New("cgroups are Linux's")
 
 // ScopeOOMKills is never asked off Linux.
 func ScopeOOMKills(string) (int64, error) { return 0, errors.New("cgroups are Linux's") }
+
+// Holder is never started off Linux.
+type Holder struct {
+	PID   int
+	Start uint64
+}
+
+// StartHolder is never asked off Linux.
+func StartHolder(string) (Holder, error) { return Holder{}, errors.New("cgroups are Linux's") }
+
+// HeldScope is never asked off Linux.
+func HeldScope(string) string { return "" }
+
+// StopHolder is never asked off Linux.
+func StopHolder(string) {}

@@ -544,6 +544,7 @@ func (s *Supervisor) Release(id string) {
 		_ = shim.RevokeLaunch(dir)
 	}
 
+	memlimit.StopHolder(dir)
 }
 
 // Asked records the control plane's id for a question the worker asked.
@@ -880,8 +881,14 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 func (s *Supervisor) endedForMemory(ctx context.Context, w *Worker, started bool, oom string, ex nodeproto.Exit,
 	res Result,
 ) {
-	if !started {
+	// An adopted worker counts as started on the node, but the control plane may not have been told: an earlier
+	// daemon may have ended before its started report went (review round 2). It is said again; a control plane
+	// that knows already refuses it, which changes nothing.
+	switch {
+	case !started:
 		w.Started(ctx, "")
+	case w.adopted:
+		w.Report(ctx, w.r.Started(ctx, "shim:"+strconv.Itoa(w.shimPID()), ""))
 	}
 
 	f := nodeproto.Finished{Class: "worker_error", Exit: ex, Usage: res.Usage}
@@ -926,14 +933,12 @@ func (s *Supervisor) watchScope(ctx context.Context, w *Worker) {
 	if !tried {
 		var err error
 		if w.adopted {
-			dir, err = s.Memory.Adopt(ctx, w.id, w.offer.MemoryLimit, func() []int { return shim.Tree(pid) })
+			dir, err = s.adoptScope(ctx, w, pid)
 		} else {
 			dir, err = memlimit.ScopeOf(pid)
 		}
 
 		if err != nil {
-			dir = ""
-
 			s.Logger.WarnContext(ctx, "could not put a worker in its scope of the workers' slice",
 				slog.String("event", "node.memory_scope_failed"), slog.String("dispatch_id", w.id),
 				slog.String("error", err.Error()))
@@ -953,6 +958,39 @@ func (s *Supervisor) watchScope(ctx context.Context, w *Worker) {
 	}
 }
 
+// adoptScope moves a worker an earlier daemon started into its scope, with a holder that keeps the scope until the
+// worker's end is read (memlimit.Holder): its shim may not count kills for memory itself. A worker whose holder is
+// already in a scope of the slice was moved by an earlier daemon of this release. A holder whose move failed is
+// stopped, so none is left in the daemon's cgroup.
+func (s *Supervisor) adoptScope(ctx context.Context, w *Worker, pid int) (string, error) {
+	if held := memlimit.HeldScope(w.dir); held != "" {
+		return held, nil
+	}
+
+	holder, err := memlimit.StartHolder(w.dir)
+	if err != nil {
+		s.Logger.WarnContext(ctx, "could not start the holder of an adopted worker's scope",
+			slog.String("event", "node.memory_scope_holder_failed"), slog.String("dispatch_id", w.id),
+			slog.String("error", err.Error()))
+	}
+
+	tree := func() []int {
+		pids := shim.Tree(pid)
+		if holder.PID > 0 && len(pids) > 0 {
+			pids = append(pids, holder.PID)
+		}
+
+		return pids
+	}
+
+	dir, err := s.Memory.Adopt(ctx, w.id, w.offer.MemoryLimit, tree)
+	if dir == "" {
+		memlimit.StopHolder(w.dir)
+	}
+
+	return dir, err
+}
+
 // readScope reads the kills for memory in a worker's scope, keeping the largest count seen.
 func (s *Supervisor) readScope(w *Worker, dir string) {
 	n, err := memlimit.ScopeOOMKills(dir)
@@ -966,16 +1004,23 @@ func (s *Supervisor) readScope(w *Worker, dir string) {
 	}
 }
 
-// scopeKills is the kills for memory read in the worker's scope, read once more as it ended: its scope may still
-// hold what the shim did not say.
+// scopeKills is the kills for memory read in the worker's scope, read once more as it ended, then lets the scope go:
+// an adopted worker's scope is kept by its holder until this read, so a kill its shim did not count is not lost when
+// the worker's last process exits (issue #1313, review round 2).
 func (s *Supervisor) scopeKills(w *Worker) int64 {
 	w.mu.Lock()
 	dir := w.scope
 	w.mu.Unlock()
 
+	if dir == "" {
+		dir = memlimit.HeldScope(w.dir)
+	}
+
 	if dir != "" {
 		s.readScope(w, dir)
 	}
+
+	memlimit.StopHolder(w.dir)
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
