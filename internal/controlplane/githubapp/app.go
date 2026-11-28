@@ -326,15 +326,10 @@ func (a *App) Covers(ctx context.Context, host, path string) bool {
 	return err == nil && ok
 }
 
-// conversations are the events whose body is kept, for issue #1232.
-var conversations = map[string]bool{
-	"issue_comment": true, "pull_request_review": true, "pull_request_review_comment": true,
-}
-
 // ServeEvents receives the App's deliveries (POST EventsPath). A delivery not signed with the App's
 // secret is refused with 401 and changes nothing; one whose id was handled before is answered and not handled
 // again. The rest is recorded, then acted on: the CI of a pull request someone waits for, a pull request that
-// merged or closed, the App's installations.
+// merged or closed, the App's installations, a call of the App (issue #1232).
 func (a *App) ServeEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -373,10 +368,8 @@ func (a *App) ServeEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// No delivery's body is kept: a call's words go to its Inbox item, and anything else's to nothing (issue #1232).
 	delivery := githubstore.Delivery{ID: ev.Delivery, Event: ev.Name, Action: ev.Action, Repository: ev.Repo()}
-	if conversations[ev.Name] {
-		delivery.Payload = string(body)
-	}
 
 	recorded, err := a.store().RecordDelivery(ctx, delivery)
 	if err != nil {
@@ -433,6 +426,10 @@ func (a *App) handle(ctx context.Context, cred Credential, ev Event) {
 		case ev.Action == "synchronize" || ev.Action == "reopened":
 			err = a.moved(ctx, ev)
 		}
+	case "issue_comment", "pull_request_review_comment":
+		err = a.call(ctx, cred, ev)
+	case "pull_request_review":
+		err = errors.Join(a.reviewed(ctx, cred, ev), a.call(ctx, cred, ev))
 	}
 
 	if err != nil {

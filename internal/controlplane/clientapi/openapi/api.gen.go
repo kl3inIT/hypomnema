@@ -2340,6 +2340,7 @@ func (e TodoLinkKind) Valid() bool {
 // Defines values for TodoSourceKind.
 const (
 	TodoSourceKindChat     TodoSourceKind = "chat"
+	TodoSourceKindGithub   TodoSourceKind = "github"
 	TodoSourceKindGmail    TodoSourceKind = "gmail"
 	TodoSourceKindLark     TodoSourceKind = "lark"
 	TodoSourceKindMeeting  TodoSourceKind = "meeting"
@@ -2353,6 +2354,8 @@ const (
 func (e TodoSourceKind) Valid() bool {
 	switch e {
 	case TodoSourceKindChat:
+		return true
+	case TodoSourceKindGithub:
 		return true
 	case TodoSourceKindGmail:
 		return true
@@ -6135,7 +6138,7 @@ type NewTodoSource struct {
 	// Id The chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting's; those only.
 	Id *string `json:"id,omitempty"`
 
-	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
 	Kind  *TodoSourceKind `json:"kind,omitempty"`
 	Quote *string         `json:"quote,omitempty"`
 
@@ -7871,10 +7874,10 @@ type TodoSource struct {
 	// Account The owner's account the chat or thread is in; zalo, whatsapp and gmail, and lark when given.
 	Account *string `json:"account,omitempty"`
 
-	// Id The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting.
+	// Id The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, the meeting, or a GitHub issue's or pull request's owner/name#number.
 	Id *string `json:"id,omitempty"`
 
-	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
 	Kind TodoSourceKind `json:"kind"`
 
 	// Quote The words it came from.
@@ -7884,7 +7887,7 @@ type TodoSource struct {
 	Ref *TodoLink `json:"ref,omitempty"`
 }
 
-// TodoSourceKind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+// TodoSourceKind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
 type TodoSourceKind string
 
 // TodoState proposed waits for the owner; open is to be done; doing, a Bot is on it; review, the Bot's action waits for an Approval; done, dropped and duplicate are closed.

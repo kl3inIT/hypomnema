@@ -2,7 +2,13 @@ import { BotMessageSquare, Mic, PenLine, Repeat2, type LucideIcon } from "lucide
 import type { ComponentType, SVGProps } from "react"
 
 import { AgentAvatar } from "@/components/agent-avatar"
-import { GmailIcon, LarkIcon, WhatsAppIcon, ZaloIcon } from "@/components/icons/brand-icons"
+import {
+  GitHubIcon,
+  GmailIcon,
+  LarkIcon,
+  WhatsAppIcon,
+  ZaloIcon,
+} from "@/components/icons/brand-icons"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -18,6 +24,7 @@ const marks: Record<Source, ComponentType<SVGProps<SVGSVGElement>> | LucideIcon>
   lark: LarkIcon,
   gmail: GmailIcon,
   meeting: Mic,
+  github: GitHubIcon,
   chat: BotMessageSquare,
   hand: PenLine,
   routine: Repeat2,

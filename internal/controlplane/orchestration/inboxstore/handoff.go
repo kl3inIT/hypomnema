@@ -61,6 +61,8 @@ type Wake struct {
 	// empty in a Routine's run. Whether that chat's turn answers the owner's line decides whether the hand-off
 	// carries his mark (issue #1229).
 	From string
+	// Call is the GitHub App's call (WakeCall, issue #1232): where and by whom; Text is the caller's request.
+	Call *GitHubCall
 }
 
 // Waker opens the item's chat with a Bot when it has none and gives the Bot the wake-up there, in the transaction

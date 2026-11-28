@@ -25,6 +25,8 @@ const (
 	Slug         = "hypomnema-owner"
 	Installation = 77
 	Head         = "abc1234def5678"
+	// OwnerID is GitHub's id of the account that registers the App, kl3inIT.
+	OwnerID = 101
 )
 
 // GitHub answers the App's requests.
@@ -225,7 +227,7 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 		strings.HasSuffix(path, "/conversions"):
 		return answer(http.StatusCreated, map[string]any{
 			"id": AppID, "slug": Slug, "html_url": "https://github.com/apps/" + Slug,
-			"owner": map[string]any{"login": "kl3inIT"}, "pem": g.PEM, "webhook_secret": g.Secret,
+			"owner": map[string]any{"login": "kl3inIT", "id": OwnerID}, "pem": g.PEM, "webhook_secret": g.Secret,
 		})
 	case r.Method == http.MethodGet && path == "/app/installations":
 		if !strings.HasPrefix(auth, "Bearer ey") {

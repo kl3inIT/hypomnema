@@ -67,6 +67,37 @@ type Event struct {
 	CheckSuite  *Suite       `json:"check_suite"`
 	WorkflowRun *Suite       `json:"workflow_run"`
 	PullRequest *PullRequest `json:"pull_request"`
+	// Sender is who caused the delivery, as GitHub signed it (issue #1232); Issue, Comment and Review are a
+	// conversation's.
+	Sender  User     `json:"sender"`
+	Issue   *Issue   `json:"issue"`
+	Comment *Comment `json:"comment"`
+	Review  *Comment `json:"review"`
+}
+
+// User is a GitHub account: its login, GitHub's id of it, and its type, User or Bot.
+type User struct {
+	Login string `json:"login"`
+	ID    int64  `json:"id"`
+	Type  string `json:"type"`
+}
+
+// Issue is an issue_comment's issue: its number, its title, and whether it is a pull request.
+type Issue struct {
+	Number      int       `json:"number"`
+	Title       string    `json:"title"`
+	PullRequest *struct{} `json:"pull_request"`
+}
+
+// Comment is a comment's or a review's: its id, its author, its body and address, and where a review comment is in
+// the diff.
+type Comment struct {
+	ID      int64  `json:"id"`
+	User    User   `json:"user"`
+	Body    string `json:"body"`
+	HTMLURL string `json:"html_url"`
+	Path    string `json:"path"`
+	Line    int    `json:"line"`
 }
 
 // Suite is a check suite or a workflow run: the commit it ran on, its status and conclusion, and the pull requests
@@ -83,9 +114,10 @@ type Suite struct {
 	} `json:"pull_requests"`
 }
 
-// PullRequest is a pull_request event's: its number, state, whether it merged, and its head.
+// PullRequest is a pull_request event's: its number, title, state, whether it merged, and its head.
 type PullRequest struct {
 	Number int    `json:"number"`
+	Title  string `json:"title"`
 	State  string `json:"state"`
 	Merged bool   `json:"merged"`
 	Head   struct {

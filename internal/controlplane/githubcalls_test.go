@@ -20,7 +20,7 @@ import (
 // The people of these scenarios (issue #1232): the owner, who registered the App (the fake's manifest answers
 // kl3inIT); Linh, a teammate with write access; a visitor who can only read; and a bot.
 var (
-	ownerOnGitHub = githubapptest.Person{Login: "kl3inIT", ID: 101}
+	ownerOnGitHub = githubapptest.Person{Login: "kl3inIT", ID: githubapptest.OwnerID}
 	linhOnGitHub  = githubapptest.Person{Login: "linh-dev", ID: 501}
 	visitor       = githubapptest.Person{Login: "visitor", ID: 601}
 	aBot          = githubapptest.Person{Login: "dependabot[bot]", ID: 49699333, Type: "Bot"}
@@ -126,7 +126,7 @@ func TestAWriteCollaboratorsMentionGivesHypoAnItemAndAReaction(t *testing.T) {
 
 	posted := w.gh.Posted()
 	require.Len(t, posted, 1, "a reaction, and no comment yet")
-	assert.Equal(t, "/repos/kl3inIT/hypomnema/issues/comments/9001/reactions", posted[0].Path)
+	assert.Equal(t, "/repos/kl3init/hypomnema/issues/comments/9001/reactions", strings.ToLower(posted[0].Path))
 	assert.Equal(t, "eyes", posted[0].Body["content"])
 	assert.True(t, strings.HasPrefix(posted[0].Auth, "Bearer ghs_installation_token_"),
 		"with the installation's token")
@@ -137,7 +137,7 @@ func TestAWriteCollaboratorsMentionGivesHypoAnItemAndAReaction(t *testing.T) {
 	}))
 	require.Len(t, w.calls(), 1, "the same pull request's item")
 	require.Len(t, w.gh.Posted(), 2)
-	assert.Equal(t, "/repos/kl3inIT/hypomnema/pulls/comments/9002/reactions", w.gh.Posted()[1].Path)
+	assert.Equal(t, "/repos/kl3init/hypomnema/pulls/comments/9002/reactions", strings.ToLower(w.gh.Posted()[1].Path))
 	assert.Contains(t, w.wakes(item.Chat)[1], "store.go")
 }
 
@@ -300,7 +300,7 @@ func TestTheOwnersReviewCallEndsInAReplyLinkingHyposReview(t *testing.T) {
 	require.Eventually(t, func() bool { return len(w.gh.Posted()) == 2 }, 10*time.Second, 10*time.Millisecond)
 
 	reply := w.gh.Posted()[1]
-	assert.Equal(t, "/repos/kl3inIT/hypomnema/issues/1269/comments", reply.Path)
+	assert.Equal(t, "/repos/kl3init/hypomnema/issues/1269/comments", strings.ToLower(reply.Path))
 	assert.Contains(t, reply.Body["body"], review)
 	assert.Contains(t, reply.Body["body"], "@kl3inIT")
 

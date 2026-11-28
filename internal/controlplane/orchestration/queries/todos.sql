@@ -233,3 +233,31 @@ SET department_id = excluded.department_id, todo_id = excluded.todo_id, updated_
 -- The owner took an item read in a chat out of any department: the chat is in none.
 DELETE FROM todo_chat_departments
 WHERE source_kind = @source_kind AND source_account = @source_account AND source_id = @source_id;
+
+-- name: LatestTodoOfSource :one
+-- The newest item of a source, closed or not (issue #1232): the item of an issue's or pull request's calls.
+SELECT * FROM todos WHERE source_kind = @source_kind AND source_id = @source_id
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
+-- name: GetTodoGitHubCall :one
+-- A call of the GitHub App by its delivery (issue #1232): one delivered again is handled once.
+SELECT * FROM todo_github_calls WHERE delivery = @delivery;
+
+-- name: InsertTodoGitHubCall :exec
+INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comment_id, login, url, created_at)
+VALUES (@delivery, @todo_id, @repository, @number, @kind, @comment_id, @login, @url, @now);
+
+-- name: ListGitHubCallsToReply :many
+-- The calls not answered yet whose item closed (issue #1232), oldest first: the control plane answers each item's on
+-- GitHub with its outcome.
+SELECT c.* FROM todo_github_calls c
+JOIN todos t ON t.id = c.todo_id
+WHERE c.replied_at IS NULL AND t.state IN ('done', 'dropped', 'duplicate')
+ORDER BY c.created_at, c.delivery
+LIMIT @lim;
+
+-- name: SetGitHubCallsReplied :execrows
+-- The calls a reply on GitHub answered, by their deliveries (a JSON array), with the reply's address.
+UPDATE todo_github_calls SET replied_at = CAST(@now AS INTEGER), reply_url = @reply_url
+WHERE replied_at IS NULL AND delivery IN (SELECT value FROM json_each(CAST(@deliveries AS TEXT)));

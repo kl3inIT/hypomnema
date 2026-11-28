@@ -912,6 +912,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		pusher.Run(ctx)
 	}()
 
+	// The GitHub App's calls are answered on GitHub once their Inbox item closes (issue #1232).
+	callsDone := make(chan struct{})
+
+	go func() {
+		defer close(callsDone)
+
+		app.Run(ctx)
+	}()
+
 	// `hypomnema update` asks which Bots' turns and how many tool calls run before it stops the control plane (issues
 	// #716, #1060).
 	controlDone := make(chan struct{})
@@ -928,6 +937,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	cancel(nil)
 	<-controlDone
 	<-pushDone
+	<-callsDone
 	<-pprofDone
 	<-browserDone
 	<-meetingsDone
