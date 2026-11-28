@@ -198,7 +198,8 @@ func (a *App) call(ctx context.Context, cred Credential, ev Event) error {
 // isOwner says whether a caller is the owner's account: the one that registered the App (#1232, row 7), by its login,
 // and by GitHub's id of it when the registration kept one, since a login given up can be taken by someone else.
 func (a *App) isOwner(cred Credential, u User) bool {
-	return cred.Owner != "" && strings.EqualFold(cred.Owner, u.Login) && (cred.OwnerUserID == 0 || cred.OwnerUserID == u.ID)
+	return cred.Owner != "" && strings.EqualFold(cred.Owner, u.Login) &&
+		(cred.OwnerUserID == 0 || cred.OwnerUserID == u.ID)
 }
 
 // reviewed records the review the App itself left on a pull request on the item of its calls, the work of the Bot
