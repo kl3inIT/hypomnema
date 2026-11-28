@@ -29,7 +29,7 @@ import (
 // action passed in the previous check and fails in the latest (manage.py:211-216, troubleshooting.md:37).
 //
 // A source not read for a day is tested again: doctor runs a live probe when there is no fresh run ("if no recent
-// runs, run a live test", doctor.py:2949-2958), with Agent-Reach's live test, a fixed search asked of each backend
+// runs, run a live test", doctor.py:2954-2958), with Agent-Reach's live test, a fixed search asked of each backend
 // (channels/reddit.py:50, {"query": "python", "limit": 2}; manage.py:143-208). The owner tests one again with a press
 // on its card, which first clears its rests, as an explicit doctor run clears Reddit's path skips ("a doctor run is
 // how a user says 'try that path again'", doctor.py:2939-2946).
