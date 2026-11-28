@@ -4991,8 +4991,10 @@ writes no prose (last30days SKILL.md LAW 7).
     stream's limit or a review older than the window; an error on any page fails the stream, Play's gateway error is
     `rate_limited`, a review's date is Play's epoch in UTC, TLS verified.
   - `app_store` (`rss_reviews`): the app named by its id, else the first of Apple's search in Vietnam's store; its
-    public reviews feed (JSON, the first page's four spellings), at most 10 pages 300 ms apart, until the window ends.
-    A review's `engagement` holds its `rating` (and Play's `thumbs_up`), which no score is made of.
+    public reviews feed (JSON, the first page's four spellings, one answering 400 or 404 passed for the next), at most
+    10 pages 300 ms apart, until the window ends. The feed links every review to its app's page, so a review's
+    address carries its id (`reviewId=`) and two reviews never fold into one. A review's `engagement` holds its
+    `rating` (and Play's `thumbs_up`), which no score is made of.
   - `hackernews` (`algolia`, `apis.go`), `github` (`issues_search`), `arxiv` (`arxiv_api`), `techmeme`
     (`techmeme_search`), `devto` (`forem_api`), `bluesky` (`appview`): Algolia's stories and comments in the window
     (a story of 2 points or fewer, and a hit naming no query word, left out; a comment's `parent` is its story);
@@ -5001,24 +5003,34 @@ writes no prose (last30days SKILL.md LAW 7).
     every 3 s (arXiv's terms); Techmeme's archive search with its `date:[…]` operator, pages of 10; DEV.to's search
     kept at relevance 0.25; Bluesky's searchPosts on `api.bsky.app` without a session.
   - `toutiao` (`so_search`, `chinese.go`) and `bilibili` (`visitor_search`), added by the owner on 2026-11-28 (research
-    note §8), asked as a whole desktop browser (Chinese `Accept-Language`, the site's page as `Referer`): Toutiao's
+    note §8). `toutiao` is off by default (an opt-in backend, read only when a plan pins it) until the owner decides
+    on its terms: its robots.txt allows only `/`, and its user agreement limits automated collection and commercial
+    reuse without written leave (review of PR #1321). Both are asked as a whole desktop browser (Chinese `Accept-Language`, the site's page as `Referer`): Toutiao's
     `so.toutiao.com/search` information channel, the JSON cards its page embeds (title, source, publish time, reads,
     comments, likes), up to 3 pages, a page shell asked again up to 3 times 0.8 s × try apart, its verify page
-    `refused`, then the hot board's entries naming the topic (undated); Bilibili as a visitor (`buvid3`/`buvid4` from
+    `refused` (by the address's path or host, never a keyword), then the hot board's entries naming the topic
+    (undated), read even when the search failed, that failure kept beside them; Bilibili as a visitor (`buvid3`/`buvid4` from
     `finger/spi`), the WBI-signed video search (keys from `nav`, kept 6 hours) with the window as
     `pubtime_begin_s`/`pubtime_end_s` in Beijing days, by rank then by clicks; a risk answer (HTTP 412, code -412 or
     -352) gets fresh cookies and the legacy search; an answer of code 0 holding only a `v_voucher` is `refused`, never
-    a clean zero. Neither has an engagement score (no reference gives one an absolute scale).
+    a clean zero, and stays `refused` when the legacy search then finds nothing; a later order that fails beside
+    results makes the read partial. Neither has an engagement score (no reference gives one an absolute scale).
   - `careers` (`careers_page`, `careers.go`, `signals.go`): the web search `<company> careers jobs`, its first careers
     address read, its roles from the schema.org JobPosting of the page or of the role pages it links on its own site;
-    an item's `signals` mark a role out of character (`founding`, `leadership`, `specialized`, `new-geo`).
+    an item's `signals` mark a role out of character (`founding`, `leadership`, `specialized`, `new-geo`; a place is
+    its city folded, so "Hà Nội", "Ha Noi" and "Hanoi" are one). A role page not read makes the read partial.
   - `voz`, `tinhte`, `otofun` (`web_thread`, `forums.go`, `robots.go`): the web search `site:<forum> <query>`, its
     thread links, each read (title, first post, date, author) only where the forum's robots.txt, the group naming
     `hypomnema` else `*`, allows the path and its Content-Signal allows an AI's input and not only reference use; else
     the search's excerpt and link. voz.vn says `use=reference`, so it is excerpts only. robots.txt is kept 24 hours; a
-    4xx is no rules, a 5xx or no answer disallows all (RFC 9309).
+    4xx is no rules, a 5xx or no answer disallows all (RFC 9309), checked again at every redirect. A thread that
+    could not be read keeps its excerpt and makes the read partial.
   - A page a search named (a careers page, a role, a thread, a robots.txt) is read through the web fetch's client
-    (`websearch.PageClient`: public addresses only, each redirect checked), as `hypomnema/1 (+…)`.
+    (`websearch.PageClient`: public addresses only, each redirect followed by hand), as `hypomnema/1 (+…)`. A refusal
+    or a rate limit rests that host's pages (`Retry-After` kept), so the next search sends nothing there.
+- A backend that read in part (`Result.Failed`: a page, an order, a thread or YouTube's recent-uploads search not
+  read) keeps that failure's code on its stream beside the items: the source is `partial` and its health
+  `unverified`. With no item left, the failure is the stream's, never a clean zero.
 - Ranking per source: engagement weights and references, YouTube on its view scale, a comment scored on its votes
   alone, and each source's quality from last30days' `signals.py`; arXiv, Techmeme, careers, forums and the app stores
   have no engagement score.
