@@ -2041,8 +2041,8 @@ flowchart LR
     ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
     PR["a profile's YAML<br/>skills, skills_off"]
     BL["a Bot's lists<br/>skills, skills_off"]
-    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, the phone"}
-    RB{"requires (metadata.hypomnema):<br/>what the Bot may use now, the phone"}
+    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, devices and tools"}
+    RB{"requires (metadata.hypomnema):<br/>the Bot's Connections, devices and tools"}
     DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
     NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
@@ -2119,7 +2119,7 @@ flowchart LR
     `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
     (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
     tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
-    `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
+    `metadata.hypomnema.requires` (`integration: superset`, `device: android`, `tool: listen_search`), as OpenClaw's skills declare
     `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
     and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
     frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
@@ -2610,6 +2610,8 @@ flowchart LR
       key and webhook secret as one value in the vault secret `github-app` (`githubapp.Credential`, as Omnara keeps
       them as one credential); the key and the secret are never answered, logged or written anywhere else. A new
       registration replaces the App. `GET /integrations/github/app` (`hypomnema hosts app`) shows it without them.
+      The setup page's buttons accept `Sec-Fetch-Site: same-origin`. With no fetch metadata, an `Origin` matching
+      the request host or the configured public host is accepted, as is a request with neither header (#1308).
     - **Its installations** are read from GitHub (`GET /app/installations` with the App's JWT, RS256 and nine
       minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
       back from installing it, on each `installation` and `installation_repositories` event, and on
@@ -2618,6 +2620,13 @@ flowchart LR
       `POST /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the
       App's latest delivery again (`POST /app/hook/deliveries/{id}/attempts`); GitHub keeps its id, so it is answered
       200 as handled before, which GitHub's Recent Deliveries shows.
+    - **Commit attribution** ([issue #1312](https://github.com/kl3inIT/hypomnema/issues/1312)). App-backed offers
+      use the owner's GitHub Connection identity as author and the App's bot as committer. The control plane
+      reads the bot user ID at `GET /users/<slug>[bot]` and keeps it in the vault's App credential, backfilling
+      older credentials on the first App offer. The bot's address is `<bot user id>+<slug>[bot]@users.noreply.github.com`.
+      If the repository's Connection supplies no matching owner identity, the bot fills both Git identities and
+      the worker prompt asks for a `Co-authored-by` trailer when the App owner's GitHub account is known. With a
+      personal token the Connection account still fills both fields. See [the GitHub App guide](docs/github-app.md).
     - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): a token is made with the App's
       JWT for one repository (`POST /app/installations/{id}/access_tokens` with `repository_ids`, as Omnara's
       `auth.go:138-162`; every permission the installation has), so it reaches that repository alone, and reused
@@ -2626,7 +2635,7 @@ flowchart LR
       App covers is offered as the App's (`github_app` set) with no token at all, only by a node that said
       `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole Dispatch, is
       given the owner's, as before. So no token of the App's is kept with the offer in the node's state, in the
-      worker's environment or in the shim's spec. The commits still name the owner's account (issue #991). Such a
+      worker's environment or in the shim's spec. Such a
       node asks for a fresh token for its own clone, fetch and push (`publish_branch`), and puts `github-bin/` of the
       Dispatch's directory first on the worker's PATH,
       holding `gh` and `hypomnema` scripts, sets git's credential helper for github.com (an empty helper first,
@@ -3583,7 +3592,7 @@ flowchart LR
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
     A Bot given the same Connection reads GitHub through the service proxy instead (issue #685, under
     Integrations).
-  - The worker commits as the account its token belongs to (issue
+  - With a Connection token, the worker commits as the account that token belongs to (issue
     [#991](https://github.com/kl3inIT/hypomnema/issues/991)), not as the node user's `~/.gitconfig` says. The
     control plane reads that account once a token at the host's `GET /user`, with the token and through the
     Connection's route, and keeps it with the Connection (`connections.git_name`, `git_email`, and
@@ -5047,9 +5056,15 @@ writes no prose (last30days SKILL.md LAW 7).
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
   search page has (owner, 2026-11-27: no paid services). Every source is read without an account or a key. `go test
   ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources.
+- The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
+  `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
+  agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
+  leads once and caps web supplements. Both web phases use the `web` source of `listen_search` for keyless
+  search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
+  risks and next focus, then reviews it once.
 - Not built: the Sources screen and its daily run of the live tests, the keyed and signed-in sources, the hosted job
-  boards' APIs, and saved topics (issues #1288, #1290 to #1295). yt-dlp is not on the PATH of zm's control plane user (`command -v yt-dlp`, 2026-11-28):
-  until it is, `youtube` answers `broken`.
+  boards' APIs, and saved topics (issues #1290 to #1295). yt-dlp is not on the PATH of zm's control plane user
+  (`command -v yt-dlp`, 2026-11-28): until it is, `youtube` answers `broken`.
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
@@ -6279,6 +6294,34 @@ The owner's commands:
   `## Reviewed head` section appended to its spec, naming the Task, verdict and head of the latest one and asking
   for that verdict's findings and `git diff <reviewed_sha>..<head>`. A spec without `Head:` is not refused.
   Verdicts given before the migration that adds `review_verdicts` are not recorded.
+  The control plane posts a commit status `review` on the head a verdict covers (issue #1279,
+  `orchestration/reviewstatus.go`, after claude-code-action's `agent-approval-check`, a commit status on the head
+  made a required check): `success` for `correct` ("correct: reviewed by Task <id>"), `failure` for `incorrect` or
+  `blocked`, its description the verdict and the review's first finding (its `Findings:` field, else the first
+  line under a Findings heading, else its first line of prose), cut to 140 characters, linking the Task on the
+  Team page under `HYPOMNEMA_PUBLIC_URL`. A `quick` Task's pull request, which needs no worker review, gets
+  `success` "no review needed: quick Task <id>" on each of its heads: the Task is kept in `no_review_requests`
+  (repository, branch, the pull request its evidence names) when it succeeds, whatever becomes of its Run, and each
+  pass finds its pull request by that branch (`githost.FindRequest`, as the follower) and queues its open head,
+  only when the quick Task itself is the Task whose Dispatch last reported publishing that head (`dispatch_effects`
+  `git_push`, from `publish_branch`), so a narrow or broad Task that continues it, or is reopened on it, makes the
+  heads it pushes need their review, and a Task canceled before it pushed changes nothing. A head without that
+  record (on GitLab, where `publish_branch` does not run, or a push the node did not report) gets no automatic
+  status: it fails closed and is posted by hand ([CI runbook](docs/ci.md)). A queued status is dropped as
+  `superseded` when its head is no longer the quick Task's. It is followed until it is merged or closed, its head is
+  not the quick Task's, or a day passed. A branch without a pull request yet is
+  looked up every pass for 10 minutes, then every 15 minutes. The migration keeps the quick Tasks that succeeded
+  before it, with the pull request the follower found. Each status is queued in `review_statuses` (pull request,
+  full head SHA, Task, reason) in the transaction that learns it, a later
+  verdict on the same head replacing it; a verdict naming an abbreviated head is not queued, since a prefix may
+  name a newer commit too. Once a minute, after the reads, the follower reads each queued one's pull request with
+  its repository's Connection token (found by branch with the GitHub App's token where the App covers it; the App
+  only reads statuses) and posts it on that head when it is exactly the pull request's head
+  (`githost.PostStatus`; on GitHub `POST /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
+  open, a head that moved, a repository without a token and a status still unposted after a day are dropped
+  with that outcome; a failed post is tried again next minute. A status is of one commit, so a new head has none
+  until it is reviewed. The migration that adds the table queues each pull request's latest verdict, so the
+  open ones get theirs on the first pass. Pull requests no Task made get nothing ([CI runbook](docs/ci.md)).
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the

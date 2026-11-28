@@ -66,6 +66,8 @@ var namePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // github.com (issue #685).
 var requirementPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)*$`)
 
+var toolRequirementPattern = regexp.MustCompile(`^[a-z0-9]+(_[a-z0-9]+)*$`)
+
 // File is one file of a skill, its path relative to the skill's folder.
 type File struct {
 	Path string
@@ -310,6 +312,8 @@ const (
 	RequiresIntegration = "integration"
 	// RequiresDevice is a device the agent is given: "device:android".
 	RequiresDevice = "device"
+	// RequiresTool is a built-in agent tool: "tool:listen_search".
+	RequiresTool = "tool"
 )
 
 // Requirement is one requirement as a skill's revision keeps it: "kind:name".
@@ -330,6 +334,7 @@ func requirements(manifest []byte) ([]string, error) {
 				Requires struct {
 					Integration string `yaml:"integration"`
 					Device      string `yaml:"device"`
+					Tool        string `yaml:"tool"`
 				} `yaml:"requires"`
 			} `yaml:"hypomnema"`
 		} `yaml:"metadata"`
@@ -353,6 +358,14 @@ func requirements(manifest []byte) ([]string, error) {
 		default:
 			out = append(out, Requirement(r[0], r[1]))
 		}
+	}
+
+	if tool := strings.TrimSpace(req.Tool); tool != "" {
+		if !toolRequirementPattern.MatchString(tool) {
+			return nil, fmt.Errorf("%w: metadata.hypomnema.requires.tool %q must be a lowercase tool name", ErrInvalid, tool)
+		}
+
+		out = append(out, Requirement(RequiresTool, tool))
 	}
 
 	return out, nil

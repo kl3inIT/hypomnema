@@ -62,10 +62,12 @@ type Network = {
   // botsAfter holds the Bots' answer, as a slow network does, and botsFail answers 503 (issue #1055).
   botsAfter?: Promise<void>
   botsFail?: boolean
+  // chatAfter holds the chat details while the composer is already usable.
+  chatAfter?: Promise<void>
   // postAfter is how long a chat's making takes to reach the server, in milliseconds.
   postAfter?: number
-  // lost is a chat of writer's under this id, made by a send whose answer was lost: writer's main chat.
-  lost?: string
+  // writerChat is the id of writer's main chat, if it already has one.
+  writerChat?: string
 }
 
 // fakeServer answers as the control plane: coordinator's main chat is cht_1, beside an older chat of it (cht_old) and
@@ -77,9 +79,9 @@ async function fakeServer(page: Page, net: Network = {}) {
     chat("cht_1", "Fix the header", "coordinator"),
     chat("cht_old", "The release plan", "coordinator", { updated_at: ago(3600) }),
     chat("cht_run", "Daily digest", "coordinator", { routine: true, updated_at: ago(1800) }),
-    ...(net.lost ? [chat(net.lost, "draft the release notes", "writer")] : []),
+    ...(net.writerChat ? [chat(net.writerChat, "draft the release notes", "writer")] : []),
   ]
-  const bots = [bot("coordinator", 0, "cht_1"), bot("writer", 1, net.lost)]
+  const bots = [bot("coordinator", 0, "cht_1"), bot("writer", 1, net.writerChat)]
   // cli makes writer's main chat as the CLI would.
   const cli = () => {
     const made = chat("cht_cli", "from the terminal", "writer", { created_at: ago(0) })
@@ -121,13 +123,16 @@ async function fakeServer(page: Page, net: Network = {}) {
       return json(changed)
     }
     if (call === "POST /chats") {
-      const asked = body as { bot: string; id?: string; title?: string }
+      const asked = body as { bot?: string; id?: string; title?: string }
+      // Like StartMainChat, an empty Bot id selects the server's default.
+      const target = bots.find((b) => b.id === (asked.bot || "coordinator"))
+      if (!target) return json({ code: "not_found", message: `bot ${asked.bot} not found` }, 404)
       if (chats.some((c) => c.id === asked.id)) {
         return json({ code: "conflict", message: `chat ${asked.id} exists` }, 409)
       }
-      const made = chat(asked.id ?? "cht_new", asked.title ?? "Chat", asked.bot)
+      const made = chat(asked.id ?? "cht_new", asked.title ?? "Chat", target.id)
       chats.push(made)
-      bots.find((b) => b.id === asked.bot)!.main_chat = made.id
+      target.main_chat = made.id
 
       return json(made, 201)
     }
@@ -145,7 +150,11 @@ async function fakeServer(page: Page, net: Network = {}) {
     }
     if (open && path.endsWith("/messages"))
       return json({ data: [], next_after: 0, has_more: false })
-    if (open && path === `/chats/${open.id}`) return json(open)
+    if (open && call === `GET /chats/${open.id}`) {
+      await net.chatAfter
+
+      return json(open)
+    }
 
     switch (path) {
       case "/me":
@@ -280,7 +289,7 @@ test("a first message sent again after a lost answer goes to the chat made under
   page,
 }) => {
   const id = `cht_${"q".repeat(26)}`
-  const calls = await fakeServer(page, { lost: id })
+  const calls = await fakeServer(page, { writerChat: id })
   await page.addInitScript({
     content: `localStorage.setItem("hypomnema:chat-drafts:v1", ${JSON.stringify(
       JSON.stringify({
@@ -299,19 +308,25 @@ test("a first message sent again after a lost answer goes to the chat made under
   expect(calls.map((c) => c.call).at(-1)).toBe(`POST /chats/${id}/messages`)
 })
 
-// Scenario: the owner types /new in coordinator's main chat (issue #471): a new chat with coordinator is made, which
-// becomes its main chat, and opens; /new is not sent as a message, and the former chat stays.
+// Scenario: the owner submits /new in writer's chat before the chat details or the Bots have loaded (issue #1208).
+// The new chat belongs to writer and /new is not sent as a message (issue #471).
 test("/new in a chat starts a new main chat with its Bot", async ({ page }) => {
-  const calls = await fakeServer(page)
-  await page.goto("/chats/cht_1")
+  const read = gate()
+  const calls = await fakeServer(page, {
+    writerChat: "cht_writer",
+    chatAfter: read.opened,
+    botsAfter: read.opened,
+  })
+  await page.goto("/chats/cht_writer")
 
   const box = page.getByRole("textbox", { name: "Message" })
   await box.fill("/new")
   await shot(page, "main-chat-new-command")
-  await page.keyboard.press("Enter")
+  await box.press("Enter")
+  read.open()
 
   await expect(page).toHaveURL(/\/chats\/cht_new$/)
-  expect(calls).toEqual([{ call: "POST /chats", body: { bot: "coordinator" } }])
+  expect(calls).toEqual([{ call: "POST /chats", body: { bot: "writer" } }])
 })
 
 // Scenario: the owner reads an older chat of coordinator, opened from a link (issue #923). The page leads back to the

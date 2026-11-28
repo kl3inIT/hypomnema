@@ -967,6 +967,9 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	assert.Contains(t, out, "Do not rerun a failing test to get a green check.", "flake policy (issue #1281)")
 	assert.Contains(t, out, "the test is quarantined with an issue and a note visible to the owner",
 		"flake policy (issue #1281)")
+	assert.Contains(t, out,
+		"copy its [test repeat rules](recovery.md#flaky-tests-and-repeat-runs) into the Task's spec.",
+		"review and fix specs include the test repeat rules (issue #1313)")
 	for _, want := range []string{
 		"only `git diff <reviewed_sha>..<head>`",
 		"an `incorrect` verdict where\n   none does is handled as `blocked` (below), never as a pass",
@@ -978,12 +981,25 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "recovery")
 	require.NoError(t, err)
 	assert.Contains(t, out, "never offer a third identical attempt", "retries by failure class (issue #952)")
+	for _, want := range []string{
+		"Run one package's repeats at a time.",
+		"`GOMAXPROCS=4` and pass `-p 2`",
+		"`--workers=2`",
+		"Do not start a busy-loop load generator.",
+		"Run `free -g` between runs.",
+		"falls below about 20% of total memory, stop the repeats and report the memory stop in the Task result.",
+	} {
+		assert.Contains(t, out, want, "the worker spec has the memory rules for repeated tests (issue #1313)")
+	}
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator")
 	require.NoError(t, err)
 	assert.Contains(t, out, "it\n  is never a merge condition")
 	assert.Contains(t, out, "For a bug fix, ask for a test that fails without the fix, committed before the fix",
 		"a disputed finding is settled by a test (issue #952)")
+	assert.Contains(t, out,
+		"copy its [test repeat rules](references/recovery.md#flaky-tests-and-repeat-runs) into the worker's spec.",
+		"the spec recipe includes the test repeat rules (issue #1313)")
 	for _, want := range []string{
 		"The control plane finds that pull request\n  by the Task's branch, whatever the summary says, and follows " +
 			"it, on GitHub and GitLab, until it merges",

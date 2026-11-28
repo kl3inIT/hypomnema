@@ -61,7 +61,8 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"story, tagged single-source or thin-evidence when the evidence is weak), and `coverage`, one line per " +
 			"source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with its code " +
 			"(need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend tried. " +
-			"Write your report from these; quote the text and give the link and date. " + listeningData,
+			"When available, use the social-listening skill for discovery, planning and the evidence report. " +
+			"Write your report from the results, with verbatim quotes and their links and dates. " + listeningData,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 			`"topic":{"type":"string","description":"What the plan is about, in a few words; its words are not ` +
 			`counted when items are clustered."},` +
