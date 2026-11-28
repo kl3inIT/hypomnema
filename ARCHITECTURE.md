@@ -3384,8 +3384,9 @@ flowchart LR
       Zalo Web's through `/api/znoise`; a chat Zalo does not know is skipped. The session's `phone_sync` says the
       stage (asking, sending, importing, done, failed) and what was kept; the backup is removed after.
   - Telegram, the owner's personal account as a user client of MTProto, never a bot
-    ([issue #1184](https://github.com/kl3inIT/hypomnema/issues/1184), part 1; `messaging/telegram`): the package and
-    its store only. It is not wired into the control plane yet: no Integration, link, tools or Inbox tab (part 2).
+    ([issue #1184](https://github.com/kl3inIT/hypomnema/issues/1184); `messaging/telegram`), an Integration of kind
+    `device` (`integration.Telegram()`) whose service, `telegram.Open(…, "telegram.db", vault, …).Device()`, the
+    control plane opens beside WhatsApp's and Zalo's. The owner's steps are in [docs/telegram.md](docs/telegram.md).
     - **The client**: `github.com/gotd/td` in the control plane's process, with `gotd/contrib`'s flood-wait
       middleware and a rate limit of 10 requests a second (burst 5), as gotd's `examples/userbot`. The owner's
       `api_id` and `api_hash` are the vault's generic secrets `telegram-api-id` and `telegram-api-hash`; without
@@ -3393,7 +3394,7 @@ flowchart LR
     - **`telegram.db`** beside the control plane's database (private): gotd's session (`tg_sessions`, keyed by the
       owner's Telegram user id), the update state (`tg_state`, `tg_channel_state`) and access hashes
       (`tg_access_hashes`) as mautrix/telegram keeps them, the people's names (`tg_users`), and the mirror
-      `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s; `tg_version` 0.
+      `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s.
     - **Every chat kept**: gotd's updates manager recovers gaps itself and hands new, edited and deleted messages to
       the mirror. A channel gap it cannot recover (`OnChannelGap`) keeps the latest messages it came with and fetches
       those since the newest kept, at most 500 (mautrix's `max_catchup_messages`); a gap of the account's own updates
@@ -3405,6 +3406,36 @@ flowchart LR
       verified, support, scam or fake is `bot`; a basic group, a megagroup or a forum (one chat) is `group`; a
       broadcast channel or a gigagroup is `broadcast`. A deleted account and a chat left or lost are not listed;
       their messages stay.
+    - **What it lacks**: a device's service may say what is missing before it links (`messaging.Readier`); the
+      Integration then has `unready` (Telegram: the `api_id` until both secrets are in the vault), the Integrations
+      page shows it with a link to the Vault and no Link button, and a link is refused.
+    - **The link**: QR first (`POST /integrations/telegram/sign-ins`), Telegram's login link (`tg://login?token=…`,
+      gotd's `qrlogin`, a new one as each expires) as the `qr_code`; once the phone accepted it, an account with a
+      two-step password is asked for it (`qrlogin`'s `Options.Password`, again while wrong as gotd's
+      `examples/qrauth.go`), with the hint he set. With `flow: phone` the link asks the number, sends the code and
+      asks it, again while either is refused, then the password, as mautrix/telegram's phone login
+      (`loginphone.go`); a number with no account is never signed up. A step that asks is a `messaging.LinkStep`
+      with an `Ask` (`phone`, `code` or `password`, a hint, `again` when the last answer was refused), the
+      sign-in's `ask`; `POST …/sign-ins/{id}/answer` (`value`, never kept or logged) gives it and answers the
+      sign-in at its next step, as mautrix's `SubmitUserInput` (the smallest shape: inference). A service links by
+      phone when it is a `messaging.PhoneLinker`. The link runs a client of its own over a session in memory; once
+      authorized, the session is kept under the account's user id (the Connection's vault secret names it) and the
+      account opened. Linking the same account again ends its old session at Telegram first.
+    - **Send** (`telegram_send`, the action `telegram.send` of the proxy's catalog, NeedsCare): as mautrix sends, a
+      text with `messages.sendMessage`, a file uploaded with gotd's uploader and sent with `messages.sendMedia` (a
+      JPEG or PNG as a photo, else a document with its name and type) with the text as its caption, a reply naming
+      the message it answers; the sent message is read back from Telegram's answer and kept as the owner's, its file
+      too. The account's own requests' answers go through the updates manager (gotd's `updhook.UpdateHook`, as
+      `examples/updates`), so its pts stays in step. Mentions are not sent.
+    - **Files**: downloaded when a Bot opens one (`telegram_media`): the message is asked again for a fresh file
+      reference (`messages.getMessages`, `channels.getMessages`), as mautrix's direct download, then downloaded with
+      gotd's downloader (a photo's largest size, or the document), at most 100 MiB, into `telegram-media/<account>/
+      <chat>/` beside `telegram.db`, private, and answered from there next time (`tg_messages.local_path`,
+      `tg_version` 1). Disconnecting removes them.
+    - **Tools**: the WhatsApp row of `agentapi/messaging_tools.go` for Telegram (`telegram_chats`,
+      `telegram_messages`, `telegram_media`, `telegram_history`, `telegram_send`; family `telegram`), on the
+      owner's turn, for a Bot given the Connection. Its chats' kinds include `bot`; `telegram_history` asks
+      Telegram's servers. Its send takes no `todo`: Telegram is no source of the Inbox's items yet.
     - **State**: from gotd's `AuthLostKindOf`: banned is `banned`; revoked, unregistered, expired, an invalid key or a
       deleted account is `logged_out`; `AUTH_KEY_DUPLICATED` is `replaced`, and these end the session. A frozen
       account is shown as `banned` with its end date and appeal link while it keeps reading. Any other end is
@@ -5657,12 +5688,13 @@ its client API, its CLI and the Bots' tools.
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
   - **Which chats the secretary reads** ([issue #1270](https://github.com/kl3inIT/hypomnema/issues/1270),
     [research](docs/research/2026-11-27-chats-the-secretary-reads.md)): a flag per chat of each of the owner's
-    Zalo, WhatsApp and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
+    Zalo, WhatsApp, Telegram and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
     is the owner's choice, with when he made it; inbox-zero's per-account exclude items). A chat without a row takes
     its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
-    official account's is not, a bot being a WhatsApp broadcast list or a chat whose name or id matches
-    `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
-    lists a Connection's chats with their state: Zalo's and WhatsApp's kept chats (up to `messaging.MaxChats`,
+    official account's is not, a bot being a WhatsApp broadcast list, a Telegram chat of kind `bot` or `broadcast`
+    (a bot, an account Telegram marks verified, support, scam or fake, a channel; issue #1184) or a chat whose name
+    or id matches `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
+    lists a Connection's chats with their state: Zalo's, WhatsApp's and Telegram's kept chats (up to `messaging.MaxChats`,
     20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
     100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
     and by kind, and the defaults), `GET /inbox/chat-sources/{integration}/{label}` (`q` on the name or id in any

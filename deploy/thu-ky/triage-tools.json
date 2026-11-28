@@ -873,7 +873,7 @@
   },
   {
    "name": "inbox_chats",
-   "description": "List the owner's choices of which of his chats the secretary reads: each chat of his accounts you may read (zalo:\u003clabel\u003e, whatsapp:\u003clabel\u003e, lark:\u003clabel\u003e) that he switched off or on, and the default of every other chat (direct chats and groups read; a bot's or an official account's, by bot_patterns on its name or id, skipped). Use it in the triage's check to leave out the chats he switched off; such a chat is still read with your tools when he asks.",
+   "description": "List the owner's choices of which of his chats the secretary reads: each chat of his accounts you may read (zalo:\u003clabel\u003e, whatsapp:\u003clabel\u003e, telegram:\u003clabel\u003e, lark:\u003clabel\u003e) that he switched off or on, and the default of every other chat (direct chats and groups read; a bot's or an official account's, by bot_patterns on its name or id, skipped). Use it in the triage's check to leave out the chats he switched off; such a chat is still read with your tools when he asks.",
    "inputSchema": {
     "type": "object",
     "properties": {}

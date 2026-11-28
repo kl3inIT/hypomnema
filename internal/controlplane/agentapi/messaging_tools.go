@@ -47,6 +47,8 @@ type messagingService struct {
 	tags bool
 	// bots says its chats have kind bot too: a bot's, an official account's or a channel's (Telegram, #1184).
 	bots bool
+	// noTodos says its send is not made for an Inbox item: Telegram is no source of the Inbox's items yet (#1184).
+	noTodos bool
 }
 
 // chatKinds are the kinds its chats have.
@@ -82,6 +84,7 @@ var messagingServices = []messagingService{
 		historyStart: "Telegram says the chat has none older: this is its start.",
 		historyNone:  "Nothing older came: Telegram holds no more of this chat.",
 		bots:         true,
+		noTodos:      true,
 	},
 	{
 		integration: "zalo", name: "Zalo",
@@ -220,6 +223,10 @@ func (m messagingService) tools(labels []string, relayMentions bool) []agenttool
 		"reply_to": map[string]any{"type": "string", "description": "The id of the message it answers."},
 		"todo": map[string]any{"type": "string", "description": "The Inbox item you are doing that this " +
 			"send is for: it waits in review until the owner answers."},
+	}
+
+	if m.noTodos {
+		delete(send, "todo")
 	}
 
 	if m.tags && relayMentions {
@@ -614,7 +621,7 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 	// The Inbox item it is sent for: its Approval records the item's attempt (issue #1004).
 	attempt := ""
 
-	if todo := strings.TrimSpace(in.Todo); todo != "" {
+	if todo := strings.TrimSpace(in.Todo); todo != "" && !m.noTodos {
 		var err error
 		if attempt, err = s.store.InboxAttempt(ctx, todo, a.bot, a.chatID); err != nil {
 			if errors.Is(err, orchestration.ErrConflict) {
