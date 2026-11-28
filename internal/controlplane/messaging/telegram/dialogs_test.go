@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -490,4 +491,57 @@ func mustChats(t *testing.T, a *Account) []messaging.Chat {
 	require.NoError(t, err)
 
 	return chats
+}
+
+// Review round 3 of #1324, P1: a catch-up holds its pages until every one is fetched, and the dialog's latest message
+// until then; the updates manager goes on meanwhile, and a deletion it hands over while the catch-up waits between
+// pages reaches no kept row yet. It is applied once the pages and the latest message are kept, so that what was
+// deleted is not kept again with its text (updates.go, OnDeleteMessages).
+func TestADeletionDuringACatchUpIsKept(t *testing.T) {
+	t.Parallel()
+
+	a := testAccount(t)
+	ctx := t.Context()
+	trung := &tg.PeerUser{UserID: 7}
+	server := newFakeTelegram()
+	server.add(trung, ids(1, 249)...)
+	server.messages["user:7"] = append(server.messages["user:7"], message(trung, 250, "latest"))
+	server.dialogs = []tg.MessagesDialogsClass{&tg.MessagesDialogs{
+		Dialogs:  []tg.DialogClass{&tg.Dialog{Peer: trung, TopMessage: 250}},
+		Messages: []tg.MessageClass{message(trung, 250, "latest")},
+		Users:    []tg.UserClass{user(7, "Trung")},
+	}}
+
+	require.NoError(t, a.keepEntities(ctx, tg.EntitiesFrom([]tg.UserClass{user(7, "Trung")}, nil)))
+	_, err := a.keep(ctx, tg.Entities{}, mustConvert(t, message(trung, 10, "x")))
+	require.NoError(t, err)
+
+	// Telegram deletes three messages while the catch-up waits before its second page: one of the first page, one of
+	// the second, and the latest.
+	a.pause = func(ctx context.Context, page int) error {
+		if page == 1 {
+			return a.handler().Handle(ctx, &tg.Updates{Updates: []tg.UpdateClass{
+				&tg.UpdateDeleteMessages{Messages: []int{200, 110, 250}},
+			}})
+		}
+
+		return nil
+	}
+
+	require.NoError(t, a.store.restartDialogs(ctx, a.key, true))
+	require.NoError(t, a.syncDialogs(ctx, server.conn()))
+	require.Len(t, keptIDs(t, a, "user:7"), 241)
+
+	for _, id := range []string{"110", "200", "250"} {
+		msgs, err := a.Messages(ctx, messaging.Query{Chat: "user:7", ID: id})
+		require.NoError(t, err)
+		require.Len(t, msgs, 1, id)
+		assert.True(t, msgs[0].Revoked, id)
+		assert.Empty(t, msgs[0].Text, id)
+	}
+
+	msgs, err := a.Messages(ctx, messaging.Query{Chat: "user:7", ID: "111"})
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.False(t, msgs[0].Revoked, "a message not deleted stays")
 }
