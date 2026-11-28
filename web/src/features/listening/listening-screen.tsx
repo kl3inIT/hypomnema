@@ -304,10 +304,10 @@ function SourceCard({ source }: { source: ListeningSource }) {
           </Link>
         )}
         <LastError source={source} />
-        {source.on && (broken || source.group === "unverified") && (
+        {source.on && (source.group === "broken" || source.group === "unverified") && (
           <div className="relative z-20 flex items-center gap-2">
             <Button
-              variant={broken ? "default" : "outline"}
+              variant={retest ? "default" : "outline"}
               size="sm"
               focusableWhenDisabled={test.isPending}
               disabled={test.isPending}
@@ -571,7 +571,7 @@ function SourceRow({ source }: { source: ListeningSource }) {
               {failureShown(source) === "before" && ", before it worked again"}
             </span>
             <span className="text-muted-foreground">{source.last_error.fix}</span>
-            {source.on && (broken || source.group === "unverified") && (
+            {source.on && (source.group === "broken" || source.group === "unverified") && (
               <span>
                 <Button
                   variant="outline"

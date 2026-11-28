@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signed-in listening sources (issue #1291)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 110rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 64rem) { .screens { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Settings → Gateway → Social listening: signed-in sources (issue #1291)</h1>
+    <p>Taken by <code>web/tests/listening-accounts.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Account names and cookies are made up.</p>
+
+    <section>
+      <h2>X before its consent; LinkedIn signed in, stopped after a rate-limit page</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-signed-sources-desktop.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-signed-sources-phone.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-signed-sources-desktop.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-signed-sources-phone.png" alt="X before its consent; LinkedIn signed in, stopped after a rate-limit page, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>X's consent card, its fixed wording</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-consent-desktop.png" alt="X's consent card, its fixed wording, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-consent-phone.png" alt="X's consent card, its fixed wording, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-consent-desktop.png" alt="X's consent card, its fixed wording, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-consent-phone.png" alt="X's consent card, its fixed wording, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>X on, no account yet: Sign in or Paste cookies</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-consented-desktop.png" alt="X on, no account yet: Sign in or Paste cookies, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-consented-phone.png" alt="X on, no account yet: Sign in or Paste cookies, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-consented-desktop.png" alt="X on, no account yet: Sign in or Paste cookies, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-consented-phone.png" alt="X on, no account yet: Sign in or Paste cookies, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>Sign-in in the owner's tab, waiting for the session</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-sign-in-waiting-desktop.png" alt="Sign-in in the owner's tab, waiting for the session, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-sign-in-waiting-phone.png" alt="Sign-in in the owner's tab, waiting for the session, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-sign-in-waiting-desktop.png" alt="Sign-in in the owner's tab, waiting for the session, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-sign-in-waiting-phone.png" alt="Sign-in in the owner's tab, waiting for the session, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>A pasted header without ct0, refused naming it</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-paste-refused-desktop.png" alt="A pasted header without ct0, refused naming it, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-paste-refused-phone.png" alt="A pasted header without ct0, refused naming it, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-paste-refused-desktop.png" alt="A pasted header without ct0, refused naming it, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-paste-refused-phone.png" alt="A pasted header without ct0, refused naming it, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>X's account signed in</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-signed-in-desktop.png" alt="X's account signed in, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-signed-in-phone.png" alt="X's account signed in, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-signed-in-desktop.png" alt="X's account signed in, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-signed-in-phone.png" alt="X's account signed in, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>X's session ended: the "!", Sign in again, no Test again</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-need-login-desktop.png" alt="X's session ended: the "!", Sign in again, no Test again, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-need-login-phone.png" alt="X's session ended: the "!", Sign in again, no Test again, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-need-login-desktop.png" alt="X's session ended: the "!", Sign in again, no Test again, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-need-login-phone.png" alt="X's session ended: the "!", Sign in again, no Test again, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>The same in the table</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-need-login-table-desktop.png" alt="The same in the table, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-need-login-table-phone.png" alt="The same in the table, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-need-login-table-desktop.png" alt="The same in the table, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-need-login-table-phone.png" alt="The same in the table, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>Sign out clears that site's cookies only</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-sign-out-desktop.png" alt="Sign out clears that site's cookies only, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-sign-out-phone.png" alt="Sign out clears that site's cookies only, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-sign-out-desktop.png" alt="Sign out clears that site's cookies only, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-sign-out-phone.png" alt="Sign out clears that site's cookies only, phone, dark">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
