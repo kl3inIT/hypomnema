@@ -233,3 +233,32 @@ func TestAVietnameseMonthInWordsIsReadAndAYearWhole(t *testing.T) {
 		assert.Equal(t, "2026-11-26", a.Items[0].PublishedAt.Format(time.DateOnly), quote)
 	}
 }
+
+// Review round 4: two dates side by side, the page's update date then its publish date, share the separator between
+// them; the second, the real publish date and outside the window, is still read, so the old article is dropped.
+func TestTwoDatesSideBySideAreBothRead(t *testing.T) {
+	t.Parallel()
+
+	// Dated by the search's snippet, 2026-11-26 (since #1319 an undated web item is dropped at the search).
+	it := webPost("https://k.example/old", "VETC ra mắt", "", 1)
+	it.URL = it.NativeID
+	p := plan([]string{listening.SourceWeb}, "VETC")
+
+	for _, quote := range []string{
+		"Cập nhật / Ngày đăng\n27/11/2026\n22/11/2019",
+		"Cập nhật / Ngày đăng\n2026-11-27\n2019-11-22",
+		"Cập nhật / Ngày đăng\n27 November 2026\n22 November 2019",
+	} {
+		page := websearch.Page{Content: quote + "\n\nVETC ra mắt thẻ dán cho xe con."}
+		m := &fakeModel{answer: steps(nil, nil, readWith(map[string]string{
+			"VETC ra mắt": fmt.Sprintf(`"quotes":["VETC ra mắt thẻ dán"],"claims":[],`+
+				`"published":{"date":"2019-11-22","quote":%q}`, quote),
+		}))}
+
+		a, err := withModel(newClock(), listening.ModelOff, "", webSource(it)).
+			Search(t.Context(), p, listening.Caller{Model: m.Model, Fetch: pages{it.URL: page}.fetch})
+		require.NoError(t, err)
+		assert.Equal(t, 1, a.Pass.Read.OutsideWindow, "%q", quote)
+		assert.Empty(t, a.Items, "%q: the 2019 article is dropped", quote)
+	}
+}
