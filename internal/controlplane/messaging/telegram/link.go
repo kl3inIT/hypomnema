@@ -249,8 +249,8 @@ func (l *linker) phone(ctx context.Context) (*tg.AuthAuthorization, error) {
 		switch s := sent.(type) {
 		case *tg.AuthSentCode:
 			if _, ok := s.Type.(*tg.AuthSentCodeTypeSetUpEmailRequired); ok {
-				return nil, errors.New("Telegram asks this account to set up a login email first; link it by its " +
-					"QR code instead")
+				return nil, errors.New("telegram: Telegram asks this account to set up a login email first; link it " +
+					"by its QR code instead")
 			}
 
 			hash, hint = s.PhoneCodeHash, codeSentTo(s.Type)

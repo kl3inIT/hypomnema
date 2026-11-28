@@ -173,18 +173,21 @@ func TestAFileIsSentWithItsCaptionAndKept(t *testing.T) {
 
 	a, server := connectedAccount(t)
 	next := 200
-	server.answer = func(req any) tg.UpdatesClass {
+	server.answer = func(sent any) tg.UpdatesClass {
+		req, ok := sent.(*tg.MessagesSendMediaRequest)
+		require.True(t, ok)
+
 		next++
 		media := &tg.MessageMediaDocument{}
 		media.SetDocument(&tg.Document{ID: int64(next), MimeType: "application/pdf",
 			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: "quote.pdf"}}})
 
 		m := &tg.Message{ID: next, Out: true, PeerID: &tg.PeerChannel{ChannelID: 900}, Date: 1_800_000_000,
-			Message: req.(*tg.MessagesSendMediaRequest).Message}
+			Message: req.Message}
 		m.SetMedia(media)
 
 		return &tg.Updates{Updates: []tg.UpdateClass{
-			&tg.UpdateMessageID{ID: next, RandomID: req.(*tg.MessagesSendMediaRequest).RandomID},
+			&tg.UpdateMessageID{ID: next, RandomID: req.RandomID},
 			&tg.UpdateNewChannelMessage{Message: m},
 		}}
 	}

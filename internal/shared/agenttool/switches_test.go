@@ -147,8 +147,8 @@ func TestAReadRunReadsMeetingsAndNothingThatWrites(t *testing.T) {
 	assert.ElementsMatch(t, reads, allowed)
 	assert.True(t, ReadRunAllows(ToolAccountRead))
 
-	for _, tool := range []string{ToolZaloSend, ToolWhatsAppSend, ToolTelegramSend, ToolSupersetAPI, ToolShowArtifact, ToolRoutines,
-		ToolWebFetch, ToolNodeExec, ToolGenerateImage, ToolAudioSpeak} {
+	for _, tool := range []string{ToolZaloSend, ToolWhatsAppSend, ToolTelegramSend, ToolSupersetAPI, ToolShowArtifact,
+		ToolRoutines, ToolWebFetch, ToolNodeExec, ToolGenerateImage, ToolAudioSpeak} {
 		assert.False(t, ReadRunAllows(tool), tool)
 	}
 }

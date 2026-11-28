@@ -26,7 +26,6 @@ func TestTheOwnersTelegramIsReadAndWrittenAsHisWhatsAppIs(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	//nolint:gosec // G101: the name of a vault secret, not a credential
 	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
 		Integration: "telegram", Label: "me", Account: "+84 900 000 001", Secret: "conn-telegram-me",
 	})

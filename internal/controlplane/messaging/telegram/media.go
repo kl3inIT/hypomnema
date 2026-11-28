@@ -97,7 +97,9 @@ func (a *Account) fileLocation(ctx context.Context, client fullAPI, chat, id str
 	var res tg.MessagesMessagesClass
 
 	if strings.HasPrefix(chat, peerChannel+":") {
-		peer, err := a.inputPeer(ctx, chat)
+		var peer tg.InputPeerClass
+
+		peer, err = a.inputPeer(ctx, chat)
 		if err != nil {
 			return nil, 0, err
 		}
