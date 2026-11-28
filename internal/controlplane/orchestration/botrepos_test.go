@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
@@ -171,10 +173,62 @@ func TestABotsRunOnARepositoryAnotherBotOwnsGoesToThatBot(t *testing.T) {
 	assert.Equal(t, beyond.MainChat, own.ChatID)
 	assert.Equal(t, RoutedOwnChat, own.RoutedBy)
 
+	// Review round 1 of PR #1343: a project Bot that owns a repository does not keep a Run on one no Bot owns; it goes
+	// to the main Bot, routed by default, as the issue's row 3 says ("whose Bot owns X or owns nothing").
 	unowned, err := w.fromBot(w.beyond.ID, beyond.MainChat, "acme/tooling", false)
 	require.NoError(t, err)
-	assert.Equal(t, beyond.MainChat, unowned.ChatID)
-	assert.Equal(t, RoutedOwnChat, unowned.RoutedBy)
+	assert.Equal(t, w.main.ID, unowned.ChatID)
+	assert.Equal(t, DefaultBotID, unowned.Bot)
+	assert.Equal(t, RoutedDefault, unowned.RoutedBy)
+	assert.Contains(t, w.lastLine(beyond.MainChat), "Run "+unowned.ID+" went to chat "+w.main.ID)
+
+	// A Bot that owns nothing keeps its Run on a repository no Bot owns.
+	vmap, err := w.s.PutBot(ctx, Bot{Name: "VMAP"})
+	require.NoError(t, err)
+	side, err := w.s.CreateChat(ctx, vmap.ID, "VMAP's chat")
+	require.NoError(t, err)
+
+	kept2, err := w.fromBot(vmap.ID, side.ID, "acme/tooling", false)
+	require.NoError(t, err)
+	assert.Equal(t, side.ID, kept2.ChatID)
+	assert.Equal(t, RoutedOwnChat, kept2.RoutedBy)
+}
+
+// Scenario: review round 1 of PR #1343. A create retried after the upgrade, with the same request and key as one made
+// before it, returns the first Run: the receipt kept before ChatNamed existed still matches the request.
+func TestARunCreateRetriedAcrossTheUpgradeReturnsTheFirstRun(t *testing.T) {
+	t.Parallel()
+
+	w := newRepoWorld(t)
+	ctx := t.Context()
+	nr := NewRun{Objective: "Fix the tool", CreatedBy: "laptop", Repo: "acme/tooling"}
+
+	first, err := w.s.CreateChatRunOnce(ctx, Once{}, nr, w.parent.Name)
+	require.NoError(t, err)
+
+	// NewRun as main had it before this change, and the receipt its create kept.
+	before := struct {
+		Objective          string
+		CreatedBy          string
+		Repo               string
+		Base               string
+		CoordinatorTokenID string
+		ChatID             string
+		Uses               []string
+		Bot                string
+	}{Objective: nr.Objective, CreatedBy: nr.CreatedBy, Repo: nr.Repo}
+	hash, err := requestHash("runs.create", before)
+	require.NoError(t, err)
+	response, err := json.Marshal(first.ID)
+	require.NoError(t, err)
+	require.NoError(t, store.New(w.db).InsertReceipt(ctx, store.InsertReceiptParams{
+		Caller: "tok_laptop", RequestID: "retry", Method: "runs.create", PayloadHash: hash, Response: string(response),
+		Now: 1,
+	}))
+
+	again, err := w.s.CreateChatRunOnce(ctx, Once{Caller: "tok_laptop", Key: "retry"}, nr, w.parent.Name)
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, again.ID)
 }
 
 // Scenario: issue #1334, decision 6. The main Bot, given a to-do no project Bot fits, keeps it and says why: the item
