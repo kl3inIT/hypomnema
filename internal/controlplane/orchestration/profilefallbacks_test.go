@@ -205,3 +205,43 @@ func TestAProfilesFallbacksAreCheckedWhenApplied(t *testing.T) {
 	assert.Equal(t, []string{"claude-subscription/claude-sonnet-5-5", "claude-subscription/claude-haiku-5-5"},
 		p.Fallbacks)
 }
+
+// Scenario (issue #1336, review of PR #1344): a profile with fallbacks is not a role. Its worker is offered as a
+// writer, which may change the repository and publish, on its own model and on each fallback: the role flag says
+// where the Task's chain came from, not where in it the Task is.
+func TestAProfileWithFallbacksStaysAWriterOnEveryModel(t *testing.T) {
+	t.Parallel()
+
+	w := fallbackWorld(t)
+	ctx := t.Context()
+
+	offer := func(id string) Offer {
+		t.Helper()
+
+		row, err := w.s.read().GetDispatch(ctx, id)
+		require.NoError(t, err)
+
+		o, err := offerOf(ctx, w.s.read(), row)
+		require.NoError(t, err)
+
+		return o
+	}
+
+	w.tasks(NewTask{Ref: "a", Profile: "writer", Spec: "a"})
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+
+	own := offer(created[0])
+	assert.Equal(t, "claude-subscription/claude-opus-5-5", own.Model)
+	assert.False(t, own.RoleRouted, "its own model")
+	require.NoError(t, w.finish(w.begin(created[0]), success("a")))
+
+	w.gatewayCooling("/v1/messages", "claude-subscription/claude-opus-5-5", w.clock.Now().Add(time.Hour))
+	w.tasks(NewTask{Ref: "b", Profile: "writer", Spec: "b"})
+	created = w.schedule().Created
+	require.Len(t, created, 1)
+
+	fallback := offer(created[0])
+	assert.Equal(t, "claude-subscription/claude-sonnet-5-5", fallback.Model)
+	assert.False(t, fallback.RoleRouted, "its fallback")
+}

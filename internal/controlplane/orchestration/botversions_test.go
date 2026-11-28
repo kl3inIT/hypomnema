@@ -113,3 +113,31 @@ func TestABotsSaveKeepsAVersionAndARestoreBringsItBack(t *testing.T) {
 	_, err = w.s.ListBotVersions(ctx, "bot_nobodyaaaaaaaaaaaaaaaaaaaa")
 	require.ErrorIs(t, err, ErrNotFound)
 }
+
+// A new Bot version keeps the instructions under their name (issue #1336, review of PR #1344); only the setup
+// changes' undo hash keeps the key they had while they were the Bot's persona.
+func TestABotVersionKeepsTheInstructionsUnderTheirName(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.Profiles().ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [primary]\n")
+	require.NoError(t, err)
+
+	maps, err := w.s.PutBot(ctx, Bot{
+		Name: "maps", AgentSpec: AgentSpec{Provider: "gateway", Model: "primary", Instructions: "You answer about maps."},
+	})
+	require.NoError(t, err)
+
+	rows, err := w.s.read().ListBotVersions(ctx, maps.ID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Contains(t, rows[0].Settings, `"instructions":"You answer about maps."`)
+	assert.NotContains(t, rows[0].Settings, `"persona"`)
+
+	versions, err := w.s.ListBotVersions(ctx, maps.ID)
+	require.NoError(t, err)
+	require.Len(t, versions, 1)
+	assert.Equal(t, "You answer about maps.", versions[0].Bot.Instructions)
+}
