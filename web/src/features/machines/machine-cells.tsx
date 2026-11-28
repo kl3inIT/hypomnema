@@ -205,7 +205,7 @@ export function GpuRows({
 const rowWithAmount = "flex w-full min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5"
 
 // WithAmount is a meter with its Amount after it.
-export function WithAmount({
+function WithAmount({
   used,
   total,
   children,

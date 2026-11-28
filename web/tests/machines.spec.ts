@@ -161,7 +161,9 @@ for (const theme of ["light", "dark"] as const) {
 // Scenario: one machine runs its workers under a memory ceiling, one cannot and says why, and one of an earlier
 // release says nothing (issue #1313). Only the second says its memory is not limited, on a phone and a desktop.
 for (const theme of ["light", "dark"] as const) {
-  test(`a machine whose workers' memory is not limited says why in ${theme} mode`, async ({ page }) => {
+  test(`a machine whose workers' memory is not limited says why in ${theme} mode`, async ({
+    page,
+  }) => {
     await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
     await fakeServer(page, false, true)
     await page.goto("/settings/machines")
@@ -169,8 +171,12 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByRole("article", { name: "gpu-box" })).toContainText(
       "Memory not limited: the systemd user manager does not delegate the memory controller",
     )
-    await expect(page.getByRole("article", { name: "aioffice-app" })).not.toContainText("Memory not limited")
-    await expect(page.getByRole("article", { name: "old-laptop" })).not.toContainText("Memory not limited")
+    await expect(page.getByRole("article", { name: "aioffice-app" })).not.toContainText(
+      "Memory not limited",
+    )
+    await expect(page.getByRole("article", { name: "old-laptop" })).not.toContainText(
+      "Memory not limited",
+    )
     await shot(page, `machines-memory-${theme}`)
   })
 }
