@@ -672,3 +672,63 @@ func TestARecordWithoutTheTokensBotOrAttemptRecordsNothing(t *testing.T) {
 		assert.False(t, recorded, "%+v", c)
 	}
 }
+
+// Scenario (owner, 2026-11-28, on P1 #5 of review round 1 of PR #1323; design row 4): a valid call on an issue or pull
+// request whose item is closed reopens that same item, as later mentions reach the same agent in Omnara
+// (docs/integrations/github.mdx:298); no second item is made. The reopen is in the item's history with who called,
+// and the new call's line is the request. A call by someone who may not make one reopens nothing.
+func TestACallAfterTheItemClosedReopensTheSameItem(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+	ctx := t.Context()
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1320, PullRequest: true, ID: 9951, Body: mention + " review PR này",
+	}))
+
+	first := w.itemOf(1320)
+	w.closeByOwner(first.ID, "Reviewed.")
+
+	// A reader and a bot call again: nothing reopens.
+	for n, by := range []githubapptest.Person{visitor, aBot} {
+		w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+			By: by, Number: 1320, PullRequest: true, ID: int64(9952 + n), Body: mention + " review again",
+		}))
+	}
+
+	closed, err := w.svc.Inbox().Get(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, closed.State, "a refused sender reopens nothing")
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1320, PullRequest: true, ID: 9955, Body: mention + " check the new commit",
+	}))
+
+	require.Len(t, w.calls(), 1, "no second item")
+
+	again, err := w.svc.Inbox().Get(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Open, again.State)
+	assert.Equal(t, inboxstore.Assignee{Kind: inboxstore.ABot, Name: orchestration.DefaultBotID}, again.Assignee)
+	assert.Empty(t, again.CloseReason)
+
+	reopened := false
+
+	for _, e := range again.Events {
+		if e.Kind == inboxstore.EventState && strings.Contains(string(e.After), `"state":"open"`) {
+			reopened = true
+
+			assert.Equal(t, inboxstore.Actor{Kind: inboxstore.System, ID: "github:linh-dev"}, e.Actor,
+				"the reopen says who called")
+			assert.Contains(t, string(e.After), "issuecomment-9955")
+		}
+	}
+
+	assert.True(t, reopened, "the reopen is in the item's history")
+
+	wakes := w.wakes(again.Chat)
+	require.NotEmpty(t, wakes)
+	assert.Contains(t, wakes[len(wakes)-1], "<github_request>\ncheck the new commit\n</github_request>")
+	assert.False(t, w.ownerTurn(again.Chat), "a teammate's call is no turn of the owner's")
+}
