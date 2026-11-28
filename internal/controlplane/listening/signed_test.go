@@ -256,6 +256,8 @@ type xFake struct {
 	cookies  []string
 	asked    []string
 	noCookie []string
+	// bundleTo redirects the bundle's request there when set.
+	bundleTo string
 }
 
 func (x *xFake) handler() http.Handler {
@@ -268,6 +270,8 @@ func (x *xFake) handler() http.Handler {
 			x.noCookie = append(x.noCookie, r.Header.Get("Cookie"))
 			_, _ = fmt.Fprint(w, `<script src="https://abs.twimg.com/responsive-web/client-web/main.abc123.js">`+
 				`</script>`)
+		case strings.HasPrefix(r.URL.Path, "/responsive-web/") && x.bundleTo != "":
+			http.Redirect(w, r, x.bundleTo, http.StatusFound)
 		case strings.HasPrefix(r.URL.Path, "/responsive-web/"):
 			x.noCookie = append(x.noCookie, r.Header.Get("Cookie"))
 			_, _ = fmt.Fprintf(w, `var a="%s";e.exports={queryId:"%s",operationName:"SearchTimeline",`+
@@ -336,11 +340,23 @@ type signedRig struct {
 func newSignedRig(t *testing.T) *signedRig {
 	t.Helper()
 
+	return newSignedRigWith(t, nil)
+}
+
+// newSignedRigWith is newSignedRig whose client reaches other hosts' test servers too.
+func newSignedRigWith(t *testing.T, hosts map[string]string) *signedRig {
+	t.Helper()
+
 	x := &xFake{t: t, queryID: "liveQueryId1"}
 	srv := httptest.NewServer(x.handler())
 	t.Cleanup(srv.Close)
 
-	client := hostsTo(map[string]string{"x.com": srv.URL, "abs.twimg.com": srv.URL})
+	servers := map[string]string{"x.com": srv.URL, "abs.twimg.com": srv.URL}
+	for h, u := range hosts {
+		servers[h] = u
+	}
+
+	client := hostsTo(servers)
 	rig := &signedRig{x: x, vault: newVault(), browser: newBrowser(), told: &told{}, clock: newClock()}
 
 	asks := []string{}
