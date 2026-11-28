@@ -11,17 +11,18 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
-// Scenario: the control plane sends a node's allocatable memory; the workers' slice gets it as MemoryMax, 90% of it
-// as MemoryHigh and no swap. No ceiling, or one of 0, leaves the slice unlimited, as before (issue #1313 rows 2, 3).
-func TestSlicePropertiesAreTheCeilingNinetyPercentAndNoSwap(t *testing.T) {
+// Scenario: the control plane sends a node's allocatable memory; the workers' slice gets it as MemoryMax, and as
+// MemoryHigh too, so a worker over it is killed rather than throttled without end, with no swap. No ceiling, or one
+// of 0, leaves the slice unlimited, as before (issue #1313 rows 2, 3; the owner, 2026-11-28, after the live check).
+func TestSlicePropertiesAreTheCeilingAsMaxAndHighAndNoSwap(t *testing.T) {
 	t.Parallel()
 
 	// aioffice-app's 33652387840 bytes, less a reserve of 4 GiB and the 1 GiB floor.
-	assert.Equal(t, []string{"MemoryMax=28283678720", "MemoryHigh=25455310848", "MemorySwapMax=0"},
+	assert.Equal(t, []string{"MemoryMax=28283678720", "MemoryHigh=28283678720", "MemorySwapMax=0"},
 		SliceProperties(33652387840-5<<30))
-	assert.Equal(t, []string{"MemoryMax=536870912", "MemoryHigh=483183820", "MemorySwapMax=0"},
+	assert.Equal(t, []string{"MemoryMax=536870912", "MemoryHigh=536870912", "MemorySwapMax=0"},
 		SliceProperties(512<<20))
-	assert.Equal(t, []string{"MemoryMax=100", "MemoryHigh=90", "MemorySwapMax=0"}, SliceProperties(100))
+	assert.Equal(t, []string{"MemoryMax=100", "MemoryHigh=100", "MemorySwapMax=0"}, SliceProperties(100))
 	assert.Equal(t, []string{"MemoryMax=infinity", "MemoryHigh=infinity", "MemorySwapMax=infinity"},
 		SliceProperties(0))
 	assert.Equal(t, []string{"MemoryMax=infinity", "MemoryHigh=infinity", "MemorySwapMax=infinity"},
@@ -105,7 +106,7 @@ func TestCeilingIsAppliedWhenItChanges(t *testing.T) {
 	require.Len(t, calls, 1)
 	assert.Equal(t, []string{
 		"systemctl", "--user", "set-property", "hypomnema-workers.slice",
-		"MemoryMax=8589934592", "MemoryHigh=7730941132", "MemorySwapMax=0",
+		"MemoryMax=8589934592", "MemoryHigh=8589934592", "MemorySwapMax=0",
 	}, calls[0])
 
 	fail = true
