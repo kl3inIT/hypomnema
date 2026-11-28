@@ -2,7 +2,13 @@ import { BotMessageSquare, Mic, PenLine, Repeat2, type LucideIcon } from "lucide
 import type { ComponentType, SVGProps } from "react"
 
 import { AgentAvatar } from "@/components/agent-avatar"
-import { GmailIcon, LarkIcon, WhatsAppIcon, ZaloIcon } from "@/components/icons/brand-icons"
+import {
+  GmailIcon,
+  LarkIcon,
+  TelegramIcon,
+  WhatsAppIcon,
+  ZaloIcon,
+} from "@/components/icons/brand-icons"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -15,6 +21,7 @@ import { sourceNames, type Source } from "./inbox-state"
 const marks: Record<Source, ComponentType<SVGProps<SVGSVGElement>> | LucideIcon> = {
   zalo: ZaloIcon,
   whatsapp: WhatsAppIcon,
+  telegram: TelegramIcon,
   lark: LarkIcon,
   gmail: GmailIcon,
   meeting: Mic,
@@ -23,7 +30,7 @@ const marks: Record<Source, ComponentType<SVGProps<SVGSVGElement>> | LucideIcon>
   routine: Repeat2,
 }
 
-const brands = new Set<Source>(["zalo", "whatsapp", "lark", "gmail"])
+const brands = new Set<Source>(["zalo", "whatsapp", "telegram", "lark", "gmail"])
 
 // SourceIcon is where an item came from, as Chatwoot's ChannelIcon beside an inbox's name (InboxName.vue:14): the
 // channel's mark at 16px, named when pointed at. The label keeps the channel available to screen readers while the

@@ -206,6 +206,18 @@ type SignIn struct {
 	// CodeImage is the QR code as a picture, a data URL, for a service that gives no code to draw (Zalo).
 	CodeImage   string
 	CodeExpires time.Time
+	// Ask is what the linking waits for the owner to type instead of a code (Telegram, issue #1184), which Answer
+	// gives; nil when it asks nothing.
+	Ask *Asked
+}
+
+// Asked is a question a linking waits on: messaging.Ask without its answer.
+type Asked struct {
+	// Field is messaging.AskPhone, AskCode or AskPassword.
+	Field string
+	Hint  string
+	// Again says the last answer was refused.
+	Again bool
 }
 
 func (s *Service) definition(id string) (Definition, error) {

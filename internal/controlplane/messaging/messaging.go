@@ -33,10 +33,43 @@ type LinkStep struct {
 	Code    string
 	Image   string
 	Expires time.Time
+	// Ask is a question the linking waits on before it goes on, instead of a code (Telegram, issue #1184): the
+	// account's phone number, the code sent to it, or its two-step password.
+	Ask *Ask
 	// Account is the account linked, on the last step of a linking that succeeded.
 	Account Account
 	// Err ended the linking, on the last step of one that did not.
 	Err error
+}
+
+// What a linking asks the owner to type, as mautrix-telegram's login steps ask (pkg/connector/loginphone.go:33-40:
+// phone_number, code, password).
+const (
+	AskPhone    = "phone"
+	AskCode     = "code"
+	AskPassword = "password"
+)
+
+// Ask is a question a linking waits on. The owner's answer goes back with Answer, and the linking's next step
+// follows on its channel: the next question (the same one with Again after a wrong answer), a code, or its end. The
+// shape is the smallest that carries mautrix-telegram's user-input step (a field to fill, its instructions, the step
+// again when refused, login.go:215-241) through a linking that is followed in the background.
+type Ask struct {
+	// Field is AskPhone, AskCode or AskPassword.
+	Field string
+	// Hint says more of it: where the code was sent, the password's hint the owner set.
+	Hint string
+	// Again says the last answer was refused: a wrong code or password, or a number the service does not know.
+	Again bool
+	// Answer gives the owner's answer to the linking. It is refused once the linking moved on or ended.
+	Answer func(ctx context.Context, value string) error
+}
+
+// PhoneLinker is a service that also links an account by its phone number and the code sent to it, when its QR
+// code cannot be scanned (Telegram, issue #1184), as mautrix-telegram offers its phone login beside its QR login
+// (pkg/connector/login.go:106-129). Its steps are Link's, the first asking for the number.
+type PhoneLinker interface {
+	LinkByPhone(ctx context.Context) (<-chan LinkStep, error)
 }
 
 // Account is a linked account's live session.

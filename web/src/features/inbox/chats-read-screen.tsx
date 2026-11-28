@@ -66,7 +66,7 @@ export function ChatsReadScreen() {
             </div>
           ) : !all.length ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              No Zalo, WhatsApp or Lark account of yours is connected.
+              No Zalo, WhatsApp, Telegram or Lark account of yours is connected.
             </p>
           ) : (
             <Tabs value={current} onValueChange={(v) => setTab(String(v))}>

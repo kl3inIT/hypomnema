@@ -24,3 +24,15 @@ func zaloCatalog() Catalog {
 		Text: "A message or a file sent in one of your chats, in your name", Kind: NeedsCare,
 	}}}
 }
+
+// TelegramID is the Telegram Integration's id (integration.TelegramID).
+const TelegramID = "telegram"
+
+// telegramCatalog is what a Bot does with the owner's Telegram (issue #1184), as WhatsApp's: sending as him asks
+// until he sets another answer, as Telegram's API terms ask (1.4: no action on his behalf without his consent).
+func telegramCatalog() Catalog {
+	return Catalog{Integration: TelegramID, Actions: []Action{{
+		ID: "telegram.send", Service: "Telegram", Name: "Send a message as you",
+		Text: "A message or a file sent in one of your chats, in your name", Kind: NeedsCare,
+	}}}
+}

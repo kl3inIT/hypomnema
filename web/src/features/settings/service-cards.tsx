@@ -1,8 +1,9 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Copy,
   ExternalLink,
+  KeyRound,
   Plug,
   Plus,
   RefreshCw,
@@ -24,6 +25,7 @@ import { z } from "zod"
 
 import "@/api/client"
 import {
+  answerIntegrationSignIn,
   beginIntegrationSignIn,
   completeIntegrationSignIn,
   deleteIntegrationConnection,
@@ -32,6 +34,7 @@ import {
 } from "@/api/generated/sdk.gen"
 import {
   getIntegrationSignInOptions,
+  getIntegrationSignInQueryKey,
   patchIntegrationConnectionMutation,
   syncMessagingFromPhoneMutation,
 } from "@/api/generated/@tanstack/react-query.gen"
@@ -42,6 +45,7 @@ import type {
   IntegrationConnection,
   PhoneSync,
   SignIn,
+  SignInAsk,
 } from "@/api/generated/types.gen"
 import {
   GitHubIcon,
@@ -56,6 +60,7 @@ import {
   LarkIcon,
   AwsIcon,
   SupersetIcon,
+  TelegramIcon,
   WhatsAppIcon,
   ZaloIcon,
 } from "@/components/icons/brand-icons"
@@ -104,6 +109,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
@@ -127,6 +133,7 @@ const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   aws: AwsIcon,
   whatsapp: WhatsAppIcon,
   zalo: ZaloIcon,
+  telegram: TelegramIcon,
 }
 
 // A git host's mark by its kind, as the Integrations page's host card picks it (integrations-screen.tsx).
@@ -207,7 +214,14 @@ export function ServiceCard({ service }: { service: Integration }) {
   const role = service.kind === "role"
   // The owner's own messaging account, linked as a device of his by a QR code his phone scans (issue #615).
   const device = service.kind === "device"
-  const ready = account || app || role || device || Boolean(service.client_id)
+  // A device whose service needs the owner's own client (Telegram's api_id and api_hash, issue #1184) is not set up
+  // until it has one.
+  const ready =
+    account ||
+    app ||
+    role ||
+    (device && !clientDevices.has(service.id)) ||
+    Boolean(service.client_id)
   // The owner may sign in to an app service as himself through one of its apps (issue #468): a user Connection.
   const apps = service.connections.filter((c) => !c.app)
   const add = (
@@ -255,7 +269,7 @@ export function ServiceCard({ service }: { service: Integration }) {
               />
             )}
             {role && <ConnectRoleDialog service={service} trigger={add} />}
-            {device && <LinkDeviceDialog service={service} trigger={add} />}
+            {device && ready && <LinkDeviceDialog service={service} trigger={add} />}
             {!app && !account && !role && !device && service.client_id && (
               <SignInDialog service={service} trigger={add} />
             )}
@@ -283,7 +297,8 @@ export function ServiceCard({ service }: { service: Integration }) {
         <CardContent>
           <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
             <p>
-              {`${service.name} signs in with an OAuth client you create once. Give its file to Hypomnema from a terminal:`}
+              {clientHow[service.id] ??
+                `${service.name} signs in with an OAuth client you create once. Give its file to Hypomnema from a terminal:`}
             </p>
             <code className="font-mono text-foreground">
               hypomnema integrations client set {service.id} --client-file &lt;file&gt;
@@ -380,7 +395,9 @@ function AccountItem({
             {connection.dial_address && (
               <span className="break-all">{`Dialed at ${connection.dial_address} (temporary)`}</span>
             )}
-            {device && connection.session && <span>{sessionSays(connection.session)}</span>}
+            {device && connection.session && (
+              <span>{sessionSays(connection.session, service.name)}</span>
+            )}
             {device && connection.session?.phone_sync && (
               <span>{phoneSyncSays(connection.session.phone_sync)}</span>
             )}
@@ -515,7 +532,7 @@ function AccountItem({
 
 // sessionSays is a linked account's session in a few words, as MemoryOS's runbook explains each state
 // (docs/runbooks/whatsapp-bot.md, "When it stops").
-function sessionSays(session: DeviceSession): string {
+function sessionSays(session: DeviceSession, name: string): string {
   switch (session.state) {
     case "connected":
       return "Connected"
@@ -527,12 +544,12 @@ function sessionSays(session: DeviceSession): string {
       return "Logged out on the phone; link it again"
     case "banned":
       return session.until
-        ? `Banned by WhatsApp until ${new Date(session.until).toLocaleString()}`
-        : "Banned by WhatsApp for a while"
+        ? `Banned by ${name} until ${new Date(session.until).toLocaleString()}`
+        : `Banned by ${name} for a while`
     case "replaced":
       return "Another client opened this session"
     case "outdated":
-      return "WhatsApp refuses this version; update Hypomnema"
+      return `${name} refuses this version; update Hypomnema`
   }
 }
 
@@ -1088,11 +1105,18 @@ function ConnectRoleDialog({
 
 const linkSchema = z.object({ label: labelSchema })
 
+// How a linking starts: by a QR code the phone scans, or by the account's phone number and the code sent to it,
+// for a service that also links so (Telegram, issue #1184), as mautrix-telegram offers both logins.
+type LinkFlow = "qr" | "phone"
+
 // LinkDeviceDialog links the owner's own messaging account (WhatsApp) as a device of his phone (issue #615): he
 // names it, then scans the QR code in WhatsApp › Linked devices › Link a device, as MemoryOS's runbook has it
 // (docs/runbooks/whatsapp-bot.md, "Linking"). The code changes about every 20 seconds, so the dialog reads the
 // current one meanwhile, as MemoryOS's bot page refreshes its code, and waits for the scan as UserSignInDialog
-// waits for its code. Linking an account again replaces its device.
+// waits for its code. Linking an account again replaces its device. A linking may ask the owner to type something
+// instead (Telegram, issue #1184): his account's two-step password after the scan, or, when he links by phone
+// number, the number and the code Telegram sent; each is answered in the dialog, as mautrix-telegram's login asks
+// one field a step (pkg/connector/loginphone.go).
 function LinkDeviceDialog({
   service,
   connection,
@@ -1103,18 +1127,24 @@ function LinkDeviceDialog({
   trigger: ReactElement
 }) {
   const formId = useId()
+  const answerId = useId()
   const refresh = useRefreshServices()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [started, setStarted] = useState<SignIn | null>(null)
+  // How the owner chose to link, set by the button he pressed before the form is sent.
+  const flow = useRef<LinkFlow>("qr")
+  const [typed, setTyped] = useState("")
   // Each linking the owner starts; closing the dialog moves it on, so a late answer of a closed one is dropped.
   const attempt = useRef(0)
 
   const begin = useMutation({
-    mutationFn: async (value: z.infer<typeof linkSchema>) =>
+    mutationFn: async (value: z.infer<typeof linkSchema> & { flow: LinkFlow }) =>
       (
         await beginIntegrationSignIn({
           path: { integration: service.id },
-          body: { label: value.label },
+          body:
+            value.flow === "phone" ? { label: value.label, flow: "phone" } : { label: value.label },
         })
       ).data,
   })
@@ -1124,12 +1154,26 @@ function LinkDeviceDialog({
       completeIntegrationSignIn({ path: { integration: service.id, sign_in_id: id }, body: {} }),
   })
 
+  const currentPath = { integration: service.id, sign_in_id: started?.id ?? "" }
   const current = useQuery({
-    ...getIntegrationSignInOptions({
-      path: { integration: service.id, sign_in_id: started?.id ?? "" },
-    }),
+    ...getIntegrationSignInOptions({ path: currentPath }),
     enabled: started !== null && complete.isPending,
-    refetchInterval: 5000,
+    refetchInterval: 2000,
+  })
+
+  const answer = useMutation({
+    mutationFn: async (value: string) =>
+      (
+        await answerIntegrationSignIn({
+          path: { integration: service.id, sign_in_id: started?.id ?? "" },
+          body: { value },
+        })
+      ).data,
+    onSuccess: (next) => {
+      // The step after the answer is the current one until the next read.
+      queryClient.setQueryData(getIntegrationSignInQueryKey({ path: currentPath }), next)
+      setTyped("")
+    },
   })
 
   const form = useForm({
@@ -1139,7 +1183,7 @@ function LinkDeviceDialog({
       const mine = ++attempt.current
       let signIn: SignIn
       try {
-        signIn = await begin.mutateAsync(value)
+        signIn = await begin.mutateAsync({ ...value, flow: flow.current })
       } catch {
         return // The dialog stays open and shows what the server refused.
       }
@@ -1165,23 +1209,31 @@ function LinkDeviceDialog({
     if (!next) {
       attempt.current++
       setStarted(null)
+      flow.current = "qr"
+      setTyped("")
       form.reset()
       begin.reset()
       complete.reset()
+      answer.reset()
     }
   }
 
   function again() {
     attempt.current++
     setStarted(null)
+    setTyped("")
     begin.reset()
     complete.reset()
+    answer.reset()
   }
 
-  const code = current.data?.qr_code ?? started?.qr_code
+  const step = current.data ?? started
+  const code = step?.qr_code
   // Zalo gives its QR code as a picture, with nothing to draw it from (issue #657).
-  const image = current.data?.qr_image ?? started?.qr_image
+  const image = step?.qr_image
+  const ask = step?.ask
   const waiting = started !== null && complete.isPending
+  const byPhone = phoneLinks.has(service.id)
 
   return (
     <Dialog open={open} onOpenChange={change}>
@@ -1192,11 +1244,13 @@ function LinkDeviceDialog({
             {connection ? `Link ${connection.label} again` : `Link your ${service.name}`}
           </DialogTitle>
           <DialogDescription>
-            {started
-              ? (scanHow[service.id] ??
-                `On your phone, open ${service.name} › Linked devices › Link a device, and scan this code.`)
-              : (introHow[service.id] ??
-                `Your phone links Hypomnema as one of its devices, as ${service.name} Web is. The main Bot can then read and write in your chats as you. ${service.name} forbids clients it did not make, so a number can be banned; Hypomnema never sends in bulk.`)}
+            {started && waiting && ask
+              ? askHow(ask, service.name)
+              : started
+                ? (scanHow[service.id] ??
+                  `On your phone, open ${service.name} › Linked devices › Link a device, and scan this code.`)
+                : (introHow[service.id] ??
+                  `Your phone links Hypomnema as one of its devices, as ${service.name} Web is. The main Bot can then read and write in your chats as you. ${service.name} forbids clients it did not make, so a number can be banned; Hypomnema never sends in bulk.`)}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -1224,7 +1278,7 @@ function LinkDeviceDialog({
                 </form.Field>
               </FieldGroup>
             )}
-            {started && waiting && (code || image) && (
+            {started && waiting && !ask && (code || image) && (
               <div className="flex flex-col items-center gap-3">
                 {code ? (
                   <QrCode text={code} label={`QR code to link ${service.name}`} />
@@ -1243,26 +1297,85 @@ function LinkDeviceDialog({
             )}
             <ErrorAlert error={begin.error ?? complete.error} />
           </form>
+          {started && waiting && ask && (
+            <form
+              id={answerId}
+              autoComplete="off"
+              noValidate
+              className="flex flex-col gap-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (typed.trim() !== "") answer.mutate(typed)
+              }}
+            >
+              <Field data-invalid={ask.again || undefined}>
+                <FieldLabel htmlFor={`${answerId}-value`}>{askLabels[ask.field]}</FieldLabel>
+                <Input
+                  id={`${answerId}-value`}
+                  type={
+                    ask.field === "password" ? "password" : ask.field === "phone" ? "tel" : "text"
+                  }
+                  inputMode={ask.field === "code" ? "numeric" : undefined}
+                  autoComplete={ask.field === "code" ? "one-time-code" : "off"}
+                  placeholder={ask.field === "phone" ? "+84 912 345 678" : undefined}
+                  value={typed}
+                  aria-invalid={ask.again || undefined}
+                  onChange={(event) => setTyped(event.target.value)}
+                />
+                {askSays(ask) && <FieldDescription>{askSays(ask)}</FieldDescription>}
+              </Field>
+              <ErrorAlert error={answer.error} />
+            </form>
+          )}
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
           {started && complete.isError ? (
             <Button onClick={again}>Start again</Button>
+          ) : started && waiting && ask ? (
+            <Button
+              type="submit"
+              form={answerId}
+              focusableWhenDisabled={answer.isPending}
+              disabled={answer.isPending || typed.trim() === ""}
+            >
+              {answer.isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <KeyRound data-icon="inline-start" />
+              )}
+              Continue
+            </Button>
           ) : (
             !started && (
-              <Button
-                type="submit"
-                form={formId}
-                focusableWhenDisabled={begin.isPending}
-                disabled={begin.isPending}
-              >
-                {begin.isPending ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <Smartphone data-icon="inline-start" />
+              <>
+                {byPhone && (
+                  <Button
+                    type="submit"
+                    form={formId}
+                    variant="outline"
+                    focusableWhenDisabled={begin.isPending}
+                    disabled={begin.isPending}
+                    onClick={() => (flow.current = "phone")}
+                  >
+                    Use phone number
+                  </Button>
                 )}
-                Show the code
-              </Button>
+                <Button
+                  type="submit"
+                  form={formId}
+                  focusableWhenDisabled={begin.isPending}
+                  disabled={begin.isPending}
+                  onClick={() => (flow.current = "qr")}
+                >
+                  {begin.isPending ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <Smartphone data-icon="inline-start" />
+                  )}
+                  Show the code
+                </Button>
+              </>
             )
           )}
         </DialogFooter>
@@ -1271,9 +1384,58 @@ function LinkDeviceDialog({
   )
 }
 
+// askLabels name the field a linking asks for.
+const askLabels: Record<SignInAsk["field"], string> = {
+  phone: "Phone number",
+  code: "Code",
+  password: "Two-step password",
+}
+
+// askHow says what a linking asks for and why, above its field.
+function askHow(ask: SignInAsk, name: string): string {
+  switch (ask.field) {
+    case "phone":
+      return `Type the phone number of your ${name} account, with its country code. ${name} sends a code to your app.`
+    case "code":
+      return `Type the code ${name} sent you.`
+    case "password":
+      return `Your ${name} account has a two-step password. Type it to finish linking; Hypomnema does not keep it.`
+  }
+}
+
+// askSays is the line under the field: that the last answer was refused, and the service's hint.
+function askSays(ask: SignInAsk): string {
+  const refused =
+    ask.field === "code"
+      ? "That code was wrong; type it again."
+      : ask.field === "password"
+        ? "That password was wrong; type it again."
+        : "That number was refused; check it and type it again."
+  const hint =
+    ask.hint && (ask.field === "password" ? `Your hint: ${ask.hint}` : `Sent to ${ask.hint}.`)
+
+  return [ask.again && refused, hint].filter(Boolean).join(" ")
+}
+
+// phoneLinks are the services that also link by phone number and code, when the QR code cannot be scanned:
+// Telegram's (issue #1184), as mautrix-telegram offers its phone login beside its QR login.
+const phoneLinks = new Set(["telegram"])
+
+// clientDevices are the devices that link with the owner's own client: Telegram's api_id and api_hash, which he
+// makes once at my.telegram.org (issue #1184), as mautrix-telegram needs them in its config.
+const clientDevices = new Set(["telegram"])
+
+// clientHow says how a service's client is made and given, for one whose words differ from an OAuth client's.
+const clientHow: Record<string, string> = {
+  telegram:
+    "Telegram's api_id is missing. Make an api_id and api_hash once at my.telegram.org › API development tools, put them in a JSON file as client_id and client_secret, and give it to Hypomnema from a terminal:",
+}
+
 // introHow says what linking gives, for a service whose words differ from WhatsApp's: Zalo keeps only the chats from
 // the link on, as its servers give no past (issues #669, #680).
 const introHow: Record<string, string> = {
+  telegram:
+    "Hypomnema logs in to your Telegram as one more device, as Telegram Desktop does, and keeps every chat from then on; it never marks your chats as read. The main Bot can then read and write in them as you, each message it sends after your approval. Telegram watches clients it did not make, so an account can be limited; Hypomnema never sends in bulk.",
   zalo: "Your phone logs Hypomnema in, as Zalo Web is, and every chat is kept from then on. The main Bot can then read and write in them as you, each message it sends after your approval. Zalo forbids clients it did not make, so an account can be locked; Hypomnema never sends in bulk.",
 }
 
@@ -1285,6 +1447,8 @@ const forgetHow: Record<string, string> = {
 
 // scanHow says where each service's app scans a link code, when it is not WhatsApp's Linked devices.
 const scanHow: Record<string, string> = {
+  telegram:
+    "On your phone, open Telegram › Settings › Devices › Link Desktop Device, and scan this code.",
   zalo: "On your phone, open Zalo, tap the QR scanner at the top, scan this code, then confirm the login.",
 }
 

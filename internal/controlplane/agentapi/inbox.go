@@ -1113,7 +1113,7 @@ func val[T any](p *T) T {
 }
 
 // chatsOfInboxChats are the services whose chats inbox_chats names, those the triage's check reads.
-var chatsOfInboxChats = []string{"zalo", "whatsapp", "lark"}
+var chatsOfInboxChats = []string{"zalo", "whatsapp", "telegram", "lark"}
 
 // readsChatChoices says whether the agent is given inbox_chats (issue #1270): a Bot's pi, and the check of its
 // Routine, which has no chat and so none of the Inbox's other tools; never a worker.
@@ -1128,7 +1128,8 @@ func inboxChatsTool(a agent) []agenttool.BrowserTool {
 	return []agenttool.BrowserTool{{
 		Name: agenttool.ToolInboxChats,
 		Description: "List the owner's choices of which of his chats the secretary reads: each chat of his " +
-			"accounts you may read (zalo:<label>, whatsapp:<label>, lark:<label>) that he switched off or on, and " +
+			"accounts you may read (zalo:<label>, whatsapp:<label>, telegram:<label>, lark:<label>) that he switched " +
+			"off or on, and " +
 			"the default of every other chat (direct chats and groups read; a bot's or an official account's, by " +
 			"bot_patterns on its name or id, skipped). Use it in the triage's check to leave out the chats he " +
 			"switched off; such a chat is still read with your tools when he asks.",

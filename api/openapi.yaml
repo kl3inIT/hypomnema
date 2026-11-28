@@ -1324,6 +1324,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/IntegrationConnection" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/sign-ins/{sign_in_id}/answer:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - name: sign_in_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    post:
+      operationId: AnswerIntegrationSignIn
+      summary: Answer what a linking in progress asks; only the owner
+      description: >-
+        For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184):
+        his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the
+        sign-in at its next step, once the service took the answer: the next question, the same one again when it
+        was refused, or no question once the account is linked, which completing the sign-in answers. The answer is
+        never kept or logged. Invalid when the linking asks nothing now.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignInAnswer" }
+      responses:
+        "200":
+          description: The linking at its next step.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignIn" }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -8554,6 +8582,13 @@ components:
           description: >-
             For an app Integration: the label of the app Connection the owner
             signs in as himself through, by device code.
+        flow:
+          type: string
+          enum: [qr, phone]
+          description: >-
+            For an Integration of kind device: qr (the default) links by a QR code the phone scans; phone, for a
+            service that also links by phone number (Telegram, issue #1184), asks for the number first, then the
+            code sent to it.
     SignIn:
       type: object
       required: [id, url, expires_in_seconds]
@@ -8585,6 +8620,30 @@ components:
           format: date-time
           description: When the QR code stops being valid.
         expires_in_seconds: { type: integer }
+        ask: { $ref: "#/components/schemas/SignInAsk" }
+    SignInAsk:
+      type: object
+      required: [field, again]
+      description: >-
+        What a linking waits for the owner to type instead of a QR code (Telegram, issue #1184), which answering the
+        sign-in gives. Absent when it asks nothing.
+      properties:
+        field:
+          type: string
+          enum: [phone, code, password]
+          description: His phone number, the code sent to it, or his account's two-step password.
+        hint:
+          type: string
+          description: Where the code was sent, or the hint he set for his password.
+        again:
+          type: boolean
+          description: The last answer was refused (a wrong code or password); type it again.
+    SignInAnswer:
+      type: object
+      required: [value]
+      additionalProperties: false
+      properties:
+        value: { type: string, minLength: 1, maxLength: 256, writeOnly: true }
     SignInCallback:
       type: object
       additionalProperties: false

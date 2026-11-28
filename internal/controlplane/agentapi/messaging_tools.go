@@ -26,7 +26,7 @@ import (
 
 // The messaging tools (issues #638, #680): a Bot reads and writes in the owner's own messaging accounts, kept by
 // the control plane, as Superset's tools read his Superset (superset.go): one family per service, named after it
-// (whatsapp_*, zalo_*), listed only when the agent may use one of its Connections, with account only when it may
+// (whatsapp_*, zalo_*, telegram_*), listed only when the agent may use one of its Connections, with account only when it may
 // use several (OpenClaw's Feishu tools, extensions/feishu/src/tool-account.ts, tool-registration.ts). Every
 // service's tools run the same path; a service differs only in its words (messagingService). Such a Connection is
 // the owner's own account (orchestration.Connection.User), so only a Bot given it has the tools; a worker, a
@@ -45,6 +45,17 @@ type messagingService struct {
 	historyStart, historyNone             string
 	// tags says its send tags members of a group (mentions, issue #852): WhatsApp's does.
 	tags bool
+	// bots says its chats have kind bot too: a bot's, an official account's or a channel's (Telegram, #1184).
+	bots bool
+}
+
+// chatKinds are the kinds its chats have.
+func (m messagingService) chatKinds() string {
+	if m.bots {
+		return "dm, group, broadcast, bot"
+	}
+
+	return "dm, group, broadcast"
 }
 
 // messagingServices are the services whose accounts Bots use; their tools are named after them.
@@ -59,6 +70,18 @@ var messagingServices = []messagingService{
 		historyStart: "The phone says the chat has none older: this is its start.",
 		historyNone:  "Nothing older came: the owner's phone may hold no more of this chat.",
 		tags:         true,
+	},
+	{
+		integration: "telegram", name: "Telegram",
+		chats: agenttool.ToolTelegramChats, messages: agenttool.ToolTelegramMessages,
+		media: agenttool.ToolTelegramMedia, history: agenttool.ToolTelegramHistory, send: agenttool.ToolTelegramSend,
+		chatsAbout: "Every chat is kept as it arrives from when it was linked; a chat's id is user:<id>, chat:<id> " +
+			"or channel:<id>, and kind bot is a bot's, an official account's or a channel's.",
+		historyAbout: "Ask Telegram's servers for messages of a chat older than the oldest kept, up to count " +
+			"(50 by default, 500 at most), and keep them.",
+		historyStart: "Telegram says the chat has none older: this is its start.",
+		historyNone:  "Nothing older came: Telegram holds no more of this chat.",
+		bots:         true,
 	},
 	{
 		integration: "zalo", name: "Zalo",
@@ -218,7 +241,7 @@ func (m messagingService) tools(labels []string, relayMentions bool) []agenttool
 		{
 			Name: m.chats,
 			Description: "List the owner's " + m.name + " chats, groups and people, the latest first: each one's " +
-				"id, kind (dm, group, broadcast), name and when its last message came, and the account's label, " +
+				"id, kind (" + m.chatKinds() + "), name and when its last message came, and the account's label, " +
 				"which an Inbox item's source names. " + m.chatsAbout +
 				" Use it first, to find a chat's id.",
 			InputSchema: with(map[string]any{"limit": limit}),

@@ -1473,6 +1473,24 @@ func (e NewNodeDevice) Valid() bool {
 	}
 }
 
+// Defines values for NewSignInFlow.
+const (
+	NewSignInFlowPhone NewSignInFlow = "phone"
+	NewSignInFlowQr    NewSignInFlow = "qr"
+)
+
+// Valid indicates whether the value is a known member of the NewSignInFlow enum.
+func (e NewSignInFlow) Valid() bool {
+	switch e {
+	case NewSignInFlowPhone:
+		return true
+	case NewSignInFlowQr:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NewTaskPrBase.
 const (
 	RunBase   NewTaskPrBase = "run_base"
@@ -1980,6 +1998,27 @@ func (e SetupChangeKind) Valid() bool {
 	case SetupChangeKindBot:
 		return true
 	case SetupChangeKindProfile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignInAskField.
+const (
+	SignInAskFieldCode     SignInAskField = "code"
+	SignInAskFieldPassword SignInAskField = "password"
+	SignInAskFieldPhone    SignInAskField = "phone"
+)
+
+// Valid indicates whether the value is a known member of the SignInAskField enum.
+func (e SignInAskField) Valid() bool {
+	switch e {
+	case SignInAskFieldCode:
+		return true
+	case SignInAskFieldPassword:
+		return true
+	case SignInAskFieldPhone:
 		return true
 	default:
 		return false
@@ -6046,12 +6085,18 @@ type NewSecretValue struct {
 // NewSignIn defines model for NewSignIn.
 type NewSignIn struct {
 	// App For an app Integration: the label of the app Connection the owner signs in as himself through, by device code.
-	App   *string `json:"app,omitempty"`
-	Label string  `json:"label"`
+	App *string `json:"app,omitempty"`
+
+	// Flow For an Integration of kind device: qr (the default) links by a QR code the phone scans; phone, for a service that also links by phone number (Telegram, issue #1184), asks for the number first, then the code sent to it.
+	Flow  *NewSignInFlow `json:"flow,omitempty"`
+	Label string         `json:"label"`
 
 	// Services A service alone to read and write, or with ":read" to read only. Needed for an Integration that signs in with OAuth.
 	Services *[]string `json:"services,omitempty"`
 }
+
+// NewSignInFlow For an Integration of kind device: qr (the default) links by a QR code the phone scans; phone, for a service that also links by phone number (Telegram, issue #1184), asks for the number first, then the code sent to it.
+type NewSignInFlow string
 
 // NewTask defines model for NewTask.
 type NewTask struct {
@@ -7056,8 +7101,10 @@ type SheetList struct {
 
 // SignIn defines model for SignIn.
 type SignIn struct {
-	ExpiresInSeconds int    `json:"expires_in_seconds"`
-	Id               string `json:"id"`
+	// Ask What a linking waits for the owner to type instead of a QR code (Telegram, issue #1184), which answering the sign-in gives. Absent when it asks nothing.
+	Ask              *SignInAsk `json:"ask,omitempty"`
+	ExpiresInSeconds int        `json:"expires_in_seconds"`
+	Id               string     `json:"id"`
 
 	// QrCode For an Integration of kind device, what the QR code the phone scans shows; the url is then empty. A new one comes about every 20 seconds: read the sign-in again for it. Absent once the linking ended; completing it answers how.
 	QrCode *string `json:"qr_code,omitempty"`
@@ -7074,6 +7121,26 @@ type SignIn struct {
 	// UserCode The code the owner enters on the page the link opens, for a sign-in by device code; completing it then takes no callback.
 	UserCode *string `json:"user_code,omitempty"`
 }
+
+// SignInAnswer defines model for SignInAnswer.
+type SignInAnswer struct {
+	Value *string `json:"value,omitempty"`
+}
+
+// SignInAsk What a linking waits for the owner to type instead of a QR code (Telegram, issue #1184), which answering the sign-in gives. Absent when it asks nothing.
+type SignInAsk struct {
+	// Again The last answer was refused (a wrong code or password); type it again.
+	Again bool `json:"again"`
+
+	// Field His phone number, the code sent to it, or his account's two-step password.
+	Field SignInAskField `json:"field"`
+
+	// Hint Where the code was sent, or the hint he set for his password.
+	Hint *string `json:"hint,omitempty"`
+}
+
+// SignInAskField His phone number, the code sent to it, or his account's two-step password.
+type SignInAskField string
 
 // SignInCallback defines model for SignInCallback.
 type SignInCallback struct {
@@ -9735,6 +9802,9 @@ type BeginIntegrationSignInJSONRequestBody = NewSignIn
 // CompleteIntegrationSignInJSONRequestBody defines body for CompleteIntegrationSignIn for application/json ContentType.
 type CompleteIntegrationSignInJSONRequestBody = SignInCallback
 
+// AnswerIntegrationSignInJSONRequestBody defines body for AnswerIntegrationSignIn for application/json ContentType.
+type AnswerIntegrationSignInJSONRequestBody = SignInAnswer
+
 // SetMeetingSettingsJSONRequestBody defines body for SetMeetingSettings for application/json ContentType.
 type SetMeetingSettingsJSONRequestBody = MeetingSettingsUpdate
 
@@ -12054,6 +12124,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
 	CompleteIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AnswerIntegrationSignInWithBody Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	//
@@ -17713,6 +17801,44 @@ func (c *Client) CompleteIntegrationSignInWithBody(ctx context.Context, integrat
 // Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
 func (c *Client) CompleteIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCompleteIntegrationSignInRequest(c.Server, integration, signInId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AnswerIntegrationSignInWithBody Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *Client) AnswerIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerIntegrationSignInRequestWithBody(c.Server, integration, signInId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *Client) AnswerIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerIntegrationSignInRequest(c.Server, integration, signInId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -29323,6 +29449,60 @@ func NewCompleteIntegrationSignInRequestWithBody(server string, integration Inte
 	return req, nil
 }
 
+// NewAnswerIntegrationSignInRequest calls the generic AnswerIntegrationSignIn builder with application/json body
+func NewAnswerIntegrationSignInRequest(server string, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAnswerIntegrationSignInRequestWithBody(server, integration, signInId, "application/json", bodyReader)
+}
+
+// NewAnswerIntegrationSignInRequestWithBody constructs an http.Request for the AnswerIntegrationSignIn method, with any body, and a specified content type
+func NewAnswerIntegrationSignInRequestWithBody(server string, integration IntegrationID, signInId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sign_in_id", signInId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/sign-ins/%s/answer", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListMachineProvidersRequest constructs an http.Request for the ListMachineProviders method
 func NewListMachineProvidersRequest(server string) (*http.Request, error) {
 	var err error
@@ -37275,6 +37455,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
 	CompleteIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteIntegrationSignInResponse, error)
+
+	// AnswerIntegrationSignInWithBodyWithResponse Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error)
+
+	// AnswerIntegrationSignInWithResponse Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error)
 
 	// ListMachineProvidersWithResponse The providers a machine can be created at (owner only)
 	//
@@ -46983,6 +47181,54 @@ func (r CompleteIntegrationSignInResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CompleteIntegrationSignInResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AnswerIntegrationSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SignIn
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AnswerIntegrationSignInResponse) GetJSON200() *SignIn {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AnswerIntegrationSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AnswerIntegrationSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AnswerIntegrationSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AnswerIntegrationSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AnswerIntegrationSignInResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -56960,6 +57206,36 @@ func (c *ClientWithResponses) CompleteIntegrationSignInWithResponse(ctx context.
 	return ParseCompleteIntegrationSignInResponse(rsp)
 }
 
+// AnswerIntegrationSignInWithBodyWithResponse Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *ClientWithResponses) AnswerIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error) {
+	rsp, err := c.AnswerIntegrationSignInWithBody(ctx, integration, signInId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerIntegrationSignInResponse(rsp)
+}
+
+// AnswerIntegrationSignInWithResponse Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *ClientWithResponses) AnswerIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error) {
+	rsp, err := c.AnswerIntegrationSignIn(ctx, integration, signInId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerIntegrationSignInResponse(rsp)
+}
+
 // ListMachineProvidersWithResponse The providers a machine can be created at (owner only)
 //
 // Returns a wrapper object for the known response body format(s).
@@ -65154,6 +65430,39 @@ func ParseCompleteIntegrationSignInResponse(rsp *http.Response) (*CompleteIntegr
 	return response, nil
 }
 
+// ParseAnswerIntegrationSignInResponse parses an HTTP response from a AnswerIntegrationSignInWithResponse call
+func ParseAnswerIntegrationSignInResponse(rsp *http.Response) (*AnswerIntegrationSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AnswerIntegrationSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SignIn
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListMachineProvidersResponse parses an HTTP response from a ListMachineProvidersWithResponse call
 func ParseListMachineProvidersResponse(rsp *http.Response) (*ListMachineProvidersResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -70068,6 +70377,9 @@ type ServerInterface interface {
 	// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
 	// (POST /integrations/{integration}/sign-ins/{sign_in_id})
 	CompleteIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string)
+	// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+	// (POST /integrations/{integration}/sign-ins/{sign_in_id}/answer)
+	AnswerIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string)
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	// (GET /machine-providers)
 	ListMachineProviders(w http.ResponseWriter, r *http.Request)
@@ -76297,6 +76609,41 @@ func (siw *ServerInterfaceWrapper) CompleteIntegrationSignIn(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// AnswerIntegrationSignIn operation middleware
+func (siw *ServerInterfaceWrapper) AnswerIntegrationSignIn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sign_in_id" -------------
+	var signInId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sign_in_id", r.PathValue("sign_in_id"), &signInId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sign_in_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AnswerIntegrationSignIn(w, r, integration, signInId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMachineProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListMachineProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -80459,6 +80806,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins", wrapper.BeginIntegrationSignIn)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.GetIntegrationSignIn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.CompleteIntegrationSignIn)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}/answer", wrapper.AnswerIntegrationSignIn)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.DeleteIntegrationConnection)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PatchIntegrationConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PutIntegrationConnection)
@@ -87743,6 +88091,47 @@ func (response CompleteIntegrationSignIndefaultJSONResponse) VisitCompleteIntegr
 	return err
 }
 
+type AnswerIntegrationSignInRequestObject struct {
+	Integration IntegrationID `json:"integration"`
+	SignInId    string        `json:"sign_in_id"`
+	Body        *AnswerIntegrationSignInJSONRequestBody
+}
+
+type AnswerIntegrationSignInResponseObject interface {
+	VisitAnswerIntegrationSignInResponse(w http.ResponseWriter) error
+}
+
+type AnswerIntegrationSignIn200JSONResponse SignIn
+
+func (response AnswerIntegrationSignIn200JSONResponse) VisitAnswerIntegrationSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnswerIntegrationSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AnswerIntegrationSignIndefaultJSONResponse) VisitAnswerIntegrationSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMachineProvidersRequestObject struct {
 }
 
@@ -93655,6 +94044,9 @@ type StrictServerInterface interface {
 	// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
 	// (POST /integrations/{integration}/sign-ins/{sign_in_id})
 	CompleteIntegrationSignIn(ctx context.Context, request CompleteIntegrationSignInRequestObject) (CompleteIntegrationSignInResponseObject, error)
+	// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+	// (POST /integrations/{integration}/sign-ins/{sign_in_id}/answer)
+	AnswerIntegrationSignIn(ctx context.Context, request AnswerIntegrationSignInRequestObject) (AnswerIntegrationSignInResponseObject, error)
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	// (GET /machine-providers)
 	ListMachineProviders(ctx context.Context, request ListMachineProvidersRequestObject) (ListMachineProvidersResponseObject, error)
@@ -99190,6 +99582,40 @@ func (sh *strictHandler) CompleteIntegrationSignIn(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CompleteIntegrationSignInResponseObject); ok {
 		if err := validResponse.VisitCompleteIntegrationSignInResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AnswerIntegrationSignIn operation middleware
+func (sh *strictHandler) AnswerIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string) {
+	var request AnswerIntegrationSignInRequestObject
+
+	request.Integration = integration
+	request.SignInId = signInId
+
+	var body AnswerIntegrationSignInJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AnswerIntegrationSignIn(ctx, request.(AnswerIntegrationSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AnswerIntegrationSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AnswerIntegrationSignInResponseObject); ok {
+		if err := validResponse.VisitAnswerIntegrationSignInResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

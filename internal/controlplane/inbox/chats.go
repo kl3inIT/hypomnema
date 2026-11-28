@@ -18,7 +18,7 @@ import (
 // Which of the owner's chats the secretary reads (issue #1270): the chats of each of his Connections, with whether
 // the triage's check reads each and why (the default of its kind, or the owner), for his screen; and the one-time
 // move of the chat ids a Bot's thu-ky/filters.json dropChats named into his choices. The choices themselves are
-// inboxstore's (ChatRead). A Zalo or WhatsApp account's chats are those the server keeps; a Lark sign-in's are
+// inboxstore's (ChatRead). A Zalo, WhatsApp or Telegram account's chats are those the server keeps; a Lark sign-in's are
 // listed by Lark (GET /open-apis/im/v1/chats, his direct chats and groups, as the triage's check lists them).
 
 // Chats lists a Connection's chats with the owner's choices.
@@ -63,7 +63,7 @@ func (c Chats) List(ctx context.Context, integration, label string) ([]Chat, err
 	)
 
 	switch integration {
-	case "zalo", "whatsapp":
+	case "zalo", "whatsapp", "telegram":
 		out, err = c.keptChats(ctx, integration, label)
 	case "lark":
 		out, err = c.larkChats(ctx, label)

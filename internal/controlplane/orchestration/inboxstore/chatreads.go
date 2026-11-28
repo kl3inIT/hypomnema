@@ -41,9 +41,10 @@ var botPatterns = func() []*regexp.Regexp {
 }()
 
 // ChatKind sorts a chat by the kind its service gives (Zalo's and WhatsApp's dm, group or broadcast; Lark's p2p,
-// group or topic), its name and its id: a bot's or an official account's by BotPatterns, a broadcast list as one.
+// group or topic; Telegram's dm, group, broadcast or bot, from its account flags, issue #1184), its name and its
+// id: a bot's or an official account's by BotPatterns, a broadcast list or a channel as one.
 func ChatKind(serviceKind, name, id string) string {
-	if serviceKind == "broadcast" {
+	if serviceKind == "broadcast" || serviceKind == ChatBot {
 		return ChatBot
 	}
 
