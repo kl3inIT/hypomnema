@@ -4931,8 +4931,10 @@ not checked against the live site in the change that wrote them.
   and the caller's cancelling end it. A permission card (`[data-hatch-composer-approval-stack]`,
   `hatch-inline-approval-card`) stops it with the card's text: Hypomnema never clicks one; the owner answers it in
   his own Muse. A tab or Chrome gone after the send is "sent, result unknown" and the context is dropped. The
-  answer is read from `[data-message-item][data-message-role="assistant"]`, the agent bubble as fallback (logged),
-  with its links and media; the thread from `/thread/<uuid>`. An answer with no link is marked unverified.
+  answer is read from `[data-message-item][data-message-role="assistant"]`, the agent bubble as fallback (logged):
+  every such message after those the thread showed before the send, their texts joined and their links and media in
+  order, since Muse may end a list with a link card of its own (issue #1292); the thread from `/thread/<uuid>`. An
+  answer with no link is marked unverified.
 - `muse.db` beside the control plane's database (tables `mu_*`, FTS5 over prompt and answer) keeps each question
   with its account, thread, the agent that asked, its answer, links, outcome (`answered`, `interrupted`,
   `unknown`, `asks_permission`, `error`) and time, each account's state, rest and usage, each thread's account,
@@ -4968,7 +4970,8 @@ writes no prose (last30days SKILL.md LAW 7).
   the stream's limit; the detail counts the threads dropped. When the archive could not be read and the bar leaves
   none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. That failure rests the archive's path only, not
   `web_arctic`: the next subquery still searches the web and keeps its threads as the search showed them. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
-  `web_arctic` was added for that (owner, 2026-11-27).
+  `web_arctic` was added for that (owner, 2026-11-27). `facebook`, `instagram` and `threads` each have one backend,
+  `muse` (`listening/muse.go`, `verify.go`; issue #1292), described below.
 - A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
   refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
   first with items serves. An opt-in backend is asked only when pinned. After `need_login`, `refused`,
@@ -4991,6 +4994,7 @@ writes no prose (last30days SKILL.md LAW 7).
   anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
   tried with its result, detail and rest (`until`, `skipped`).
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
+  `quote_from` and `check` for a post Muse found,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
   without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
   on the source's log scale (Reddit's only; a web page has none), parent, the subqueries that found it, fetch time,
@@ -5003,13 +5007,42 @@ writes no prose (last30days SKILL.md LAW 7).
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
   or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
   test on Vietnamese posts (`listening/cluster_test.go`).
+- Muse as a source (issue #1292): Facebook (groups and Pages), Instagram and Threads are read by asking the Muse
+  pool above, as `listen_search` (its agent in `muse.db`), when its tools are on; a control plane without Muse says
+  `broken`. The question is a fixed template: public posts of the platform in the window, the search as a JSON
+  string it is told to treat as data, up to 10 posts, one block each with the labels `post`, `link`, `author`,
+  `where`, `date`, `quote_from` (caption, image_text or comment), `quote` (word for word), `likes`, `comments`,
+  `shares`, only posts it opened, and `NO POSTS FOUND` when none (a clean zero). An answer that is neither, Muse
+  still working ("I'll send the list once the check returns"), is continued in the same thread at once, then a
+  minute after each further one, until the list comes (owner, 2026-11-28). Each block's link is the address it
+  writes, else the answer's next link to a post of the platform, unwrapped from `l.meta.ai/?u=`; a block with no
+  such link is left out and counted. A post is known by the platform's id: a Facebook reel, Page post, group post,
+  shared post, photo or permalink, an Instagram `/p/` or `/reel/`, a Threads `/@handle/post/<code>`; the group,
+  Page or account is its container. Every post's link is then opened as a reader who is not signed in, one page a
+  second a site: the page must be that post (its `og:url`, else where it landed; a sign-in page or a gone post
+  fails), hold the quote (in its `og:description`, description or title, compared in NFKC, lowercased, spaces and
+  edge punctuation folded), and its date, read from the link (an Instagram or Threads shortcode's id) or the page's
+  first `<time datetime>`, never from Muse, must lie in the window and be within a day of Muse's. A post that passes
+  is an item, dated by its link or page with high confidence, its `check` saying so; one that fails is in the
+  answer's `unverified` list with why, never an item, a cluster or a count (the coverage counts it as `unverified`).
+  Captions check; what an image or video says and comments are not on the page, so those stay unverified. Counts
+  are Muse's as it saw them, a missing one left out, never 0, and not scored; an Instagram page's own counts replace
+  them. Then Muse is asked once more in the same thread for more posts of each of the three groups or accounts that
+  gave the most, while the stream has room and no first question of the search is left. A search's Muse questions
+  share six minutes (`muse.MaxDeadline`, within the tools server's seven); none is started with less than 30 s
+  left, and a stream that could not be asked is `timeout`. Pool outcomes become codes: no account that can take it
+  `need_login`, a permission card `refused`, a spent quota `limit_reached`, interrupted or unknown `timeout`, other
+  errors `broken`. `HYPOMNEMA_LISTENING_LIVE=1 go test ./internal/controlplane/listening -run LiveMuse` checks the
+  ten posts of the 2026-11-27 probe against the real threads.com.
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
   search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
   with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
 - Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1288 to #1295).
+  (issues #1288 to #1295); `site:facebook.com` web search as Facebook's second backend; opening a post as a signed-in
+  reader: a public Facebook group's page answered a sign-in page to one who is not (2026-11-28), so its posts are
+  likely to stay unverified (inferred).
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
