@@ -95,7 +95,7 @@ func TestToutiaoReadsItsSearchCardsThenTheHotBoard(t *testing.T) {
 		},
 	})
 
-	a := one(t, s, listening.SourceToutiao, "VETC")
+	a := pinned(t, s, listening.SourceToutiao, listening.BackendToutiao, "VETC")
 
 	var searches []*http.Request
 
@@ -148,8 +148,8 @@ func TestToutiaoVerifyPageIsRefused(t *testing.T) {
 		_, _ = io.WriteString(w, "<html>captcha</html>")
 	})
 
-	a := one(t, keyless(newClock(), listening.Endpoints{ToutiaoURL: base, ToutiaoHotURL: base}),
-		listening.SourceToutiao, "VETC")
+	a := pinned(t, keyless(newClock(), listening.Endpoints{ToutiaoURL: base, ToutiaoHotURL: base}),
+		listening.SourceToutiao, listening.BackendToutiao, "VETC")
 	cov := coverageOf(t, a, listening.SourceToutiao)
 	assert.Equal(t, listening.StateNotRead, cov.State)
 	assert.Equal(t, listening.CodeRefused, cov.Code)

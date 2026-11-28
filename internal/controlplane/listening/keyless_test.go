@@ -33,6 +33,20 @@ func one(t *testing.T, s *listening.Service, source, query string) listening.Ans
 	return a
 }
 
+// pinned reads a single source with a single subquery, pinned to a backend: how an opt-in source is asked.
+func pinned(t *testing.T, s *listening.Service, source, backend, query string) listening.Answer {
+	t.Helper()
+
+	p := plan([]string{source}, query)
+	p.Topic = strings.Fields(query)[0]
+	p.Backends = map[string]string{source: backend}
+
+	a, err := s.Search(t.Context(), p, nil)
+	require.NoError(t, err)
+
+	return a
+}
+
 func keyless(c *clock, e listening.Endpoints) *listening.Service {
 	return listening.New(listening.Config{Platforms: listening.Sources(e, http.DefaultClient), Now: c.Now, Sleep: noSleep})
 }
@@ -330,7 +344,8 @@ func TestEveryKeylessSourceIsOnAndWorkingOnlyAfterARealRun(t *testing.T) {
 		assert.NotEmpty(t, p.LiveQuery, "%s has a live test", p.Name)
 
 		for _, b := range p.Backends {
-			assert.False(t, b.OptIn, "%s/%s is on by default", p.Name, b.Name)
+			// Toutiao is off until the owner decides on its terms (review round 1 of PR #1321).
+			assert.Equal(t, p.Name == listening.SourceToutiao, b.OptIn, "%s/%s is on by default", p.Name, b.Name)
 		}
 	}
 
