@@ -182,7 +182,8 @@ func (s *Server) claudeCool(ctx context.Context, token AccountToken, failure *cl
 }
 
 // claudeWindowText is a Claude refusal naming one of its subscription's windows: the 5-hour or the weekly limit.
-var claudeWindowText = regexp.MustCompile(`(?i)\b(?:5-hour|five[- ]hour|weekly|7-day|seven[- ]day)\s+(?:usage\s+)?limit`)
+var claudeWindowText = regexp.MustCompile(
+	`(?i)\b(?:5-hour|five[- ]hour|weekly|7-day|seven[- ]day)\s+(?:usage\s+)?limit`)
 
 // claudeCode is why an Anthropic refusal rests the account: its 5-hour or weekly window used up when the 429 says
 // `anthropic-ratelimit-unified-status: rejected` (OmniRoute open-sse/services/claudeLowPriority.ts:241-246
