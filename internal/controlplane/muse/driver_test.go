@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -106,6 +108,9 @@ type museSite struct {
 	composerSticks bool
 	answerText     string
 	links          []Link
+	// messages, when set, are every answer in the thread once sent, each with its links: what a read from the
+	// script's first answer shows (readAnswer's "from").
+	messages []answerMessage
 	auth           map[string]any
 	session        map[string]any
 	// woken are the machines a wake was asked for; awake, when set, is the session read after one.
@@ -162,7 +167,11 @@ func (m *museSite) eval(script string) (any, error) {
 		}
 
 		return c, nil
-	case script == readAnswer:
+	case strings.Contains(script, "'img, video, source'"):
+		if m.messages != nil {
+			return m.readFrom(script), nil
+		}
+
 		return map[string]any{"matched": "message-item", "text": m.answerText, "links": m.links,
 			"media": []string{"https://muse.ai/files/a.png"}}, nil
 	case script == threadPath:
@@ -193,6 +202,37 @@ func (m *museSite) eval(script string) (any, error) {
 	}
 
 	return nil, errors.New("an unknown script")
+}
+
+// answerMessage is one of Muse's messages: its text and links.
+type answerMessage struct {
+	text  string
+	links []Link
+}
+
+var fromPattern = regexp.MustCompile(`const from = Math\.min\((\d+),`)
+
+// readFrom answers readAnswer as the page would: the messages from the script's "from" on, joined, or the last
+// message alone when the script names none.
+func (m *museSite) readFrom(script string) map[string]any {
+	from := len(m.messages) - 1
+	if g := fromPattern.FindStringSubmatch(script); g != nil {
+		n, _ := strconv.Atoi(g[1])
+		from = min(n, len(m.messages)-1)
+	}
+
+	var (
+		texts []string
+		links []Link
+	)
+
+	for _, msg := range m.messages[from:] {
+		texts = append(texts, msg.text)
+		links = append(links, msg.links...)
+	}
+
+	return map[string]any{"matched": "message-item", "text": strings.Join(texts, "\n\n"), "links": links,
+		"media": []string{}}
 }
 
 // newThread is a blank thread: nothing sent in it yet.
@@ -604,4 +644,28 @@ func TestThreadIDs(t *testing.T) {
 	assert.Equal(t, aThread, ThreadID(aThread))
 	assert.Empty(t, ThreadID("/thread/new"))
 	assert.Empty(t, ThreadID("/thread/x/../../etc"))
+}
+
+// An answer Muse gives in several messages, its list and then a link card, is read whole: every message after those
+// the thread showed before the send, never the last one alone (owner, 2026-11-28: a Threads list ended with a link
+// card, and only the card was read).
+func TestAnAnswerInSeveralMessagesIsReadWhole(t *testing.T) {
+	t.Parallel()
+
+	m := site()
+	m.path = "/thread/" + aThread
+	m.before = chat{Count: 2, Last: "an earlier answer"}
+	m.after = []chat{{Count: 4, Last: "TH threads.com", Busy: true}, {Count: 4, Last: "TH threads.com"}}
+	card := Link{URL: "https://l.meta.ai/?u=https%3A%2F%2Fwww.threads.com%2F%40a%2Fpost%2FDfe40MVAZjj", Text: "TH"}
+	m.messages = []answerMessage{
+		{text: "an older answer"},
+		{text: "an earlier answer", links: []Link{{URL: "https://example.com/old"}}},
+		{text: "post: 1\nlink: Bài đăng\nquote: Vào web đọc truyện", links: []Link{card}},
+		{text: "TH threads.com", links: []Link{card}},
+	}
+
+	a, _, err := newDriver(&fakePage{answer: m.eval}).ask(t.Context(), "Continue", aThread, deadline())
+	require.NoError(t, err)
+	assert.Equal(t, "post: 1\nlink: Bài đăng\nquote: Vào web đọc truyện\n\nTH threads.com", a.Text)
+	assert.Equal(t, []Link{card, card}, a.Links, "the links of every new message, in order; the fake does not dedupe")
 }
