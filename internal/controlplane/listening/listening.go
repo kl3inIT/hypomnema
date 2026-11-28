@@ -285,11 +285,22 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 				streams = append(streams, st)
 			}
 
-			runs[i] = sourceRun{coverage: cov.settle(), streams: streams}
+			runs[i] = sourceRun{coverage: cov, streams: streams}
 		})
 	}
 
 	wg.Wait()
+
+	// What backends read after every stream's first pass (Result.Then), in the sources' and subqueries' order, then
+	// each source's coverage.
+	for i := range runs {
+		for j := range runs[i].streams {
+			s.runThen(ctx, &runs[i].streams[j])
+			runs[i].coverage.Streams[j] = runs[i].streams[j].report
+		}
+
+		runs[i].coverage = runs[i].coverage.settle()
+	}
 
 	answer := Answer{From: from.Format(time.DateOnly), To: now.Format(time.DateOnly)}
 

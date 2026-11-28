@@ -715,7 +715,9 @@ func (d *driver) ask(ctx context.Context, prompt, thread string, deadline time.T
 		a.Text = done.Last
 	}
 
-	if hint := quotaHint(a.Text); hint != "" {
+	// The quota is Muse's final word, its last message, never words an answer of several messages quotes before it
+	// (review of #1292: a quoted "usage limit" rested an account).
+	if hint := quotaHint(done.Last); hint != "" {
 		return a, true, fmt.Errorf("%w: …%s…", ErrQuota, hint)
 	}
 

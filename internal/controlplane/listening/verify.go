@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -85,21 +86,33 @@ type page struct {
 var unavailable = regexp.MustCompile(
 	`(?i)link may be broken|page may have been removed|content isn't available|content is not available`)
 
-// instagramCounts are the counts an Instagram page's description gives, "12 likes, 3 comments - name on …"
-// (trend-opportunity-radar run_instagram_opencli_capture.py:55-62).
-var instagramCounts = regexp.MustCompile(`(?i)^([\d,.]+) likes?,\s*([\d,.]+) comments?\s*-`)
+// instagramDescription is an Instagram page's description, "12 likes, 3 comments - name on …", which gives the post's
+// counts and its account (trend-opportunity-radar run_instagram_opencli_capture.py:55-63); instagramTitle is its
+// title, `… on Instagram: "caption"`, which gives the caption (the same lines).
+var (
+	instagramDescription = regexp.MustCompile(
+		`(?i)^([\d,.]+) likes?,\s*([\d,.]+) comments?\s*-\s*([A-Za-z0-9._]+)\s+on\s+`)
+	instagramTitle = regexp.MustCompile(`(?s)on Instagram:\s*"(.*)"\s*$`)
+)
 
-// check opens a post's link and gives it as an item, and whether it was verified; an unverified one says why in its
-// Check.
-func (mr *museReader) check(ctx context.Context, r Request, p musePost) (Item, bool) {
+// check opens a post's link and gives it as an item, whether it was verified (an unverified one says why in its
+// Check), and the group or account observed for it, from its link or its page, empty when neither names one. Every
+// link is opened while the search's Muse time lasts, even one whose id dates it outside the window (issue #1292:
+// open each link), and the post counts only when everything checks:
+//   - the page is the post, not a sign-in page, a gone post or another post;
+//   - the quote is the caption's, found in one field that holds the caption (og:description, the description, or
+//     Instagram's title), never stitched from several; a quote Muse read from a comment or an image's text is not in
+//     a page a reader who is not signed in sees, so it cannot be checked (trend-opportunity-radar
+//     comment-evidence-contract.md:5 and run_facebook_opencli_capture.py:249-271 keep observed comments apart);
+//   - Muse gave a date in the form asked, and the date read from the link or the page, never Muse's, lies in the
+//     window and within a day of it.
+func (mr *museReader) check(ctx context.Context, r Request, lane *museLane, p musePost) (Item, bool, string) {
 	it := Item{
 		NativeID: p.ref.id, URL: p.ref.url, Author: p.author, Container: p.ref.container, Text: p.quote,
 		QuoteFrom: p.quoteFrom, DateConfidence: "low",
 	}
 
-	if it.Container == "" {
-		it.Container = p.where
-	}
+	observed := p.ref.container
 
 	if len(p.counts) > 0 {
 		it.Engagement = p.counts
@@ -108,26 +121,27 @@ func (mr *museReader) check(ctx context.Context, r Request, p musePost) (Item, b
 	museDate := parseMuseDate(p.date)
 	it.PublishedAt = museDate
 
-	fail := func(format string, args ...any) (Item, bool) {
-		it.Check = "unverified: " + fmt.Sprintf(format, args...)
-
-		return it, false
-	}
-
 	var linkDate *time.Time
 	if mr.site.dated {
 		linkDate = shortcodeDate(p.ref.id, r.now())
 	}
 
-	if linkDate != nil {
-		it.PublishedAt = linkDate
-
-		if !inDays(linkDate, r.From, r.To) {
-			return fail("its link dates it %s, outside the window", linkDate.Format(time.DateOnly))
+	fail := func(format string, args ...any) (Item, bool, string) {
+		if it.Container == "" {
+			it.Container = p.where
 		}
+
+		it.Check = "unverified: " + fmt.Sprintf(format, args...)
+
+		return it, false, observed
 	}
 
-	pg, err := mr.open(ctx, r, p.ref.url)
+	left := lane.left(r.now())
+	if left <= 0 {
+		return fail("not checked: the search's time ran out")
+	}
+
+	pg, err := mr.open(ctx, r, p.ref.url, left)
 	if err != nil {
 		return fail("not checked: %s", err.Error())
 	}
@@ -136,14 +150,27 @@ func (mr *museReader) check(ctx context.Context, r Request, p musePost) (Item, b
 		return fail("%s", why)
 	}
 
-	text := foldText(strings.Join([]string{pg.description, pg.metaDesc, pg.ogTitle, pg.title}, "\n"))
+	desc := instagramDescription.FindStringSubmatch(pg.description)
+	if observed == "" && desc != nil {
+		observed = "@" + desc[3]
+	}
+
+	it.Container = observed
+
 	quote := foldText(p.quote)
 
 	switch {
+	case p.quoteFrom == "comment", p.quoteFrom == "image_text":
+		return fail("not checkable: Muse read the quote from %s, which the page does not show",
+			quoteSource(p.quoteFrom))
+	case p.quoteFrom == "":
+		return fail("Muse did not say where it read the quote")
 	case quote == "":
 		return fail("Muse gave no quote")
-	case !strings.Contains(text, quote):
-		return fail("the page does not hold the quote (Muse read it from %s)", quoteSource(p.quoteFrom))
+	case !slices.ContainsFunc(pg.captions(), func(field string) bool { return strings.Contains(foldText(field), quote) }):
+		return fail("the page does not hold the quote in its caption")
+	case museDate == nil:
+		return fail("Muse gave no date in the form asked (YYYY-MM-DD): %q", p.date)
 	}
 
 	dated, by := linkDate, "link"
@@ -158,27 +185,37 @@ func (mr *museReader) check(ctx context.Context, r Request, p musePost) (Item, b
 		it.PublishedAt = dated
 
 		return fail("its %s dates it %s, outside the window", by, dated.Format(time.DateOnly))
-	case museDate != nil && math.Abs(museDate.Sub(dayOf(*dated)).Hours()/24) > dateSlack:
+	case math.Abs(museDate.Sub(dayOf(*dated)).Hours()/24) > dateSlack:
 		it.PublishedAt = dated
 
 		return fail("Muse dated it %s; its %s says %s", museDate.Format(time.DateOnly), by,
 			dated.Format(time.DateOnly))
 	}
 
-	if m := instagramCounts.FindStringSubmatch(pg.description); m != nil {
-		likes, _ := parseCount(m[1])
-		comments, _ := parseCount(m[2])
+	if desc != nil {
+		likes, _ := parseCount(desc[1])
+		comments, _ := parseCount(desc[2])
 		it.Engagement = map[string]float64{"likes": likes, "comments": comments}
 	}
 
 	it.PublishedAt = dated
 	it.DateConfidence = "high"
-	it.Check = fmt.Sprintf("verified: the page holds the quote; dated %s by its %s", dated.Format(time.DateOnly), by)
+	it.Check = fmt.Sprintf("verified: the caption holds the quote; dated %s by its %s", dated.Format(time.DateOnly), by)
 
-	return it, true
+	return it, true, observed
 }
 
-// quoteSource says where Muse read a quote: a page shows a post's caption, not what its image says or its comments.
+// captions are the page's fields that hold the post's caption, each on its own.
+func (pg page) captions() []string {
+	out := []string{pg.description, pg.metaDesc}
+	if m := instagramTitle.FindStringSubmatch(pg.ogTitle); m != nil {
+		out = append(out, m[1])
+	}
+
+	return out
+}
+
+// quoteSource says where Muse read a quote.
 func quoteSource(from string) string {
 	switch from {
 	case "caption":
@@ -232,20 +269,24 @@ func (pg page) notThePost(site museSite, want postRef) string {
 
 // open reads a post's page, in its turn at the site, as a reader who is not signed in: the same request the probe of
 // 2026-11-27 made with curl, which Threads answers with the post's caption in og:description.
-func (mr *museReader) open(ctx context.Context, r Request, address string) (page, error) {
+func (mr *museReader) open(ctx context.Context, r Request, address string, left time.Duration) (page, error) {
 	host := hostOf(address)
+
+	// Within the search's Muse time, the wait for the site's turn included.
+	ctx, cancel := context.WithTimeout(ctx, left)
+	defer cancel()
 
 	if r.Pace != nil {
 		done, err := r.Pace(ctx, host, verifyGap)
 		if err != nil {
-			return page{}, err
+			return page{}, fmt.Errorf("the search's time ran out")
 		}
 
 		defer done()
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
+	ctx, cancelCall := context.WithTimeout(ctx, callTimeout)
+	defer cancelCall()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {

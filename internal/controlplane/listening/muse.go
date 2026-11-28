@@ -56,13 +56,16 @@ const (
 	// (agentapi/muse.go, deadline_seconds minimum 30), as grok_x skips a call that cannot plausibly complete
 	// (_MIN_USEFUL_CALL_SECONDS, lib/grok_x.py:89-92).
 	museMinAsk = 30 * time.Second
-	// museDepth is how many groups or accounts are asked again for more of their posts: last30days takes the three
-	// handles the first results name most (entity_extract.extract_entities, max_handles=3, pipeline.py:6786-6789) and
+	// museDepth is how many extra questions a whole search asks, each for more posts of one group or account, however
+	// many streams it has: last30days takes the three handles a run's first results name most (entity_extract.extract_entities, max_handles=3, pipeline.py:6786-6789) and
 	// searches each for the topic (grok_x.search_handles with and_topic, lib/grok_x.py:1328-1378).
 	museDepth = 3
 	// museContinueGap is the wait before asking again in a thread Muse said it is still working in: its check runs
 	// on its own for minutes (owner, 2026-11-28; the second probe's list came about two minutes after the question).
 	museContinueGap = time.Minute
+	// museCheckTime is what a question leaves of the search's Muse time for its links to be opened: one answer's
+	// links at the pace of one page a second, and one page's timeout (musePosts × verifyGap + callTimeout).
+	museCheckTime = musePosts*verifyGap + callTimeout
 	// museNoPosts is what the template asks Muse to answer when it found nothing: a clean zero.
 	museNoPosts = "NO POSTS FOUND"
 	// museAgent names the asker in muse.db.
@@ -132,63 +135,125 @@ func (mr *museReader) probe(Request) *SourceError {
 	return nil
 }
 
-// museLane is the time a search's Muse questions share, and how many of its streams have not had their first
-// question yet: the second asks of depth wait for none to be left, as last30days runs its handle lanes after the
-// main collection (pipeline.py:6909-6916).
+// museLane is what a search's Muse streams share: one deadline for their questions and the checks of their links,
+// so that the search answers with what it checked before the tool's seven minutes (last30days ends its supplemental
+// lanes with the run's own cutoff, pipeline.py:6908-6916), and the extra questions, three for the whole search and
+// asked once every stream had its first pass (last30days: three handles a run, entity_extract max_handles=3,
+// pipeline.py:6786-6789, searched after the main collection, :6880-6916).
 type museLane struct {
 	end time.Time
 
-	mu        sync.Mutex
-	firstLeft int
+	mu      sync.Mutex
+	seq     map[string]int
+	streams []*museStream
+	plan    map[*museStream][]string
+	planned bool
 }
 
 func laneOf(r Request) *museLane {
 	if r.Run == nil {
-		return &museLane{end: r.now().Add(museBudget)}
+		return &museLane{end: r.now().Add(museBudget), seq: map[string]int{}}
 	}
 
 	lane, ok := r.Run.Value("muse", func() any {
-		n := 0
-		for _, site := range museSites {
-			n += r.Run.Streams(site.source)
-		}
-
-		return &museLane{end: r.Run.Began.Add(museBudget), firstLeft: n}
+		return &museLane{end: r.Run.Began.Add(museBudget), seq: map[string]int{}}
 	}).(*museLane)
 	if !ok {
-		return &museLane{end: r.Run.Began.Add(museBudget)}
+		return &museLane{end: r.Run.Began.Add(museBudget), seq: map[string]int{}}
 	}
 
 	return lane
 }
 
-func (l *museLane) left(now time.Time) time.Duration { return l.end.Sub(now) }
+// left is the time left for anything Muse's streams do; askLeft, for a question, which must leave museCheckTime for
+// its links to be opened.
+func (l *museLane) left(now time.Time) time.Duration    { return l.end.Sub(now) }
+func (l *museLane) askLeft(now time.Time) time.Duration { return l.end.Add(-museCheckTime).Sub(now) }
 
-func (l *museLane) firstDone() {
+// next is a new stream of site, numbered in its platform's order: a platform's streams run one after another.
+func (l *museLane) next(site museSite) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.firstLeft = max(0, l.firstLeft-1)
+	l.seq[site.source]++
+
+	return l.seq[site.source]
 }
 
-func (l *museLane) firstsDone() bool {
+// register keeps a stream that had its first pass, for the extra questions.
+func (l *museLane) register(st *museStream) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	return l.firstLeft == 0
+	l.streams = append(l.streams, st)
 }
 
-// search reads one subquery: a question, continued while Muse is still working, each post checked by its link, then
-// one more question for each group or account that gave the most, while there is time and room.
+// assigned are the groups or accounts a stream asks more posts of: the museDepth the search's streams saw most, by
+// the posts that named them (last30days entity_extract._extract_x_handles ranks by frequency), ties in the sources'
+// and subqueries' order, each asked in the thread of the stream that saw it most. Made once, after every first pass.
+func (l *museLane) assigned(st *museStream) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if !l.planned {
+		l.planned = true
+		l.plan = planExtra(l.streams)
+	}
+
+	return l.plan[st]
+}
+
+func planExtra(streams []*museStream) map[*museStream][]string {
+	streams = slices.Clone(streams)
+	slices.SortStableFunc(streams, func(a, b *museStream) int {
+		if a.siteIndex != b.siteIndex {
+			return a.siteIndex - b.siteIndex
+		}
+
+		return a.seq - b.seq
+	})
+
+	type key struct{ source, container string }
+
+	var (
+		order []key
+		total = map[key]int{}
+	)
+
+	for _, st := range streams {
+		for _, c := range st.containers {
+			k := key{st.reader.site.source, c}
+			if total[k] == 0 {
+				order = append(order, k)
+			}
+
+			total[k] += st.counts[c]
+		}
+	}
+
+	slices.SortStableFunc(order, func(a, b key) int { return total[b] - total[a] })
+
+	plan := map[*museStream][]string{}
+
+	for _, k := range order[:min(len(order), museDepth)] {
+		var owner *museStream
+
+		for _, st := range streams {
+			if st.reader.site.source == k.source && (owner == nil || st.counts[k.container] > owner.counts[k.container]) {
+				owner = st
+			}
+		}
+
+		plan[owner] = append(plan[owner], k.container)
+	}
+
+	return plan
+}
+
+// search reads one subquery's first pass: a question, continued until Muse gives its list or says it found none,
+// each post checked by its link; its Then asks the extra questions the search gives it.
 func (mr *museReader) search(ctx context.Context, r Request) (Result, error) {
 	lane := laneOf(r)
-
-	firstDone := false
-	defer func() {
-		if !firstDone {
-			lane.firstDone()
-		}
-	}()
 
 	on, err := mr.muse.ToolsOn(ctx)
 
@@ -199,27 +264,25 @@ func (mr *museReader) search(ctx context.Context, r Request) (Result, error) {
 		return Result{}, Fail(CodeBroken, "Muse is off on Settings → Gateway → Muse")
 	}
 
-	limit := min(musePosts, r.Limit)
+	st := &museStream{
+		reader: mr, req: r, lane: lane, siteIndex: mr.site.index(), seq: lane.next(mr.site), seen: map[string]bool{},
+		counts: map[string]int{},
+	}
 
-	got, err := mr.list(ctx, r, lane, mr.site.prompt(r.Query, r.From, r.To, limit), "")
-
-	lane.firstDone()
-	firstDone = true
-
+	got, err := mr.list(ctx, r, lane, mr.site.prompt(r.Query, r.From, r.To, min(musePosts, r.Limit)), "")
 	if err != nil {
 		return Result{}, err
 	}
 
-	st := &museStream{reader: mr, req: r, seen: map[string]bool{}}
+	st.thread, st.account = got.thread, got.account
 	st.add(ctx, got)
+	lane.register(st)
 
-	if got.none && len(got.posts) == 0 {
-		return Result{Detail: st.detail(got)}, nil
-	}
+	return Result{Items: st.verified, Unverified: st.unverified, Detail: st.detail(got.none), Then: st.more}, nil
+}
 
-	st.deepen(ctx, lane, got.thread)
-
-	return Result{Items: st.verified, Unverified: st.unverified, Detail: st.detail(got)}, nil
+func (s museSite) index() int {
+	return slices.IndexFunc(museSites, func(o museSite) bool { return o.source == s.source })
 }
 
 // museList is what Muse answered to a question and its continuations.
@@ -231,18 +294,24 @@ type museList struct {
 	asks    int
 }
 
-// list asks Muse prompt, in thread when given, and continues in the same thread while the answer is neither a list
-// nor Muse saying it found none: the probes of 2026-11-27 and 2026-11-28 stopped mid-work ("I'll send the verified
-// list once that check returns"), and the list came on a later ask (owner, 2026-11-28: ask again until it comes,
-// within the search's time). The first continuation is asked at once, as the first probe's was; each later one
-// waits museContinueGap after the last.
+// list asks Muse prompt, in thread when given, and continues in the same thread until the answer is a usable list, a
+// post of the platform with its quote, or only NO POSTS FOUND: the probes of 2026-11-27 and 2026-11-28 stopped
+// mid-work ("I'll send the verified list once that check returns"), and the list came on a later ask (owner,
+// 2026-11-28: ask again until it comes, within the search's time). A draft, a block with no link or no quote or an
+// answer that only names NO POSTS FOUND, is continued; a list whose posts are none of the platform is asked again
+// once and then taken as it is, as grok_x retries a response whose every item failed its provenance check and then
+// takes it as empty (lib/grok_x.py:400-440, 1223-1234, attempts=2). The first continuation is asked at once, as the
+// first probe's was; each later one waits museContinueGap after the last.
 func (mr *museReader) list(ctx context.Context, r Request, lane *museLane, prompt, thread string) (museList, error) {
-	var out museList
+	var (
+		out     museList
+		retried bool
+	)
 
 	out.thread = thread
 
 	for continuing := false; ; continuing = true {
-		if lane.left(r.now()) < museMinAsk {
+		if lane.askLeft(r.now()) < museMinAsk {
 			detail := "Muse's time for this search ran out"
 			if out.asks > 0 {
 				detail += " before it gave its list (thread " + muse.ThreadURL(out.thread) + ")"
@@ -277,21 +346,47 @@ func (mr *museReader) list(ctx context.Context, r Request, lane *museLane, promp
 		}
 
 		out.posts, out.none = parseMuse(res.Answer, res.Links, mr.site)
+		kind := listKind(out.posts)
 
 		switch {
-		case len(out.posts) > 0 || out.none:
+		case kind == listUsable || out.none:
+			return out, nil
+		case kind == listRejected && retried:
 			return out, nil
 		case out.thread == "":
 			return out, Fail(CodeBroken, "Muse gave no list and no thread to ask again in")
 		}
 
+		retried = retried || kind == listRejected
 		prompt = museContinue
 	}
 }
 
-// ask asks Muse once, within the search's time.
+// What an answer's blocks are: a usable list, a list none of whose posts is of the platform, or a draft.
+const (
+	listDraft = iota
+	listUsable
+	listRejected
+)
+
+func listKind(posts []musePost) int {
+	kind := listDraft
+
+	for _, p := range posts {
+		switch {
+		case p.ok && p.quote != "":
+			return listUsable
+		case p.quote != "" && p.link != "":
+			kind = listRejected
+		}
+	}
+
+	return kind
+}
+
+// ask asks Muse once, ending in time for its links to be opened before the search's Muse time is spent.
 func (mr *museReader) ask(ctx context.Context, r Request, lane *museLane, prompt, thread string) (muse.Result, error) {
-	left := lane.left(r.now())
+	left := lane.askLeft(r.now())
 
 	ctx, cancel := context.WithTimeout(ctx, left)
 	defer cancel()
@@ -338,17 +433,22 @@ func outcomeFailure(res muse.Result) error {
 
 // museStream is one subquery's posts as they are checked.
 type museStream struct {
-	reader *museReader
-	req    Request
+	reader    *museReader
+	req       Request
+	lane      *museLane
+	siteIndex int
+	seq       int
+
+	thread, account string
 
 	seen       map[string]bool
 	verified   []Item
 	unverified []Item
-	refs       []postRef
 	unlinked   int
 	asks       int
-	depth      []string
-	notes      []string
+	// counts are the posts each observed group or account gave, containers those in the order first seen.
+	counts     map[string]int
+	containers []string
 }
 
 // add checks the posts of an answer not seen before.
@@ -367,98 +467,94 @@ func (st *museStream) add(ctx context.Context, got museList) {
 		}
 
 		st.seen[p.ref.url] = true
-		st.refs = append(st.refs, p.ref)
 
-		it, ok := st.reader.check(ctx, st.req, p)
+		it, ok, observed := st.reader.check(ctx, st.req, st.lane, p)
 		if ok {
 			st.verified = append(st.verified, it)
 		} else {
 			st.unverified = append(st.unverified, it)
 		}
+
+		if observed != "" {
+			if st.counts[observed] == 0 {
+				st.containers = append(st.containers, observed)
+			}
+
+			st.counts[observed]++
+		}
 	}
 }
 
-// deepen asks Muse, in the same thread, for more posts of each group or account that gave the most, while the stream
-// has room and the search has time and no first question is left.
-func (st *museStream) deepen(ctx context.Context, lane *museLane, thread string) {
+// more asks Muse, in the stream's thread, for more posts of each group or account the search gave the stream, while
+// the stream has room and the search has time (Result.Then).
+func (st *museStream) more(ctx context.Context) Result {
 	mr := st.reader
+	verified, unverified := len(st.verified), len(st.unverified)
+	asks := st.asks
 
-	for _, where := range topContainers(st.refs, museDepth) {
-		switch {
-		case len(st.verified) >= st.req.Limit:
-			return
-		case !lane.firstsDone():
-			st.notes = append(st.notes, "more from "+where+" not asked: other questions of this search come first")
+	var asked, notes []string
 
-			return
-		case lane.left(st.req.now()) < museMinAsk:
-			st.notes = append(st.notes, "more from "+where+" not asked: Muse's time for this search ran out")
+	for _, where := range st.lane.assigned(st) {
+		if len(st.verified) >= st.req.Limit {
+			notes = append(notes, "more from "+where+" not asked: the stream is full")
 
-			return
+			break
+		}
+
+		if st.lane.askLeft(st.req.now()) < museMinAsk {
+			notes = append(notes, "more from "+where+" not asked: Muse's time for this search ran out")
+
+			break
 		}
 
 		limit := min(musePosts, st.req.Limit-len(st.verified))
 
-		got, err := mr.list(ctx, st.req, lane, mr.site.depthPrompt(where, st.req.From, st.req.To, limit), thread)
+		got, err := mr.list(ctx, st.req, st.lane, mr.site.depthPrompt(where, st.req.From, st.req.To, limit), st.thread)
 		if err != nil {
 			st.asks += got.asks
-			st.notes = append(st.notes, "more from "+where+": "+AsFailure(err).Error())
+			notes = append(notes, "more from "+where+": "+AsFailure(err).Error())
 
-			return
+			break
 		}
 
-		st.depth = append(st.depth, where)
+		asked = append(asked, where)
 		st.add(ctx, got)
 	}
-}
 
-// topContainers are the groups or accounts that gave the most posts, at most n, ties in the answer's order
-// (last30days entity_extract._extract_x_handles: ranked by frequency).
-func topContainers(refs []postRef, n int) []string {
-	count := map[string]int{}
-
-	var order []string
-
-	for _, ref := range refs {
-		if ref.container == "" {
-			continue
-		}
-
-		if count[ref.container] == 0 {
-			order = append(order, ref.container)
-		}
-
-		count[ref.container]++
+	if len(asked) == 0 && len(notes) == 0 {
+		return Result{}
 	}
 
-	slices.SortStableFunc(order, func(a, b string) int { return count[b] - count[a] })
+	detail := fmt.Sprintf("%d more questions", st.asks-asks)
+	if len(asked) > 0 {
+		detail += " for more from " + strings.Join(asked, ", ")
+	}
 
-	return order[:min(len(order), n)]
+	detail += fmt.Sprintf(": %d posts, %d verified", len(st.verified)-verified+len(st.unverified)-unverified,
+		len(st.verified)-verified)
+
+	for _, n := range notes {
+		detail += "; " + n
+	}
+
+	return Result{Items: st.verified[verified:], Unverified: st.unverified[unverified:], Detail: detail}
 }
 
-func (st *museStream) detail(got museList) string {
-	out := fmt.Sprintf("Muse account %s", orDash(got.account))
-	if got.thread != "" {
-		out += ", thread " + muse.ThreadURL(got.thread)
+func (st *museStream) detail(none bool) string {
+	out := fmt.Sprintf("Muse account %s", orDash(st.account))
+	if st.thread != "" {
+		out += ", thread " + muse.ThreadURL(st.thread)
 	}
 
 	out += fmt.Sprintf(": %d questions; %d posts, %d verified, %d unverified", st.asks,
 		len(st.verified)+len(st.unverified), len(st.verified), len(st.unverified))
 
-	if got.none && len(st.refs) == 0 {
+	if none && len(st.seen) == 0 {
 		out += "; Muse found no post"
 	}
 
 	if st.unlinked > 0 {
 		out += fmt.Sprintf("; %d without a link to a %s post, left out", st.unlinked, st.reader.site.name)
-	}
-
-	if len(st.depth) > 0 {
-		out += "; asked again for more from " + strings.Join(st.depth, ", ")
-	}
-
-	for _, n := range st.notes {
-		out += "; " + n
 	}
 
 	return out
@@ -645,7 +741,8 @@ func parseMuse(answer string, links []muse.Link, site museSite) ([]musePost, boo
 		posts = append(posts, p)
 	}
 
-	none := len(posts) == 0 && strings.Contains(strings.ToUpper(answer), museNoPosts)
+	// Only an answer that is NO POSTS FOUND alone, as the template asks, is an empty one: a draft that names it is not.
+	none := len(posts) == 0 && strings.EqualFold(strings.Trim(answer, " \t\r\n*_`#>\"“”.!"), museNoPosts)
 
 	return posts, none
 }

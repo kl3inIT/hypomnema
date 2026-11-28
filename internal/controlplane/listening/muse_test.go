@@ -382,7 +382,7 @@ func TestMuseItemsAreCheckedByOpeningTheirLinks(t *testing.T) {
 	}
 
 	require.Len(t, why, 5, "%+v", got.Unverified)
-	assert.Contains(t, why[image], "does not hold the quote")
+	assert.Contains(t, why[image], "not checkable: Muse read the quote from the text in an image", "review round 1, P1 1")
 	assert.Contains(t, why[old], "outside the window")
 	assert.Contains(t, why[misdated], "Muse dated it 2026-11-12")
 	assert.Contains(t, why[login], "sign-in")
