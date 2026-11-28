@@ -1338,16 +1338,17 @@ func (q *Queries) TrimReceipts(ctx context.Context, keep int64) (int64, error) {
 }
 
 const upsertCooldown = `-- name: UpsertCooldown :exec
-INSERT INTO account_cooldowns (runtime, account_ref, until, reason)
-VALUES (?1, ?2, ?3, ?4)
+INSERT INTO account_cooldowns (runtime, account_ref, until, code, reason)
+VALUES (?1, ?2, ?3, ?4, ?5)
 ON CONFLICT (runtime, account_ref) DO UPDATE
-SET until = max(account_cooldowns.until, excluded.until), reason = excluded.reason
+SET until = max(account_cooldowns.until, excluded.until), code = excluded.code, reason = excluded.reason
 `
 
 type UpsertCooldownParams struct {
 	Runtime    string
 	AccountRef string
 	Until      int64
+	Code       string
 	Reason     string
 }
 
@@ -1356,6 +1357,7 @@ func (q *Queries) UpsertCooldown(ctx context.Context, arg UpsertCooldownParams) 
 		arg.Runtime,
 		arg.AccountRef,
 		arg.Until,
+		arg.Code,
 		arg.Reason,
 	)
 	return err

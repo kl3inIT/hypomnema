@@ -45,6 +45,46 @@ export function whose(
   }
 }
 
+// heldName is how a tab the owner holds is named in a line: his own tab as his, another by what it is called.
+function heldName(tab: BrowserTab) {
+  return tab.kind === "owner" ? "your own tab" : `“${tabName(tab)}”`
+}
+
+function joined(names: string[]) {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
+}
+
+// heldLine says which tabs the owner holds and what that pauses, or null while he holds none (issue #1113). Taking
+// control holds only the tab taken, as T3 Code's control is one tab's (apps/server/src/preview/SessionControl.ts):
+// only the agent of a tab held waits, and OpenMausBot names whose tools are paused ("{name}'s browser tools are
+// paused while you use it", src/locales/en.json, browser.control.yoursHint).
+export function heldLine(tabs: BrowserTab[] | undefined, held: boolean): string | null {
+  const taken = (tabs ?? []).filter((t) => t.held)
+  if (taken.length === 0) return held ? "You hold a tab of the browser." : null
+
+  const agents = taken.filter((t) => t.kind !== "owner").length
+  const paused =
+    agents === 0
+      ? "The agents go on in their own tabs."
+      : agents === 1
+        ? "Its agent's browser tools are paused until you hand it back."
+        : "Their agents' browser tools are paused until you hand them back."
+
+  return `You hold ${joined(taken.map(heldName))}. ${paused}`
+}
+
+// elsewhereLine says, in the view of a tab the owner does not hold, which other tabs he holds, or null when none:
+// an agent's tab says its agent goes on (issue #1113), and "Hand back" is in those tabs' views. The owner's own tab
+// has no agent to go on.
+export function elsewhereLine(tabs: BrowserTab[] | undefined, tab: string): string | null {
+  const taken = (tabs ?? []).filter((t) => t.held && t.id !== tab)
+  if (taken.length === 0) return null
+
+  const held = `You hold ${joined(taken.map(heldName))}.`
+
+  return tab === ownerTab ? held : `${held} This tab's agent goes on.`
+}
+
 // chatTabs are the tabs of the chats in a pane, whichever agent opened them (issue #557): those whose chat is one
 // of them. The owner's own tab is no chat's.
 export function chatTabs(tabs: BrowserTab[] | undefined, chats: ReadonlySet<string>) {
@@ -97,6 +137,7 @@ export function stripTabs(
     url: "",
     title: "",
     views: 0,
+    held: false,
   }
 
   return [owner, ...chatTabs(list, of)]

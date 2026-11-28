@@ -69,6 +69,10 @@ var (
 // limit to end; Until is when the first one is free.
 type CoolingError struct {
 	Until time.Time
+	// Code is why the account free first rests (issue #1305): its cooldown's code, auth for one Google wants
+	// verified. Reason is the provider's own words for it.
+	Code   string
+	Reason string
 	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
 	// known yet (TokenFor, issue #814): the request is to be tried again then, whatever an account answered before.
 	ListUnknown bool
@@ -167,7 +171,7 @@ type Accounts interface {
 		ctx context.Context, id string, version int, previous time.Time, wait time.Duration,
 	) (time.Time, error)
 	SetAccountPlan(ctx context.Context, id, email, plan string) error
-	CoolAccount(ctx context.Context, runtime, id string, until time.Time, reason string) error
+	CoolAccount(ctx context.Context, runtime, id string, until time.Time, code, reason string) error
 	RecordAccountRefresh(ctx context.Context, id string, r orchestration.AccountRefresh) error
 	RemoveAccountLogin(ctx context.Context, id string) error
 	MarkAccountVerification(
@@ -643,7 +647,17 @@ func (s *Service) tokenAmong(
 	// by their windows, the reserve last (rank.go).
 	ordered = s.rank(runtime, session, ordered, now)
 
-	var free *time.Time
+	var (
+		free         *time.Time
+		code, reason string
+	)
+
+	// rests notes an account that is free again at until, for why it rests (code) and the provider's words.
+	rests := func(until *time.Time, why, words string) {
+		if free == nil || until.Before(*free) {
+			free, code, reason = until, why, words
+		}
+	}
 
 	for _, a := range ordered {
 
@@ -652,9 +666,7 @@ func (s *Service) tokenAmong(
 		}
 
 		if a.CoolingUntil != nil {
-			if free == nil || a.CoolingUntil.Before(*free) {
-				free = a.CoolingUntil
-			}
+			rests(a.CoolingUntil, a.CoolingCode, a.CoolingReason)
 
 			continue
 		}
@@ -668,9 +680,7 @@ func (s *Service) tokenAmong(
 
 			fresh, ok := s.stillServes(ctx, a, model)
 			if ok && fresh.CoolingUntil != nil {
-				if free == nil || fresh.CoolingUntil.Before(*free) {
-					free = fresh.CoolingUntil
-				}
+				rests(fresh.CoolingUntil, fresh.CoolingCode, fresh.CoolingReason)
 
 				ok = false
 			}
@@ -688,9 +698,7 @@ func (s *Service) tokenAmong(
 
 		// An account Google wants verified rests until its next try (issue #822).
 		if v := a.Verification; v != nil && v.RetryAt.After(now) {
-			if free == nil || v.RetryAt.Before(*free) {
-				free = &v.RetryAt
-			}
+			rests(&v.RetryAt, verificationCode, v.Message)
 
 			continue
 		}
@@ -705,9 +713,7 @@ func (s *Service) tokenAmong(
 				return Token{}, err
 			}
 
-			if free == nil || verify.RetryAt.Before(*free) {
-				free = &verify.RetryAt
-			}
+			rests(&verify.RetryAt, verificationCode, verify.Message)
 
 			continue
 		}
@@ -723,7 +729,7 @@ func (s *Service) tokenAmong(
 	}
 
 	if free != nil {
-		return Token{}, &CoolingError{Until: *free}
+		return Token{}, &CoolingError{Until: *free, Code: code, Reason: reason}
 	}
 
 	// The accounts' lists may have changed while they were tried (a refresh in between): when no account's list has
@@ -820,31 +826,41 @@ func (a Account) usableBy(runtime string) bool {
 	return a.Runtime == runtime && a.Status == orchestration.AccountActive && a.State == StateActive
 }
 
-func (s *Service) FirstFree(ctx context.Context, runtime string, modelReset func(string) time.Time) (time.Time, error) {
+// Rest is until when an account, or one model of it, rests, why (issue #1305) and the provider's own words for
+// it; zero when it does not.
+type Rest struct {
+	Until  time.Time
+	Code   string
+	Reason string
+}
+
+// FirstFree is when the first usable account of a runtime is free again and why it rests, a model's own rest on an
+// account (modelReset) counted; zero when one is free now.
+func (s *Service) FirstFree(ctx context.Context, runtime string, modelReset func(string) Rest) (Rest, error) {
 	accounts, err := s.List(ctx)
 	if err != nil {
-		return time.Time{}, err
+		return Rest{}, err
 	}
 	now := s.clock.Now()
-	var first time.Time
+	var first Rest
 	for _, account := range chosen(ctx, accounts) {
 		if !account.usableBy(runtime) {
 			continue
 		}
-		var reset time.Time
+		var rest Rest
 		if account.CoolingUntil != nil {
-			reset = *account.CoolingUntil
+			rest = Rest{Until: *account.CoolingUntil, Code: account.CoolingCode, Reason: account.CoolingReason}
 		}
 		if modelReset != nil {
-			if until := modelReset(account.ID); until.After(reset) {
-				reset = until
+			if model := modelReset(account.ID); model.Until.After(rest.Until) {
+				rest = model
 			}
 		}
-		if !reset.After(now) {
-			return time.Time{}, nil
+		if !rest.Until.After(now) {
+			return Rest{}, nil
 		}
-		if first.IsZero() || reset.Before(first) {
-			first = reset
+		if first.Until.IsZero() || rest.Until.Before(first.Until) {
+			first = rest
 		}
 	}
 	return first, nil
@@ -1060,10 +1076,14 @@ func (s *Service) Quota(ctx context.Context, id string) (map[string]float64, err
 	return left, nil
 }
 
-// CoolDown keeps an account out of use until its usage limit ends.
-func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until time.Time, reason string) error {
-	return s.accounts.CoolAccount(ctx, runtime, accountID, until, reason)
+// CoolDown keeps an account out of use until a time, with why (code) and the provider's own words (reason).
+func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until time.Time, code, reason string) error {
+	return s.accounts.CoolAccount(ctx, runtime, accountID, until, code, reason)
 }
+
+// verificationCode is why an account Google wants verified rests: Google refuses the account until it is (403
+// VALIDATION_REQUIRED), a refused sign-in as the gateway reads a 403 (issue #1305).
+const verificationCode = "auth"
 
 func (s *Service) tokenOf(ctx context.Context, a orchestration.Account, retry *atomic.Int64) (Token, error) {
 	name, ok := vault.NameFromRef(a.SecretRef)

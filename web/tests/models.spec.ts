@@ -516,6 +516,76 @@ for (const theme of ["light", "dark"] as const) {
   })
 }
 
+// Scenario (issue #1305, row 6): the OpenCode Go keys rest, each for its own reason. Each card says why in words,
+// with when it ends, and keeps the provider's own words as the badge's title: a 5-hour limit used up is a usage
+// limit, never a refused key. A refused key is the owner's to fix and says so louder.
+for (const theme of ["light", "dark"] as const) {
+  test(`a resting account says why it rests in ${theme}`, async ({ page }) => {
+    const resets = new Date(now + 2 * 3600_000 + 15 * 60_000)
+    resets.setSeconds(0, 0)
+    const at = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(
+      resets,
+    )
+    const sameDay = new Date(now).toDateString() === resets.toDateString()
+    const when = sameDay
+      ? at
+      : `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(resets)}, ${at}`
+    const rests = [
+      [
+        "five-hour",
+        "usage_limit",
+        "5-hour usage limit reached. Resets in 2hr 15min.",
+        `Usage limit, resets ${when}`,
+      ],
+      ["refused", "auth", "invalid key", `Key refused until ${when}`],
+      ["spent", "billing", "Insufficient balance", `Credits spent until ${when}`],
+      ["throttled", "rate_limit", "Too many requests", `Rate limited until ${when}`],
+      [
+        "busy",
+        "overloaded",
+        "Upstream request failed: overloaded",
+        `Provider overloaded until ${when}`,
+      ],
+      ["older", "unknown", "OpenCode Go refused the key", `Resting until ${when}`],
+    ] as const
+    const keys: Account[] = rests.map(([label, code, words], i) => ({
+      id: `acc_${label}`,
+      runtime: "opencode_go",
+      label,
+      status: "active",
+      position: i + 1,
+      sign_in: "active",
+      cooling_until: resets.toISOString(),
+      cooling_code: code,
+      cooling_reason: words,
+    }))
+
+    await fakeServer(page, keys)
+    await page.addInitScript((theme) => localStorage.setItem("theme", theme), theme)
+    await page.route("**/api/v1/providers", (route) =>
+      route.fulfill({
+        json: { data: [provider("opencode-go", "opencode_go", ["glm-5.3"]), ...providers] },
+      }),
+    )
+    await page.goto("/settings/models")
+
+    const go = card(page, "OpenCode Go")
+    await expect(go).toContainText("Resting")
+    for (const [label, , words, shown] of rests) {
+      const badge = go.getByLabel(`OpenCode Go account ${label}`).getByTitle(words)
+      await expect(badge).toHaveText(shown)
+    }
+
+    expect(await fits(page)).toBe(true)
+    await go.scrollIntoViewIfNeeded()
+    await shot(page, `models-resting-${theme}`)
+
+    // The last key, whose rest names no code, below the fold on a phone (review of PR #1307).
+    await go.getByLabel("OpenCode Go account older").scrollIntoViewIfNeeded()
+    await shot(page, `models-resting-unknown-${theme}`)
+  })
+}
+
 // Scenario: the owner opens Models from Settings. Each subscription shows whether it serves now and its accounts
 // in the order the gateway tries them, each with the one thing wrong with it; the gateway's models show where
 // each is served from, in order, and which an agent may name.

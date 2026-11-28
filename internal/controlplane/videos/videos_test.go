@@ -72,10 +72,16 @@ type fakeSpeech struct {
 	// audio tag kept out; models are the models each line was asked with, in order.
 	aligned bool
 	models  []string
+	// timed makes Soniox answer a line asked with timings with the words of its timestamps, an audio tag spoken
+	// before them (issue #1285, row 2); speeds are the speeds each line was asked with, by its text.
+	timed  bool
+	speeds map[string][]float64
 }
 
 func newFakeSpeech() *fakeSpeech {
-	return &fakeSpeech{spoken: map[string]int{}, down: map[string]bool{}, failAfter: map[string]int{}}
+	return &fakeSpeech{
+		spoken: map[string]int{}, down: map[string]bool{}, failAfter: map[string]int{}, speeds: map[string][]float64{},
+	}
 }
 
 func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakRequest) (speech.Speech, error) {
@@ -107,6 +113,7 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 
 	f.spoken[req.Provider+"|"+req.Voice+"|"+req.Input]++
 	f.models = append(f.models, req.Model)
+	f.speeds[req.Input] = append(f.speeds[req.Input], req.Speed)
 
 	out := speech.Speech{Audio: []byte(req.Input), Provider: req.Provider, Model: req.Model}
 	if f.aligned && req.Timings && req.Provider == speech.ProviderElevenLabs {
@@ -114,6 +121,17 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 			at := time.Duration(i) * time.Second / 2
 			out.Words = append(out.Words, speech.Word{Word: w, Start: at, End: at + 400*time.Millisecond})
 		}
+	}
+
+	if f.timed && req.Timings && req.Provider == speech.ProviderSoniox {
+		var a speech.Alignment
+
+		for i, c := range []rune("[excited] " + req.Input) {
+			at := float64(i) / 10
+			a.Add(speech.Alignment{Characters: []string{string(c)}, Starts: []float64{at}, Ends: []float64{at + 0.1}})
+		}
+
+		out.Words = speech.AlignedWords("[excited] "+req.Input, a)
 	}
 
 	return out, nil

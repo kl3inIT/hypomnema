@@ -932,7 +932,8 @@ func coolAccount(ctx context.Context, q *store.Queries, now int64, dispatchID st
 	}
 
 	if err := q.UpsertCooldown(ctx, store.UpsertCooldownParams{
-		Runtime: conv.Runtime, AccountRef: conv.AccountRef, Until: until, Reason: string(FailureRateLimited),
+		Runtime: conv.Runtime, AccountRef: conv.AccountRef, Until: until, Code: CoolingRateLimit,
+		Reason: string(FailureRateLimited),
 	}); err != nil {
 		return fmt.Errorf("cooling down %s/%s: %w", conv.Runtime, conv.AccountRef, err)
 	}

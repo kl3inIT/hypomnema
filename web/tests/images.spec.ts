@@ -10,6 +10,7 @@ type Link = {
   on: boolean
   state: "ready" | "resting" | "not_set_up" | "off"
   resting_until?: string
+  cooling_code?: "usage_limit" | "rate_limit" | "billing" | "auth" | "overloaded" | "unknown"
   model: string
   model_name: string
   accounts: number
@@ -18,7 +19,8 @@ type Link = {
 
 const rest = new Date(Date.now() + 20 * 60_000).toISOString()
 
-// Codex with two paid accounts, ready, that made images; Antigravity with one account that rests after its limit.
+// Codex with two paid accounts, ready, that made images; Antigravity with one account that rests after its usage
+// limit.
 function start(): Link[] {
   return [
     {
@@ -35,6 +37,8 @@ function start(): Link[] {
       on: true,
       state: "resting",
       resting_until: rest,
+      // Its account's quota is used up (issue #1305).
+      cooling_code: "usage_limit",
       model: "gemini-3.1-flash-image",
       model_name: "Gemini 3.1 Flash Image",
       accounts: 1,
@@ -118,7 +122,7 @@ test("the owner sees the image providers in their order", async ({ page }) => {
 
   const antigravity = row(page, "Antigravity")
   await expect(antigravity).toContainText("#2")
-  await expect(antigravity).toContainText("Rate limited until")
+  await expect(antigravity).toContainText("Usage limit, resets")
   await expect(antigravity).toContainText("Gemini 3.1 Flash Image")
   await expect(antigravity.locator(".font-mono")).toHaveText("· gemini-3.1-flash-image")
   await expect(antigravity).toContainText("1 account")

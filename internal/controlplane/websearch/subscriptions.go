@@ -79,6 +79,16 @@ func Refused(status int, retryAfter time.Duration, message string) error {
 	return &providerError{status: status, retryAfter: min(retryAfter, longestRetryAfter), message: clip(message, 200)}
 }
 
+// AccountRefused is Refused for a subscription's refusal that says why its account rests: code is one of the
+// gateway's closed set (usage_limit, rate_limit, billing, auth, overloaded, unknown) and reason the provider's own
+// words (issue #1305), which the subscription's link then shows in place of a plain rate limit.
+func AccountRefused(status int, retryAfter time.Duration, code, reason string) error {
+	return &providerError{
+		status: status, retryAfter: min(retryAfter, longestRetryAfter), message: clip(reason, 200),
+		code: code, reason: reason,
+	}
+}
+
 // subscriptionRoute asks a subscription provider through the gateway, under the accounts a Scope names (every
 // account when empty): a refusal under some accounts rests those alone.
 func subscriptionRoute(provider, accounts string) route {

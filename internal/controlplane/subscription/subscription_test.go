@@ -517,7 +517,7 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 	assert.Equal(t, 2, w.openai.refreshCalls(), "the token was already replaced; it is not exchanged again")
 
 	until := w.clock.Now().Add(3 * time.Hour)
-	require.NoError(t, w.subs.CoolDown(t.Context(), "codex", a.ID, until, "usage limit"))
+	require.NoError(t, w.subs.CoolDown(t.Context(), "codex", a.ID, until, "usage_limit", "5-hour limit reached"))
 	broken, err := w.orch.SaveAccountLogin(t.Context(), orchestration.AccountLogin{
 		Runtime: "codex", ExternalID: "another-workspace", Email: "broken@example.com",
 	}, func(string) string { return "vault:missing-codex-tokens" })
@@ -529,13 +529,15 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 	var cooling *subscription.CoolingError
 	require.ErrorAs(t, err, &cooling)
 	assert.Equal(t, until, cooling.Until)
+	assert.Equal(t, "usage_limit", cooling.Code, "why the account free first rests (issue #1305)")
 	free, err := w.subs.FirstFree(t.Context(), "codex", nil)
 	require.NoError(t, err)
-	assert.Equal(t, until, free)
-	modelReset := until.Add(time.Hour)
-	free, err = w.subs.FirstFree(t.Context(), "codex", func(string) time.Time { return modelReset })
+	assert.Equal(t, subscription.Rest{Until: until, Code: "usage_limit", Reason: "5-hour limit reached"}, free)
+	assert.Equal(t, "5-hour limit reached", cooling.Reason, "the provider's words (review of PR #1307)")
+	modelReset := subscription.Rest{Until: until.Add(time.Hour), Code: "overloaded"}
+	free, err = w.subs.FirstFree(t.Context(), "codex", func(string) subscription.Rest { return modelReset })
 	require.NoError(t, err)
-	assert.Equal(t, modelReset, free)
+	assert.Equal(t, modelReset, free, "a model's own longer rest, with its own code")
 
 	w.clock.advance(3*time.Hour + time.Second)
 

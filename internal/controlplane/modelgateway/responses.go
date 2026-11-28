@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/codex"
 )
@@ -316,15 +315,15 @@ func (s *Server) recordResponsesCooling(
 		if p, ok := openCodeOf(target.Kind); ok {
 			runtime = p.runtime
 		}
-		var modelReset func(string) time.Time
+		var modelReset func(string) Rest
 		if runtime == codexRuntime {
 			modelReset = s.codexModelReset(target.Model)
 		}
-		until, err := s.accounts.FirstFree(kept, runtime, modelReset)
-		if err != nil || until.IsZero() {
+		rest, err := s.accounts.FirstFree(kept, runtime, modelReset)
+		if err != nil || rest.Until.IsZero() {
 			return
 		}
-		cooling.add(&CoolingError{Until: until})
+		cooling.add(&CoolingError{Until: rest.Until, Code: rest.Code})
 	}
 	s.recordModelCooling(kept, route, model, cooling.first, s.svc.clock.Now())
 }

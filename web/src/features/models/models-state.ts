@@ -1,4 +1,4 @@
-import type { Account, AccountLimits, Provider } from "@/api/generated/types.gen"
+import type { Account, AccountLimits, CoolingCode, Provider } from "@/api/generated/types.gen"
 
 // What the Models page shows, worked out from what the server lists (issue #199). The references that keep
 // subscription accounts put an account under its provider (9router's providers/[id]/ConnectionRow.js, OpenClaw's
@@ -70,6 +70,33 @@ export function until(iso: string, now = Date.now()) {
   return sameDay ? clock.format(at) : `${day.format(at)}, ${clock.format(at)}`
 }
 
+// Why an account rests, in words (issue #1305): the code the server gives, the provider's own words staying for the
+// badge's title. OmniRoute and 9router-go show such a status on the connection (rate_limited, quota_exhausted,
+// 9router-go internal/providers/connection_status.go); the words are the owner's (issue #1305, row 6).
+const restWords: Record<CoolingCode, string> = {
+  usage_limit: "Usage limit",
+  rate_limit: "Rate limited",
+  billing: "Credits spent",
+  auth: "Key refused",
+  overloaded: "Provider overloaded",
+  unknown: "Resting",
+}
+
+// restLabel says why an account rests and when that ends: "Usage limit, resets 12:42 AM", "Rate limited until
+// 12:42 AM", "Resting until 12:42 AM" when nothing says why.
+export function restLabel(code: CoolingCode | undefined, iso: string, now = Date.now()) {
+  const at = until(iso, now)
+
+  if (code === "usage_limit") return `${restWords.usage_limit}, resets ${at}`
+
+  return `${restWords[code ?? "unknown"]} until ${at}`
+}
+
+// restTone is how loud a rest is: a refused key is the owner's to fix, the rest pass by themselves.
+export function restTone(code: CoolingCode | undefined): Tone {
+  return code === "auth" ? "destructive" : "warning"
+}
+
 // resting reports whether an account waits for a usage limit to end.
 function resting(account: Account, now = Date.now()) {
   return account.cooling_until !== undefined && new Date(account.cooling_until).getTime() > now
@@ -105,8 +132,8 @@ export function accountState(account: Account, now = Date.now()): AccountState {
 
   if (resting(account, now)) {
     return {
-      label: `Resting until ${until(account.cooling_until!, now)}`,
-      tone: "warning",
+      label: restLabel(account.cooling_code, account.cooling_until!, now),
+      tone: restTone(account.cooling_code),
       why: account.cooling_reason,
     }
   }

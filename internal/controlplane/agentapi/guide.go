@@ -74,6 +74,16 @@ func (s *Server) standingTools(ctx context.Context, a agent) []string {
 		}
 	}
 
+	// The Inbox's and the meetings' tools, which a Bot's pi lists in each of its chats (inboxTools, meetingTools): their
+	// lines say how the Bot keeps the owner's Inbox (issue #1206), which no other place of its prompt does.
+	if keepsInbox(a) {
+		names = append(names, agenttool.InboxTools...)
+	}
+
+	if s.readsMeetings(a) {
+		names = append(names, agenttool.MeetingTools...)
+	}
+
 	// request_connection while the Bot has a Connection to ask for: the block is the same for each of its chats,
 	// and the tool's line says it is its main chat's (agenttool.ToolFamilies).
 	if t, ok := s.requestConnectionTool(ctx, a); ok {

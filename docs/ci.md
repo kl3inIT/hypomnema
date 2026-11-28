@@ -41,7 +41,9 @@ Run is finished, on the heads the quick Task itself reported pushing through `pu
 broad Task pushed needs its review. A quick head without that push record (on GitLab, where `publish_branch` does
 not run, or a push the node did not report, such as after a Task that started and was canceled) gets no automatic
 status: post it by hand as below. A new push has none until it is reviewed. A verdict covers only the full head SHA it names.
-The token must be allowed to write commit statuses (a classic token's `repo` scope, or "Commit statuses: write").
+The status is posted with the repository's Connection token, which must be allowed to write commit statuses (a
+classic token's `repo` scope, or "Commit statuses: write"). The owner's GitHub App asks only to read statuses, so
+it finds and reads the pull request where it covers the repository but does not post.
 
 When the control plane first runs the change, the migration queues each pull request's latest verdict, and the
 next minute's pass posts it on those still open at that head: on zm it runs by itself when the control plane

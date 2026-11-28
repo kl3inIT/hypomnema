@@ -214,8 +214,14 @@ func (o *owner) accountsList(ctx context.Context) error {
 		cooling := ""
 		if a.CoolingUntil != nil {
 			cooling = "cooling until " + a.CoolingUntil.Format(time.RFC3339)
-			if a.CoolingReason != "" {
-				cooling += " (" + a.CoolingReason + ")"
+			// Why, in the closed set, then the provider's words (issue #1305).
+			why := a.CoolingReason
+			if a.CoolingCode != "" {
+				why = strings.TrimSuffix(a.CoolingCode+": "+why, ": ")
+			}
+
+			if why != "" {
+				cooling += " (" + why + ")"
 			}
 		}
 

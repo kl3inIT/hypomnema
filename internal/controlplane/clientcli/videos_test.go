@@ -411,3 +411,54 @@ func TestTheCLIMakesAVideoFromATemplate(t *testing.T) {
 	require.Len(t, fake.previews, 1)
 	assert.Equal(t, "app-store-preview", fake.previews[0].Template)
 }
+
+// A speed the CLI cannot send is refused, not dropped (review of #1302, P1): out of 0.7-1.3, negative or NaN, no
+// video is made; one within is sent.
+func TestTheCLIRefusesAVideoSpeedOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	fake := &cliVideos{v: videos.Video{
+		ID: "vid_abc", Take: "tk_0123456789abcdef", Title: "Đăng nhập", CreatedAt: time.Now(),
+		Revisions: []videos.Revision{{Rev: 1, State: videos.Queued, Lines: []string{"Mở"}, Aspect: "9:16",
+			Captions: true, Warnings: []string{}, Look: videos.DefaultLook()}},
+	}}
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithVideos(fake) })
+	w.login(t, bearertoken.Owner)
+
+	for _, speed := range []string{"-0.1", "NaN", "0.5", "1.4", "Inf"} {
+		_, err := w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--speed="+speed)
+		require.Error(t, err, speed)
+		assert.Contains(t, err.Error(), "0.7", speed)
+	}
+
+	assert.Empty(t, fake.asked, "no video is made")
+
+	_, err := w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--speed=1.2")
+	require.NoError(t, err)
+	assert.Len(t, fake.asked, 1)
+}
+
+// A speed given as 0 is a speed out of range, not the provider's own (review of #1302, round 2): the provider's
+// speed is asked by leaving --speed out, and no video is made for --speed=0.
+func TestReviewExplicitZeroVideoSpeed(t *testing.T) {
+	t.Parallel()
+
+	fake := &cliVideos{v: videos.Video{
+		ID: "vid_abc", Take: "tk_0123456789abcdef", Title: "Đăng nhập", CreatedAt: time.Now(),
+		Revisions: []videos.Revision{{Rev: 1, State: videos.Queued, Lines: []string{"Mở"}, Aspect: "9:16",
+			Captions: true, Warnings: []string{}, Look: videos.DefaultLook()}},
+	}}
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithVideos(fake) })
+	w.login(t, bearertoken.Owner)
+
+	_, err := w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--speed=0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "0.7")
+	assert.Empty(t, fake.asked, "no video is made")
+
+	_, err = w.cmd(t, "videos", "make", "tk_0123456789abcdef")
+	require.NoError(t, err)
+	assert.Len(t, fake.asked, 1, "left out, the provider's own")
+}

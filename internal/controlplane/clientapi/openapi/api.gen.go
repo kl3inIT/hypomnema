@@ -612,6 +612,36 @@ func (e ConnectionRequestState) Valid() bool {
 	}
 }
 
+// Defines values for CoolingCode.
+const (
+	CoolingAuth       CoolingCode = "auth"
+	CoolingBilling    CoolingCode = "billing"
+	CoolingOverloaded CoolingCode = "overloaded"
+	CoolingRateLimit  CoolingCode = "rate_limit"
+	CoolingUnknown    CoolingCode = "unknown"
+	CoolingUsageLimit CoolingCode = "usage_limit"
+)
+
+// Valid indicates whether the value is a known member of the CoolingCode enum.
+func (e CoolingCode) Valid() bool {
+	switch e {
+	case CoolingAuth:
+		return true
+	case CoolingBilling:
+		return true
+	case CoolingOverloaded:
+		return true
+	case CoolingRateLimit:
+		return true
+	case CoolingUnknown:
+		return true
+	case CoolingUsageLimit:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceNodeDevice.
 const (
 	DeviceNodeDeviceAndroid DeviceNodeDevice = "android"
@@ -1686,6 +1716,33 @@ func (e ProviderKind) Valid() bool {
 	}
 }
 
+// Defines values for PullRequestCIState.
+const (
+	PullRequestCIStateClosed  PullRequestCIState = "closed"
+	PullRequestCIStateFailed  PullRequestCIState = "failed"
+	PullRequestCIStateMerged  PullRequestCIState = "merged"
+	PullRequestCIStatePassed  PullRequestCIState = "passed"
+	PullRequestCIStatePending PullRequestCIState = "pending"
+)
+
+// Valid indicates whether the value is a known member of the PullRequestCIState enum.
+func (e PullRequestCIState) Valid() bool {
+	switch e {
+	case PullRequestCIStateClosed:
+		return true
+	case PullRequestCIStateFailed:
+		return true
+	case PullRequestCIStateMerged:
+		return true
+	case PullRequestCIStatePassed:
+		return true
+	case PullRequestCIStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for QuestionMode.
 const (
 	QuestionModeGate QuestionMode = "gate"
@@ -2232,6 +2289,7 @@ func (e TodoDueKind) Valid() bool {
 // Defines values for TodoLinkKind.
 const (
 	TodoLinkKindChatMessage     TodoLinkKind = "chat_message"
+	TodoLinkKindComment         TodoLinkKind = "comment"
 	TodoLinkKindLarkMessage     TodoLinkKind = "lark_message"
 	TodoLinkKindLarkSent        TodoLinkKind = "lark_sent"
 	TodoLinkKindMail            TodoLinkKind = "mail"
@@ -2249,6 +2307,8 @@ const (
 func (e TodoLinkKind) Valid() bool {
 	switch e {
 	case TodoLinkKindChatMessage:
+		return true
+	case TodoLinkKindComment:
 		return true
 	case TodoLinkKindLarkMessage:
 		return true
@@ -3026,7 +3086,10 @@ func (e ListStudioItemsParamsState) Valid() bool {
 
 // Account defines model for Account.
 type Account struct {
-	// CoolingReason Why it rests, a rate limit or what the gateway recorded.
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason The provider's own words for why it rests, while it rests; rate_limited for an account a node's run cooled after a limit.
 	CoolingReason *string    `json:"cooling_reason,omitempty"`
 	CoolingUntil  *time.Time `json:"cooling_until,omitempty"`
 	Email         *string    `json:"email,omitempty"`
@@ -3397,7 +3460,7 @@ type AudioKind string
 
 // AudioKindLink defines model for AudioKindLink.
 type AudioKindLink struct {
-	// Model The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of ElevenLabs's speech model, else the default.
+	// Model The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else the default.
 	Model string `json:"model"`
 
 	// On The owner's switch for the provider.
@@ -3410,12 +3473,17 @@ type AudioKindLink struct {
 
 // AudioModelChoice defines model for AudioModelChoice.
 type AudioModelChoice struct {
-	Model string `json:"model"`
+	// Kind stt is speech-to-text, tts text-to-speech.
+	Kind  *AudioKind `json:"kind,omitempty"`
+	Model string     `json:"model"`
 }
 
 // AudioModelInfo defines model for AudioModelInfo.
 type AudioModelInfo struct {
 	Id string `json:"id"`
+
+	// Kind stt is speech-to-text, tts text-to-speech.
+	Kind AudioKind `json:"kind"`
 
 	// Languages The language codes it covers, as the provider lists them, such as vi.
 	Languages []string      `json:"languages"`
@@ -3693,7 +3761,7 @@ type Browser struct {
 	// Chrome The browser the control plane runs, by name and pinned version.
 	Chrome string `json:"chrome"`
 
-	// Held Whether the owner holds the browser; agents' calls are refused meanwhile.
+	// Held Whether the owner holds any tab. Each tab says whether it is held: taking control holds only the tab taken, and only that tab's agent's calls are refused meanwhile.
 	Held bool `json:"held"`
 
 	// Installed Whether the browser's programs were fetched; they are at the first use.
@@ -3715,7 +3783,10 @@ type BrowserTab struct {
 
 	// Favicon Its page's icon, as a data: address of an image, once the control plane has read it from the page. Absent until then, and for a page that names none it can give.
 	Favicon *string `json:"favicon,omitempty"`
-	Id      string  `json:"id"`
+
+	// Held Whether the owner holds this tab; its agent's browser calls are refused meanwhile.
+	Held bool   `json:"held"`
+	Id   string `json:"id"`
 
 	// Kind Whose tab it is: a worker's (a Dispatch), the coordinator's, one opened with the owner's own token, or the owner's own tab in the web client.
 	Kind   BrowserTabKind `json:"kind"`
@@ -4112,6 +4183,9 @@ type ConnectionUse struct {
 	// Proxy The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
 	Proxy *string `json:"proxy,omitempty"`
 }
+
+// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+type CoolingCode string
 
 // CreatedGatewayKey defines model for CreatedGatewayKey.
 type CreatedGatewayKey struct {
@@ -4766,6 +4840,49 @@ type GitHostList struct {
 	Data []GitHost `json:"data"`
 }
 
+// GitHubApp The owner's GitHub App, without its private key or webhook secret.
+type GitHubApp struct {
+	AppId   *int64  `json:"app_id,omitempty"`
+	HtmlUrl *string `json:"html_url,omitempty"`
+
+	// InstallUrl GitHub's page that installs the App on repositories.
+	InstallUrl    *string                 `json:"install_url,omitempty"`
+	Installations []GitHubAppInstallation `json:"installations"`
+	LastDelivery  *GitHubDelivery         `json:"last_delivery,omitempty"`
+	Owner         *string                 `json:"owner,omitempty"`
+	Registered    bool                    `json:"registered"`
+
+	// SetupUrl The control plane's page the owner registers the App from, in his signed-in browser.
+	SetupUrl string  `json:"setup_url"`
+	Slug     *string `json:"slug,omitempty"`
+}
+
+// GitHubAppInstallation defines model for GitHubAppInstallation.
+type GitHubAppInstallation struct {
+	Account        string `json:"account"`
+	InstallationId int64  `json:"installation_id"`
+
+	// Repository owner/name, in lower case
+	Repository string `json:"repository"`
+}
+
+// GitHubAppRedelivery defines model for GitHubAppRedelivery.
+type GitHubAppRedelivery struct {
+	Event string `json:"event"`
+
+	// Guid The id of the delivery sent again.
+	Guid string `json:"guid"`
+}
+
+// GitHubDelivery defines model for GitHubDelivery.
+type GitHubDelivery struct {
+	Action     *string   `json:"action,omitempty"`
+	Event      string    `json:"event"`
+	Id         string    `json:"id"`
+	ReceivedAt time.Time `json:"received_at"`
+	Repository *string   `json:"repository,omitempty"`
+}
+
 // GitSSHKey defines model for GitSSHKey.
 type GitSSHKey struct {
 	// PublicKey The public key in the authorized_keys form, to add to the git host.
@@ -4816,6 +4933,12 @@ type ImageProviderChange struct {
 type ImageProviderLink struct {
 	// Accounts Its accounts that can make images, now or after their rest.
 	Accounts int `json:"accounts"`
+
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason The provider's own words for why the account free first rests, while the provider rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
 
 	// Model The one model it makes images with, as usage rows name it (image/<model>).
 	Model string `json:"model"`
@@ -6322,6 +6445,18 @@ type PublishedHead struct {
 	Sha    string `json:"sha"`
 }
 
+// PullRequestCI defines model for PullRequestCI.
+type PullRequestCI struct {
+	// Failed The checks that failed, when the state is failed.
+	Failed      *[]string          `json:"failed,omitempty"`
+	Head        *string            `json:"head,omitempty"`
+	PullRequest string             `json:"pull_request"`
+	State       PullRequestCIState `json:"state"`
+}
+
+// PullRequestCIState defines model for PullRequestCI.State.
+type PullRequestCIState string
+
 // PushSubscription defines model for PushSubscription.
 type PushSubscription struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -7084,8 +7219,11 @@ type SpeakRequest struct {
 	Language *string        `json:"language,omitempty"`
 	Provider *AudioProvider `json:"provider,omitempty"`
 
-	// Speed ElevenLabs's voice speed.
-	Speed *float32 `json:"speed,omitempty"`
+	// ReduceSilence Shorten the pauses between words; sent to Soniox only for a model that supports it.
+	ReduceSilence *bool `json:"reduce_silence,omitempty"`
+
+	// Speed The voice's speed: Soniox takes 0.7 to 1.3; ElevenLabs is sent it within 0.7 to 1.2, and none for a model that does not apply it, such as eleven_v4.
+	Speed *float64 `json:"speed,omitempty"`
 
 	// Voice A voice of the provider (the gateway's GET /v1/audio/voices) or one of OpenAI's names; left out, each provider's default.
 	Voice *string `json:"voice,omitempty"`
@@ -7672,15 +7810,15 @@ type TodoLink struct {
 	// Chat The chat the message is in, its id at the service; with account only.
 	Chat *string `json:"chat,omitempty"`
 
-	// Kind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
+	// Kind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item. comment is the owner's comment on the item itself, by the revision it made: the evidence a Bot gives that he did it.
 	Kind  TodoLinkKind `json:"kind"`
 	Label *string      `json:"label,omitempty"`
 
-	// Ref The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+	// Ref The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq; a comment's revision.
 	Ref string `json:"ref"`
 }
 
-// TodoLinkKind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
+// TodoLinkKind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item. comment is the owner's comment on the item itself, by the revision it made: the evidence a Bot gives that he did it.
 type TodoLinkKind string
 
 // TodoList defines model for TodoList.
@@ -8077,7 +8215,10 @@ type VideoMake struct {
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
-	Take string          `json:"take"`
+
+	// Speed The speed every line is spoken at, Soniox's range; absent: the provider's own. ElevenLabs is sent it within its 0.7 to 1.2, and none for a model that does not apply it. A revision made from this one keeps it.
+	Speed *float64 `json:"speed,omitempty"`
+	Take  string   `json:"take"`
 
 	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
 	Template *string `json:"template,omitempty"`
@@ -8213,8 +8354,11 @@ type VideoRevision struct {
 	Progress *VideoProgress `json:"progress,omitempty"`
 
 	// Provider The provider that spoke every scene.
-	Provider  *string            `json:"provider,omitempty"`
-	Rev       int                `json:"rev"`
+	Provider *string `json:"provider,omitempty"`
+	Rev      int     `json:"rev"`
+
+	// Speed The speed its voice was asked at; absent, the provider's own.
+	Speed     *float64           `json:"speed,omitempty"`
 	State     VideoRevisionState `json:"state"`
 	UpdatedAt time.Time          `json:"updated_at"`
 
@@ -8377,6 +8521,12 @@ type WebSearchKeyedProvider string
 
 // WebSearchLink defines model for WebSearchLink.
 type WebSearchLink struct {
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason For a subscription that rests, the provider's own words for why its account rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
+
 	// Keys A keyed provider's keys, in the order a search asks them now.
 	Keys *[]WebSearchKey `json:"keys,omitempty"`
 
@@ -9184,6 +9334,15 @@ type PutMemoryNoteParams struct {
 
 	// Path The note's path, under /memories.
 	Path string `form:"path" json:"path"`
+}
+
+// WaitPullRequestCIParams defines parameters for WaitPullRequestCI.
+type WaitPullRequestCIParams struct {
+	// PullRequest The pull request's URL, or owner/name#number.
+	PullRequest string `form:"pull_request" json:"pull_request"`
+
+	// Wait How many seconds the answer may wait for a change, at most 50.
+	Wait *int `form:"wait,omitempty" json:"wait,omitempty"`
 }
 
 // ListQuestionsParams defines parameters for ListQuestions.
@@ -10905,9 +11064,9 @@ type ClientInterface interface {
 	// Corresponds with GET /gateway/audio (the `GetAudio` operationId).
 	GetAudio(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 	//
-	// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
 	ListAudioModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -10969,18 +11128,18 @@ type ClientInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKey(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetAudioModelWithBody Set the model a provider speaks with; only the owner
+	// SetAudioModelWithBody Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
 	SetAudioModelWithBody(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetAudioModel Set the model a provider speaks with; only the owner
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -11007,7 +11166,7 @@ type ClientInterface interface {
 
 	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
 	//
-	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
 	ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -11652,6 +11811,21 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	//
+	// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+	GetGitHubApp(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	//
+	// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+	SyncGitHubAppInstallations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	//
+	// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+	TestGitHubAppDelivery(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RelaySupersetRequestWithBody Send one request to a Superset Connection's API and return its answer unchanged
 	//
@@ -12365,6 +12539,11 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
 	ApplyProvider(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	//
+	// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+	WaitPullRequestCI(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListPushSubscriptions The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	//
@@ -15283,9 +15462,9 @@ func (c *Client) GetAudio(ctx context.Context, reqEditors ...RequestEditorFn) (*
 	return c.Client.Do(req)
 }
 
-// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 //
-// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
 func (c *Client) ListAudioModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -15427,9 +15606,9 @@ func (c *Client) RemoveAudioKey(ctx context.Context, provider AudioProvider, nam
 	return c.Client.Do(req)
 }
 
-// SetAudioModelWithBody Set the model a provider speaks with; only the owner
+// SetAudioModelWithBody Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes any type of body and a specified content type.
 //
@@ -15446,9 +15625,9 @@ func (c *Client) SetAudioModelWithBody(ctx context.Context, provider AudioProvid
 	return c.Client.Do(req)
 }
 
-// SetAudioModel Set the model a provider speaks with; only the owner
+// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -15505,7 +15684,7 @@ func (c *Client) SetAudioVoice(ctx context.Context, provider AudioProvider, body
 
 // ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
 //
-// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
 func (c *Client) ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -16981,6 +17160,51 @@ func (c *Client) StartTodo(ctx context.Context, todoId TodoID, body StartTodoJSO
 // Corresponds with GET /integrations (the `ListIntegrations` operationId).
 func (c *Client) ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListIntegrationsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+//
+// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+func (c *Client) GetGitHubApp(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGitHubAppRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+//
+// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+func (c *Client) SyncGitHubAppInstallations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSyncGitHubAppInstallationsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+//
+// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+func (c *Client) TestGitHubAppDelivery(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTestGitHubAppDeliveryRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -18664,6 +18888,21 @@ func (c *Client) ApplyProviderWithBody(ctx context.Context, name Name, contentTy
 // Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
 func (c *Client) ApplyProvider(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewApplyProviderRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+//
+// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+func (c *Client) WaitPullRequestCI(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewWaitPullRequestCIRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -27732,6 +27971,87 @@ func NewListIntegrationsRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetGitHubAppRequest constructs an http.Request for the GetGitHubApp method
+func NewGetGitHubAppRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/github/app")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSyncGitHubAppInstallationsRequest constructs an http.Request for the SyncGitHubAppInstallations method
+func NewSyncGitHubAppInstallationsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/github/app/installations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewTestGitHubAppDeliveryRequest constructs an http.Request for the TestGitHubAppDelivery method
+func NewTestGitHubAppDeliveryRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/github/app/test-delivery")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewRelaySupersetRequestRequest calls the generic RelaySupersetRequest builder with application/json body
 func NewRelaySupersetRequestRequest(server string, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -31199,6 +31519,68 @@ func NewApplyProviderRequestWithBody(server string, name Name, contentType strin
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewWaitPullRequestCIRequest constructs an http.Request for the WaitPullRequestCI method
+func NewWaitPullRequestCIRequest(server string, params *WaitPullRequestCIParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/pull-requests/ci")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "pull_request", params.PullRequest, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Wait != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "wait", *params.Wait, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -35821,9 +36203,9 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/audio (the `GetAudio` operationId).
 	GetAudioWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetAudioResponse, error)
 
-	// ListAudioModelsWithResponse The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModelsWithResponse The models the owner may choose from, each with its kind and the languages it covers
 	//
-	// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -35889,18 +36271,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKeyWithResponse(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*RemoveAudioKeyResponse, error)
 
-	// SetAudioModelWithBodyWithResponse Set the model a provider speaks with; only the owner
+	// SetAudioModelWithBodyWithResponse Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
 	SetAudioModelWithBodyWithResponse(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error)
 
-	// SetAudioModelWithResponse Set the model a provider speaks with; only the owner
+	// SetAudioModelWithResponse Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -35927,7 +36309,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name and id
 	//
-	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -36620,6 +37002,27 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListIntegrationsResponse, error)
+
+	// GetGitHubAppWithResponse The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+	GetGitHubAppWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetGitHubAppResponse, error)
+
+	// SyncGitHubAppInstallationsWithResponse Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+	SyncGitHubAppInstallationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*SyncGitHubAppInstallationsResponse, error)
+
+	// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+	TestGitHubAppDeliveryWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*TestGitHubAppDeliveryResponse, error)
 
 	// RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
 	//
@@ -37421,6 +37824,13 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
 	ApplyProviderWithResponse(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyProviderResponse, error)
+
+	// WaitPullRequestCIWithResponse Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+	WaitPullRequestCIWithResponse(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*WaitPullRequestCIResponse, error)
 
 	// ListPushSubscriptionsWithResponse The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	//
@@ -45483,6 +45893,150 @@ func (r ListIntegrationsResponse) ContentType() string {
 	return ""
 }
 
+type GetGitHubAppResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHubApp
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetGitHubAppResponse) GetJSON200() *GitHubApp {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetGitHubAppResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetGitHubAppResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGitHubAppResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGitHubAppResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetGitHubAppResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SyncGitHubAppInstallationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHubApp
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SyncGitHubAppInstallationsResponse) GetJSON200() *GitHubApp {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SyncGitHubAppInstallationsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SyncGitHubAppInstallationsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SyncGitHubAppInstallationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SyncGitHubAppInstallationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SyncGitHubAppInstallationsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type TestGitHubAppDeliveryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHubAppRedelivery
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r TestGitHubAppDeliveryResponse) GetJSON200() *GitHubAppRedelivery {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r TestGitHubAppDeliveryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r TestGitHubAppDeliveryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r TestGitHubAppDeliveryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TestGitHubAppDeliveryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TestGitHubAppDeliveryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RelaySupersetRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -48849,6 +49403,54 @@ func (r ApplyProviderResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ApplyProviderResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type WaitPullRequestCIResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PullRequestCI
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r WaitPullRequestCIResponse) GetJSON200() *PullRequestCI {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r WaitPullRequestCIResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r WaitPullRequestCIResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r WaitPullRequestCIResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r WaitPullRequestCIResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r WaitPullRequestCIResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -54523,9 +55125,9 @@ func (c *ClientWithResponses) GetAudioWithResponse(ctx context.Context, reqEdito
 	return ParseGetAudioResponse(rsp)
 }
 
-// ListAudioModelsWithResponse The text-to-speech models the owner may choose from, with the languages each covers
+// ListAudioModelsWithResponse The models the owner may choose from, each with its kind and the languages it covers
 //
-// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -54639,9 +55241,9 @@ func (c *ClientWithResponses) RemoveAudioKeyWithResponse(ctx context.Context, pr
 	return ParseRemoveAudioKeyResponse(rsp)
 }
 
-// SetAudioModelWithBodyWithResponse Set the model a provider speaks with; only the owner
+// SetAudioModelWithBodyWithResponse Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -54654,9 +55256,9 @@ func (c *ClientWithResponses) SetAudioModelWithBodyWithResponse(ctx context.Cont
 	return ParseSetAudioModelResponse(rsp)
 }
 
-// SetAudioModelWithResponse Set the model a provider speaks with; only the owner
+// SetAudioModelWithResponse Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -54701,7 +55303,7 @@ func (c *ClientWithResponses) SetAudioVoiceWithResponse(ctx context.Context, pro
 
 // ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name and id
 //
-// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -55897,6 +56499,45 @@ func (c *ClientWithResponses) ListIntegrationsWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseListIntegrationsResponse(rsp)
+}
+
+// GetGitHubAppWithResponse The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+func (c *ClientWithResponses) GetGitHubAppWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetGitHubAppResponse, error) {
+	rsp, err := c.GetGitHubApp(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGitHubAppResponse(rsp)
+}
+
+// SyncGitHubAppInstallationsWithResponse Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+func (c *ClientWithResponses) SyncGitHubAppInstallationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*SyncGitHubAppInstallationsResponse, error) {
+	rsp, err := c.SyncGitHubAppInstallations(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSyncGitHubAppInstallationsResponse(rsp)
+}
+
+// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+func (c *ClientWithResponses) TestGitHubAppDeliveryWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*TestGitHubAppDeliveryResponse, error) {
+	rsp, err := c.TestGitHubAppDelivery(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTestGitHubAppDeliveryResponse(rsp)
 }
 
 // RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
@@ -57280,6 +57921,19 @@ func (c *ClientWithResponses) ApplyProviderWithResponse(ctx context.Context, nam
 		return nil, err
 	}
 	return ParseApplyProviderResponse(rsp)
+}
+
+// WaitPullRequestCIWithResponse Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+func (c *ClientWithResponses) WaitPullRequestCIWithResponse(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*WaitPullRequestCIResponse, error) {
+	rsp, err := c.WaitPullRequestCI(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseWaitPullRequestCIResponse(rsp)
 }
 
 // ListPushSubscriptionsWithResponse The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
@@ -63746,6 +64400,105 @@ func ParseListIntegrationsResponse(rsp *http.Response) (*ListIntegrationsRespons
 	return response, nil
 }
 
+// ParseGetGitHubAppResponse parses an HTTP response from a GetGitHubAppWithResponse call
+func ParseGetGitHubAppResponse(rsp *http.Response) (*GetGitHubAppResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGitHubAppResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHubApp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSyncGitHubAppInstallationsResponse parses an HTTP response from a SyncGitHubAppInstallationsWithResponse call
+func ParseSyncGitHubAppInstallationsResponse(rsp *http.Response) (*SyncGitHubAppInstallationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SyncGitHubAppInstallationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHubApp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTestGitHubAppDeliveryResponse parses an HTTP response from a TestGitHubAppDeliveryWithResponse call
+func ParseTestGitHubAppDeliveryResponse(rsp *http.Response) (*TestGitHubAppDeliveryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TestGitHubAppDeliveryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHubAppRedelivery
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRelaySupersetRequestResponse parses an HTTP response from a RelaySupersetRequestWithResponse call
 func ParseRelaySupersetRequestResponse(rsp *http.Response) (*RelaySupersetRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -66054,6 +66807,39 @@ func ParseApplyProviderResponse(rsp *http.Response) (*ApplyProviderResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Provider
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseWaitPullRequestCIResponse parses an HTTP response from a WaitPullRequestCIWithResponse call
+func ParseWaitPullRequestCIResponse(rsp *http.Response) (*WaitPullRequestCIResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &WaitPullRequestCIResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PullRequestCI
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -69030,7 +69816,7 @@ type ServerInterface interface {
 	// GetAudio The audio providers with their switches, keys and state, and the order speech-to-text and text-to-speech each ask them in, with each one's model and usage
 	// (GET /gateway/audio)
 	GetAudio(w http.ResponseWriter, r *http.Request)
-	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 	// (GET /gateway/audio/models)
 	ListAudioModels(w http.ResponseWriter, r *http.Request)
 	// SetAudioOrder Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
@@ -69045,7 +69831,7 @@ type ServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(w http.ResponseWriter, r *http.Request, provider AudioProvider, name string)
-	// SetAudioModel Set the model a provider speaks with; only the owner
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 	// (PUT /gateway/audio/providers/{provider}/model)
 	SetAudioModel(w http.ResponseWriter, r *http.Request, provider AudioProvider)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
@@ -69213,6 +69999,15 @@ type ServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(w http.ResponseWriter, r *http.Request)
+	// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	// (GET /integrations/github/app)
+	GetGitHubApp(w http.ResponseWriter, r *http.Request)
+	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	// (POST /integrations/github/app/installations)
+	SyncGitHubAppInstallations(w http.ResponseWriter, r *http.Request)
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	// (POST /integrations/github/app/test-delivery)
+	TestGitHubAppDelivery(w http.ResponseWriter, r *http.Request)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	// (POST /integrations/superset/connections/{label}/api)
 	RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RelaySupersetRequestParams)
@@ -69426,6 +70221,9 @@ type ServerInterface interface {
 	// ApplyProvider Store a provider's YAML and the models it offers
 	// (PUT /providers/{name})
 	ApplyProvider(w http.ResponseWriter, r *http.Request, name Name)
+	// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	// (GET /pull-requests/ci)
+	WaitPullRequestCI(w http.ResponseWriter, r *http.Request, params WaitPullRequestCIParams)
 	// ListPushSubscriptions The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	// (GET /push/subscriptions)
 	ListPushSubscriptions(w http.ResponseWriter, r *http.Request)
@@ -74431,6 +75229,48 @@ func (siw *ServerInterfaceWrapper) ListIntegrations(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetGitHubApp operation middleware
+func (siw *ServerInterfaceWrapper) GetGitHubApp(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGitHubApp(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncGitHubAppInstallations operation middleware
+func (siw *ServerInterfaceWrapper) SyncGitHubAppInstallations(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncGitHubAppInstallations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TestGitHubAppDelivery operation middleware
+func (siw *ServerInterfaceWrapper) TestGitHubAppDelivery(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TestGitHubAppDelivery(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RelaySupersetRequest operation middleware
 func (siw *ServerInterfaceWrapper) RelaySupersetRequest(w http.ResponseWriter, r *http.Request) {
 
@@ -76864,6 +77704,52 @@ func (siw *ServerInterfaceWrapper) ApplyProvider(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ApplyProvider(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WaitPullRequestCI operation middleware
+func (siw *ServerInterfaceWrapper) WaitPullRequestCI(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params WaitPullRequestCIParams
+
+	// ------------- Required query parameter "pull_request" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "pull_request", r.URL.Query(), &params.PullRequest, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pull_request"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pull_request", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "wait" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "wait", r.URL.Query(), &params.Wait, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "wait"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "wait", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WaitPullRequestCI(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -79565,6 +80451,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.DeleteGitHostConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.PutGitHostConnection)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations", wrapper.ListIntegrations)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/github/app", wrapper.GetGitHubApp)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/github/app/installations", wrapper.SyncGitHubAppInstallations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/github/app/test-delivery", wrapper.TestGitHubAppDelivery)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/pull-requests/ci", wrapper.WaitPullRequestCI)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/client", wrapper.PutIntegrationClient)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins", wrapper.BeginIntegrationSignIn)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.GetIntegrationSignIn)
@@ -85899,6 +86789,120 @@ func (response ListIntegrationsdefaultJSONResponse) VisitListIntegrationsRespons
 	return err
 }
 
+type GetGitHubAppRequestObject struct {
+}
+
+type GetGitHubAppResponseObject interface {
+	VisitGetGitHubAppResponse(w http.ResponseWriter) error
+}
+
+type GetGitHubApp200JSONResponse GitHubApp
+
+func (response GetGitHubApp200JSONResponse) VisitGetGitHubAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGitHubAppdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetGitHubAppdefaultJSONResponse) VisitGetGitHubAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncGitHubAppInstallationsRequestObject struct {
+}
+
+type SyncGitHubAppInstallationsResponseObject interface {
+	VisitSyncGitHubAppInstallationsResponse(w http.ResponseWriter) error
+}
+
+type SyncGitHubAppInstallations200JSONResponse GitHubApp
+
+func (response SyncGitHubAppInstallations200JSONResponse) VisitSyncGitHubAppInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncGitHubAppInstallationsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SyncGitHubAppInstallationsdefaultJSONResponse) VisitSyncGitHubAppInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TestGitHubAppDeliveryRequestObject struct {
+}
+
+type TestGitHubAppDeliveryResponseObject interface {
+	VisitTestGitHubAppDeliveryResponse(w http.ResponseWriter) error
+}
+
+type TestGitHubAppDelivery200JSONResponse GitHubAppRedelivery
+
+func (response TestGitHubAppDelivery200JSONResponse) VisitTestGitHubAppDeliveryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TestGitHubAppDeliverydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response TestGitHubAppDeliverydefaultJSONResponse) VisitTestGitHubAppDeliveryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RelaySupersetRequestRequestObject struct {
 	Label  ConnectionLabel `json:"label"`
 	Params RelaySupersetRequestParams
@@ -88730,6 +89734,45 @@ type ApplyProviderdefaultJSONResponse struct {
 }
 
 func (response ApplyProviderdefaultJSONResponse) VisitApplyProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WaitPullRequestCIRequestObject struct {
+	Params WaitPullRequestCIParams
+}
+
+type WaitPullRequestCIResponseObject interface {
+	VisitWaitPullRequestCIResponse(w http.ResponseWriter) error
+}
+
+type WaitPullRequestCI200JSONResponse PullRequestCI
+
+func (response WaitPullRequestCI200JSONResponse) VisitWaitPullRequestCIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WaitPullRequestCIdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response WaitPullRequestCIdefaultJSONResponse) VisitWaitPullRequestCIResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -92360,7 +93403,7 @@ type StrictServerInterface interface {
 	// GetAudio The audio providers with their switches, keys and state, and the order speech-to-text and text-to-speech each ask them in, with each one's model and usage
 	// (GET /gateway/audio)
 	GetAudio(ctx context.Context, request GetAudioRequestObject) (GetAudioResponseObject, error)
-	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 	// (GET /gateway/audio/models)
 	ListAudioModels(ctx context.Context, request ListAudioModelsRequestObject) (ListAudioModelsResponseObject, error)
 	// SetAudioOrder Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
@@ -92375,7 +93418,7 @@ type StrictServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(ctx context.Context, request RemoveAudioKeyRequestObject) (RemoveAudioKeyResponseObject, error)
-	// SetAudioModel Set the model a provider speaks with; only the owner
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 	// (PUT /gateway/audio/providers/{provider}/model)
 	SetAudioModel(ctx context.Context, request SetAudioModelRequestObject) (SetAudioModelResponseObject, error)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
@@ -92543,6 +93586,15 @@ type StrictServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(ctx context.Context, request ListIntegrationsRequestObject) (ListIntegrationsResponseObject, error)
+	// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	// (GET /integrations/github/app)
+	GetGitHubApp(ctx context.Context, request GetGitHubAppRequestObject) (GetGitHubAppResponseObject, error)
+	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	// (POST /integrations/github/app/installations)
+	SyncGitHubAppInstallations(ctx context.Context, request SyncGitHubAppInstallationsRequestObject) (SyncGitHubAppInstallationsResponseObject, error)
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	// (POST /integrations/github/app/test-delivery)
+	TestGitHubAppDelivery(ctx context.Context, request TestGitHubAppDeliveryRequestObject) (TestGitHubAppDeliveryResponseObject, error)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	// (POST /integrations/superset/connections/{label}/api)
 	RelaySupersetRequest(ctx context.Context, request RelaySupersetRequestRequestObject) (RelaySupersetRequestResponseObject, error)
@@ -92756,6 +93808,9 @@ type StrictServerInterface interface {
 	// ApplyProvider Store a provider's YAML and the models it offers
 	// (PUT /providers/{name})
 	ApplyProvider(ctx context.Context, request ApplyProviderRequestObject) (ApplyProviderResponseObject, error)
+	// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	// (GET /pull-requests/ci)
+	WaitPullRequestCI(ctx context.Context, request WaitPullRequestCIRequestObject) (WaitPullRequestCIResponseObject, error)
 	// ListPushSubscriptions The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	// (GET /push/subscriptions)
 	ListPushSubscriptions(ctx context.Context, request ListPushSubscriptionsRequestObject) (ListPushSubscriptionsResponseObject, error)
@@ -97459,6 +98514,78 @@ func (sh *strictHandler) ListIntegrations(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GetGitHubApp operation middleware
+func (sh *strictHandler) GetGitHubApp(w http.ResponseWriter, r *http.Request) {
+	var request GetGitHubAppRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGitHubApp(ctx, request.(GetGitHubAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGitHubApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGitHubAppResponseObject); ok {
+		if err := validResponse.VisitGetGitHubAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SyncGitHubAppInstallations operation middleware
+func (sh *strictHandler) SyncGitHubAppInstallations(w http.ResponseWriter, r *http.Request) {
+	var request SyncGitHubAppInstallationsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SyncGitHubAppInstallations(ctx, request.(SyncGitHubAppInstallationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SyncGitHubAppInstallations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SyncGitHubAppInstallationsResponseObject); ok {
+		if err := validResponse.VisitSyncGitHubAppInstallationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TestGitHubAppDelivery operation middleware
+func (sh *strictHandler) TestGitHubAppDelivery(w http.ResponseWriter, r *http.Request) {
+	var request TestGitHubAppDeliveryRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TestGitHubAppDelivery(ctx, request.(TestGitHubAppDeliveryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TestGitHubAppDelivery")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TestGitHubAppDeliveryResponseObject); ok {
+		if err := validResponse.VisitTestGitHubAppDeliveryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RelaySupersetRequest operation middleware
 func (sh *strictHandler) RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RelaySupersetRequestParams) {
 	var request RelaySupersetRequestRequestObject
@@ -99492,6 +100619,32 @@ func (sh *strictHandler) ApplyProvider(w http.ResponseWriter, r *http.Request, n
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ApplyProviderResponseObject); ok {
 		if err := validResponse.VisitApplyProviderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// WaitPullRequestCI operation middleware
+func (sh *strictHandler) WaitPullRequestCI(w http.ResponseWriter, r *http.Request, params WaitPullRequestCIParams) {
+	var request WaitPullRequestCIRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.WaitPullRequestCI(ctx, request.(WaitPullRequestCIRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "WaitPullRequestCI")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(WaitPullRequestCIResponseObject); ok {
+		if err := validResponse.VisitWaitPullRequestCIResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -1010,7 +1010,8 @@ test("the Studio lists, filters, searches and pages its takes and videos", async
   await expect(page).toHaveURL(/\/studio\/takes\/tk_0000000000000100$/)
 })
 
-// Scenario: the owner opens a take's own page, makes it a video in 16:9 without captions, and the video's page
+// Scenario: the owner opens a take's own page, makes it a video in 16:9 without captions, spoken at 1.2× (issue
+// #1285), and the video's page
 // follows revision 1: queued, then voiced and cut scene by scene, then made. The owner plays it, edits a line, writes
 // a note and asks for changes, which makes revision 2; once it is made the owner approves it, and the switch shows
 // revision 1 with the note. A video that failed says where and why, with Make again.
@@ -1031,11 +1032,18 @@ test("a take is made into a video the owner reviews and approves", async ({ page
   await dialog.getByRole("switch", { name: "Captions" }).click()
   await dialog.getByRole("button", { name: "16:9, wide" }).click()
   await expect(dialog).toContainText("1280 × 720")
+  const speed = dialog.getByRole("combobox", { name: "Speed" })
+  await expect(speed).toContainText("Normal (the provider's)")
+  await speed.click()
+  await shot(page, "studio-make-video-speed")
+  await page.getByRole("option", { name: "1.2×" }).click()
+  await expect(speed).toContainText("1.2×")
+  await speed.scrollIntoViewIfNeeded()
   await shot(page, "studio-make-video")
   await dialog.getByRole("button", { name: "Make video" }).click()
 
   await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
-  expect(server.made).toEqual([{ take: takeId, captions: false, aspect: "16:9" }])
+  expect(server.made).toEqual([{ take: takeId, captions: false, aspect: "16:9", speed: 1.2 }])
   expect(server.makeKeys[0]).toMatch(/^[0-9a-f-]{36}$/)
 
   const view = page.getByTestId("video-view")
@@ -1151,6 +1159,23 @@ const showSample = (look: Locator) =>
     )
 
 const lookOf = (sample: Sample) => (sample.body as { look?: unknown }).look
+
+// Scenario: on the light theme, the speed of a video is chosen from Soniox's range by tenths (issue #1285, row 3).
+test("the make dialog offers a video's speed on the light theme", async ({ page }) => {
+  await fakeServer(page)
+  await page.addInitScript(`localStorage.setItem("theme", "light")`)
+  await page.goto(`/studio/takes/${takeId}`)
+
+  await page.getByTestId("take-view").getByRole("button", { name: "Make video" }).click()
+  const dialog = page.getByRole("dialog", { name: "Make a video" })
+  const speed = dialog.getByRole("combobox", { name: "Speed" })
+  await speed.scrollIntoViewIfNeeded()
+  await speed.click()
+  for (const v of ["0.7×", "0.8×", "0.9×", "1.1×", "1.2×", "1.3×"]) {
+    await expect(page.getByRole("option", { name: v })).toBeVisible()
+  }
+  await shot(page, "studio-make-video-speed-light")
+})
 
 // Scenario: the owner opens a take the agent said no line on (#1028). Make video is disabled, described by the
 // line that says why and how to get steps, in place of the server's refusal; the looks and their sample are never

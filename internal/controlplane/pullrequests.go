@@ -74,6 +74,12 @@ func followPullRequests(ctx context.Context, svc *orchestration.Service, tokens 
 // and was told to wait for the checks itself (node/runner's prompt).
 func (c connections) readPullRequest(ctx context.Context, f orchestration.FollowedRequest,
 ) (githost.Request, githost.RequestState, error) {
+	// A repository the owner's GitHub App covers is read with the App's token, which counts against the App's own
+	// limit (issue #1262).
+	if r, st, ok, err := c.app.FindRequest(ctx, f.Kind, f.Repo, f.Branch, f.Hint); ok {
+		return r, st, err
+	}
+
 	client, token, err := c.repoClient(ctx, f.Repo)
 	if err != nil {
 		return githost.Request{}, githost.RequestState{}, err
@@ -95,8 +101,10 @@ func (c connections) readPullRequest(ctx context.Context, f orchestration.Follow
 }
 
 // reviewStatusHost reads pull requests and posts the `review` status with the token of each repository's
-// Connection, as readPullRequest reads (issue #1279). A status links its Task on the control plane's Team page
-// when publicURL is set.
+// Connection (issue #1279); a branch's pull request is found as readPullRequest finds it, with the GitHub App's
+// token where the App covers the repository. The App asks only to read statuses (githubapp.Permissions), so the
+// status is posted with the Connection's token; a repository without one gets none. A status links its Task on
+// the control plane's Team page when publicURL is set.
 func (c connections) reviewStatusHost(publicURL string) orchestration.ReviewStatusHost {
 	return orchestration.ReviewStatusHost{
 		Find: c.readPullRequest,

@@ -6,6 +6,7 @@ import {
   accountState,
   inUse,
   limitsWhy,
+  restLabel,
   subscriptionState,
   subscriptionsOf,
   tryDue,
@@ -32,6 +33,35 @@ const provider = (name: string, kind: Provider["kind"], models: string[] = []): 
   models,
   source: "",
   updated_at: later,
+})
+
+describe("why an account rests", () => {
+  // Issue #1305, row 6: the code in words, with when it ends; the provider's words stay as the title.
+  it("says each code in words", () => {
+    const at = until(later, now)
+    const cases = [
+      ["usage_limit", `Usage limit, resets ${at}`, "warning"],
+      ["rate_limit", `Rate limited until ${at}`, "warning"],
+      ["billing", `Credits spent until ${at}`, "warning"],
+      ["auth", `Key refused until ${at}`, "destructive"],
+      ["overloaded", `Provider overloaded until ${at}`, "warning"],
+      ["unknown", `Resting until ${at}`, "warning"],
+    ] as const
+
+    for (const [code, label, tone] of cases) {
+      const words = "5-hour usage limit reached. Resets in 2hr 15min."
+      expect(
+        accountState(
+          account("a", { cooling_until: later, cooling_code: code, cooling_reason: words }),
+          now,
+        ),
+      ).toEqual({ label, tone, why: words })
+    }
+  })
+
+  it("says only that it rests when the server names no code", () => {
+    expect(restLabel(undefined, later, now)).toBe(`Resting until ${until(later, now)}`)
+  })
 })
 
 describe("an account's state", () => {

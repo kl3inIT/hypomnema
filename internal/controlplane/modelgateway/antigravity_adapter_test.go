@@ -307,6 +307,7 @@ func TestASuspendedAccountIsTakenOutOfUseAndNoCapacityIsNot(t *testing.T) {
 
 	until, reason := account.parked()
 	assert.WithinDuration(t, time.Now().Add(24*time.Hour), until, time.Minute)
+	assert.Equal(t, modelgateway.CoolingAuth, account.lastCode(), "Google refuses the account itself")
 	assert.Contains(t, reason, "suspended by Google")
 	assert.Contains(t, reason, "https://support.google.com/appeal")
 

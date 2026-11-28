@@ -2,7 +2,6 @@ package controlplane
 
 import (
 	"context"
-	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
@@ -39,6 +38,6 @@ type imageSettings struct {
 	server *modelgateway.Server
 }
 
-func (i imageSettings) ImageRests(ctx context.Context) (map[string]map[string]time.Time, error) {
+func (i imageSettings) ImageRests(ctx context.Context) (map[string]map[string]modelgateway.Rest, error) {
 	return i.server.ImageRests(ctx)
 }

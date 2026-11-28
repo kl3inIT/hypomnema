@@ -3,6 +3,7 @@ package clientcli
 import (
 	"flag"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
@@ -229,6 +230,30 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: hostsAdd,
+	},
+	{
+		name: "hosts app", summary: "the owner's GitHub App: whether it is registered, the repositories it is " +
+			"installed on and the last delivery it was sent; it is registered in the browser at " +
+			"/api/v1/integrations/github/app/setup (owner)",
+		flags: jsonFlag, run: hostsApp,
+	},
+	{
+		name: "hosts app sync", summary: "read again from GitHub the repositories the GitHub App is installed on (owner)",
+		flags: jsonFlag, run: hostsAppSync,
+	},
+	{
+		name: "hosts app test", summary: "ask GitHub to send the GitHub App's latest delivery again, as a test (owner)",
+		flags: jsonFlag, run: hostsAppTest,
+	},
+	{
+		name: "ci wait", args: "<pr>", min: 1, max: 1,
+		summary: "wait for a pull request's required checks to end, on the GitHub App's events, without calling " +
+			"GitHub; exits 0 when they passed or it merged, 1 when one failed or it closed, 8 when still pending at " +
+			"--timeout; a repository the App is not installed on is waited for with `gh pr checks --watch`",
+		flags: func(fs *flag.FlagSet) {
+			fs.Duration("timeout", 2*time.Hour, "give up after this long (0: no limit)")
+		},
+		run: ciWait,
 	},
 	{
 		name: "hosts rm", args: "<host>", min: 1, max: 1,
@@ -857,6 +882,7 @@ var commands = []command{
 			fs.String("aspect", "", "9:16, 16:9 or 886x1920 (default the template's first, else 9:16)")
 			fs.Bool("no-captions", false, "make it without captions")
 			fs.String("voice", "", "the voice to speak with (default each provider's, from `audio voice`)")
+			fs.Float64("speed", 0, "the speed every line is spoken at, 0.7 to 1.3 (left out: the provider's own)")
 			lookFlags(fs)
 			musicFlags(fs)
 			fs.String("key", "", "idempotency key; repeat a make whose result was lost with the same key")

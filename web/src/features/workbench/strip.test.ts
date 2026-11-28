@@ -11,6 +11,7 @@ const tab = (id: string, more: Partial<BrowserTab> = {}): BrowserTab => ({
   url: "https://example.com/",
   title: "Example",
   views: 0,
+  held: false,
   ...more,
 })
 

@@ -191,6 +191,9 @@ type Node struct {
 	UpdatedAt time.Time
 }
 
+// CoolingRateLimit is the code of an account a node's Dispatch cooled after a rate limit (CoolAccount).
+const CoolingRateLimit = "rate_limit"
+
 // AccountStatus says whether placement may use an account.
 type AccountStatus string
 
@@ -209,7 +212,10 @@ type Account struct {
 	Position int
 	// CoolingUntil is set while a rate limit cools the account down.
 	CoolingUntil *time.Time
-	// CoolingReason says why: a rate limit, or what the gateway recorded.
+	// CoolingCode says why, in one closed set (issue #1305): usage_limit, rate_limit, billing, auth, overloaded or
+	// unknown; CoolingRateLimit for a node's Dispatch that hit a limit.
+	CoolingCode string
+	// CoolingReason is the provider's own words for it, or rate_limited for a node's Dispatch.
 	CoolingReason string
 	// The rest is set for an account the owner logged in through the control
 	// plane (account_logins.go). SecretRef names the secret holding its tokens.

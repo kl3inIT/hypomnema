@@ -18,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
@@ -682,6 +683,24 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 	})
 	if err != nil {
 		s.answerErr(w, r, err)
+
+		return
+	}
+
+	// The message sent for an item is recorded on it (issue #1206): the one way a message is the Bot's own work when
+	// it closes the item, since the store cannot tell the Bot's message from the owner's on his account.
+	if attempt != "" && sent.ID != "" {
+		link := inboxstore.Link{Kind: m.integration + "_message", Ref: sent.ID, Account: label, Chat: in.Chat}
+		if _, err := s.store.Inbox().RecordSent(ctx, inboxstore.Change{
+			Actor: inboxstore.Actor{Kind: inboxstore.Bot, ID: a.bot}, ID: strings.TrimSpace(in.Todo), Attempt: attempt,
+		}, link); err != nil {
+			s.logger.WarnContext(ctx, "a message sent for an Inbox item could not be recorded on it",
+				slog.String("event", "agentapi.inbox_sent_unrecorded"), slog.String("todo", in.Todo),
+				slog.String("error", err.Error()))
+		}
+
+		answerTool(w, fmt.Sprintf("sent in %s as the owner: message %s, recorded on item %s as %s with account %s "+
+			"and chat %s", name, sent.ID, strings.TrimSpace(in.Todo), link.Kind, label, in.Chat), false)
 
 		return
 	}

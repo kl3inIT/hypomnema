@@ -127,7 +127,9 @@ func (b *byRuntime) Token(
 	return b.of(runtime).Token(ctx, runtime, session, skip...)
 }
 
-func (b *byRuntime) FirstFree(ctx context.Context, runtime string, reset func(string) time.Time) (time.Time, error) {
+func (b *byRuntime) FirstFree(
+	ctx context.Context, runtime string, reset func(string) modelgateway.Rest,
+) (modelgateway.Rest, error) {
 	return b.of(runtime).FirstFree(ctx, runtime, reset)
 }
 
@@ -144,8 +146,10 @@ func (b *byRuntime) MarkTokenRefused(_ context.Context, token modelgateway.Accou
 	return nil
 }
 
-func (b *byRuntime) CoolDown(ctx context.Context, runtime, id string, until time.Time, reason string) error {
-	return b.of(runtime).CoolDown(ctx, runtime, id, until, reason)
+func (b *byRuntime) CoolDown(
+	ctx context.Context, runtime, id string, until time.Time, code modelgateway.CoolingCode, reason string,
+) error {
+	return b.of(runtime).CoolDown(ctx, runtime, id, until, code, reason)
 }
 
 func (b *byRuntime) Quota(context.Context, string) (map[string]float64, error) {
@@ -313,7 +317,8 @@ func TestAZenKeyWithNoBalanceRestsAnHourAndTheNextKeyServes(t *testing.T) {
 
 			rest, reason := subs.rest(orchestration.OpenCodeZenRuntime, "acc_1")
 			assert.WithinDuration(t, time.Now().Add(time.Hour), rest, time.Minute, "the key rests an hour")
-			assert.Equal(t, "OpenCode Zen balance or budget used up", reason)
+			assert.NotEmpty(t, reason, "Zen's own words")
+			assert.Equal(t, modelgateway.CoolingBilling, subs.of(orchestration.OpenCodeZenRuntime).codeOf("acc_1"))
 
 			goRest, _ := subs.rest(orchestration.OpenCodeGoRuntime, "acc_1")
 			assert.True(t, goRest.IsZero(), "the Go key of the same id does not rest")
@@ -346,7 +351,8 @@ func TestZenMarksA401AndTriesTheNextKey(t *testing.T) {
 
 	rest, reason := subs.rest(orchestration.OpenCodeZenRuntime, "acc_1")
 	assert.WithinDuration(t, time.Now().Add(2*time.Minute), rest, 30*time.Second, "a refused key's usual rest")
-	assert.Equal(t, "OpenCode Zen refused the key", reason)
+	assert.Equal(t, "invalid key", reason, "Zen's own words")
+	assert.Equal(t, modelgateway.CoolingAuth, subs.of(orchestration.OpenCodeZenRuntime).codeOf("acc_1"))
 }
 
 // Scenario: the Go key's monthly allowance is used up. It rests until Go's

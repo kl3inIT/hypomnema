@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/node/githubapp"
 	"github.com/kl3inIT/hypomnema/internal/node/gitssh"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
@@ -66,7 +68,26 @@ func githubPushRemote(o nodeproto.Offer) bool {
 }
 
 func (s *Supervisor) repoSource(o nodeproto.Offer) (worktree.Source, error) {
-	src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo, o.RepoToken)
+	return s.repoSourceWith(o, o.RepoToken)
+}
+
+// freshSource is the repository with the offer's token, or, when the offer is the owner's GitHub App's, which
+// carries none, with a fresh token of the App's asked of the agent API now (issue #1262).
+func (s *Supervisor) freshSource(ctx context.Context, o nodeproto.Offer) (worktree.Source, error) {
+	if !o.GitHubApp {
+		return s.repoSource(o)
+	}
+
+	token, err := (githubapp.Client{URL: s.URL, Key: o.AgentKey, HTTP: &http.Client{Timeout: time.Minute}}).Token(ctx)
+	if err != nil {
+		return worktree.Source{}, err
+	}
+
+	return s.repoSourceWith(o, token)
+}
+
+func (s *Supervisor) repoSourceWith(o nodeproto.Offer, token string) (worktree.Source, error) {
+	src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo, token)
 	src.Identity = githost.Identity{Name: o.GitName, Email: o.GitEmail}
 	if err != nil || o.RepoSSHURL == "" {
 		return src, err
@@ -115,7 +136,7 @@ func (s *Supervisor) publishBranch(ctx context.Context, w *Worker) (string, erro
 	if !githubPushRemote(o) {
 		return "", errors.New("the configured SSH destination does not match this Run's GitHub repository")
 	}
-	src, err := s.repoSource(o)
+	src, err := s.freshSource(ctx, o)
 	if err != nil {
 		return "", err
 	}

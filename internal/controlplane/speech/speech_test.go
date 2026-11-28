@@ -59,8 +59,8 @@ func sonioxKeys(names ...string) func(context.Context) ([]speech.Key, error) {
 	}
 }
 
-// Scenario: the owner has two Soniox keys. The first is rate limited: it
-// rests for the minute Soniox named and the second key answers at once;
+// Scenario: the owner has two Soniox keys. The first is rate limited: asked
+// again twice, it rests for the minute Soniox named and the second key answers;
 // while the first rests the next call goes to the second only. When both
 // rest, the call is refused until the first is free, and no key is asked.
 func TestAKeyThatIsLimitedRestsWhileTheNextAnswers(t *testing.T) {
@@ -73,7 +73,8 @@ func TestAKeyThatIsLimitedRestsWhileTheNextAnswers(t *testing.T) {
 		Settings: func(context.Context) (speech.Settings, error) {
 			return speech.Settings{Off: []string{"elevenlabs"}}, nil
 		},
-		Now: func() time.Time { return now },
+		Now:  func() time.Time { return now },
+		Wait: func(context.Context, time.Duration) error { return nil },
 	})
 
 	out, err := svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi"})
@@ -84,7 +85,11 @@ func TestAKeyThatIsLimitedRestsWhileTheNextAnswers(t *testing.T) {
 
 	_, err = svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"speech-soniox-value", "speech-soniox-2-value", "speech-soniox-2-value"}, tts.asked)
+	// The first key is asked again twice after its Retry-After before it rests (retry.go; review of #1302).
+	assert.Equal(t, []string{
+		"speech-soniox-value", "speech-soniox-value", "speech-soniox-value", "speech-soniox-2-value",
+		"speech-soniox-2-value",
+	}, tts.asked)
 
 	links, _, err := svc.Chain(t.Context())
 	require.NoError(t, err)
@@ -107,7 +112,7 @@ func TestAKeyThatIsLimitedRestsWhileTheNextAnswers(t *testing.T) {
 
 	require.ErrorAs(t, err, &resting)
 	assert.Equal(t, now.Add(time.Minute), resting.Until)
-	assert.Len(t, tts.asked, 4, "no key was asked while both rest")
+	assert.Len(t, tts.asked, 8, "no key was asked while both rest")
 }
 
 // Scenario: with no key for any provider that is on, a call says to add one;

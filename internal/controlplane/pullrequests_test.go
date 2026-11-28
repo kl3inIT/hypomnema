@@ -45,6 +45,7 @@ func TestAFollowedPullRequestIsReadWithItsRepositorysToken(t *testing.T) {
 	assert.Equal(t, hint, r)
 	assert.Equal(t, githost.RequestState{
 		Status: githost.RequestOpen, Head: "b5abccde", Branch: "hyp/tsk_a", AutoMerge: true, Failed: []string{"Required"},
+		Checks: 1, Failing: []string{"Required"},
 	}, st)
 	assert.Contains(t, hosts.askedSoFar(), "api.github.com/graphql ghp_octo")
 }

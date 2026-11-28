@@ -48,6 +48,14 @@ func (s *Service) AudioSettings(ctx context.Context) (speech.Settings, error) {
 
 			out.Models[r.Provider] = r.TtsModel
 		}
+
+		if r.SttModel != "" {
+			if out.STTModels == nil {
+				out.STTModels = map[string]string{}
+			}
+
+			out.STTModels[r.Provider] = r.SttModel
+		}
 	}
 
 	placed := func(position func(store.GatewayAudioProvider) sql.NullInt64) []string {
@@ -123,26 +131,38 @@ func (s *Service) SetAudioVoice(ctx context.Context, provider, voice string) err
 // MaxModel bounds a provider's model id.
 const MaxModel = 100
 
-// SetAudioModel keeps the text-to-speech model a provider speaks with (issue #1283, row 1), as the owner picked it
-// from the provider's list; empty: its default. Only ElevenLabs has a choice: Soniox has one model.
-func (s *Service) SetAudioModel(ctx context.Context, provider, model string) error {
+// SetAudioModel keeps the model a provider is asked with for a kind, as the owner picked it from the provider's
+// list: its text-to-speech model (issue #1283, row 1; Soniox's too, issue #1285, row 1), or Soniox's transcription
+// model (issue #1285, row 1); empty: its default. ElevenLabs hears with Scribe alone.
+func (s *Service) SetAudioModel(ctx context.Context, provider, kind, model string) error {
 	model = strings.TrimSpace(model)
 
 	switch {
 	case !slices.Contains(speech.Providers(), provider):
 		return fmt.Errorf("%w: no audio provider %q", ErrNotFound, provider)
-	case provider != speech.ProviderElevenLabs:
-		return fmt.Errorf("%w: %s speaks with one model, %s", ErrInvalid, provider,
-			speech.Model(provider, speech.KindTTS))
+	case !slices.Contains(speech.Kinds(), kind):
+		return fmt.Errorf("%w: the kind is %s", ErrInvalid, strings.Join(speech.Kinds(), " or "))
+	case kind == speech.KindSTT && provider != speech.ProviderSoniox:
+		return fmt.Errorf("%w: %s hears with one model, %s", ErrInvalid, provider,
+			speech.Model(provider, speech.KindSTT))
 	case len(model) > MaxModel || strings.ContainsFunc(model, func(r rune) bool { return r <= ' ' }):
 		return fmt.Errorf("%w: a model is an id of at most %d characters, without spaces", ErrInvalid, MaxModel)
 	}
 
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := q.SetGatewayAudioModel(ctx, store.SetGatewayAudioModelParams{
-			Provider: provider, Model: model, Now: now,
-		}); err != nil {
-			return fmt.Errorf("setting audio provider %s's model: %w", provider, err)
+		var err error
+		if kind == speech.KindSTT {
+			err = q.SetGatewayAudioSTTModel(ctx, store.SetGatewayAudioSTTModelParams{
+				Provider: provider, Model: model, Now: now,
+			})
+		} else {
+			err = q.SetGatewayAudioModel(ctx, store.SetGatewayAudioModelParams{
+				Provider: provider, Model: model, Now: now,
+			})
+		}
+
+		if err != nil {
+			return fmt.Errorf("setting audio provider %s's %s model: %w", provider, kind, err)
 		}
 
 		return nil

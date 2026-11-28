@@ -66,8 +66,8 @@ func (s *theImageSettings) ImageCounts(context.Context, time.Time) (map[string]m
 	}}, nil
 }
 
-func (s *theImageSettings) ImageRests(context.Context) (map[string]map[string]time.Time, error) {
-	return map[string]map[string]time.Time{}, nil
+func (s *theImageSettings) ImageRests(context.Context) (map[string]map[string]modelgateway.Rest, error) {
+	return map[string]map[string]modelgateway.Rest{}, nil
 }
 
 func (s *theImageSettings) SetImageProvider(_ context.Context, provider string, on bool) error {

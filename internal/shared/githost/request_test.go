@@ -39,8 +39,10 @@ func TestReadRequest(t *testing.T) {
 
 	got, err := ReadRequest(t.Context(), &http.Client{Transport: host}, GitHub, r, "the-token")
 	require.NoError(t, err)
-	assert.Equal(t, RequestState{Status: RequestOpen, Head: "abc1234def", Conflict: true, Failed: []string{"Required"}},
-		got, "Race passed on its rerun; Web is pending; CodeRabbit is not required")
+	assert.Equal(t, RequestState{
+		Status: RequestOpen, Head: "abc1234def", Conflict: true, Failed: []string{"Required"},
+		Checks: 3, Pending: []string{"Web"}, Failing: []string{"Required"},
+	}, got, "Race passed on its rerun; Web is pending; CodeRabbit is not required")
 
 	assert.Equal(t, "https://api.github.com/graphql", host.asked.URL.String())
 	assert.Equal(t, http.MethodPost, host.asked.Method)

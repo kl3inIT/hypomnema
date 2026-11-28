@@ -33,9 +33,10 @@ import (
 //
 // Audio and text are never logged.
 
-// SonioxRealtimeModel is the realtime model the meetings stream to: MemoryOS's (SonioxVoiceAdapter, stt-rt-v5), the
-// realtime sibling of SonioxSTTModel.
-const SonioxRealtimeModel = "stt-rt-v5"
+// SonioxRealtimeModel is the realtime model the meetings stream to, the realtime sibling of SonioxSTTModel: Soniox's
+// newest (docs.soniox.com /stt/models: stt-rt-v5 is removed on 2026-12-15; pipecat services/soniox/stt.py:122
+// defaults to it; issue #1285, row 1).
+const SonioxRealtimeModel = "stt-rt-v6"
 
 // The realtime stream's format and timings (SonioxLiveTranscription's).
 const (

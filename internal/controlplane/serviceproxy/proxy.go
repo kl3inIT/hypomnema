@@ -117,7 +117,10 @@ type Config struct {
 	Agents Agents
 	Store  Store
 	Token  Token
-	Logger *slog.Logger
+	// RepoToken gives the owner's GitHub App's token for a request to GitHub that names a repository the App is
+	// installed on, in place of the Connection's (issue #1262); nil: never.
+	RepoToken RepoToken
+	Logger    *slog.Logger
 	// Upstream sends a request on to the service; nil is a plain transport.
 	Upstream http.RoundTripper
 	// Hold is how long a request waits for the owner; zero is DefaultHold.
@@ -985,6 +988,8 @@ func (p *Proxy) upstream(ctx context.Context, req *http.Request, body []byte, ac
 		if refused := p.signAgain(ctx, req, upstream, body, s); refused != "" {
 			return nil, http.StatusForbidden, refused
 		}
+	} else if token, ok := p.appToken(ctx, req, body, s); !action.Plumbing && ok {
+		upstream.Header.Set("Authorization", "Bearer "+token)
 	} else if !action.Plumbing {
 		token, err := p.cfg.Token(ctx, s.integration, s.label)
 		if err != nil {

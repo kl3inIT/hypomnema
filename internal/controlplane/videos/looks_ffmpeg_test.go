@@ -391,7 +391,7 @@ func mainPipeline(t *testing.T, tools ffmpeg.Tools, r *rig, rev Revision) string
 
 	for _, line := range rev.Lines {
 		clips = append(clips, filepath.Join(r.dir, voiceDir, voiceHash(line, rev.Provider, rev.Model, rev.UsedVoice,
-			Language)+"."+clipFormat))
+			Language, rev.Speed)+"."+clipFormat))
 	}
 
 	work := t.TempDir()
