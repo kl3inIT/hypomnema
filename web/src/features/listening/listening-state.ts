@@ -110,8 +110,9 @@ export function itemsLine(source: ListeningSource) {
 // "before" when the source worked again after it, "now" otherwise; null when there is none.
 export function failureShown(source: ListeningSource): "now" | "before" | null {
   if (!source.last_error) return null
-  if (source.group === "broken" || source.group === "unverified" || !source.last_success_at)
-    return "now"
+  // The dates decide, not the group: a source not read for a day is unverified, yet its error older than its last
+  // success is still from before it worked again (review round 2 of PR #1322).
+  if (!source.last_success_at) return "now"
 
   return new Date(source.last_error.at) > new Date(source.last_success_at) ? "now" : "before"
 }

@@ -594,7 +594,9 @@ type FailedError struct {
 }
 
 // timedOut says a provider did not answer in time: its deadline or the network's passed, or it answered 408 or 504,
-// as the listening sources read an answer's status (listening.HTTPFailure).
+// the statuses the listening sources already read as a timeout (listening.HTTPFailure,
+// internal/controlplane/listening/failure.go:129); Agent-Reach reads an HTTP status and a network timeout apart
+// (runtime/result.py:68-79).
 func timedOut(err error) bool {
 	var refused *providerError
 	if errors.As(err, &refused) {

@@ -148,6 +148,14 @@ func webFailure(err error) error {
 
 	f := &SourceError{Code: CodeBroken, Detail: oneLine(failed.Error())}
 
+	// Whatever code the failure takes, a provider that timed out or rests for a rate limit or a spent quota comes
+	// back by itself; that is kept up to whether the owner is told (review round 2 of PR #1322: one 504 or 429 among
+	// four 500s is no broken source to report). A refusal is not: it rests for hours and may need a person.
+	f.transient = failed.Timeouts > 0
+	for _, r := range failed.Rests {
+		f.transient = f.transient || r.Why != websearch.RestRefused
+	}
+
 	// Providers that answered with nothing are not failures; a failure that neither rested nor timed out makes it
 	// broken. A provider that did not answer in time is a timeout, which comes back by itself, kept as one through the
 	// chain (issue #1290, review round 1; Agent-Reach classifies each backend's timeout as TIMEOUT,

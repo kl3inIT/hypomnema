@@ -38,11 +38,12 @@ import (
 // on its card, which first clears its rests, as an explicit doctor run clears Reddit's path skips ("a doctor run is
 // how a user says 'try that path again'", doctor.py:2945-2950).
 //
-// When a source breaks the owner is told once, and told again only after a reading read items in between: postiz
-// flags a channel whose refresh failed only where the flag was not set, only the attempt that set it notifies
-// (integration.repository.ts:603-616, refresh.integration.service.ts:148-166), and only a refresh that returns an
-// access token clears it (refresh.integration.service.ts:20-54); a clean zero is no such proof. A failure that rests
-// and comes back by itself is not told: a rate limit, a spent quota or a timeout of any backend it tried (tells).
+// When a source breaks the owner is told once, and told again only after a reading read items in between, passed or
+// read in part: postiz flags a channel whose refresh failed only where the flag was not set, only the attempt that
+// set it notifies (integration.repository.ts:603-616, refresh.integration.service.ts:148-166), and only a refresh
+// that returns an access token clears it (refresh.integration.service.ts:20-54); a clean zero is no such proof. A
+// failure that may come back by itself is not told: any backend it tried, or any provider behind one, failed with a
+// rate limit, a spent quota or a timeout (reading.tells).
 
 // The four groups of the page.
 const (
@@ -151,7 +152,7 @@ func (r reading) tells() bool {
 	}
 
 	for _, a := range r.tried {
-		if !tells(Code(a.Result)) {
+		if !tells(Code(a.Result)) || a.transient {
 			return false
 		}
 	}
@@ -273,6 +274,12 @@ func (s *Service) record(ctx context.Context, r reading) {
 				Source: r.source, Code: string(r.code), Detail: r.detail, Backend: r.backend, Now: now,
 			}); err != nil {
 				return err
+			}
+
+			// A read in part that read items proves the source reads again, as a passed one with items does: it
+			// clears the flag too (review round 2 of PR #1322).
+			if r.result == resultPartial && r.items > 0 {
+				return q.ClearListeningTold(ctx, store.ClearListeningToldParams{Source: r.source, Now: now})
 			}
 		}
 

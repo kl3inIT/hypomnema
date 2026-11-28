@@ -94,6 +94,8 @@ type Attempt struct {
 	Until string `json:"until,omitempty"`
 	// Skipped: not asked this time, because it rests, its probe failed or its site already refused.
 	Skipped bool `json:"skipped,omitempty"`
+	// transient: one of its providers failed in a way that comes back by itself (SourceError.transient).
+	transient bool
 }
 
 const resultOK = "ok"
@@ -134,7 +136,7 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 
 		id := p.Name + "/" + b.Name
 		skip := func(f *SourceError) {
-			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail, Skipped: true}
+			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail, Skipped: true, transient: f.transient}
 			if !f.Until.IsZero() {
 				a.Until = f.Until.UTC().Format(time.RFC3339)
 			}
@@ -171,6 +173,14 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 		}
 
 		res, err := b.Search(ctx, req)
+
+		// And again once it answered, before the stream is settled and the read kept: a source switched off during its
+		// last request answers nothing (review round 2 of PR #1322).
+		if s.switchedOff(ctx, p.Name) {
+			st.off = true
+
+			return st
+		}
 		if err != nil {
 			f := AsFailure(err)
 			if f.resting {
@@ -195,7 +205,7 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 				until = s.rest(id, f)
 			}
 
-			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail}
+			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail, transient: f.transient}
 			if !until.IsZero() {
 				a.Until = until.UTC().Format(time.RFC3339)
 			}

@@ -1,12 +1,13 @@
 -- Social listening's sources as the owner sets them and as they last read (issue #1290, the Social listening page).
 -- listening_sources holds the owner's switch of a source, whether he was told it broke (postiz's refreshNeeded,
--- flagged once and cleared at the next success: prisma/schema.prisma:388, integration.repository.ts:603-616), and
+-- flagged once and cleared by the next reading that read items: prisma/schema.prisma:388,
+-- integration.repository.ts:603-616, refresh.integration.service.ts:20-54), and
 -- its last success and last error (harken's source_metrics last_success_at, last_error_at and last_error,
 -- store.py:102-121). listening_backends holds the owner's order of a source's backends (as
 -- gateway_search_providers.position orders the keyed web search providers) and each backend's last answer.
 -- It also holds how its last reading ended and how the one right before it ended, a real search's or a live
 -- test's, for its group and "regressed" (Agent-Reach keeps each check's result and the previous one,
--- runtime/manage.py:189-216). listening_readings is the items real searches read each UTC day, kept 8 days, for its
+-- runtime/manage.py:189-216). listening_readings is the items real searches read each UTC day, kept 7 days, for its
 -- items this week.
 
 -- +goose Up

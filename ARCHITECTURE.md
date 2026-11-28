@@ -5033,8 +5033,9 @@ writes no prose (last30days SKILL.md LAW 7).
   a press anywhere on it tests the source again; "Test again" does the same on a card read in part or not for a day.
 - The owner's switches and backend orders are kept in `listening_sources.off` and `listening_backends.position`; a
   source that is off is neither read nor may a plan name it, and `listen_search` lists only the sources that are on
-  (none on: no tool). The switch is read again before each read starts: a search under way starts no read of a
-  source switched off meanwhile, answers its coverage as `off` and none of its items, and keeps no reading of it.
+  (none on: no tool). The switch is read again before each read starts and again once each read answered: a search
+  under way starts no read of a source switched off meanwhile, and a source switched off during its last request is
+  answered as coverage `off` with none of its items, and no reading of it is kept.
   Each reading, a real search's coverage or a live test's, is kept: the source's last and previous results, last
   success and last error (`listening_sources`), each backend's last answer (`listening_backends`), and per UTC day
   the items real searches read (`listening_readings`, 7 days). API, only the owner's: `GET /gateway/listening`,
@@ -5047,9 +5048,10 @@ writes no prose (last30days SKILL.md LAW 7).
   gateway key.
 - The owner is told once when a source breaks, as a disk alert is: a line in the main Bot's main chat and a card
   through its Lark Channels, with the code, what happened and the fix. A reading that fails sets
-  `listening_sources.told` only where it was not set, and only that reading tells; a reading that read items clears
-  it (a clean zero does not). A reading is not told when any backend it tried failed with a rate limit, a spent
-  quota or a timeout, which come back by themselves.
+  `listening_sources.told` only where it was not set, and only that reading tells; a reading that read items, passed
+  or read in part, clears it (a clean zero does not). A reading is not told when any backend it tried, or any web
+  search provider behind one, failed with a rate limit, a spent quota or a timeout, which come back by themselves,
+  whatever code the backend's failure takes (one provider's 504 or 429 among four 500s is not told).
 - The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
   `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
   agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
