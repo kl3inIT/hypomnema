@@ -653,6 +653,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	listen := listening.New(listening.Config{
 		Platforms: listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient),
 		Logger:    logger, DB: db, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
+		Muse: listeningMuse(musePool),
 		Tell: func(ctx context.Context, b listening.Broken) {
 			if tellListening != nil {
 				tellListening(ctx, b)
@@ -662,7 +663,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	agents.WithWeb(agentsWeb).
 		// Social listening (issues #1287, #1289): keyless sources, its web searches, page reads and model calls
-		// (issue #1306) on the caller's key, the pages a search names read through the web fetch's address check.
+		// (issue #1306) on the caller's key, the pages a search names read through the web fetch's address check; Facebook, Instagram and Threads through
+		// the Muse pool (issue #1292).
 		WithListening(agentListening{
 			svc: listen,
 			web: agentsWeb,

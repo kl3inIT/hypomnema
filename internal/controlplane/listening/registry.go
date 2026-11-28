@@ -30,7 +30,9 @@ type Backend struct {
 
 // Result is what a backend read: the items, and a note on how (which provider answered, which step failed).
 type Result struct {
-	Items       []Item
+	Items []Item
+	// Unverified are items a model said it found that their links did not bear out (Answer.Unverified).
+	Unverified  []Item
 	Detail      string
 	provider    string
 	windowBasis websearch.WindowBasis
@@ -39,6 +41,10 @@ type Result struct {
 	// thread). With items the stream is partial, without it is not read: a failure is never a clean zero
 	// (last30days doctor.audit_state, lib/doctor.py:128-161, a partial read is unverified).
 	Failed *SourceError
+	// Then is what the backend reads for this stream after every stream of the search had its first pass, its
+	// items joining the stream's; nil: nothing. last30days runs its supplemental lanes after the main collection,
+	// under the run's own cutoff (pipeline.py:6880-6916): Muse's extra questions (muse.go).
+	Then func(ctx context.Context) Result
 }
 
 // Platform is a source and its backends, in the order they are tried (Agent-Reach Action.backends).
@@ -100,6 +106,8 @@ type Request struct {
 	// Now is the clock: a source's wait (Retry-After) counts from when its answer arrived, as last30days'
 	// retry_delay_from_headers is read when the 429 comes back (lib/http.py:77-119); nil: the wall clock.
 	Now func() time.Time
+	// Run is the search this request is part of, shared by its streams; nil outside a search.
+	Run *Run
 }
 
 func (r Request) now() time.Time {
@@ -136,6 +144,12 @@ type stream struct {
 	items    []Item
 	// off: the owner switched the source off while it ran; no backend was asked after.
 	off bool
+	// unverified are what a model said it found that its links did not bear out (Answer.Unverified).
+	unverified []Item
+	// req is what the stream's backends were asked; then and thenBackend, what a backend reads after the first pass.
+	req         Request
+	then        func(ctx context.Context) Result
+	thenBackend string
 }
 
 // stopsHost are the codes after which the other backends of the same host are not asked in this search: Agent-Reach
@@ -149,7 +163,7 @@ func stopsHost(c Code) bool {
 // dispatch.py:276-322). A backend that reads nothing in the window is not an answer: the next is asked, as the web
 // search asks the next provider (websearch.search) and last30days backfills a thin Reddit (pipeline.py).
 func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subquery, req Request) stream {
-	st := stream{subquery: sq, source: p.Name, report: Stream{Subquery: sq.Label}}
+	st := stream{subquery: sq, source: p.Name, report: Stream{Subquery: sq.Label}, req: req}
 
 	var (
 		stopped = map[string]Code{}
@@ -257,6 +271,13 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 
 			continue
 		}
+
+		if res.Then != nil {
+			st.then, st.thenBackend = res.Then, b.Name
+		}
+
+		st.unverified = append(st.unverified, s.stampUnverified(res.Unverified, p.Name, b.Name, sq.Label, req)...)
+		st.report.Unverified = len(st.unverified)
 
 		items := s.inWindow(res, p.Name, b.Name, sq.Label, req, &st.report.dropped)
 		if f := res.Failed; f != nil && len(items) == 0 {
@@ -377,6 +398,67 @@ func (s *Service) inWindow(res Result, source, backend, label string, req Reques
 		it.body = it.Text
 		it.Text = clip(it.Text, maxTextRunes)
 		it.Title = strings.Join(strings.Fields(it.Title), " ")
+		out = append(out, it)
+	}
+
+	return out
+}
+
+// runThen reads what a stream's backend reads after the first pass (Result.Then) and joins it to the stream: its items
+// up to the stream's limit, its unverified items, its detail on the backend's attempt; a stream that had found
+// nothing is served by it once it finds something.
+func (s *Service) runThen(ctx context.Context, st *stream) {
+	if st.then == nil {
+		return
+	}
+
+	res := st.then(ctx)
+
+	st.unverified = append(st.unverified,
+		s.stampUnverified(res.Unverified, st.source, st.thenBackend, st.subquery.Label, st.req)...)
+	st.report.Unverified = len(st.unverified)
+
+	if room := st.req; len(st.items) < room.Limit {
+		room.Limit -= len(st.items)
+		st.items = append(st.items,
+			s.inWindow(res, st.source, st.thenBackend, st.subquery.Label, room, &st.report.dropped)...)
+	}
+
+	st.report.Items = len(st.items)
+
+	for i := len(st.report.Tried) - 1; i >= 0; i-- {
+		a := &st.report.Tried[i]
+		if a.Backend != st.thenBackend || a.Skipped {
+			continue
+		}
+
+		if res.Detail != "" {
+			a.Detail = strings.TrimPrefix(a.Detail+"; then "+res.Detail, "; ")
+		}
+
+		if len(st.items) > 0 && st.report.ServedBy == "" {
+			a.Result = resultOK
+			st.report.ServedBy, st.report.Code = st.thenBackend, ""
+		}
+
+		break
+	}
+}
+
+// stampUnverified marks a model's unverified items as inWindow marks items, at most the request's limit, whatever
+// their date: a date outside the window may be why one failed, and its date is a model's, so low.
+func (s *Service) stampUnverified(items []Item, source, backend, label string, req Request) []Item {
+	now := s.now().UTC()
+	out := make([]Item, 0, min(len(items), req.Limit))
+
+	for _, it := range items[:min(len(items), req.Limit)] {
+		it.Source = source
+		it.Backend = backend
+		it.Subqueries = []string{label}
+		it.FetchedAt = now
+		it.ID = itemID(source, it.NativeID)
+		it.DateConfidence = "low"
+		it.Text = clip(it.Text, maxTextRunes)
 		out = append(out, it)
 	}
 

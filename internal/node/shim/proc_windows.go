@@ -124,3 +124,6 @@ func signalOf(*os.ProcessState) string { return "" }
 func killSignal() string { return "" }
 
 func codeSignal(int) string { return "" }
+
+// Tree is the shim alone: this system has no process table the node reads.
+func Tree(pid int) []int { return []int{pid} }

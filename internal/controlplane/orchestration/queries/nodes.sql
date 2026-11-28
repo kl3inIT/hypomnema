@@ -17,6 +17,7 @@ SET updated_at = @now, last_seen_at = @now, worktree_root = @worktree_root, runt
     disk_bytes = @disk_bytes, unavailable_at = NULL, terminal = @terminal,
     device = @device, kvm = @kvm, task_branches = @task_branches,
     temp_isolation = sqlc.narg(temp_isolation), temp_isolation_reason = @temp_isolation_reason,
+    memory_limit = sqlc.narg(memory_limit), memory_limit_reason = @memory_limit_reason,
     disk_policy = max(disk_policy, @disk_policy), disk_free_bytes = NULL, disk_sample_at = NULL,
     machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
     machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END,

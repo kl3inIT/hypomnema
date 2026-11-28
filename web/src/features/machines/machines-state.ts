@@ -92,6 +92,15 @@ export function tempIsolationOff(node: Node) {
   return isolation.reason || "No reason given."
 }
 
+// memoryNotLimited is why a node's workers run without a memory ceiling (issue #1313): together they may take all
+// the machine's memory. Undefined when they run under it, or when the node's version does not say.
+export function memoryNotLimited(node: Node) {
+  const limit = node.memory_limit
+  if (!limit || limit.on) return undefined
+
+  return limit.reason || "No reason given."
+}
+
 // machineProblem is why a provider's machine was not created, destroyed, stopped or started, in the provider's
 // words.
 export function machineProblem(node: Node) {

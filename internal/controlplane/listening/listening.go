@@ -172,6 +172,11 @@ type Item struct {
 	// it says about the topic, kept only beside a checked quote (semantic pass, layer 2b).
 	Quotes []string `json:"quotes,omitempty"`
 	Claims []string `json:"claims,omitempty"`
+	// QuoteFrom says where the text was read, for an item a model found: caption, image_text or comment.
+	QuoteFrom string `json:"quote_from,omitempty"`
+	// Check is how an item a model found was checked, its link opened (muse.go): "verified: …", or in the answer's
+	// Unverified, why not. Empty for an item a source's own API gave.
+	Check string `json:"check,omitempty"`
 
 	// signals for the ranking, never answered.
 	relevance float64
@@ -199,6 +204,10 @@ type Answer struct {
 	// Limits are the bounds this search used; Pass reports the semantic pass over them.
 	Limits Limits `json:"limits"`
 	Pass   Pass   `json:"pass"`
+	// Unverified are what a model said it found and its link did not bear out, at most PoolSize, each with why in
+	// its Check: leads to look at, never evidence, so neither ranked, clustered nor counted as items (issue #1292;
+	// last30days grok_x._validate_items drops them, lib/grok_x.py:400-440).
+	Unverified []Item `json:"unverified,omitempty"`
 }
 
 // WebSearch asks the control plane's web search chain, recorded on the caller's gateway key.
@@ -222,6 +231,9 @@ type Config struct {
 	// chat model's name, ModelOff, or empty for DefaultReviewModel and DefaultReadModel.
 	ReviewModel string
 	ReadModel   string
+	// Muse is the owner's Muse pool, the backend of Facebook, Instagram and Threads (muse.go); nil: those sources
+	// cannot be read. Used only when Platforms is nil.
+	Muse Muse
 }
 
 // Service searches the sources.
@@ -252,7 +264,7 @@ type Service struct {
 // New returns a Service.
 func New(cfg Config) *Service {
 	if cfg.Platforms == nil {
-		cfg.Platforms = Sources(Endpoints{}, http.DefaultClient)
+		cfg.Platforms = append(Sources(Endpoints{}, http.DefaultClient), MuseSources(cfg.Muse, http.DefaultClient)...)
 	}
 
 	if cfg.Now == nil {
@@ -307,6 +319,13 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 	runs := make([]sourceRun, len(platforms))
 
+	streamsOf := map[string]int{}
+	for _, p := range s.platforms {
+		streamsOf[p.Name] = len(plan.subqueriesOf(p.Name))
+	}
+
+	run := NewRun(now, streamsOf)
+
 	var wg sync.WaitGroup
 
 	for i, p := range platforms {
@@ -322,7 +341,7 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 			for _, sq := range labels {
 				req := s.owned(s.request(plan, c), p.Name)
-				req.Query, req.Limit, req.From, req.To = sq.Query, plan.MaxResults, from, now
+				req.Query, req.Limit, req.From, req.To, req.Run = sq.Query, plan.MaxResults, from, now, run
 				st := s.runStream(ctx, p, plan.Backends[p.Name], sq, req)
 
 				// Switched off while the search ran: nothing of it is answered, and no other read of it starts.
@@ -336,11 +355,26 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 				streams = append(streams, st)
 			}
 
-			runs[i] = sourceRun{coverage: cov.settle(), streams: streams}
+			runs[i] = sourceRun{coverage: cov, streams: streams}
 		})
 	}
 
 	wg.Wait()
+
+	// What backends read after every stream's first pass (Result.Then), in the sources' and subqueries' order, then
+	// each source's coverage. A source switched off while the search ran is answered off as it is.
+	for i := range runs {
+		if runs[i].coverage.State == StateOff {
+			continue
+		}
+
+		for j := range runs[i].streams {
+			s.runThen(ctx, &runs[i].streams[j])
+			runs[i].coverage.Streams[j] = runs[i].streams[j].report
+		}
+
+		runs[i].coverage = runs[i].coverage.settle()
+	}
 
 	// Each source's reading is kept for the Social listening page, and tells the owner when it broke it.
 	for _, r := range runs {
@@ -353,6 +387,8 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 	var streams []stream
 
+	seen := map[string]bool{}
+
 	for _, r := range runs {
 		if r.coverage.Source == "" {
 			continue
@@ -360,6 +396,15 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 		answer.Coverage = append(answer.Coverage, r.coverage)
 		streams = append(streams, r.streams...)
+
+		for _, st := range r.streams {
+			for _, it := range st.unverified {
+				if !seen[it.ID] && len(answer.Unverified) < PoolSize {
+					seen[it.ID] = true
+					answer.Unverified = append(answer.Unverified, it)
+				}
+			}
+		}
 	}
 
 	s.recordHealth(answer.Coverage, now)

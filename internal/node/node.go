@@ -27,6 +27,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/device"
 	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
+	"github.com/kl3inIT/hypomnema/internal/node/memlimit"
 	"github.com/kl3inIT/hypomnema/internal/node/nodeexec"
 	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
@@ -295,9 +296,20 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 			slog.String("event", "node.temp_isolation_off"), slog.String("reason", isolation.Reason))
 	}
 
+	// Workers run in one systemd user slice under the memory ceiling the control plane sends, where the user
+	// manager delegates memory (issue #1313); elsewhere they run as before, which is said once here and at each
+	// hello.
+	memory := memlimit.Probe(ctx)
+	if !memory.On() {
+		logger.WarnContext(ctx, "workers' memory is not limited: they run in the node's own cgroup",
+			slog.String("event", "node.memory_limit_off"), slog.String("reason", memory.Reason))
+	}
+	ceiling := &memlimit.Ceiling{Limit: memory, Logger: logger}
+
 	all := runners{
 		supervisor: &runner.Supervisor{
 			Home: home, SocketHome: socketHome, Exe: exe, URL: cfg.URL, Logger: logger, Isolation: isolation,
+			Memory:    memory,
 			Worktrees: worktree.Maker{Root: home, Logger: logger, GitTimeout: timeout, GitGrace: grace},
 		},
 		byRuntime: byRuntime, transcripts: transcripts, skills: skills.Cache{
@@ -341,6 +353,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		Terminal: terminals, Commands: commands,
 		Device: cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone, Takes: takes,
 		TempIsolation: isolation.Hello(),
+		MemoryLimit:   memory.Hello(), WorkerMemoryMax: ceiling.Apply,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems

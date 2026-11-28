@@ -183,7 +183,9 @@ func outcomeOf(f nodeproto.Finished) orchestration.Outcome {
 		Class: orchestration.FailureClass(f.Class), ResetsAt: f.ResetsAt, ContextOverflow: f.ContextOverflow,
 		Result: orchestration.Result{
 			Summary: f.Summary,
-			Exit:    orchestration.Exit{Kind: f.Exit.Kind, Code: f.Exit.Code, Signal: f.Exit.Signal},
+			Exit: orchestration.Exit{
+				Kind: f.Exit.Kind, Code: f.Exit.Code, Signal: f.Exit.Signal, Reason: f.Exit.Reason,
+			},
 		},
 	}
 

@@ -846,6 +846,8 @@ type Node struct {
 	TaskBranches        int64
 	DiskAlert           string
 	DiskAlertUntil      int64
+	MemoryLimit         sql.NullInt64
+	MemoryLimitReason   string
 }
 
 type NodeToken struct {
@@ -888,6 +890,7 @@ type ProfileVersion struct {
 	CpuRequestMillis   sql.NullInt64
 	MemoryRequestBytes sql.NullInt64
 	Preset             string
+	MemoryLimitBytes   sql.NullInt64
 }
 
 type Provider struct {
