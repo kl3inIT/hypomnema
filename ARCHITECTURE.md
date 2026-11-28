@@ -6198,8 +6198,8 @@ The owner's commands:
   verdict on the same head replacing it; a verdict naming an abbreviated head is not queued, since a prefix may
   name a newer commit too. Once a minute, after the reads, the follower reads each queued one's pull request with
   its repository's Connection token (found by branch with the GitHub App's token where the App covers it; the App
-  only reads statuses) and posts it on that head when it is exactly the pull request's head (`githost.PostStatus`; on GitHub `POST
-  /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
+  only reads statuses) and posts it on that head when it is exactly the pull request's head
+  (`githost.PostStatus`; on GitHub `POST /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
   open, a head that moved, a repository without a token and a status still unposted after a day are dropped
   with that outcome; a failed post is tried again next minute. A status is of one commit, so a new head has none
   until it is reviewed. The migration that adds the table queues each pull request's latest verdict, so the
