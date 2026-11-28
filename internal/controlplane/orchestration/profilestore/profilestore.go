@@ -87,6 +87,9 @@ type Profile struct {
 	// for building work, DefaultCPURequestMillis or DefaultMemoryRequest.
 	CPURequestMillis   int64
 	MemoryRequestBytes int64
+	// MemoryLimitBytes is each worker's own memory ceiling, from the YAML's limits.memory (issue #1313; limits.go):
+	// the MemoryMax of its scope on the node. 0: none.
+	MemoryLimitBytes int64
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
@@ -187,6 +190,8 @@ type Source struct {
 	ToolsOff    []string `yaml:"tools_off"`
 	// Requests is what a worker asks of a node (issue #731; requests.go).
 	Requests *requestsSource `yaml:"requests"`
+	// Limits is the most memory a worker may use (issue #1313; limits.go).
+	Limits *limitsSource `yaml:"limits"`
 }
 
 // DecodeSource reads a profile's YAML, refusing unknown fields.
@@ -300,6 +305,13 @@ func ParseProfile(name, source string) (Draft, error) {
 	if in.Requests != nil {
 		var err error
 		if p.CPURequestMillis, p.MemoryRequestBytes, err = in.Requests.parse(); err != nil {
+			return Draft{}, err
+		}
+	}
+
+	if in.Limits != nil {
+		var err error
+		if p.MemoryRequestBytes, p.MemoryLimitBytes, err = in.Limits.parse(p.MemoryRequestBytes); err != nil {
 			return Draft{}, err
 		}
 	}
@@ -426,7 +438,7 @@ func (s *Store) ApplyTx(ctx context.Context, q *store.Queries, now int64, d Draf
 		Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
 		SkillsOff: strings.Join(p.SkillsOff, ","), Tools: strings.Join(p.Tools, ","),
 		Preset: p.Preset, ToolsOff: strings.Join(p.ToolsOff, ","), CpuRequestMillis: positive(p.CPURequestMillis),
-		MemoryRequestBytes: positive(p.MemoryRequestBytes), Now: now,
+		MemoryRequestBytes: positive(p.MemoryRequestBytes), MemoryLimitBytes: positive(p.MemoryLimitBytes), Now: now,
 	}); err != nil {
 		return Profile{}, false, "", fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
 	}
@@ -824,6 +836,7 @@ func profileFromRow(v store.ProfileVersion) Profile {
 		Preset: v.Preset, Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff),
 		CreatedAt:        storeutil.Millis(v.CreatedAt),
 		CPURequestMillis: v.CpuRequestMillis.Int64, MemoryRequestBytes: v.MemoryRequestBytes.Int64,
+		MemoryLimitBytes: v.MemoryLimitBytes.Int64,
 	}
 }
 
@@ -882,7 +895,8 @@ func (s *Store) RestoreVersionTx(ctx context.Context, q *store.Queries, now int6
 		Description: before.Description, Runtime: before.Runtime, Provider: before.Provider, Model: before.Model,
 		Effort: before.Effort, Instruction: before.Instruction, Fallbacks: before.Fallbacks, Skills: before.Skills,
 		SkillsOff: before.SkillsOff, Preset: before.Preset, Tools: before.Tools, ToolsOff: before.ToolsOff,
-		CpuRequestMillis: before.CpuRequestMillis, MemoryRequestBytes: before.MemoryRequestBytes, Now: now,
+		CpuRequestMillis: before.CpuRequestMillis, MemoryRequestBytes: before.MemoryRequestBytes,
+		MemoryLimitBytes: before.MemoryLimitBytes, Now: now,
 	})
 }
 

@@ -381,6 +381,9 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	if t := req.TempIsolation; t != nil {
 		hello.TempIsolation = &orchestration.TempIsolation{On: t.On, Reason: t.Reason}
 	}
+	if m := req.MemoryLimit; m != nil {
+		hello.MemoryLimit = &orchestration.MemoryLimit{On: m.On, Reason: m.Reason}
+	}
 	for _, rt := range req.Runtimes {
 		hello.Runtimes = append(hello.Runtimes, orchestration.RuntimeInfo{
 			Runtime: rt.Runtime, Path: rt.Path, Version: rt.Version,
@@ -420,6 +423,8 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		EndTakes:            endTakes, DropTakes: dropTakes,
 		// This control plane keeps a question's several decisions (issue #1219).
 		QuestionParts: true,
+		// The node makes it its workers' slice's MemoryMax (issue #1313).
+		WorkerMemoryMax: s.workerMemoryMax(r.Context(), n.ID),
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})
@@ -436,6 +441,21 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		s.logger.WarnContext(r.Context(), "writing hello response",
 			slog.String("event", "nodeapi.hello_write_failed"), slog.String("error", err.Error()))
 	}
+}
+
+// workerMemoryMax is the memory all of a node's workers may use together, its allocatable memory (issue #1313). A
+// failure to read it is logged and says nothing: the node keeps the ceiling it last applied.
+func (s *Server) workerMemoryMax(ctx context.Context, nodeID string) *int64 {
+	n, err := s.svc.WorkerMemoryMax(ctx, nodeID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading a node's memory ceiling",
+			slog.String("event", "nodeapi.memory_ceiling_failed"), slog.String("node_id", nodeID),
+			slog.String("error", err.Error()))
+
+		return nil
+	}
+
+	return &n
 }
 
 func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
@@ -920,7 +940,7 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 
 		return c.send(ctx, nodeproto.TypeHeartbeatAck, nodeproto.HeartbeatAck{
 			HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(), GitHosts: c.srv.gitHosts(ctx),
-			Tools: c.srv.toolsFor(ctx, c.os, c.arch),
+			Tools: c.srv.toolsFor(ctx, c.os, c.arch), WorkerMemoryMax: c.srv.workerMemoryMax(ctx, c.nodeID),
 		})
 	case nodeproto.TypeReport:
 		var r nodeproto.Report

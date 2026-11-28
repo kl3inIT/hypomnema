@@ -257,6 +257,19 @@ func (n *nodeLoad) allocatable() request {
 	}
 }
 
+// WorkerMemoryMax is the memory all of a node's workers may use together: its allocatable memory, as placement
+// computes it, which the node makes its workers' slice's MemoryMax (issue #1313), as the kubelet sets a node's
+// allocatable as the limit of the cgroup of all its pods (pkg/kubelet/cm/node_container_manager_linux.go:69-85). 0
+// for a node that never said its size: it has no ceiling.
+func (s *Service) WorkerMemoryMax(ctx context.Context, nodeID string) (int64, error) {
+	row, err := s.read().GetNode(ctx, nodeID)
+	if err != nil {
+		return 0, notFound(err, "node", nodeID)
+	}
+
+	return (&nodeLoad{row: row}).allocatable().memoryBytes, nil
+}
+
 // less is have - take, never below 0. Both are 0 or more, so it cannot
 // overflow, however large a reserve the owner set (PR #759).
 func less(have, take int64) int64 {
@@ -766,7 +779,8 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 		LastSeenAt:    optionalTime(n.row.LastSeenAt),
 		UnavailableAt: optionalTime(n.row.UnavailableAt), Connected: p.connected(n), Active: n.active,
 		Terminal: n.row.Terminal == 1, Device: n.row.Device, KVM: n.row.Kvm == 1,
-		TempIsolation: tempIsolationOut(n.row), CreatedAt: millis(n.row.CreatedAt), UpdatedAt: millis(n.row.UpdatedAt),
+		TempIsolation: tempIsolationOut(n.row), MemoryLimit: memoryLimitOut(n.row),
+		CreatedAt: millis(n.row.CreatedAt), UpdatedAt: millis(n.row.UpdatedAt),
 	}
 }
 
@@ -777,6 +791,15 @@ func tempIsolationOut(row store.Node) *TempIsolation {
 	}
 
 	return &TempIsolation{On: row.TempIsolation.Int64 == 1, Reason: row.TempIsolationReason}
+}
+
+// memoryLimitOut is what the node said of its workers' memory ceiling at its last hello; nil when it did not say.
+func memoryLimitOut(row store.Node) *MemoryLimit {
+	if !row.MemoryLimit.Valid {
+		return nil
+	}
+
+	return &MemoryLimit{On: row.MemoryLimit.Int64 == 1, Reason: row.MemoryLimitReason}
 }
 
 func (p *placement) accountOut(a store.Account) Account {

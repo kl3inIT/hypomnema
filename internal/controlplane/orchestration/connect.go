@@ -261,6 +261,9 @@ type Offer struct {
 	// GitHubApp is set by the node API as the offer is sent: the owner's GitHub App covers the repository, the
 	// offer carries no token, and the node asks for one at each use (issue #1262).
 	GitHubApp bool `json:"github_app,omitempty"`
+	// MemoryLimit is the worker's own memory ceiling, in bytes, from its profile version's limits.memory (issue
+	// #1313); 0 for none.
+	MemoryLimit int64 `json:"memory_limit,omitempty"`
 }
 
 // StopRequest is a stop asked of a Dispatch on the node.
@@ -340,7 +343,10 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		return Offer{}, notFound(err, "conversation", d.ConversationID)
 	}
 
-	var instruction string
+	var (
+		instruction string
+		limit       int64
+	)
 
 	agent := task.Profile
 
@@ -350,7 +356,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 			return Offer{}, notFound(err, "profile version", d.ProfileVersionID.String)
 		}
 
-		instruction, agent = v.Instruction.String, v.Profile
+		instruction, agent, limit = v.Instruction.String, v.Profile, v.MemoryLimitBytes.Int64
 	}
 
 	memory, err := memorystore.AgentMemoryTx(ctx, q, agent)
@@ -412,6 +418,6 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		PushBranch: task.PushBranch.String, StartFrom: task.StartFrom.String, PRBase: task.PrBase.String,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses), Skills: skills,
-		Memory: memory.Text, OwnerMemory: owner.Text, MemoryNotes: notes,
+		Memory: memory.Text, OwnerMemory: owner.Text, MemoryNotes: notes, MemoryLimit: limit,
 	}, nil
 }

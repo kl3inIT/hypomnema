@@ -21,14 +21,14 @@ import {
   Amount,
   DiskCell,
   GpuRows,
-  WithAmount,
   IndicatorDot,
   LoadDot,
   MachineProblem,
+  MemoryCell,
   StateText,
 } from "./machine-cells"
 import { RuntimeList } from "./runtime-list"
-import { gpuTitle, loadPercent, memoryPercent, percent, usedOfTotal } from "./machines-state"
+import { gpuTitle, loadPercent, percent, usedOfTotal } from "./machines-state"
 
 // The columns of the Machines page, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): one
@@ -104,21 +104,7 @@ export const columns: Column[] = [
     name: "Memory",
     hint: "Memory in use, of the machine's total.",
     Icon: MemoryStick,
-    cell: (node) => {
-      const value = memoryPercent(node)
-      if (value === undefined) return none
-
-      return (
-        <WithAmount used={node.stats?.memory_used_bytes} total={node.system?.memory_bytes}>
-          <Meter
-            label="Memory"
-            value={value}
-            connected={node.connected}
-            title={usedOfTotal(node.stats?.memory_used_bytes, node.system?.memory_bytes)}
-          />
-        </WithAmount>
-      )
-    },
+    cell: (node) => <MemoryCell node={node} />,
   },
   {
     id: "disk",

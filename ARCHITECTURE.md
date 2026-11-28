@@ -2542,6 +2542,8 @@ flowchart LR
   every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
   `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
+  Requests only place work; the node makes its allocatable memory the ceiling of all its workers together
+  ([Workers' memory ceiling](#workers-memory-ceiling-issue-1313)).
   A new Task with a legacy profile whose runtime has only accounts that cool down is placed under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
@@ -6757,6 +6759,53 @@ Node (`internal/node`):
   protect free space on a separate cache or temp volume.
 - The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
 
+### Workers' memory ceiling (issue #1313)
+
+- On 2026-11-27 a node's workers filled all the memory of a machine without swap that also ran production services,
+  and the machine hung with no OOM kill until a hard reboot. Since then one ceiling covers all of a node's workers
+  (`internal/node/memlimit`), as Buildkite's Elastic CI Stack runs its agent's jobs in a systemd slice with
+  `MemoryHigh`, `MemoryMax` and `MemorySwapMax` (`packer/linux/stack/conf/bin/bk-install-elastic-stack.sh:732-777`).
+- At its start the node probes, once: `systemd-run` and `systemctl` on `PATH`, cgroup v2, the memory controller in
+  its user manager's `user@<uid>.service/cgroup.controllers`, and a scope that runs `true` in the slice, with
+  `OOMPolicy=continue` where the manager takes it (systemd 253 and later; an earlier one has no OOM policy for a
+  scope). When one fails, the workers run in the daemon's own cgroup as before, the node logs the reason once
+  (`node.memory_limit_off`) and says it at each hello (`memory_limit`, kept in `nodes.memory_limit` and
+  `memory_limit_reason`), and the Machines page shows "Memory not limited:" and the reason under a machine's memory
+  (nothing for a node of an earlier release, which does not say).
+- With the limit on, the Supervisor starts each worker's shim through `systemd-run --user --scope --collect
+  --slice=hypomnema-workers.slice --unit=hypomnema-worker-<dispatch>.scope -p OOMPolicy=continue`, which moves itself
+  into the new scope and executes the shim with its pid; the shim, the CLI and everything it spawns stay in that
+  scope, and what `systemd-run` says when it fails goes to the run directory's `stderr.log`. The daemon itself, its
+  terminals and an agent's commands on the machine (`node_exec`) stay outside the slice, so a kill inside it never
+  takes the daemon down. systemd names the slice's cgroup `hypomnema.slice/hypomnema-workers.slice`.
+- The ceiling is the node's allocatable memory as placement computes it (`memory_bytes - reserved_memory_bytes - 1
+  GiB`, `Service.WorkerMemoryMax`), as the kubelet makes a node's allocatable the limit of the cgroup of all its pods
+  (`pkg/kubelet/cm/node_container_manager_linux.go:69-85`). The control plane sends it as `worker_memory_max` in the
+  hello's answer and in each heartbeat's acknowledgement, so a reserve the owner changes reaches the node within a
+  heartbeat; 0 is no ceiling (a node that never said its size), and a control plane that does not say it (an earlier
+  release, or one that could not read it) leaves what the node applied last. The node applies a new value with
+  `systemctl --user set-property hypomnema-workers.slice MemoryMax=<ceiling> MemoryHigh=<90 %> MemorySwapMax=0`,
+  which takes effect at once and stays in a drop-in for the next start; no ceiling sets the three to `infinity`. The
+  90 % is the owner's margin (2026-11-28): the kernel throttles and reclaims above `MemoryHigh` before it kills at
+  `MemoryMax`. Checked on 2026-11-28 in a scratch slice of 512 MiB on a node: a process that allocated 1 GiB was
+  throttled above `MemoryHigh` for about 4 minutes, then killed at `MemoryMax`, and nothing outside the slice was
+  touched.
+- No worker has a ceiling of its own by default: one build can take 2.7 GiB with a CLI beside it. A profile may set
+  one, as a Kubernetes or Coder container sets its limits (`examples/templates/kubernetes/main.tf:298-306`):
+  `limits: {memory: 4Gi}` in its YAML, kept in `profile_versions.memory_limit_bytes` and sent in the offer as
+  `memory_limit`, which the node makes the scope's `MemoryMax`. A memory request over the limit is refused, and a
+  profile with a limit and no request asks for its limit, as Kubernetes validates and defaults a container's
+  (`pkg/apis/core/validation/validation.go:6518`). The builder keeps a profile's limit when it saves it but does not
+  edit it. CPU is not limited: its overload slows a machine without hanging it.
+- When the worker exits, the shim reads its scope's `memory.events` (`oom_kill`, how many of its processes any OOM
+  killer killed, its descendants' included) and writes the kills since its worker started into its exit file, before
+  it exits: the scope, and the cgroup that holds the count, go with its last process (containerd's note,
+  `internal/cri/server/events.go:211-225`). A kill makes the exit's `reason` `oom_killed`, whichever process it was, as
+  containerd says `OOMKilled` for a container whose child was killed (`events.go:194-236`). A worker that ended
+  without `finish` then fails (`worker_error`) with a summary that begins `oom_killed: the kernel killed a process of
+  this worker for memory`, rather than an unknown outcome; one that finished keeps its report, with that line after
+  its summary. A shim the kernel killed itself writes no exit file and ends as before ("the shim died").
+
 ## Web client
 
 - `web/`: a Vite single-page app with React, TypeScript, TanStack Router (file routes in `src/routes`) and Query,
@@ -7543,6 +7592,7 @@ internal/node/acp         the ACP runtime for omp and opencode: each CLI's confi
 internal/node/transcript  the forwarder of every worker's transcript, the decoder interface, the cutting of items
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
+internal/node/memlimit    the workers' memory ceiling: the probe, each worker's systemd scope, the slice's properties, memory.events
 internal/node/skills      the skills an offer names: fetched once by digest, and placed where each CLI reads them
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end

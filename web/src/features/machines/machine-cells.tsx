@@ -12,6 +12,8 @@ import {
   gib,
   machineProblem,
   machineState,
+  memoryNotLimited,
+  memoryPercent,
   stateNames,
   tempIsolationOff,
   usedOfTotal,
@@ -43,6 +45,36 @@ export function IndicatorDot({ node }: { node: Node }) {
       className={cn("size-2 shrink-0 rounded-full", stateDots[machineState(node)])}
       aria-hidden
     />
+  )
+}
+
+// MemoryCell is the memory in use of the machine's total, and, for a node whose workers run without a memory
+// ceiling, why (issue #1313).
+export function MemoryCell({ node }: { node: Node }) {
+  const value = memoryPercent(node)
+  const notLimited = memoryNotLimited(node)
+  if (value === undefined && notLimited === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+
+  return (
+    <div className="min-w-0 space-y-1 text-xs">
+      {value !== undefined && (
+        <WithAmount used={node.stats?.memory_used_bytes} total={node.system?.memory_bytes}>
+          <Meter
+            label="Memory"
+            value={value}
+            connected={node.connected}
+            title={usedOfTotal(node.stats?.memory_used_bytes, node.system?.memory_bytes)}
+          />
+        </WithAmount>
+      )}
+      {notLimited !== undefined && (
+        <div className="truncate text-needs-you" title={notLimited}>
+          Memory not limited: {notLimited}
+        </div>
+      )}
+    </div>
   )
 }
 

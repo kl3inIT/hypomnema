@@ -36,6 +36,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/githubapp"
+	"github.com/kl3inIT/hypomnema/internal/node/memlimit"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/tempns"
@@ -132,7 +133,10 @@ type Supervisor struct {
 	// Dispatch's temp directory as /tmp and /var/tmp (issue #895); off: with
 	// TMPDIR only.
 	Isolation tempns.Isolation
-	Logger    *slog.Logger
+	// Memory runs each worker, with its shim, in a systemd scope of its own inside the node's workers' slice,
+	// under the memory ceiling the control plane sends (issue #1313); off: in the daemon's own cgroup, as before.
+	Memory memlimit.Limit
+	Logger *slog.Logger
 
 	mu   sync.Mutex
 	jobs map[string]*Worker
@@ -332,6 +336,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 
 	spec.Dir = o.Worktree
 	spec.Env = tempEnv(spec.Env, temp)
+	spec.MemoryScope = s.Memory.On()
 	if s.Isolation.On() {
 		spec.Argv, spec.Bwrap = s.Isolation.Wrap(spec.Argv, temp), true
 	}
@@ -373,7 +378,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		return err
 	}
 	socketDir := s.socketDir(d.ID)
-	pid, err := shim.Start(s.Exe, socketDir)
+	pid, err := shim.Start(s.Exe, socketDir, s.Memory.Scope(d.ID, o.MemoryLimit)...)
 	if err != nil {
 		_ = shim.RevokeLaunch(dir)
 		return err
@@ -809,6 +814,13 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 		ex = nodeproto.Exit{Kind: "signaled", Signal: exit.Signal}
 	}
 
+	// A process of the worker the kernel killed for memory makes the exit's reason oom_killed, whichever process
+	// it was, as containerd says OOMKilled for a container whose child was (internal/cri/server/events.go:197-200).
+	oom := ""
+	if exit.OOMKills > 0 {
+		ex.Reason, oom = nodeproto.ExitOOMKilled, oomSummary(exit.OOMKills)
+	}
+
 	switch {
 	case stopping:
 		if !exit.Unconfirmed {
@@ -818,7 +830,7 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 		return
 	case !started && !res.Done:
 		w.Report(ctx, w.r.Finished(ctx, nodeproto.Finished{
-			Class: "start_failed", Summary: FirstLine(res.Failure, exit.Error, stderr(w.dir)), Exit: ex,
+			Class: "start_failed", Summary: withOOM(oom, FirstLine(res.Failure, exit.Error, stderr(w.dir))), Exit: ex,
 		}))
 
 		return
@@ -831,15 +843,50 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 
 	switch {
 	case finished:
+		// The worker's own report stands; the kill is said after it, so it is not taken for a flaky test.
+		summary := final.Summary
+		if oom != "" {
+			summary = strings.TrimSpace(summary + "\n\n" + oom)
+		}
+
 		w.Report(ctx, w.r.Finished(ctx, nodeproto.Finished{
-			Summary: final.Summary, Evidence: final.Evidence, Gate: final.Gate, Exit: ex, Usage: res.Usage,
+			Summary: summary, Evidence: final.Evidence, Gate: final.Gate, Exit: ex, Usage: res.Usage,
 		}))
+	case oom != "":
+		// The worker ended without finish after a kill for memory: it failed for that, not for an unknown cause
+		// (Kubernetes ends such a container Terminated with the reason OOMKilled).
+		f := nodeproto.Finished{Class: "worker_error", Summary: withOOM(oom, res.Failure), Exit: ex, Usage: res.Usage}
+		w.Report(ctx, w.r.Finished(ctx, f))
 	case !res.Done && res.Failure == "":
 		// No result and nothing said: the outcome is unknown.
 		w.Report(ctx, w.r.Exited(ctx))
 	default:
 		w.Report(ctx, w.r.Finished(ctx, w.turn.Outcome(ex)))
 	}
+}
+
+// oomSummary names a kill for memory in a Dispatch's result (issue #1313).
+func oomSummary(kills int64) string {
+	what := "a process"
+	if kills > 1 {
+		what = strconv.FormatInt(kills, 10) + " processes"
+	}
+
+	return nodeproto.ExitOOMKilled + ": the kernel killed " + what + " of this worker for memory, at the limit of " +
+		"the node's workers (" + nodeproto.WorkerSlice + ") or of its profile's limits.memory"
+}
+
+// withOOM is the summary of a worker killed for memory: the kill, then what was said besides, if anything.
+func withOOM(oom, said string) string {
+	if oom == "" {
+		return said
+	}
+
+	if said = strings.TrimSpace(said); said == "" {
+		return oom
+	}
+
+	return oom + "\n\n" + said
 }
 
 func stderr(dir string) string {
