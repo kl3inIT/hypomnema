@@ -67,6 +67,9 @@ type SourceError struct {
 	Until time.Time
 	// resting: the call was not made, its path resting; the attempt is reported as skipped.
 	resting bool
+	// pathRest: the failure is a path's, already resting on its own (Request.Rest); the backend is not rested for
+	// it, so its other paths serve the next stream.
+	pathRest bool
 }
 
 func (f *SourceError) Error() string {

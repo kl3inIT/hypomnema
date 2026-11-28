@@ -4965,7 +4965,8 @@ writes no prose (last30days SKILL.md LAW 7).
   while it rests, stay as the search showed them), then those dated in the window, then those whose title names the
   topic (last30days' topic bar: the topic's first word when longer than three letters and not generic), then cut at
   the stream's limit; the detail counts the threads dropped. When the archive could not be read and the bar leaves
-  none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
+  none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. That failure rests the archive's path only, not
+  `web_arctic`: the next subquery still searches the web and keeps its threads as the search showed them. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
   `web_arctic` was added for that (owner, 2026-11-27).
 - A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
   refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the

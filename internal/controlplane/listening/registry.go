@@ -173,7 +173,13 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 				f = Fail(CodeTimeout, "the search was stopped before this source answered")
 			}
 
-			until := s.rest(id, f)
+			// A path's failure rests that path only (Request.Rest): the archive's 429 leaves web_arctic's web
+			// discovery to the next stream, whose threads stay as the search showed them (last30days
+			// reddit_hydrate.py:467-492).
+			until := f.Until
+			if !f.pathRest {
+				until = s.rest(id, f)
+			}
 
 			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail}
 			if !until.IsZero() {

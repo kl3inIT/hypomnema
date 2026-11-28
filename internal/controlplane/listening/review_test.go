@@ -512,7 +512,9 @@ func TestRoundThreeArcticRestLeavesWebDiscoveryAvailable(t *testing.T) {
 
 	streams := coverageOf(t, a, listening.SourceReddit).Streams
 	require.Len(t, streams, 2)
-	assert.Equal(t, listening.CodeRateLimited, streams[0].Code, "the first subquery was not read: the archive's code")
+	assert.Equal(t, listening.CodeRefused, streams[0].Code, "the first subquery was not read; Reddit's 403 ranks first")
+	assert.Equal(t, "rate_limited", streams[0].Tried[1].Result, "web_arctic reports the archive's code")
+	assert.False(t, streams[0].Tried[1].Skipped)
 	assert.Equal(t, "web_arctic", streams[1].ServedBy)
 	assert.Equal(t, listening.StatePartial, coverageOf(t, a, listening.SourceReddit).State)
 }

@@ -353,7 +353,9 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 			switch {
 			case err != nil:
 				f := AsFailure(err)
-				archiveFailed = &SourceError{Code: f.Code, Detail: "arctic-shift not read: " + f.Detail, Until: f.Until}
+				archiveFailed = &SourceError{
+					Code: f.Code, Detail: "arctic-shift not read: " + f.Detail, Until: f.Until, pathRest: true,
+				}
 				detail += "; arctic-shift not read: " + f.Error()
 
 				if !f.Until.IsZero() {
@@ -361,6 +363,7 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 				}
 			case archived.Data == nil:
 				archiveFailed = Fail(CodeBroken, "arctic-shift not read: %s", oneLine(archived.Error))
+				archiveFailed.pathRest = true
 				detail += "; arctic-shift not read: " + oneLine(archived.Error)
 			default:
 				detail += fmt.Sprintf("; arctic-shift filled %d of %d", len(byID), len(threads))
