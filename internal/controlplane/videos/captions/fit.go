@@ -9,7 +9,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -163,8 +162,7 @@ func (r *renderer) drawnWidths(ctx context.Context, tools ffmpeg.Tools, blocks [
 
 	// One frame a second, each block's events in its second: frame i shows block i. Relative names, read in the
 	// folder, need no escaping in a filter's option.
-	//nolint:gosec // The pinned ffmpeg, its arguments ours.
-	cmd := exec.CommandContext(ctx, tools.FFmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
+	cmd := tools.Command(ctx, "-nostdin", "-hide_banner", "-loglevel", "error",
 		"-f", "lavfi", "-i", fmt.Sprintf("color=c=0x808080:s=%dx%d:r=1:d=%d", width, height, len(blocks)),
 		"-vf", "format=rgb24,subtitles=filename=measure.ass:fontsdir=fonts",
 		"-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1")

@@ -832,7 +832,7 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 ) error {
 	switch to {
 	case DispatchSucceeded:
-		return completeTask(ctx, q, now, d.TaskID, result.Summary)
+		return s.completeTask(ctx, q, now, d.TaskID, result.Summary)
 	case DispatchCanceled:
 		return cancelNow(ctx, q, now, d.TaskID)
 	case DispatchGated:

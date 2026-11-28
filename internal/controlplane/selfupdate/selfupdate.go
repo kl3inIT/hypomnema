@@ -37,7 +37,7 @@ type Options struct {
 	Ready string
 	// ReadyWithin is how long a started control plane has to become ready.
 	ReadyWithin time.Duration
-	// TurnsWithin is how long the update waits for Bots' turns before it stops the control plane anyway;
+	// TurnsWithin is how long the update waits for work before it stops the control plane. It uses
 	// DefaultTurnsWithin when zero (issue #716).
 	TurnsWithin time.Duration
 	// TurnsEvery is how often it asks; a second when zero.
@@ -66,13 +66,13 @@ const (
 	DefaultReady      = "http://127.0.0.1:18990/readyz"
 )
 
-// DefaultTurnsWithin bounds the update's wait for Bots' turns (issue #716): a few minutes, as the owner asked
+// DefaultTurnsWithin bounds the update's wait for work (issues #716, #1060, #1328): a few minutes, as the owner asked
 // (2026-11-17), where Hermes waits up to its restart_after_turn_timeout before a restart interrupts what still runs.
 // A turn still running then is cut, and the control plane continues it when it starts again.
 const DefaultTurnsWithin = 5 * time.Minute
 
 // The control plane's control socket (issue #716): in its data folder, next to its database, it answers GET
-// PathTurns with Turns, the chats whose Bot's turn runs now.
+// PathTurns with Turns, the work that runs now.
 const (
 	ControlSocket = "control.sock"
 	PathTurns     = "/turns"
@@ -96,10 +96,12 @@ type Turns struct {
 	// ToolCalls is how many agents' calls of the control plane's tools run now, a worker's too (issue #1060): a
 	// command on a node, the browser's, the phone's. A control plane from before it says none.
 	ToolCalls int `json:"tool_calls,omitempty"`
+	// Renders is how many video revisions the runner is making (issue #1328).
+	Renders int `json:"renders,omitempty"`
 }
 
-// busy says whether a turn or a tool call runs.
-func (t Turns) busy() bool { return len(t.Chats) > 0 || t.ToolCalls > 0 }
+// busy says whether the control plane has work to drain.
+func (t Turns) busy() bool { return len(t.Chats) > 0 || t.ToolCalls > 0 || t.Renders > 0 }
 
 // String says what runs, as the update prints it.
 func (t Turns) String() string {
@@ -114,6 +116,13 @@ func (t Turns) String() string {
 		parts = append(parts, "1 tool call")
 	case t.ToolCalls > 1:
 		parts = append(parts, strconv.Itoa(t.ToolCalls)+" tool calls")
+	}
+
+	switch {
+	case t.Renders == 1:
+		parts = append(parts, "1 video render")
+	case t.Renders > 1:
+		parts = append(parts, strconv.Itoa(t.Renders)+" video renders")
 	}
 
 	return strings.Join(parts, " and ")

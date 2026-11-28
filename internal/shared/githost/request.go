@@ -56,6 +56,7 @@ var ErrNoRequest = errors.New("the branch has no open pull request")
 // request, the hint, is read first and kept unless its head branch is another one; else, or then, the branch's
 // open pull request is resolved at the host and read (coderd/x/gitsync/gitsync.go:282-343). It returns
 // ErrNoRequest when the branch has none open.
+// An empty branch with a hint reads that exact request.
 func FindRequest(ctx context.Context, client *http.Client, kind Kind, repo Repo, branch string, hint *Request,
 	token string,
 ) (Request, RequestState, error) {
@@ -65,7 +66,7 @@ func FindRequest(ctx context.Context, client *http.Client, kind Kind, repo Repo,
 			return Request{}, RequestState{}, err
 		}
 
-		if st.Branch == "" || st.Branch == branch {
+		if branch == "" || st.Branch == "" || st.Branch == branch {
 			return *hint, st, nil
 		}
 	}

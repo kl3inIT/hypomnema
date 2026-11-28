@@ -53,9 +53,9 @@ func TestWebWindowAndDroppedItems(t *testing.T) {
 			c := newClock()
 			s := listening.New(listening.Config{Now: c.Now, Sleep: noSleep})
 			a, err := s.Search(t.Context(), plan([]string{listening.SourceWeb}, "VETC"),
-				func(ctx context.Context, q string, limit int) (websearch.Answer, error) {
+				listening.Caller{Web: func(ctx context.Context, q string, limit int) (websearch.Answer, error) {
 					return web.Search(ctx, q, limit, tc.name)
-				})
+				}})
 			require.NoError(t, err)
 			select {
 			case req := <-requests:

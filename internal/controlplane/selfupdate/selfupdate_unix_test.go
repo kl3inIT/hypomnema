@@ -447,7 +447,7 @@ func TestInstallWaitsForBotsTurnsBeforeItStops(t *testing.T) {
 		"update began: true",
 		"turns: [cht_a]", "turns: [cht_a]", "turns: [cht_a]", "turns: []", "systemctl stop hypomnema-cp.service",
 	}, got[:6])
-	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns and tool calls to end, in chats cht_a")
+	assert.Contains(t, out.String(), "waiting up to 5m0s for work to end, in chats cht_a")
 }
 
 // Scenario (issue #1060): no Bot's turn runs, but an agent's tool call does, a worker's command on a node. The update
@@ -479,7 +479,50 @@ func TestInstallWaitsForToolCallsBeforeItStops(t *testing.T) {
 		"update began: true",
 		"turns: [], tool calls: 1", "turns: [], tool calls: 1", "turns: []", "systemctl stop hypomnema-cp.service",
 	}, got[:5])
-	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns and tool calls to end, 1 tool call")
+	assert.Contains(t, out.String(), "waiting up to 5m0s for work to end, 1 tool call")
+}
+
+// The update waits for a render even if there are no turns or tool calls, up to the same deadline.
+func TestInstallWaitsForARender(t *testing.T) {
+	t.Parallel()
+
+	for _, finishes := range []bool{true, false} {
+		t.Run(fmt.Sprintf("finishes=%t", finishes), func(t *testing.T) {
+			t.Parallel()
+
+			log := &events{}
+			o := installWaiting(t, log)
+			if !finishes {
+				o.TurnsWithin = 200 * time.Millisecond
+			}
+
+			from := filepath.Join(o.State, "hypomnema-v0.9.5")
+			write(t, from, "the new control plane")
+
+			serveTurns(t, o.Home, log, func(n int) selfupdate.Turns {
+				if finishes && n >= 2 {
+					return selfupdate.Turns{}
+				}
+
+				return selfupdate.Turns{Renders: 1}
+			})
+
+			var out strings.Builder
+			o.Out = &out
+			started := time.Now()
+			require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+			got := log.all()
+			stop := slices.Index(got, "systemctl stop hypomnema-cp.service")
+			assert.Contains(t, out.String(), "1 video render")
+			if finishes {
+				assert.Equal(t, 4, stop, "stop follows the first idle reply")
+			} else {
+				assert.GreaterOrEqual(t, time.Since(started), o.TurnsWithin)
+				assert.Contains(t, out.String(), "still runs after 200ms")
+			}
+		})
+	}
 }
 
 // Scenario: the turn does not end. The update waits as long as its bound, then stops the control plane anyway: the
@@ -516,7 +559,7 @@ func TestInstallStopsWhenTheWaitForTurnsRunsOut(t *testing.T) {
 		assert.Equal(t, "turns: [cht_a cht_b]", e)
 	}
 
-	assert.Contains(t, out.String(), "still run after 200ms, in chats cht_a, cht_b")
+	assert.Contains(t, out.String(), "still runs after 200ms, in chats cht_a, cht_b")
 }
 
 // Scenario: the control plane does not answer on its control socket, one from before it: the update does not wait.
@@ -534,7 +577,7 @@ func TestInstallDoesNotWaitForAControlPlaneThatDoesNotSay(t *testing.T) {
 	require.NoError(t, selfupdate.Install(t.Context(), o, from))
 
 	assert.Equal(t, "systemctl stop hypomnema-cp.service", log.all()[0])
-	assert.Contains(t, out.String(), "not waiting for Bots' turns")
+	assert.Contains(t, out.String(), "not waiting for work to end")
 	assert.Contains(t, out.String(), "the control plane did not mark the update", "the update marks itself then")
 }
 
@@ -623,5 +666,5 @@ func TestTheWaitForTurnsEndsAtItsBoundWhenTheControlPlaneIsSlow(t *testing.T) {
 	require.NoError(t, selfupdate.Install(t.Context(), o, from))
 
 	assert.Less(t, time.Since(started), 2*time.Second, "the slow answer is not waited for past the bound")
-	assert.Contains(t, out.String(), "still run after 300ms, 1 tool call")
+	assert.Contains(t, out.String(), "still runs after 300ms, 1 tool call")
 }
