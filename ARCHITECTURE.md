@@ -4942,7 +4942,8 @@ not checked against the live site in the change that wrote them.
   his own Muse. A tab or Chrome gone after the send is "sent, result unknown" and the context is dropped. The
   answer is read from `[data-message-item][data-message-role="assistant"]`, the agent bubble as fallback (logged):
   every such message after those the thread showed before the send, their texts joined and their links and media in
-  order, since Muse may end a list with a link card of its own (issue #1292); the thread from `/thread/<uuid>`. An
+  order, since Muse may end a list with a link card of its own (issue #1292); a spent quota is read from the last
+  message alone, never from words an answer quotes; the thread from `/thread/<uuid>`. An
   answer with no link is marked unverified.
 - `muse.db` beside the control plane's database (tables `mu_*`, FTS5 over prompt and answer) keeps each question
   with its account, thread, the agent that asked, its answer, links, outcome (`answered`, `interrupted`,
@@ -5021,28 +5022,37 @@ writes no prose (last30days SKILL.md LAW 7).
   `broken`. The question is a fixed template: public posts of the platform in the window, the search as a JSON
   string it is told to treat as data, up to 10 posts, one block each with the labels `post`, `link`, `author`,
   `where`, `date`, `quote_from` (caption, image_text or comment), `quote` (word for word), `likes`, `comments`,
-  `shares`, only posts it opened, and `NO POSTS FOUND` when none (a clean zero). An answer that is neither, Muse
-  still working ("I'll send the list once the check returns"), is continued in the same thread at once, then a
-  minute after each further one, until the list comes (owner, 2026-11-28). Each block's link is the address it
-  writes, else the answer's next link to a post of the platform, unwrapped from `l.meta.ai/?u=`; a block with no
-  such link is left out and counted. A post is known by the platform's id: a Facebook reel, Page post, group post,
-  shared post, photo or permalink, an Instagram `/p/` or `/reel/`, a Threads `/@handle/post/<code>`; the group,
-  Page or account is its container. Every post's link is then opened as a reader who is not signed in, one page a
-  second a site: the page must be that post (its `og:url`, else where it landed; a sign-in page or a gone post
-  fails), hold the quote (in its `og:description`, description or title, compared in NFKC, lowercased, spaces and
-  edge punctuation folded), and its date, read from the link (an Instagram or Threads shortcode's id) or the page's
-  first `<time datetime>`, never from Muse, must lie in the window and be within a day of Muse's. A post that passes
-  is an item, dated by its link or page with high confidence, its `check` saying so; one that fails is in the
-  answer's `unverified` list with why, never an item, a cluster or a count (the coverage counts it as `unverified`).
-  Captions check; what an image or video says and comments are not on the page, so those stay unverified. Counts
-  are Muse's as it saw them, a missing one left out, never 0, and not scored; an Instagram page's own counts replace
-  them. Then Muse is asked once more in the same thread for more posts of each of the three groups or accounts that
-  gave the most, while the stream has room and no first question of the search is left. A search's Muse questions
-  share six minutes (`muse.MaxDeadline`, within the tools server's seven); none is started with less than 30 s
-  left, and a stream that could not be asked is `timeout`. Pool outcomes become codes: no account that can take it
-  `need_login`, a permission card `refused`, a spent quota `limit_reached`, interrupted or unknown `timeout`, other
-  errors `broken`. `HYPOMNEMA_LISTENING_LIVE=1 go test ./internal/controlplane/listening -run LiveMuse` checks the
-  ten posts of the 2026-11-27 probe against the real threads.com.
+  `shares`, only posts it opened, and `NO POSTS FOUND` alone when none (a clean zero). Only a usable list (a post of
+  the platform with its quote) or that answer alone ends a question: a draft, Muse still working ("I'll send the
+  list once the check returns"), a block with no link or quote, or a draft that names `NO POSTS FOUND`, is continued
+  in the same thread at once, then a minute after each further one, until the list comes (owner, 2026-11-28); a
+  list none of whose posts is of the platform is asked again once, then taken as it is. Each block's link is the
+  address it writes, else the answer's next link to a post of the platform, unwrapped from `l.meta.ai/?u=`; a block
+  with no such link is left out and counted. A post is known by the platform's id: a Facebook reel, Page post, group
+  post, shared post, photo or permalink, an Instagram `/p/` or `/reel/`, a Threads `/@handle/post/<code>`.
+- Every post's link is opened as a reader who is not signed in, one page a second a site, even one whose id dates it
+  outside the window. It counts only when the page is that post (its `og:url`, else where it landed; a sign-in page
+  or a gone post fails), the quote is the caption's and is found in one caption field (`og:description`, the
+  description, or Instagram's `on Instagram: "…"` title), never stitched from several (compared in NFKC, lowercased,
+  spaces and edge punctuation folded), Muse gave a date in the form asked, and the date read from the link (an
+  Instagram or Threads shortcode's id) or the page's first `<time datetime>`, never Muse's, lies in the window and
+  within a day of Muse's. A quote Muse read from a comment or an image's text is not on such a page, so it is not
+  checkable and stays unverified. A post that passes is an item, dated by its link or page with high confidence,
+  its `check` saying so; one that fails is in the answer's `unverified` list with why, never an item, a cluster or a
+  count (the coverage counts it as `unverified`). Counts are Muse's as it saw them, a missing one left out, never 0,
+  and not scored; an Instagram page's own counts replace them. The group or account of a post is the one observed:
+  in its link, or in an Instagram page's description (`… comments - <name> on …`).
+- After every stream's first pass (`Result.Then`, run in the sources' and subqueries' order before coverage is
+  settled), Muse is asked once more, in the thread of the stream that saw it most, for more posts of each of the
+  three groups or accounts the whole search saw most: three extra questions a search at most, however many streams
+  run, each continued like a first one, while its stream has room. One deadline, six minutes from the search's start
+  (`muse.MaxDeadline`, within the tools server's seven), covers the questions and the link checks: a question ends
+  25 s before it (ten links at a second each and one page's 15 s), none starts with less than 30 s to that end, no
+  page is opened after the deadline (`not checked: the search's time ran out`), and a stream that could not be asked
+  is `timeout`. Pool outcomes become codes: no account that can take it `need_login`, a permission card `refused`, a
+  spent quota `limit_reached`, interrupted or unknown `timeout`, other errors `broken`. `HYPOMNEMA_LISTENING_LIVE=1
+  go test ./internal/controlplane/listening -run LiveMuse` checks the ten posts of the 2026-11-27 probe against the
+  real threads.com.
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
