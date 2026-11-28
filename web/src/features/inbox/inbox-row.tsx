@@ -214,6 +214,11 @@ export function InboxRow({
                 <Badge variant="outline">draft</Badge>
               </span>
             )}
+            {todo?.not_passed && !isClosed(todo) && (
+              <span data-slot="not-passed" className="shrink-0" title={todo.not_passed}>
+                <Badge variant="outline">Not passed</Badge>
+              </span>
+            )}
           </span>
         </span>
       </button>

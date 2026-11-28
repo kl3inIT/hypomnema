@@ -52,6 +52,7 @@ export type Run = {
    * The id of the Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
    */
   bot?: string;
+  routed_by?: RoutedBy;
   created_at: string;
   updated_at: string;
   /**
@@ -61,6 +62,11 @@ export type Run = {
   finished_at?: string;
   review_stall?: ReviewStall;
 };
+
+/**
+ * Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository or which no Bot owns; repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat. Absent for a Run made before, or without a chat.
+ */
+export type RoutedBy = 'chat' | 'own_chat' | 'repo_owner' | 'default';
 
 /**
  * A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
@@ -139,7 +145,7 @@ export type NewRun = {
   repo?: string;
   base?: string;
   /**
-   * The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat. A Bot request uses its own chat; a script Routine's Run has no chat.
+   * The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses its own chat when its Bot owns the repository or no Bot does; else the Run goes to the main chat of the Bot that owns the repository, and the creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
    */
   chat_id?: string;
   /**
@@ -2325,6 +2331,10 @@ export type Repo = {
    * The SSH host's public keys the owner confirmed, one "<type> <base64>" a line; nodes trust the host under them alone.
    */
   ssh_host_key?: string;
+  /**
+   * The id of the Bot that owns the repository's work (Bot.repos, issue #1334); absent when none does and its Runs go to the main Bot.
+   */
+  bot?: string;
   created_at: string;
 };
 
@@ -3928,8 +3938,19 @@ export type Bot = {
    */
   guaranteed_dispatches: number;
   owner_accounts?: OwnerAccounts;
+  /**
+   * The repositories whose work the Bot owns (issue #1334), owner/name on github.com and an https URL on another host: a Run created on one goes to the Bot's chat. A repository has at most one owning Bot; the main Bot owns none. Set with PUT /bots/{bot_id}/repos.
+   */
+  repos?: Array<string>;
   created_at: string;
   updated_at: string;
+};
+
+export type BotRepos = {
+  /**
+   * The repositories, each as NewRun.repo takes it; empty for none.
+   */
+  repos: Array<string>;
 };
 
 /**
@@ -5726,6 +5747,10 @@ export type Todo = {
    * The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
    */
   passed_by?: string;
+  /**
+   * The main Bot's reason it passed the item, which it has, to no project Bot (issue #1334): the Inbox shows it as "Not passed". Left out when it gave none; cleared when the item is given to someone else.
+   */
+  not_passed?: string;
   /**
    * A proposal nobody touched for three days, left out of the list unless asked for.
    */
@@ -11177,6 +11202,36 @@ export type ListBotToolsResponses = {
 };
 
 export type ListBotToolsResponse = ListBotToolsResponses[keyof ListBotToolsResponses];
+
+export type SetBotReposData = {
+  body: BotRepos;
+  path: {
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
+  };
+  query?: never;
+  url: '/bots/{bot_id}/repos';
+};
+
+export type SetBotReposErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetBotReposError = SetBotReposErrors[keyof SetBotReposErrors];
+
+export type SetBotReposResponses = {
+  /**
+   * The Bot, with its repositories as kept.
+   */
+  200: Bot;
+};
+
+export type SetBotReposResponse = SetBotReposResponses[keyof SetBotReposResponses];
 
 export type ChangeBotMemoryData = {
   body: MemoryChange;

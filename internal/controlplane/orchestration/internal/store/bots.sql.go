@@ -68,6 +68,15 @@ func (q *Queries) DeleteDepartment(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteReposOfBot = `-- name: DeleteReposOfBot :exec
+DELETE FROM bot_repos WHERE bot_id = ?1
+`
+
+func (q *Queries) DeleteReposOfBot(ctx context.Context, botID string) error {
+	_, err := q.db.ExecContext(ctx, deleteReposOfBot, botID)
+	return err
+}
+
 const forgetRemovedBotName = `-- name: ForgetRemovedBotName :exec
 DELETE FROM removed_bots WHERE id = ?1
 `
@@ -204,6 +213,28 @@ func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
 		arg.Now,
 		arg.Fallbacks,
 		arg.OwnerAccounts,
+	)
+	return err
+}
+
+const insertBotRepo = `-- name: InsertBotRepo :exec
+INSERT INTO bot_repos (host, path, bot_id, created_at) VALUES (?1, ?2, ?3, ?4)
+`
+
+type InsertBotRepoParams struct {
+	Host  string
+	Path  string
+	BotID string
+	Now   int64
+}
+
+// A repository has at most one owning Bot: a second claim breaks the key.
+func (q *Queries) InsertBotRepo(ctx context.Context, arg InsertBotRepoParams) error {
+	_, err := q.db.ExecContext(ctx, insertBotRepo,
+		arg.Host,
+		arg.Path,
+		arg.BotID,
+		arg.Now,
 	)
 	return err
 }
@@ -361,6 +392,39 @@ func (q *Queries) ListBotModels(ctx context.Context) ([]ListBotModelsRow, error)
 	return items, nil
 }
 
+const listBotRepos = `-- name: ListBotRepos :many
+SELECT host, path, bot_id, created_at FROM bot_repos ORDER BY bot_id, host, path
+`
+
+// Every repository a Bot owns (issue #1334), by Bot and then by repository.
+func (q *Queries) ListBotRepos(ctx context.Context) ([]BotRepo, error) {
+	rows, err := q.db.QueryContext(ctx, listBotRepos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BotRepo{}
+	for rows.Next() {
+		var i BotRepo
+		if err := rows.Scan(
+			&i.Host,
+			&i.Path,
+			&i.BotID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBots = `-- name: ListBots :many
 SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots ORDER BY created_at, name
 `
@@ -472,6 +536,38 @@ func (q *Queries) ListRemovedBots(ctx context.Context) ([]RemovedBot, error) {
 	return items, nil
 }
 
+const listReposOfBot = `-- name: ListReposOfBot :many
+SELECT host, path, bot_id, created_at FROM bot_repos WHERE bot_id = ?1 ORDER BY host, path
+`
+
+func (q *Queries) ListReposOfBot(ctx context.Context, botID string) ([]BotRepo, error) {
+	rows, err := q.db.QueryContext(ctx, listReposOfBot, botID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BotRepo{}
+	for rows.Next() {
+		var i BotRepo
+		if err := rows.Scan(
+			&i.Host,
+			&i.Path,
+			&i.BotID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSetupChangesOfChat = `-- name: ListSetupChangesOfChat :many
 SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE chat_id = ?1 ORDER BY created_at, rowid
 `
@@ -522,6 +618,28 @@ type MarkSetupChangeUndoneParams struct {
 func (q *Queries) MarkSetupChangeUndone(ctx context.Context, arg MarkSetupChangeUndoneParams) error {
 	_, err := q.db.ExecContext(ctx, markSetupChangeUndone, arg.Now, arg.ID)
 	return err
+}
+
+const ownerOfRepo = `-- name: OwnerOfRepo :one
+SELECT r.bot_id, b.name FROM bot_repos r JOIN bots b ON b.id = r.bot_id WHERE r.host = ?1 AND r.path = ?2
+`
+
+type OwnerOfRepoParams struct {
+	Host string
+	Path string
+}
+
+type OwnerOfRepoRow struct {
+	BotID string
+	Name  string
+}
+
+// The Bot that owns a repository, with its name; the path compares without case.
+func (q *Queries) OwnerOfRepo(ctx context.Context, arg OwnerOfRepoParams) (OwnerOfRepoRow, error) {
+	row := q.db.QueryRowContext(ctx, ownerOfRepo, arg.Host, arg.Path)
+	var i OwnerOfRepoRow
+	err := row.Scan(&i.BotID, &i.Name)
+	return i, err
 }
 
 const renameBot = `-- name: RenameBot :execrows

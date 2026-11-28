@@ -92,7 +92,7 @@ func (q *Queries) GetFollowUp(ctx context.Context, id string) (TaskFollowUp, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses, bot_id, wake_after FROM runs WHERE id = ?1
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses, bot_id, wake_after, routed_by FROM runs WHERE id = ?1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -114,12 +114,13 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.Uses,
 		&i.BotID,
 		&i.WakeAfter,
+		&i.RoutedBy,
 	)
 	return i, err
 }
 
 const getRunWithBot = `-- name: GetRunWithBot :one
-SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, runs.wake_after, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, runs.wake_after, runs.routed_by, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE runs.id = ?1
 `
@@ -149,6 +150,7 @@ func (q *Queries) GetRunWithBot(ctx context.Context, id string) (GetRunWithBotRo
 		&i.Run.Uses,
 		&i.Run.BotID,
 		&i.Run.WakeAfter,
+		&i.Run.RoutedBy,
 		&i.Bot,
 	)
 	return i, err
@@ -216,9 +218,9 @@ func (q *Queries) InsertFollowUp(ctx context.Context, arg InsertFollowUpParams) 
 
 const insertRun = `-- name: InsertRun :exec
 INSERT INTO runs (id, objective, status, created_by, repo, repo_host, base, coordinator_token_id, chat_id, uses,
-                  bot_id, created_at, updated_at)
+                  bot_id, routed_by, created_at, updated_at)
 VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-        ?10, ?11, ?11)
+        ?10, ?11, ?12, ?12)
 `
 
 type InsertRunParams struct {
@@ -232,6 +234,7 @@ type InsertRunParams struct {
 	ChatID             sql.NullString
 	Uses               sql.NullString
 	Bot                sql.NullString
+	RoutedBy           sql.NullString
 	Now                int64
 }
 
@@ -247,6 +250,7 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) error {
 		arg.ChatID,
 		arg.Uses,
 		arg.Bot,
+		arg.RoutedBy,
 		arg.Now,
 	)
 	return err
@@ -483,7 +487,7 @@ func (q *Queries) ListFollowUpsOfTask(ctx context.Context, taskID string) ([]Tas
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, runs.wake_after, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, runs.wake_after, runs.routed_by, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE (CAST(?1 AS TEXT) = '' OR runs.status = ?1)
   AND (CAST(?2 AS TEXT) = '' OR runs.chat_id = ?2)
@@ -541,6 +545,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 			&i.Run.Uses,
 			&i.Run.BotID,
 			&i.Run.WakeAfter,
+			&i.Run.RoutedBy,
 			&i.Bot,
 		); err != nil {
 			return nil, err

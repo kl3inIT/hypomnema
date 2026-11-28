@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"math"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -397,13 +396,4 @@ func durationFlag(fs *flag.FlagSet, name string) time.Duration {
 	d, _ := time.ParseDuration(str(fs, name))
 
 	return d
-}
-
-// chatOfThisAgent is the chat pi works for, from its environment.
-func chatOfThisAgent() *string {
-	if id := os.Getenv(chatEnv); id != "" {
-		return &id
-	}
-
-	return nil
 }

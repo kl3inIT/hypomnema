@@ -33,6 +33,7 @@ import { ToolsField } from "@/features/tools/tools-field"
 
 import { BotAccess } from "./bot-access"
 import { BotChats } from "./bot-chats"
+import { BotRepos } from "./bot-repos"
 import {
   defaultModelLabel,
   draftOf,
@@ -99,6 +100,7 @@ export function BotScreen({ id }: { id: string }) {
               <BotForm start={draftOf(b)} models={models.data ?? []} stored={b} />
               <Memory bot={b} />
               <BotAccess bot={b} />
+              <BotRepos bot={b} />
               <BotRoutines bot={b.id} />
               <BotChats bot={b} />
               <Channels bot={b} />

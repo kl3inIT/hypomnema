@@ -350,6 +350,10 @@ type Todo struct {
 	// PassedBy is the Bot that gave the item to the Bot it is given to (issue #1118): the main Bot that passed it to
 	// a project Bot, or the project Bot that gave it back to the main Bot; empty when the owner or the system gave it.
 	PassedBy string
+	// NotPassed is the main Bot's reason it passed the item, given to it, to no project Bot (issue #1334): the Inbox
+	// shows it as "Not passed" instead of the item staying with the main Bot silently. Empty when it said none; it is
+	// cleared when the item is given to someone else.
+	NotPassed string
 	// Priority is NoPriority, Urgent, High, Medium or Low (issue #1157), PriorityReason why, in a line, as the Bot that
 	// set it said it; Project the id of its project, a department (issue #1188), empty for none.
 	Priority       int
@@ -1359,8 +1363,8 @@ func fromRow(r store.Todo, now time.Time) (Todo, error) {
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
 		ApprovalID: r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
 		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String, Chat: r.ChatID.String,
-		PassedBy: r.PassedBy.String, Priority: int(r.Priority), PriorityReason: r.PriorityReason,
-		Project:   r.ProjectID.String,
+		PassedBy: r.PassedBy.String, NotPassed: r.NotPassed.String, Priority: int(r.Priority),
+		PriorityReason: r.PriorityReason, Project: r.ProjectID.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 

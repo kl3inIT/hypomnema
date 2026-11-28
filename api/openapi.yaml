@@ -3310,6 +3310,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ToolNames" }
         default: { $ref: "#/components/responses/Error" }
+  /bots/{bot_id}/repos:
+    parameters:
+      - $ref: "#/components/parameters/BotID"
+    put:
+      operationId: SetBotRepos
+      summary: Replace the repositories whose work a Bot owns; only the owner
+      description: >-
+        A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo`
+        takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list
+        frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot
+        owns none. Removing a Bot frees its repositories.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BotRepos" }
+      responses:
+        "200":
+          description: The Bot, with its repositories as kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
   /bots/{bot_id}/memory:
     parameters:
       - $ref: "#/components/parameters/BotID"
@@ -6217,6 +6240,7 @@ components:
         bot:
           type: string
           description: The id of the Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
+        routed_by: { $ref: "#/components/schemas/RoutedBy" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         uses:
@@ -6225,6 +6249,15 @@ components:
           description: The Connections the Run's workers may use, each as integration:label.
         finished_at: { type: string, format: date-time }
         review_stall: { $ref: "#/components/schemas/ReviewStall" }
+    RoutedBy:
+      type: string
+      enum: [chat, own_chat, repo_owner, default]
+      x-enum-varnames: [RoutedByChat, RoutedByOwnChat, RoutedByRepoOwner, RoutedByDefault]
+      description: >-
+        Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat,
+        the Bot chat that created it, whose Bot owns the repository or which no Bot owns; repo_owner, the main chat of
+        the Bot that owns the repository (Run.bot); default, the main Bot's main chat. Absent for a Run made before,
+        or without a chat.
     ReviewStall:
       type: object
       description: A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
@@ -6321,8 +6354,10 @@ components:
           type: string
           minLength: 1
           description: >-
-            The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat.
-            A Bot request uses its own chat; a script Routine's Run has no chat.
+            The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses
+            its own chat when its Bot owns the repository or no Bot does; else the Run goes to the main chat of the
+            Bot that owns the repository, and the creating chat gets a line saying so; an owner request on a
+            repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
         uses:
           type: array
           maxItems: 16
@@ -8677,6 +8712,11 @@ components:
           description: >-
             The SSH host's public keys the owner confirmed, one "<type>
             <base64>" a line; nodes trust the host under them alone.
+        bot:
+          type: string
+          description: >-
+            The id of the Bot that owns the repository's work (Bot.repos, issue #1334); absent when none does and its
+            Runs go to the main Bot.
         created_at: { type: string, format: date-time }
     PushSubscription:
       type: object
@@ -10468,8 +10508,24 @@ components:
             claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and
             nothing running is stopped for it.
         owner_accounts: { $ref: "#/components/schemas/OwnerAccounts" }
+        repos:
+          type: array
+          items: { type: string }
+          description: >-
+            The repositories whose work the Bot owns (issue #1334), owner/name on github.com and an https URL on
+            another host: a Run created on one goes to the Bot's chat. A repository has at most one owning Bot; the
+            main Bot owns none. Set with PUT /bots/{bot_id}/repos.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    BotRepos:
+      type: object
+      additionalProperties: false
+      required: [repos]
+      properties:
+        repos:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 500 }
+          description: The repositories, each as NewRun.repo takes it; empty for none.
     OwnerAccounts:
       type: string
       enum: [use, read]
@@ -12274,6 +12330,11 @@ components:
           description: >-
             The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project
             Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
+        not_passed:
+          type: string
+          description: >-
+            The main Bot's reason it passed the item, which it has, to no project Bot (issue #1334): the Inbox shows
+            it as "Not passed". Left out when it gave none; cleared when the item is given to someone else.
         stale:
           type: boolean
           description: A proposal nobody touched for three days, left out of the list unless asked for.

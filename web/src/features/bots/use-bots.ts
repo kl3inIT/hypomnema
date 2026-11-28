@@ -15,6 +15,7 @@ import {
   renameBot,
   reorderBots as putBotOrder,
   setBotMemory,
+  setBotRepos,
 } from "@/api/generated/sdk.gen"
 import type { Bot, BotList, BotSettings } from "@/api/generated/types.gen"
 import { callsOf } from "@/lib/query-keys"
@@ -191,6 +192,18 @@ export function useSetBotMemory() {
   return useMutation({
     mutationFn: async ({ id, memory }: { id: string; memory: string }) =>
       (await setBotMemory({ path: { bot_id: id }, body: { memory } })).data,
+    onSuccess: saved,
+  })
+}
+
+// useSetBotRepos replaces the repositories whose work a Bot owns (issue #1334): a Run created on one goes to its chat.
+// The server refuses a repository another Bot owns, naming that Bot.
+export function useSetBotRepos() {
+  const saved = useSaved()
+
+  return useMutation({
+    mutationFn: async ({ id, repos }: { id: string; repos: string[] }) =>
+      (await setBotRepos({ path: { bot_id: id }, body: { repos } })).data,
     onSuccess: saved,
   })
 }

@@ -39,8 +39,12 @@ A Run has one controller: the Bot of the chat it belongs to. There are two paths
    ```text
    hypomnema runs create --repo <owner/name> --objective-file <file> --key <new key> --json
    ```
-   The Run belongs to your Bot's chat. Outside a Bot chat, the owner's command defaults to the main Bot's main
-   chat; `--chat <chat_id>` picks another chat. The result names the chat the control plane will wake.
+   The control plane picks the chat and the result's `routed_by` says why. A repository a Bot owns (`hypomnema
+   repos list` shows each one's Bot) goes to that Bot's main chat, so the owner's session needs no `--chat` for it;
+   one no Bot owns goes to your Bot's chat in a Bot chat, else to the main Bot's main chat. `--chat <chat_id>` picks
+   a chat and wins. In a Bot chat, when `routed_by` is `repo_owner` and the chat is not yours, the Run is that
+   Bot's: it is woken with the Run and plans its Tasks, so put everything it needs in the objective, tell the owner
+   which chat took it, and stop; your token may not add its Tasks.
    `--repo` also takes the URL of a repository on GitLab, or a name from `hypomnema repos list --json`. When the
    create answers that a host is not known, tell the owner the command it names; only the owner declares a host.
 2. Write every Task you already know to a file and create them in one call:

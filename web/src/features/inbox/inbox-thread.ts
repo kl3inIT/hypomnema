@@ -5,6 +5,7 @@ import {
   CircleCheck,
   CircleDot,
   CirclePlus,
+  CircleSlash,
   CircleX,
   Clock,
   Copy,
@@ -429,6 +430,9 @@ function editLine(
       icon: Box,
     }
   }
+  // The main Bot kept the item and said why no project Bot takes it (issue #1334).
+  if (typeof after.not_passed === "string")
+    return { words: `${who} passed it to no Bot: ${after.not_passed}`, icon: CircleSlash }
   const links = Array.isArray(after.evidence) ? (after.evidence as { kind?: string }[]) : []
   if (links.some((l) => l.kind === "pull_request"))
     return { words: `${who} linked a pull request`, icon: GitPullRequest }

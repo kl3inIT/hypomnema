@@ -499,6 +499,9 @@ var commands = []command{
 				"which refuses every write and send through his Lark sign-in, Google, Zalo and WhatsApp")
 			fs.Int("guarantee", 0, "its guaranteed share of the room, in workers across every node: 1 to 64 (4 for a "+
 				"new bot); it may use more when the others leave room free")
+			fs.String("repos", "", "the repositories whose work it owns, as runs create --repo takes them, separated "+
+				"by commas; \"\" for none (owner only): a Run created on one goes to its chat, and a repository has "+
+				"one owning bot")
 			jsonFlag(fs)
 		},
 		run: botsSet,
@@ -745,7 +748,8 @@ var commands = []command{
 		flags: notesFlags, run: notesRm,
 	},
 	{
-		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
+		name: "repos list", summary: "the repositories registered under a name, each with the bot whose chat takes " +
+			"its Runs", flags: jsonFlag, run: reposList,
 	},
 	{
 		name: "repos add", args: "<repo>", min: 1, max: 1,

@@ -101,7 +101,10 @@ type Bot struct {
 	Department string
 	// MainChat is the chat a click on the Bot opens and the web and the CLI write to (issue #471); empty until the
 	// first message from either makes it. Its other chats stay as they are.
-	MainChat  string
+	MainChat string
+	// Repos are the repositories whose work it owns (issue #1334; botrepos.go), as the owner writes them: a Run
+	// created on one goes to its chat. Filled by GetBot and ListBots; not a setting of PutBot: SetBotRepos sets them.
+	Repos     []string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -534,26 +537,44 @@ func (s *Service) ChatToolDisplay(ctx context.Context, chatID string) (ToolDispl
 	return ToolDisplay(d), nil
 }
 
-// GetBot returns the Bot of an id.
+// GetBot returns the Bot of an id, with its repositories.
 func (s *Service) GetBot(ctx context.Context, id string) (Bot, error) {
-	row, err := s.read().GetBot(ctx, id)
+	q := s.read()
+
+	row, err := q.GetBot(ctx, id)
 	if err != nil {
 		return Bot{}, notFound(err, "bot", id)
 	}
 
-	return botFromRow(row), nil
+	repos, err := q.ListReposOfBot(ctx, id)
+	if err != nil {
+		return Bot{}, fmt.Errorf("listing the repositories of bot %s: %w", id, err)
+	}
+
+	b := botFromRow(row)
+	b.Repos = botRepoNames(repos)
+
+	return b, nil
 }
 
 // ListBots returns the Bots, the oldest first.
 func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
-	rows, err := s.read().ListBots(ctx)
+	q := s.read()
+
+	rows, err := q.ListBots(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing bots: %w", err)
+	}
+
+	repos, err := reposOfBots(ctx, q)
+	if err != nil {
+		return nil, err
 	}
 
 	out := make([]Bot, len(rows))
 	for i, r := range rows {
 		out[i] = botFromRow(r)
+		out[i].Repos = repos[r.ID]
 	}
 
 	return out, nil

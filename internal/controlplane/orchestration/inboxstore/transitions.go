@@ -179,6 +179,8 @@ func (s *Store) changeTx(
 		if next.AssigneeKind != cur.AssigneeKind || next.Assignee != cur.Assignee {
 			to := Assignee{Kind: next.AssigneeKind, Name: next.Assignee}
 			next.PassedBy = passedBy(c.Actor, to)
+			// Why the main Bot passed it to no Bot holds only while it has it (issue #1334).
+			next.NotPassed = sql.NullString{}
 
 			if !cur.ProjectID.Valid && !next.ProjectID.Valid {
 				if next.ProjectID, err = botsDepartment(ctx, q, to); err != nil {
@@ -199,8 +201,8 @@ func (s *Store) changeTx(
 			RecordedByKind: next.RecordedByKind, RecordedBy: next.RecordedBy, ClosedHow: next.ClosedHow,
 			CloseReason: next.CloseReason, Evidence: next.Evidence, ClosedAt: next.ClosedAt,
 			DuplicateOf: next.DuplicateOf, Priority: next.Priority, PriorityReason: next.PriorityReason,
-			ProjectID: next.ProjectID, WhyOpen: next.WhyOpen, Now: now, ID: cur.ID, Revision: cur.Revision,
-			FromState: cur.State,
+			ProjectID: next.ProjectID, WhyOpen: next.WhyOpen, NotPassed: next.NotPassed, Now: now, ID: cur.ID,
+			Revision: cur.Revision, FromState: cur.State,
 		})
 		if err != nil {
 			return fmt.Errorf("changing to-do %s: %w", c.ID, err)
@@ -1272,6 +1274,9 @@ type Edit struct {
 	// WhyOpen makes an ask to the owner his promise (issue #1206): Promised, on an item a Bot added that is
 	// AskedDirectly and still his.
 	WhyOpen *string
+	// NotPassed is the main Bot's reason it passes an item given to it to no project Bot (issue #1334), shown in the
+	// Inbox as "Not passed"; only the main Bot gives one, on an item it has, and not while it gives the item away.
+	NotPassed *string
 }
 
 // Edit changes the fields of a to-do that is not closed. The owner edits any; a Bot only the items it created or
@@ -1471,6 +1476,15 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 		next.ProjectID = project
 	}
 
+	if e.NotPassed != nil {
+		reason, err := s.notPassed(c, cur, e)
+		if err != nil {
+			return nil, err
+		}
+
+		next.NotPassed = nullString(reason)
+	}
+
 	if e.Assignee != nil {
 		a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
 		if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
@@ -1569,6 +1583,7 @@ func fields(r store.Todo) map[string]any {
 		"done_by_kind": r.DoneByKind, "done_by": r.DoneBy, "recorded_by_kind": r.RecordedByKind,
 		"recorded_by": r.RecordedBy, "closed_how": r.ClosedHow, "closed_at": r.ClosedAt,
 		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen, "passed_by": r.PassedBy, "project_id": r.ProjectID,
+		"not_passed": r.NotPassed,
 	} {
 		m[k] = v
 	}

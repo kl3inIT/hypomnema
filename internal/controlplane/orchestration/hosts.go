@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
@@ -50,7 +51,10 @@ type Repo struct {
 	// "<type> <base64>" a line: the node trusts the host under them alone.
 	// Set whenever SSHURL is.
 	SSHHostKey string
-	CreatedAt  time.Time
+	// Bot is the id of the Bot that owns its work (issue #1334; botrepos.go), empty for none: a Run on it goes to that
+	// Bot's chat. Filled by ListRepos.
+	Bot       string
+	CreatedAt time.Time
 }
 
 var repoNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
@@ -300,14 +304,29 @@ func (s *Service) RemoveRepo(ctx context.Context, name string) error {
 
 // ListRepos returns the registered repositories by name.
 func (s *Service) ListRepos(ctx context.Context) ([]Repo, error) {
-	rows, err := s.read().ListRepos(ctx)
+	q := s.read()
+
+	rows, err := q.ListRepos(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing repositories: %w", err)
 	}
 
+	owned, err := q.ListBotRepos(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the bots' repositories: %w", err)
+	}
+
+	// Hosts compare paths without case, as bot_repos does.
+	ownerOf := make(map[githost.Repo]string, len(owned))
+	for _, o := range owned {
+		ownerOf[githost.Repo{Host: o.Host, Path: strings.ToLower(o.Path)}] = o.BotID
+	}
+
 	out := make([]Repo, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repoFromRow(r))
+		repo := repoFromRow(r)
+		repo.Bot = ownerOf[githost.Repo{Host: r.Host, Path: strings.ToLower(r.Path)}]
+		out = append(out, repo)
 	}
 
 	return out, nil
