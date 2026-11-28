@@ -354,7 +354,7 @@ func (s *Service) FinishRun(ctx context.Context, id string) error {
 			return fmt.Errorf("%w: run %s has %d unfinished tasks", ErrConflict, id, open)
 		}
 
-		return transitionRun(ctx, q, now, id, RunOpen, RunFinished)
+		return s.transitionRun(ctx, q, now, id, RunOpen, RunFinished)
 	})
 }
 
@@ -363,7 +363,7 @@ func (s *Service) FinishRun(ctx context.Context, id string) error {
 // (Omnigent's _best_effort_stop walks every running worker the same way).
 func (s *Service) CancelRun(ctx context.Context, id string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := transitionRun(ctx, q, now, id, RunOpen, RunCanceled); err != nil {
+		if err := s.transitionRun(ctx, q, now, id, RunOpen, RunCanceled); err != nil {
 			return err
 		}
 
@@ -520,6 +520,10 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 		byRef[nt.Ref] = id
 		status[id] = depState{st, reason}
 		ids = append(ids, id)
+	}
+
+	if err := s.inbox.CloseRunReviewStallsTx(ctx, q, now, runID, "New work was added to the Run."); err != nil {
+		return nil, err
 	}
 
 	return ids, nil
@@ -689,8 +693,31 @@ func (s *Service) ListBoardTasks(ctx context.Context, since time.Time, limit int
 // completeTask records a Task's success and makes ready every dependent whose
 // dependencies have now all succeeded, in the same transaction (Orca's
 // promoteReadyTasks).
-func completeTask(ctx context.Context, q *store.Queries, now int64, id, result string) error {
-	if err := transitionTask(ctx, q, now, id, TaskSucceeded, BlockedNone, result); err != nil {
+func (s *Service) completeTask(ctx context.Context, q *store.Queries, now int64, id, result string) error {
+	current, event, err := moveTask(ctx, q, now, id, TaskSucceeded, BlockedNone, result)
+	if err != nil {
+		return err
+	}
+	review, err := reviewAfterTask(ctx, q, now, current, result)
+	if err != nil {
+		return err
+	}
+	if review.TaskID != "" {
+		event.payload["review"] = review
+	}
+	if review.WaitingForOwner {
+		item, err := s.reportReviewStall(ctx, q, now, current, review, result)
+		if err != nil {
+			return err
+		}
+		if item != "" {
+			event.payload["review_inbox_item"] = item
+		}
+	}
+	if err := keepNoReview(ctx, q, now, current); err != nil {
+		return err
+	}
+	if err := emit(ctx, q, now, event); err != nil {
 		return err
 	}
 
@@ -826,6 +853,10 @@ func (s *Service) ReopenTask(ctx context.Context, id string) error {
 			return err
 		}
 
+		if err := s.inbox.CloseRunReviewStallsTx(ctx, q, now, run.ID, "Work resumed on the Run."); err != nil {
+			return err
+		}
+
 		return unblockDependents(ctx, q, now, id)
 	})
 }
@@ -910,14 +941,25 @@ func blockDependents(ctx context.Context, q *store.Queries, now int64, id string
 func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 	to TaskStatus, reason BlockedReason, result string,
 ) error {
+	_, e, err := moveTask(ctx, q, now, id, to, reason, result)
+	if err != nil {
+		return err
+	}
+	return emit(ctx, q, now, e)
+}
+
+// moveTask updates the Task and prepares its status event. Completion adds review data before emitting it.
+func moveTask(ctx context.Context, q *store.Queries, now int64, id string, to TaskStatus, reason BlockedReason,
+	result string,
+) (store.Task, event, error) {
 	current, err := q.GetTask(ctx, id)
 	if err != nil {
-		return notFound(err, "task", id)
+		return store.Task{}, event{}, notFound(err, "task", id)
 	}
 
 	from := TaskStatus(current.Status)
 	if !canTask(from, to) {
-		return fmt.Errorf("%w: task %s is %s, cannot become %s", ErrConflict, id, from, to)
+		return store.Task{}, event{}, fmt.Errorf("%w: task %s is %s, cannot become %s", ErrConflict, id, from, to)
 	}
 
 	finished := sql.NullInt64{}
@@ -930,11 +972,11 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 		Now: now, FinishedAt: finished, ID: id, FromStatuses: taskFrom(to),
 	})
 	if err != nil {
-		return fmt.Errorf("moving task %s to %s: %w", id, to, err)
+		return store.Task{}, event{}, fmt.Errorf("moving task %s to %s: %w", id, to, err)
 	}
 
 	if n != 1 {
-		return fmt.Errorf("%w: task %s changed while becoming %s", ErrConflict, id, to)
+		return store.Task{}, event{}, fmt.Errorf("%w: task %s changed while becoming %s", ErrConflict, id, to)
 	}
 
 	// The reason is why a Task is blocked, or why it failed (its result), so a wake-up can say it (issue #303).
@@ -944,27 +986,10 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 	}
 
 	payload := map[string]any{"from": string(from), "to": string(to), "reason": why}
-	if to == TaskSucceeded {
-		review, err := reviewAfterTask(ctx, q, now, current, result)
-		if err != nil {
-			return err
-		}
-		if review.TaskID != "" {
-			payload["review"] = review
-		}
-
-		if err := keepNoReview(ctx, q, now, current); err != nil {
-			return err
-		}
-	}
-
-	return emit(ctx, q, now, event{
-		kind: EventTaskStatus, run: current.RunID, task: id,
-		payload: payload,
-	})
+	return current, event{kind: EventTaskStatus, run: current.RunID, task: id, payload: payload}, nil
 }
 
-func transitionRun(ctx context.Context, q *store.Queries, now int64, id string, from, to RunStatus) error {
+func (s *Service) transitionRun(ctx context.Context, q *store.Queries, now int64, id string, from, to RunStatus) error {
 	if !canRun(from, to) {
 		return fmt.Errorf("%w: a run cannot go from %s to %s", ErrConflict, from, to)
 	}
@@ -980,6 +1005,10 @@ func transitionRun(ctx context.Context, q *store.Queries, now int64, id string, 
 		kind := EventRunFinished
 		if to == RunCanceled {
 			kind = EventRunCanceled
+		}
+
+		if err := s.inbox.CloseRunReviewStallsTx(ctx, q, now, id, "The Run "+string(to)+"."); err != nil {
+			return err
 		}
 
 		return emit(ctx, q, now, event{kind: kind, run: id})

@@ -16,8 +16,9 @@ import (
 )
 
 // The control socket (issue #716) answers `hypomnema update`, which runs as root on the same machine, which Bots'
-// turns and how many agents' tool calls (issue #1060) run now, so that the update waits for them before it stops the service. It is Hermes's gateway control
-// socket (gateway/control_socket.py): a local socket in the data folder, never a TCP port, whose file permissions
+// turns, agents' tool calls (issue #1060), and video renders (issue #1328) run now, so the update can wait for them.
+// It is Hermes's gateway control socket (gateway/control_socket.py): a local socket in the data folder, never a TCP
+// port, whose file permissions
 // are the only check; a stale one is removed before listening, and the socket is the control plane's user's alone.
 // GET selfupdate.PathTurns and POST selfupdate.PathUpdate are served.
 
@@ -28,7 +29,7 @@ func controlSocket(database string) string {
 
 // serveControl serves the control socket at path until ctx ends. A socket that cannot listen is logged, and the
 // control plane serves without it: an update then does not wait (selfupdate).
-func serveControl(ctx context.Context, path string, working func() []string, calls func() int,
+func serveControl(ctx context.Context, path string, working func() []string, calls, renders func() int,
 	begin func(mark func() error) error, logger *slog.Logger,
 ) {
 	fail := func(err error) {
@@ -65,7 +66,7 @@ func serveControl(ctx context.Context, path string, working func() []string, cal
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(selfupdate.Turns{Chats: chats, ToolCalls: calls()})
+		_ = json.NewEncoder(w).Encode(selfupdate.Turns{Chats: chats, ToolCalls: calls(), Renders: renders()})
 	})
 
 	// The update names itself here, under the lock of pi's starts (coordinator BeginUpdate): no pi starts after.
