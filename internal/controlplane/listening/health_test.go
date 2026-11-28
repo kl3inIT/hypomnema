@@ -396,14 +396,14 @@ func TestTheToolsCoverageAndThePageSayTheSameFix(t *testing.T) {
 	}
 }
 
-// The live test asks whether a backend reads, not whether people spoke this month: it reads the widest window, as
-// Agent-Reach's live tests name none (read live on 2026-11-28: with 30 days, the archive's route found no Python
-// thread although it filled 15 of 15).
-func TestTheLiveTestReadsTheWidestWindow(t *testing.T) {
+// The live test asks whether a backend reads, not whether people spoke lately: it reads with no window, as
+// Agent-Reach's live tests name none (channels/reddit.py:50). Read live on 2026-11-28: with 30 days, and later the
+// same day with 365, the archive's route filled 15 of 15 Python threads and none was in the window.
+func TestTheLiveTestReadsWithNoWindow(t *testing.T) {
 	t.Parallel()
 
 	c := newClock()
-	old := &backend{items: []listening.Item{post("o1", "python", 200)}}
+	old := &backend{items: []listening.Item{post("o1", "python", 800)}}
 	s := kept(t, c, nil, listening.Platform{Name: "forum", Backends: []listening.Backend{old.spec("api", "f.example")}})
 
 	require.NoError(t, s.Test(t.Context(), "forum", nil, false))
