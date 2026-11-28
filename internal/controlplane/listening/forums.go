@@ -112,8 +112,17 @@ func forumBackend(f forum, at string, pages *http.Client, rb *robots) Backend {
 
 			// Every hop of a thread's read is checked against its site's robots.txt and content signals, the
 			// thread's first address and each redirect's (RFC 9309 §2.2: the rules are the URI's own).
-			allowed := func(u *url.URL) bool {
-				return rb.of(ctx, r, u.Scheme+"://"+u.Host).readable(u.EscapedPath())
+			allowed := func(u *url.URL) error {
+				rules, err := rb.of(ctx, r, u.Scheme+"://"+u.Host)
+				if err != nil {
+					return err
+				}
+
+				if !rules.readable(u.EscapedPath()) {
+					return errDisallowed
+				}
+
+				return nil
 			}
 
 			for i := range threads {

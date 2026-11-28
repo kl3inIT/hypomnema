@@ -55,6 +55,12 @@ func (s *Service) record(coverage []Coverage, at time.Time) {
 	defer s.mu.Unlock()
 
 	for _, c := range coverage {
+		if !readAtAll(c) {
+			// No call was made (a source off by default, or every backend resting or refused by its probe): no run
+			// evidence, so no verdict (last30days doctor.audit_state, lib/doctor.py:143-161).
+			continue
+		}
+
 		h, ok := s.health[c.Source]
 		if !ok {
 			h = &Health{Source: c.Source}
@@ -98,4 +104,17 @@ func failureDetail(c Coverage) string {
 	}
 
 	return ""
+}
+
+// readAtAll says some backend of the source was asked in this search: an attempt that was not skipped.
+func readAtAll(c Coverage) bool {
+	for _, st := range c.Streams {
+		for _, a := range st.Tried {
+			if !a.Skipped {
+				return true
+			}
+		}
+	}
+
+	return false
 }

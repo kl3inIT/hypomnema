@@ -203,7 +203,12 @@ func newRobots(client *http.Client) *robots {
 
 // of is a site's rules, read at most once a robotsCache: a 4xx is no robots.txt, everything allowed, and a 5xx or no
 // answer disallows everything (RFC 9309 §2.3.1.3 and §2.3.1.4; last30days reads a missing or silent file as no rules).
-func (rb *robots) of(ctx context.Context, r Request, origin string) robotRules {
+//
+// A 429 is the site asking to slow down, not a missing file: it rests the host's pages (the same rest as a page's,
+// readPage), Retry-After kept, so neither the robots.txt nor a thread is asked until then, and it is the read's
+// failure, not kept as rules (review round 2 of PR #1321; trend-opportunity-radar collection-pacing-contract.md:12,
+// "stop immediately on … rate limit").
+func (rb *robots) of(ctx context.Context, r Request, origin string) (robotRules, error) {
 	now := r.now()
 
 	rb.mu.Lock()
@@ -211,15 +216,18 @@ func (rb *robots) of(ctx context.Context, r Request, origin string) robotRules {
 	rb.mu.Unlock()
 
 	if ok && now.Sub(cached.at) < robotsCache {
-		return cached
+		return cached, nil
 	}
 
-	status := 0
+	host := hostOf(origin)
 	a, err := call{
-		host: hostOf(origin), address: origin + "/robots.txt", accept: "text/plain", userAgent: pageUserAgent,
-		follow: true,
+		host: host, path: host + "/pages", address: origin + "/robots.txt", accept: "text/plain",
+		userAgent: pageUserAgent, follow: true, siteRests: true,
 		failure: func(s int, h http.Header, now time.Time) *SourceError {
-			status = s
+			if s >= 400 && s < 500 && s != http.StatusTooManyRequests {
+				// Unavailable: no rules (RFC 9309 §2.3.1.3), and nothing rests.
+				return Fail(CodeNotFound, "robots.txt answered HTTP %d", s)
+			}
 
 			return HTTPFailure(s, h, now)
 		},
@@ -227,12 +235,14 @@ func (rb *robots) of(ctx context.Context, r Request, origin string) robotRules {
 
 	var rules robotRules
 
-	switch {
-	case err == nil:
+	switch f := failureOf(err); {
+	case f == nil:
 		text := string(a.body)
 		rules = parseRobots(text[:min(len(text), maxRobots)])
-	case status >= 400 && status < 500:
+	case f.Code == CodeNotFound:
 		rules = robotRules{}
+	case stopsHost(f.Code):
+		return robotRules{none: true}, &SourceError{Code: f.Code, Detail: "robots.txt: " + f.Detail, Until: f.Until}
 	default:
 		rules = robotRules{none: true}
 	}
@@ -243,5 +253,5 @@ func (rb *robots) of(ctx context.Context, r Request, origin string) robotRules {
 	rb.sites[origin] = rules
 	rb.mu.Unlock()
 
-	return rules
+	return rules, nil
 }

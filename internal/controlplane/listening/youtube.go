@@ -200,8 +200,11 @@ func youtubeBackend(run Command) Backend {
 				// search_youtube keeps it when no item is left, :1092-1105).
 				if err != nil {
 					f := AsFailure(err)
+					// A refusal or a rate limit stops this search's other reads, captions and comments, and rests
+					// the backend (trend-opportunity-radar collection-pacing-contract.md:12; last30days
+					// youtube_yt.py:967-972 marks YouTube blocked for the rest of the search).
 					recentFailed = &SourceError{Code: f.Code, Detail: "the recent-uploads search: " + f.Detail,
-						Until: f.Until}
+						Until: f.Until, restBackend: stopsHost(f.Code)}
 
 					if len(inWindow) == 0 {
 						return Result{}, recentFailed
@@ -221,6 +224,10 @@ func youtubeBackend(run Command) Backend {
 				notes   []string
 				blocked *SourceError
 			)
+
+			if recentFailed != nil && recentFailed.restBackend {
+				blocked = recentFailed
+			}
 
 			for i, v := range inWindow {
 				if i < youtubeTranscripts && blocked == nil {

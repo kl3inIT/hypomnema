@@ -150,7 +150,9 @@ func TestReviewTwoYouTubeStopsAfterARateLimit(t *testing.T) {
 		mu.Unlock()
 
 		switch {
-		case slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "https://www.youtube.com/results") }):
+		case slices.ContainsFunc(args, func(a string) bool {
+			return strings.HasPrefix(a, "https://www.youtube.com/results")
+		}):
 			return nil, "ERROR: HTTP Error 429: Too Many Requests", &exec.ExitError{}
 		case slices.Contains(args, "--flat-playlist"):
 			return []byte(`{"id": "new1", "ie_key": "Youtube"}`), "", nil

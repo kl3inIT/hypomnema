@@ -350,6 +350,12 @@ func appStoreBackend(e Endpoints, client *http.Client) Backend {
 						failure: func(s int, h http.Header, now time.Time) *SourceError {
 							status = s
 
+							// A spelling with no feed is not a failure of the feed: it rests nothing, so the next
+							// spelling is asked (obsei appstore._get: 400 and 404 are None).
+							if s == http.StatusBadRequest || s == http.StatusNotFound {
+								return Fail(CodeNotFound, "HTTP %d for this spelling", s)
+							}
+
 							return HTTPFailure(s, h, now)
 						},
 					}, &feed)

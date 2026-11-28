@@ -243,8 +243,13 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 			st.report.Code = f.Code
 			served.Detail = joinDetail(res.Detail, "part not read: "+f.Error())
 
-			if !f.Until.IsZero() {
-				served.Until = f.Until.UTC().Format(time.RFC3339)
+			until := f.Until
+			if f.restBackend {
+				until = s.rest(id, f)
+			}
+
+			if !until.IsZero() {
+				served.Until = until.UTC().Format(time.RFC3339)
 			}
 		}
 

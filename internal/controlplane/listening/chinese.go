@@ -552,9 +552,12 @@ func bilibiliBackend(e Endpoints, client *http.Client) Backend {
 				}
 			}
 
-			if len(items) == 0 && risk != nil {
+			// Nothing usable after the window is nothing read: the risk answer stays the stream's (the window is the
+			// core's, inWindow; last30days-skill-cn bilibili.py:204-213, 236-237 raises when no item is left).
+			if risk != nil && !slices.ContainsFunc(items, func(it Item) bool { return inDays(it.PublishedAt, r.From, r.To) }) {
 				return Result{}, &SourceError{
-					Code: CodeRefused, Detail: strings.Join(append(notes, "the legacy search found nothing"), "; "),
+					Code: CodeRefused, Detail: strings.Join(append(notes, "the legacy search found nothing in the window"),
+						"; "),
 					Until: risk.Until,
 				}
 			}

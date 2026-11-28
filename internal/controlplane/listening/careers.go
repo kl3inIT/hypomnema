@@ -141,7 +141,7 @@ var errDisallowed = errors.New("its robots.txt or content signals do not allow r
 // forum's robots.txt), and each read rests its host's pages after a refusal or a rate limit, so the next search sends
 // nothing there until the rest ends, Retry-After included (the core's rests, rest.go; review round 1 of PR #1321).
 func readPage(ctx context.Context, client *http.Client, r Request, address string,
-	allowed func(u *url.URL) bool,
+	allowed func(u *url.URL) error,
 ) (answer, error) {
 	for hop := 0; hop <= maxRedirects; hop++ {
 		u, err := url.Parse(address)
@@ -149,8 +149,10 @@ func readPage(ctx context.Context, client *http.Client, r Request, address strin
 			return answer{}, Fail(CodeBroken, "%s", err.Error())
 		}
 
-		if allowed != nil && !allowed(u) {
-			return answer{}, errDisallowed
+		if allowed != nil {
+			if err := allowed(u); err != nil {
+				return answer{}, err
+			}
 		}
 
 		host := hostOf(address)

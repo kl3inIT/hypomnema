@@ -296,7 +296,7 @@ func gitHubFailure(status int, header http.Header, now time.Time) *SourceError {
 
 	f := Fail(CodeRateLimited, "HTTP %d: GitHub's keyless rate limit", status)
 
-	if wait, ok := retryAfter(http.Header{"Retry-After": header.Values("Retry-After")}); ok {
+	if wait, ok := retryAfter(http.Header{"Retry-After": header.Values("Retry-After")}, now); ok {
 		f.Until = now.Add(wait)
 	} else if reset, err := strconv.ParseInt(header.Get("X-Ratelimit-Reset"), 10, 64); err == nil && reset > 0 {
 		f.Until = time.Unix(reset, 0).UTC()
