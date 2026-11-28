@@ -526,33 +526,65 @@ func TestReviewPendingOfferTokenRotation(t *testing.T) {
 func TestAnOfferCarriesTheAppsTokenOnlyToANodeThatRefreshesIt(t *testing.T) {
 	t.Parallel()
 
-	for _, refreshes := range []bool{true, false} {
-		p := newPlane(t)
-		p.githubApp = refreshes
+	owner := githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"}
+	bot := githost.Identity{Name: "hypo-bot[bot]", Email: "2+hypo-bot[bot]@users.noreply.github.com"}
 
-		p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
-			return HostCredential{ //nolint:gosec // a test's made-up token
-				Token: "ghp_the_owners", Identity: githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"},
-			}, true
-		}).WithGitHubApp(func(_ context.Context, host, path string) bool {
-			return host == "github.com" && path == "kl3inIT/second-bite"
+	for _, tc := range []struct {
+		name      string
+		refreshes bool
+		account   githost.Identity
+		app       bool
+		author    githost.Identity
+		trailer   string
+	}{
+		{"older node with owner token", false, owner, false, owner, ""},
+		{"App with owner Connection", true, owner, true, owner, ""},
+		{"App without Connection", true, githost.Identity{}, true, bot,
+			"Co-authored-by: octo <1+octo@users.noreply.github.com>"},
+		{"App with another account", true, githost.Identity{Name: "other", Email: "3+other@users.noreply.github.com"},
+			true, bot, "Co-authored-by: octo <1+octo@users.noreply.github.com>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newPlane(t)
+			p.githubApp = tc.refreshes
+
+			p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
+				if !tc.account.Known() {
+					return HostCredential{}, false
+				}
+
+				return HostCredential{Token: "ghp_the_owners", Identity: tc.account}, true //nolint:gosec // test token
+			}).WithGitHubApp(func(_ context.Context, host, path string) (githost.Identity, githost.Identity) {
+				if host == "github.com" && path == "kl3inIT/second-bite" {
+					return bot, owner
+				}
+
+				return githost.Identity{}, githost.Identity{}
+			})
+
+			conn := p.connect()
+			p.task()
+
+			var offer nodeproto.Offer
+			require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+
+			assert.Equal(t, tc.app, offer.GitHubApp)
+			if tc.app {
+				assert.Empty(t, offer.RepoToken, "the node asks for the App's token at each use")
+				actualCommitter := githost.Identity{Name: offer.GitCommitterName, Email: offer.GitCommitterEmail}
+				assert.Equal(t, bot, actualCommitter)
+			} else {
+				assert.Equal(t, "ghp_the_owners", offer.RepoToken)
+				assert.Empty(t, offer.GitCommitterName)
+				assert.Empty(t, offer.GitCommitterEmail)
+			}
+
+			actualAuthor := githost.Identity{Name: offer.GitName, Email: offer.GitEmail}
+			assert.Equal(t, tc.author, actualAuthor)
+			assert.Equal(t, tc.trailer, offer.GitCoAuthor)
 		})
-
-		conn := p.connect()
-		p.task()
-
-		var offer nodeproto.Offer
-		require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
-
-		if refreshes {
-			assert.Empty(t, offer.RepoToken, "the node asks for the App's token at each use")
-			assert.True(t, offer.GitHubApp)
-		} else {
-			assert.Equal(t, "ghp_the_owners", offer.RepoToken)
-			assert.False(t, offer.GitHubApp)
-		}
-
-		assert.Equal(t, "octo", offer.GitName, "the commits still name the owner's account")
 	}
 }
 

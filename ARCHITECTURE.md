@@ -2041,8 +2041,8 @@ flowchart LR
     ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
     PR["a profile's YAML<br/>skills, skills_off"]
     BL["a Bot's lists<br/>skills, skills_off"]
-    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, the phone"}
-    RB{"requires (metadata.hypomnema):<br/>what the Bot may use now, the phone"}
+    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, devices and tools"}
+    RB{"requires (metadata.hypomnema):<br/>the Bot's Connections, devices and tools"}
     DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
     NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
@@ -2119,7 +2119,7 @@ flowchart LR
     `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
     (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
     tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
-    `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
+    `metadata.hypomnema.requires` (`integration: superset`, `device: android`, `tool: listen_search`), as OpenClaw's skills declare
     `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
     and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
     frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
@@ -2612,6 +2612,8 @@ flowchart LR
       key and webhook secret as one value in the vault secret `github-app` (`githubapp.Credential`, as Omnara keeps
       them as one credential); the key and the secret are never answered, logged or written anywhere else. A new
       registration replaces the App. `GET /integrations/github/app` (`hypomnema hosts app`) shows it without them.
+      The setup page's buttons accept `Sec-Fetch-Site: same-origin`. With no fetch metadata, an `Origin` matching
+      the request host or the configured public host is accepted, as is a request with neither header (#1308).
     - **Its installations** are read from GitHub (`GET /app/installations` with the App's JWT, RS256 and nine
       minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
       back from installing it, on each `installation` and `installation_repositories` event, and on
@@ -2620,6 +2622,13 @@ flowchart LR
       `POST /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the
       App's latest delivery again (`POST /app/hook/deliveries/{id}/attempts`); GitHub keeps its id, so it is answered
       200 as handled before, which GitHub's Recent Deliveries shows.
+    - **Commit attribution** ([issue #1312](https://github.com/kl3inIT/hypomnema/issues/1312)). App-backed offers
+      use the owner's GitHub Connection identity as author and the App's bot as committer. The control plane
+      reads the bot user ID at `GET /users/<slug>[bot]` and keeps it in the vault's App credential, backfilling
+      older credentials on the first App offer. The bot's address is `<bot user id>+<slug>[bot]@users.noreply.github.com`.
+      If the repository's Connection supplies no matching owner identity, the bot fills both Git identities and
+      the worker prompt asks for a `Co-authored-by` trailer when the App owner's GitHub account is known. With a
+      personal token the Connection account still fills both fields. See [the GitHub App guide](docs/github-app.md).
     - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): a token is made with the App's
       JWT for one repository (`POST /app/installations/{id}/access_tokens` with `repository_ids`, as Omnara's
       `auth.go:138-162`; every permission the installation has), so it reaches that repository alone, and reused
@@ -2628,7 +2637,7 @@ flowchart LR
       App covers is offered as the App's (`github_app` set) with no token at all, only by a node that said
       `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole Dispatch, is
       given the owner's, as before. So no token of the App's is kept with the offer in the node's state, in the
-      worker's environment or in the shim's spec. The commits still name the owner's account (issue #991). Such a
+      worker's environment or in the shim's spec. Such a
       node asks for a fresh token for its own clone, fetch and push (`publish_branch`), and puts `github-bin/` of the
       Dispatch's directory first on the worker's PATH,
       holding `gh` and `hypomnema` scripts, sets git's credential helper for github.com (an empty helper first,
@@ -3585,7 +3594,7 @@ flowchart LR
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
     A Bot given the same Connection reads GitHub through the service proxy instead (issue #685, under
     Integrations).
-  - The worker commits as the account its token belongs to (issue
+  - With a Connection token, the worker commits as the account that token belongs to (issue
     [#991](https://github.com/kl3inIT/hypomnema/issues/991)), not as the node user's `~/.gitconfig` says. The
     control plane reads that account once a token at the host's `GET /user`, with the token and through the
     Connection's route, and keeps it with the Connection (`connections.git_name`, `git_email`, and
@@ -4991,7 +5000,11 @@ writes no prose (last30days SKILL.md LAW 7).
   `limit_reached`, `refused`) until the first is free; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
   anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
-  tried with its result, detail and rest (`until`, `skipped`).
+  tried with its result, detail and rest (`until`, `skipped`). Each source counts rejected candidates before
+  deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The web source requests the UTC
+  date window from the keyless chain. The answering provider and its `window_basis` (`server_bounds`,
+  `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result through. The
+  answer warns when fewer than 5 returned items or under 30% have dates in the window.
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
   without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
@@ -4999,7 +5012,8 @@ writes no prose (last30days SKILL.md LAW 7).
   score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
   Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
   freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
-  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
+  rank, freshness and engagement (last30days' local score, multiplied by 0.35 for any out-of-window survivor),
+  at most 3 items an author; the best 40 are answered and
   the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
 - Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
@@ -5010,8 +5024,14 @@ writes no prose (last30days SKILL.md LAW 7).
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
   search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
   with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
+- The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
+  `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
+  agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
+  leads once and caps web supplements. Both web phases use the `web` source of `listen_search` for keyless
+  search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
+  risks and next focus, then reviews it once.
 - Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1288 to #1295).
+  (issues #1289 to #1295).
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
@@ -5628,8 +5648,11 @@ its client API, its CLI and the Bots' tools.
     Zalo, WhatsApp and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
     is the owner's choice, with when he made it; inbox-zero's per-account exclude items). A chat without a row takes
     its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
-    official account's is not, a bot being a WhatsApp broadcast list or a chat whose name or id matches
-    `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
+    official account's is not. For Zalo and WhatsApp, that means a broadcast list or a chat whose name or id
+    matches `inboxstore.BotPatterns` (the check's former `dropChats` defaults). Lark uses the chat list's bot mode
+    or a P2P peer type of app or bot. The list recomputes the kind and default on each read, then applies the
+    owner's stored choice. The triage check uses the same Lark metadata before reading a chat's history.
+    `internal/controlplane/inbox` (`Chats`)
     lists a Connection's chats with their state: Zalo's and WhatsApp's kept chats (up to `messaging.MaxChats`,
     20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
     100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
@@ -5652,7 +5675,12 @@ its client API, its CLI and the Bots' tools.
     plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
     `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
     kind and state filters as the Machines page's segmented controls with counts for the search, and a card of rows, each with its kind's icon,
-    why it is in its state (default or set by him, and when) and a switch.
+    why it is in its state (default or set by him, and when) and a switch. Skip all shown and Read all shown
+    confirm the visible list's count and send its IDs in one `POST …/bulk` request. Only rows whose read state
+    changes become owner choices. One Undo sends the receipt to `POST …/bulk/undo`, which restores all previous
+    overrides or defaults together and refuses the undo if any affected choice changed since the batch.
+    The CLI accepts comma-separated IDs (`inbox chats set zalo:main 1001,2002 off`) or the list filters
+    (`inbox chats set zalo:main off --kind group`). With `--shown` alone it uses the first 500 chats of the account.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 

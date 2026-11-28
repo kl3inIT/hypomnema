@@ -91,9 +91,8 @@ type Server struct {
 	// githubApp are the nodes that said at their last hello that they give a worker a fresh token of the owner's
 	// GitHub App at each use (HelloRequest.GitHubApp, issue #1262), kept as questionParts is.
 	githubApp map[string]bool
-	// githubAppCovers says whether an offer on a repository goes as the owner's GitHub App's, with no token in it:
-	// the node asks for one at each use. Nil when the control plane wired none.
-	githubAppCovers func(ctx context.Context, host, path string) bool
+	// githubAppIdentity gives the App's bot and fallback owner for an offer that can use the App's token.
+	githubAppIdentity func(ctx context.Context, host, path string) (bot, owner githost.Identity)
 	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
 	deviceCalls map[string]*pendingDevice
 	// takeFiles takes the takes' files nodes upload, and takesHeld settles those a node holds at hello (takes.go).
@@ -135,8 +134,9 @@ func (s *Server) WithHostTokens(token func(ctx context.Context, host, path strin
 }
 
 // WithGitHubApp sets which offers go as the owner's GitHub App's (issue #1262).
-func (s *Server) WithGitHubApp(covers func(ctx context.Context, host, path string) bool) *Server {
-	s.githubAppCovers = covers
+func (s *Server) WithGitHubApp(identity func(ctx context.Context, host, path string) (bot, owner githost.Identity),
+) *Server {
+	s.githubAppIdentity = identity
 
 	return s
 }
@@ -757,14 +757,19 @@ func (c *session) push(ctx context.Context) error {
 			}
 		}
 
-		// On a repository the owner's GitHub App is installed on, the worker acts with the App's token instead of
-		// the owner's, so its calls count against the App's own limit (issue #1262); the commits still name the
-		// owner's account. The offer carries no token at all: the node asks the agent API for one at each use, so
-		// none is kept with the offer, in the worker's environment or in its spec (review round 1). Only a node that
-		// said it asks gets such an offer; another keeps the owner's token, as before.
-		if c.srv.githubAppCovers != nil && o.RepoHost != "" && c.srv.takesAppTokens(c.nodeID) &&
-			c.srv.githubAppCovers(ctx, o.RepoHost, o.Repo) {
-			o.RepoToken, o.GitHubApp = "", true
+		// App offers carry identities only. A node that can refresh App tokens asks for one at each use.
+		if c.srv.githubAppIdentity != nil && o.RepoHost != "" && c.srv.takesAppTokens(c.nodeID) {
+			bot, owner := c.srv.githubAppIdentity(ctx, o.RepoHost, o.Repo)
+			if bot.Known() {
+				o.RepoToken, o.GitHubApp = "", true
+				o.GitCommitterName, o.GitCommitterEmail = bot.Name, bot.Email
+				if o.GitEmail == "" || !strings.EqualFold(o.GitName, owner.Name) {
+					o.GitName, o.GitEmail = bot.Name, bot.Email
+					if owner.Known() {
+						o.GitCoAuthor = "Co-authored-by: " + owner.Name + " <" + owner.Email + ">"
+					}
+				}
+			}
 		}
 
 		c.offered[o.DispatchID] = true

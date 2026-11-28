@@ -671,13 +671,14 @@ type Offer struct {
 	// node keeps it with the offer until the Dispatch ends; there is no proxy
 	// on the node (docs/decisions/2026-11-13-worker-credentials-in-the-environment.md).
 	RepoToken string `json:"repo_token,omitempty"`
-	// GitName and GitEmail are the account RepoToken belongs to (issue #991):
-	// the node gives them to the worker and the repository's setup script as
-	// GIT_AUTHOR_NAME/EMAIL and GIT_COMMITTER_NAME/EMAIL, which git takes over
-	// the node user's ~/.gitconfig. Empty when no account is known; nothing is
-	// set then.
+	// GitName and GitEmail name the commit author. With a personal token they also name the committer.
 	GitName  string `json:"git_name,omitempty"`
 	GitEmail string `json:"git_email,omitempty"`
+	// GitCommitterName and GitCommitterEmail name the App's bot for an App-backed offer (issue #1312).
+	GitCommitterName  string `json:"git_committer_name,omitempty"`
+	GitCommitterEmail string `json:"git_committer_email,omitempty"`
+	// GitCoAuthor is the fallback Co-authored-by trailer when the App's bot authors a commit.
+	GitCoAuthor string `json:"git_co_author,omitempty"`
 	// RepoSSHURL is where the node clones and fetches Repo from over SSH,
 	// when the owner registered it with one (issue #625). Git then runs
 	// `hypomnema-node gitssh` as its ssh, which asks the agent API for the

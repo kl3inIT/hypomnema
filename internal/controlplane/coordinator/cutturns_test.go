@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -510,63 +512,67 @@ func TestAnOldPiClearsOnlyItsOwnMark(t *testing.T) {
 func TestNoPiStartsWhileTheControlPlaneIsUpdated(t *testing.T) {
 	t.Parallel()
 
-	var updating sync.Mutex
-
 	held := true
 	svc, _ := newStore(t)
 	ctx := t.Context()
 
 	log := &lockedBuffer{}
-	sup, _ := runSupervisor(t, svc, Config{
-		Logger: slog.New(slog.NewTextHandler(log, nil)),
-		Updating: func() bool {
-			updating.Lock()
-			defer updating.Unlock()
-
-			return held
-		},
+	sup := New(svc, Config{
+		Command:  []string{os.Args[0], "fake-pi"},
+		Logger:   slog.New(slog.NewTextHandler(log, nil)),
+		Updating: func() bool { return held },
 	})
 
 	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
+	t.Cleanup(func() { sup.Stop(chat.ID) })
 
-	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
-	require.NoError(t, err)
+	// Drive the delivery pass for this chat directly, so each check runs after the supervisor has tried delivery.
+	assertHeld := func(text string) {
+		t.Helper()
 
-	// Two passes later, still no pi.
-	<-time.After(2*tick + time.Second)
+		_, err := svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, text)
+		require.NoError(t, err)
+		require.NoError(t, sup.deliver(ctx, chat.ID))
 
-	assert.NotContains(t, log.String(), "event=coordinator.started", "no pi starts")
-
-	undelivered, err := svc.Undelivered(ctx, chat.ID)
-	require.NoError(t, err)
-	assert.Len(t, undelivered, 1, "the message waits")
-	require.ErrorIs(t, sup.Compact(ctx, chat.ID), orchestration.ErrConflict, "no compaction either")
-
-	hold := func(on bool) {
-		updating.Lock()
-		held = on
-		updating.Unlock()
+		undelivered, err := svc.Undelivered(ctx, chat.ID)
+		require.NoError(t, err)
+		require.Len(t, undelivered, 1, "the message waits")
+		require.Equal(t, text, undelivered[0].Text)
 	}
 
-	hold(false)
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: hello")
-	require.Eventually(t, func() bool { return sup.Idle(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+	assertReply := func(text string) {
+		t.Helper()
+
+		require.NoError(t, sup.deliver(ctx, chat.ID))
+		// A settled turn wakes Run for its next pass. Here the test receives that signal.
+		select {
+		case <-sup.kick:
+		case <-time.After(time.Minute):
+			t.Fatalf("pi did not signal a settled turn for %q\n%s", text, log.String())
+		}
+		require.True(t, sup.Idle(chat.ID), "pi settled its turn and is still running")
+
+		msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+		require.NoError(t, err)
+		require.True(t, slices.ContainsFunc(msgs, func(m orchestration.ChatMessage) bool {
+			return m.Role == orchestration.ChatCoordinator && m.Text == "echo: "+text
+		}), "pi replied to %q", text)
+	}
+
+	assertHeld("hello")
+	require.NotContains(t, log.String(), "event=coordinator.started", "no pi starts")
+	require.ErrorIs(t, sup.Compact(ctx, chat.ID), orchestration.ErrConflict, "no compaction either")
+
+	held = false
+	assertReply("hello")
 
 	// A pi that runs and is idle is given no new turn either.
-	hold(true)
+	held = true
+	assertHeld("again")
 
-	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "again")
-	require.NoError(t, err)
-
-	<-time.After(2*tick + time.Second)
-
-	undelivered, err = svc.Undelivered(ctx, chat.ID)
-	require.NoError(t, err)
-	assert.Len(t, undelivered, 1, "the message waits")
-
-	hold(false)
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: again")
+	held = false
+	assertReply("again")
 }
 
 // Scenario (review round 2 of #725, finding 1): a chat's pi was started by a compaction, so it reads with a context

@@ -134,9 +134,10 @@ func (c Chats) larkChats(ctx context.Context, label string) ([]Chat, error) {
 		var got struct {
 			Data struct {
 				Items []struct {
-					ChatID   string `json:"chat_id"`
-					Name     string `json:"name"`
-					ChatMode string `json:"chat_mode"`
+					ChatID        string `json:"chat_id"`
+					Name          string `json:"name"`
+					ChatMode      string `json:"chat_mode"`
+					P2PTargetType string `json:"p2p_target_type"`
 				} `json:"items"`
 				HasMore   bool   `json:"has_more"`
 				PageToken string `json:"page_token"`
@@ -148,12 +149,15 @@ func (c Chats) larkChats(ctx context.Context, label string) ([]Chat, error) {
 		}
 
 		for _, ch := range got.Data.Items {
-			mode := ch.ChatMode
-			if mode == "p2p" {
-				mode = "dm"
+			// lark-cli im +chat-list exposes p2p_target_type as the peer's type.
+			kind := inboxstore.ChatDirect
+			switch {
+			case ch.ChatMode == "bot", ch.ChatMode == "p2p" && (ch.P2PTargetType == "app" || ch.P2PTargetType == "bot"):
+				kind = inboxstore.ChatBot
+			case ch.ChatMode == "group", ch.ChatMode == "topic":
+				kind = inboxstore.ChatGroup
 			}
 
-			kind := inboxstore.ChatKind(mode, ch.Name, ch.ChatID)
 			out = append(out, Chat{
 				ID: ch.ChatID, Name: cmpOr(ch.Name, ch.ChatID), Kind: kind, Reads: inboxstore.DefaultReads(kind),
 			})
