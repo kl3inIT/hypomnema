@@ -2669,7 +2669,8 @@ flowchart LR
       GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
     - **Its calls** (issue #1232, `githubapp/calls.go`, `inboxstore/github.go`; who may call in
       [docs/github-app.md](docs/github-app.md)): an `issue_comment` or `pull_request_review_comment` `created`, or a
-      `pull_request_review` `submitted`, whose own body names the App as a word (`@<slug>` or `@<slug>[bot]`, any
+      `pull_request_review` `submitted`, whose own body names the App as a word by the slug kept in its credential
+      (`Credential.Slug`, never a fixed word; `@<slug>` or `@<slug>[bot]`, any
       case, Omnara's `githubMentionsBot`, `github_event.go:363-393`) on a repository it is installed on (the
       delivery's installation the one kept for it) is a call; an edit, an issue's or pull request's own body and a
       `pull_request` event never are. The caller is the delivery's `sender`, never the text: a `User` whose id is

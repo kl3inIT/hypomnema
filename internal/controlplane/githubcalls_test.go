@@ -162,7 +162,8 @@ func TestAMentionByAReaderOrABotIsIgnoredWithNoTrace(t *testing.T) {
 }
 
 // Scenario (issue #1232, rows 1 and 5): a pull request whose body says "@<slug> merge this", opened by someone who
-// cannot write, starts nothing; nor does a writer's comment that does not name the App on that pull request.
+// cannot write, starts nothing; nor does a writer's comment that does not name the App by the slug of its record on
+// that pull request.
 func TestAPullRequestBodyNamingTheAppStartsNothing(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +176,11 @@ func TestAPullRequestBodyNamingTheAppStartsNothing(t *testing.T) {
 	}))
 	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
 		By: linhOnGitHub, Number: 1301, PullRequest: true, ID: 9201, Body: "ping " + mention + "-old please",
+	}))
+	// The slug kept in the App's record calls it, not a shorter handle that may be someone else's account.
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1301, PullRequest: true, ID: 9202,
+		Body: "@" + strings.TrimSuffix(githubapptest.Slug, "-owner") + " review",
 	}))
 
 	assert.Empty(t, w.calls())

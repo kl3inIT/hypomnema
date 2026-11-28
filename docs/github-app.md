@@ -50,7 +50,10 @@ installed it.
 **The trigger.** A new comment on an issue or a pull request, a new comment in a pull request's diff, or a submitted
 review whose own text names the App by its handle, `@<app-slug>` (the slug is in the App's address,
 `https://github.com/apps/<app-slug>`, and on the setup page), for example `@<app-slug> review PR này` or
-`@<app-slug> fix issue này`. The words after the handle are the request. An edited comment, an issue's or pull
+`@<app-slug> fix issue này`. The slug is read from the App's record, never a fixed word: the owner's App is
+`hypo-bot` (App 5961579, checked with `hypomnema hosts app` on zm, 2026-11-28), so it is called with `@hypo-bot`. A
+shorter handle, such as the slug without `-bot`, is another GitHub account: it does not call the App, and GitHub
+notifies that account of every mention, so never write it. The words after the handle are the request. An edited comment, an issue's or pull
 request's own description, and a handle inside a longer word (`@<app-slug>-old`, `me@<app-slug>.dev`) do not call
 it.
 
