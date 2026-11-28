@@ -98,6 +98,7 @@ func TestYouTubeReadsVideosCommentsAndTranscripts(t *testing.T) {
 	t.Parallel()
 
 	y := &ytdlp{search: strings.Join([]string{
+		`{"id": "UCvetc", "ie_key": "YoutubeTab", "_type": "url"}`,
 		video("v1", "VETC trừ tiền hai lần", 2, 120000, 3000, 400),
 		video("v2", "Hướng dẫn nạp tiền VETC", 5, 50000, 800, 90),
 		video("v3", "VETC review", 9, 900, 10, 3),
@@ -106,11 +107,16 @@ func TestYouTubeReadsVideosCommentsAndTranscripts(t *testing.T) {
 
 	a := one(t, keyless(newClock(), listening.Endpoints{YtDlp: y.run}), listening.SourceYouTube, "VETC")
 
-	search := y.Runs("--dump-json")
-	require.Len(t, search, 1)
+	search := y.Runs("--flat-playlist")
+	require.Len(t, search, 1, "the search is listed flat: a channel among its results is not opened whole")
 	assert.Contains(t, search[0], "ytsearch8:VETC")
 	assert.Contains(t, search[0], "--ignore-config")
 	assert.Contains(t, search[0], "--no-cookies-from-browser")
+
+	read := y.Runs("--no-download")
+	require.Len(t, read, 1, "the videos listed are read with their metadata at once")
+	assert.Contains(t, read[0], "https://www.youtube.com/watch?v=v1")
+	assert.NotContains(t, read[0], "https://www.youtube.com/watch?v=UCvetc", "a channel is not read")
 
 	comments := y.Runs("--write-comments")
 	require.Len(t, comments, 3, "the three most watched videos in the window")
@@ -139,6 +145,25 @@ func TestYouTubeReadsVideosCommentsAndTranscripts(t *testing.T) {
 	require.NotNil(t, c1.EngagementScore)
 }
 
+// Design row "YouTube": with fewer than 3 videos in the window, the search is asked again for recent uploads only,
+// with YouTube's upload-date filter, the smallest that holds the window (last30days _search_recent_uploads and
+// _upload_date_filter: this month for a 30-day window).
+func TestYouTubeAsksForRecentUploadsWhenTheWindowIsThin(t *testing.T) {
+	t.Parallel()
+
+	y := &ytdlp{search: strings.Join([]string{
+		video("old1", "VETC 2020", 900, 9e6, 1e5, 1e4),
+		video("new1", "VETC tháng này", 3, 500, 10, 2),
+	}, "\n")}
+
+	a := one(t, keyless(newClock(), listening.Endpoints{YtDlp: y.run}), listening.SourceYouTube, "VETC")
+
+	listed := y.Runs("--flat-playlist")
+	require.Len(t, listed, 2)
+	assert.Contains(t, listed[1], "https://www.youtube.com/results?search_query=VETC&sp=EgIIBA%3D%3D")
+	assert.Contains(t, byNative(a.Items), "new1")
+}
+
 // Design row "YouTube": a bot check is a refusal (Agent-Reach channels/youtube.py, PLATFORM_BLOCKED), a 429 a rate
 // limit, and yt-dlp missing from the control plane is broken, never a clean zero.
 func TestYouTubeFailuresHaveTheirCodes(t *testing.T) {
@@ -161,10 +186,10 @@ func TestYouTubeFailuresHaveTheirCodes(t *testing.T) {
 	assert.Contains(t, cov.Streams[0].Tried[0].Detail, "yt-dlp")
 }
 
-func jobPage(title, location, posted string) string {
+func jobPage(title, location, posted, about string) string {
 	ld, _ := json.Marshal(map[string]any{
 		"@context": "https://schema.org", "@type": "JobPosting", "title": title, "datePosted": posted,
-		"description":        "<p>Làm việc tại " + location + "</p>",
+		"description":        "<p>" + about + "</p>",
 		"hiringOrganization": map[string]any{"@type": "Organization", "name": "VETC"},
 		"jobLocation": map[string]any{"@type": "Place", "address": map[string]any{
 			"@type": "PostalAddress", "addressLocality": location, "addressCountry": "VN"}},
@@ -182,10 +207,14 @@ func TestCareersReadsTheCompanysOwnPage(t *testing.T) {
 	t.Parallel()
 
 	jobs := map[string]string{
-		"/jobs/head-ai":  jobPage("Head of AI Research, Human Simulation", "Hà Nội", "2026-11-20"),
-		"/jobs/founding": jobPage("Founding Engineer", "Hà Nội", "2026-11-21"),
-		"/jobs/backend":  jobPage("Backend Engineer", "Hà Nội", "2026-11-22"),
-		"/jobs/sales":    jobPage("Sales Executive", "Đà Nẵng", "2026-11-23"),
+		"/jobs/head-ai": jobPage("Head of AI Research, Human Simulation", "Hà Nội", "2026-11-20",
+			"Dẫn dắt nhóm nghiên cứu mô phỏng hành vi người lái xe qua trạm thu phí"),
+		"/jobs/founding": jobPage("Founding Engineer", "Hà Nội", "2026-11-21",
+			"Xây dựng nền tảng ví điện tử mới từ con số không cùng đội sáng lập"),
+		"/jobs/backend": jobPage("Backend Engineer", "Hà Nội", "2026-11-22",
+			"Phát triển dịch vụ Go xử lý giao dịch ETC hàng triệu lượt mỗi ngày"),
+		"/jobs/sales": jobPage("Sales Executive", "Đà Nẵng", "2026-11-23",
+			"Mở rộng mạng lưới đại lý dán thẻ tại miền Trung"),
 	}
 
 	site, base := startSite(t, func(w http.ResponseWriter, r *http.Request) {
@@ -247,7 +276,7 @@ func TestCareersReadsTheCompanysOwnPage(t *testing.T) {
 	assert.Equal(t, "VETC", be.Container)
 	require.NotNil(t, be.PublishedAt)
 	assert.Equal(t, "2026-11-22", be.PublishedAt.Format(time.DateOnly))
-	assert.Contains(t, be.Text, "Hà Nội")
+	assert.Equal(t, "Hà Nội, VN — Phát triển dịch vụ Go xử lý giao dịch ETC hàng triệu lượt mỗi ngày", be.Text)
 }
 
 // Design row "Forums": a web search `site:<forum> <query>`, then the thread read only where its robots.txt lets this

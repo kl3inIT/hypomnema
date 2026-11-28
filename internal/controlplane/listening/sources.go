@@ -14,7 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
-// The sources this control plane reads (issue #1287): the web, through the web search chain, and Reddit, first
+// The sources this control plane read first (issue #1287): the web, through the web search chain, and Reddit, first
 // through its keyless public JSON, then through the web search's Reddit threads filled in from the Arctic Shift
 // archive (owner, 2026-11-27: Reddit's JSON answers 403 from the control plane's network, as last30days found from
 // every network since 2026-05-28, reddit_public.py:3-6; its keyless floor is that second route, reddit_keyless.py
@@ -22,12 +22,36 @@ import (
 
 // The sources' and backends' names, as a plan and the answer give them.
 const (
-	SourceWeb    = "web"
-	SourceReddit = "reddit"
+	SourceWeb        = "web"
+	SourceReddit     = "reddit"
+	SourceYouTube    = "youtube"
+	SourceGooglePlay = "google_play"
+	SourceAppStore   = "app_store"
+	SourceHackerNews = "hackernews"
+	SourceGitHub     = "github"
+	SourceArxiv      = "arxiv"
+	SourceTechmeme   = "techmeme"
+	SourceDevTo      = "devto"
+	SourceBluesky    = "bluesky"
+	SourceCareers    = "careers"
+	SourceVoz        = "voz"
+	SourceTinhte     = "tinhte"
+	SourceOtofun     = "otofun"
 
 	BackendWebSearch  = "web_search"
 	BackendRedditJSON = "reddit_json"
 	BackendWebArctic  = "web_arctic"
+	BackendYtDlp      = "yt_dlp"
+	BackendPlay       = "play_reviews"
+	BackendAppStore   = "rss_reviews"
+	BackendAlgolia    = "algolia"
+	BackendGitHub     = "issues_search"
+	BackendArxiv      = "arxiv_api"
+	BackendTechmeme   = "techmeme_search"
+	BackendForem      = "forem_api"
+	BackendAppView    = "appview"
+	BackendCareers    = "careers_page"
+	BackendWebThread  = "web_thread"
 )
 
 const (
@@ -59,29 +83,86 @@ const (
 	callTimeout = 15 * time.Second
 )
 
-// Endpoints are the sources' addresses; empty: theirs. Tests name their own.
+// Endpoints are where the sources are reached; empty: theirs. Tests name their own.
 type Endpoints struct {
-	RedditURL string
-	ArcticURL string
+	RedditURL   string
+	ArcticURL   string
+	PlayURL     string
+	ITunesURL   string
+	AlgoliaURL  string
+	GitHubURL   string
+	ArxivURL    string
+	TechmemeURL string
+	DevToURL    string
+	BlueskyURL  string
+	// ForumURLs put a forum source's threads at another address than its site's (tests); the web search still
+	// asks for the site's.
+	ForumURLs map[string]string
+	// Pages is the client a page on a host the web search named is read with (a careers page, a forum thread): the
+	// web fetch's, which dials only public addresses (websearch.PageClient); nil: the sources' client.
+	Pages *http.Client
+	// YtDlp runs yt-dlp; nil: the yt-dlp on the control plane's PATH.
+	YtDlp Command
 }
 
-// Sources are the sources and their backends, in order.
+// Sources are the sources and their backends, in order: the web and Reddit (issue #1287), then the keyless sources
+// of issue #1289, every one on by default (last30days doctor.KEYLESS_ALWAYS_ON; Agent-Reach channels' level
+// "default").
 func Sources(e Endpoints, client *http.Client) []Platform {
-	if e.RedditURL == "" {
-		e.RedditURL = redditURL
+	def := func(v *string, d string) {
+		if *v == "" {
+			*v = d
+		}
+
+		*v = strings.TrimRight(*v, "/")
 	}
 
-	if e.ArcticURL == "" {
-		e.ArcticURL = arcticURL
+	def(&e.RedditURL, redditURL)
+	def(&e.ArcticURL, arcticURL)
+	def(&e.PlayURL, playURL)
+	def(&e.ITunesURL, itunesURL)
+	def(&e.AlgoliaURL, algoliaURL)
+	def(&e.GitHubURL, githubURL)
+	def(&e.ArxivURL, arxivURL)
+	def(&e.TechmemeURL, techmemeURL)
+	def(&e.DevToURL, devtoURL)
+	def(&e.BlueskyURL, blueskyURL)
+
+	pages := e.Pages
+	if pages == nil {
+		pages = client
 	}
 
-	e.RedditURL = strings.TrimRight(e.RedditURL, "/")
-	e.ArcticURL = strings.TrimRight(e.ArcticURL, "/")
-
-	return []Platform{
-		{Name: SourceWeb, Backends: []Backend{webBackend()}},
-		{Name: SourceReddit, Backends: []Backend{redditJSONBackend(e, client), webArcticBackend(e, client)}},
+	if e.YtDlp == nil {
+		e.YtDlp = runYtDlp
 	}
+
+	out := []Platform{
+		{Name: SourceWeb, Backends: []Backend{webBackend()}, LiveQuery: "VETC"},
+		{
+			Name: SourceReddit, Backends: []Backend{redditJSONBackend(e, client), webArcticBackend(e, client)},
+			LiveQuery: "VETC Vietnam",
+		},
+		{Name: SourceYouTube, Backends: []Backend{youtubeBackend(e.YtDlp)}, LiveQuery: "VETC"},
+		{Name: SourceGooglePlay, Backends: []Backend{playBackend(e, client)}, LiveQuery: "VETC"},
+		{Name: SourceAppStore, Backends: []Backend{appStoreBackend(e, client)}, LiveQuery: "VETC"},
+		{Name: SourceHackerNews, Backends: []Backend{hackerNewsBackend(e, client)}, LiveQuery: "Vietnam"},
+		{Name: SourceGitHub, Backends: []Backend{gitHubBackend(e, client)}, LiveQuery: "Vietnamese"},
+		{Name: SourceArxiv, Backends: []Backend{arxivBackend(e, client)}, LiveQuery: "Vietnamese"},
+		{Name: SourceTechmeme, Backends: []Backend{techmemeBackend(e, client)}, LiveQuery: "Vietnam"},
+		{Name: SourceDevTo, Backends: []Backend{devToBackend(e, client)}, LiveQuery: "vietnam"},
+		{Name: SourceBluesky, Backends: []Backend{blueskyBackend(e, client)}, LiveQuery: "Vietnam"},
+		{Name: SourceCareers, Backends: []Backend{careersBackend(pages)}, LiveQuery: "Cốc Cốc"},
+	}
+
+	robots := newRobots(pages)
+	for _, f := range forums {
+		out = append(out, Platform{
+			Name: f.source, Backends: []Backend{forumBackend(f, e.ForumURLs[f.source], pages, robots)}, LiveQuery: "VETC",
+		})
+	}
+
+	return out
 }
 
 // needsWeb is the probe of a backend that asks the web search chain.
@@ -463,7 +544,7 @@ func parseDate(s string) *time.Time {
 	s = strings.TrimSpace(s)
 
 	for _, layout := range []string{
-		time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05", "2006-01-02 15:04:05", time.DateOnly, time.RFC1123,
+		time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05", "2006-01-02 15:04:05", time.DateOnly, time.RFC1123,
 		time.RFC1123Z, "January 2, 2006", "Jan 2, 2006",
 	} {
 		if t, err := time.Parse(layout, s); err == nil {

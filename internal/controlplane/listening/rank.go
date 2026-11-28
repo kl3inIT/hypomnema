@@ -25,14 +25,48 @@ const (
 )
 
 // engagementWeights are each source's counts and their weights, on log1p, and the value read as 100: a very high
-// item of that source (last30days signals._reddit_engagement and _ENGAGEMENT_LOG_REFERENCE, lib/signals.py:255-454;
-// trend-opportunity-radar engagement-weight-registry.json: weights hold within a platform only). A source not listed,
-// the web among them, has no score: its counts are not readers' (last30days _NO_ENGAGEMENT_SCORE_SOURCES).
+// item of that source (last30days signals.ENGAGEMENT_WEIGHTS, _reddit_engagement and _youtube_engagement without their
+// top-comment slot, and _ENGAGEMENT_LOG_REFERENCE, lib/signals.py:197-454; trend-opportunity-radar
+// engagement-weight-registry.json: weights hold within a platform only). YouTube's counts run on a view scale from a
+// floor (_VIEW_ENGAGEMENT_SOURCES). A source not listed has no score: the web's counts are not readers', and arXiv,
+// Techmeme, careers pages and the forums have none (_NO_ENGAGEMENT_SCORE_SOURCES); an app store's are a rating and
+// thumbs, which no reference scores.
 var engagementWeights = map[string]struct {
 	fields    []weighted
 	reference float64
+	floor     float64
 }{
-	"reddit": {fields: []weighted{{"score", 0.50}, {"num_comments", 0.35}, {"upvote_ratio_x10", 0.05}}, reference: 7.6},
+	SourceReddit: {fields: []weighted{{"score", 0.50}, {"num_comments", 0.35}, {"upvote_ratio_x10", 0.05}}, reference: 7.6},
+	SourceYouTube: {
+		fields: []weighted{{"views", 0.45}, {"likes", 0.32}, {"comments", 0.13}}, reference: 11.5, floor: 2.1,
+	},
+	SourceHackerNews: {fields: []weighted{{"points", 0.55}, {"comments", 0.45}}, reference: 6.2},
+	SourceGitHub:     {fields: []weighted{{"reactions", 0.60}, {"comments", 0.40}}, reference: 9.2},
+	SourceDevTo:      {fields: []weighted{{"reactions", 0.60}, {"comments", 0.40}}, reference: 3.0},
+	SourceBluesky: {
+		fields: []weighted{{"likes", 0.40}, {"reposts", 0.30}, {"replies", 0.20}, {"quotes", 0.10}}, reference: 9.2,
+	},
+}
+
+// commentReference is the log1p of a very high comment's votes on each platform: a comment is scored on it alone
+// (last30days _VOTE_LOG_REFERENCE and normalized_comment_vote, lib/signals.py:141-166).
+var commentReference = map[string]float64{
+	SourceReddit: 7.6, SourceHackerNews: 6.2, SourceDevTo: 3.0, SourceYouTube: 10.3, SourceBluesky: 9.2,
+}
+
+// sourceQualities are last30days' (signals.SOURCE_QUALITY, lib/signals.py:14-41); a source not listed is 0.6, its
+// default (the web and Reddit, the app stores, GitHub, careers pages and the forums).
+var sourceQualities = map[string]float64{
+	SourceHackerNews: 0.8, SourceDevTo: 0.78, SourceYouTube: 0.85, SourceArxiv: 0.9, SourceTechmeme: 0.85,
+	SourceBluesky: 0.66, SourceCareers: 0.72,
+}
+
+func quality(source string) float64 {
+	if q, ok := sourceQualities[source]; ok {
+		return q
+	}
+
+	return sourceQuality
 }
 
 type weighted struct {
@@ -72,7 +106,27 @@ func EngagementScore(source string, engagement map[string]float64) (int, bool) {
 		return 0, false
 	}
 
-	return int(math.Round(100 * math.Max(0, math.Min(1, raw/spec.reference)))), true
+	return int(math.Round(100 * math.Max(0, math.Min(1, (raw-spec.floor)/(spec.reference-spec.floor))))), true
+}
+
+// CommentScore is a comment's votes on a 0-100 log scale of its platform; false for a platform without one or a
+// comment without votes (last30days normalized_comment_vote).
+func CommentScore(source string, engagement map[string]float64) (int, bool) {
+	ref, ok := commentReference[source]
+	if !ok {
+		return 0, false
+	}
+
+	votes := 0.0
+	for _, field := range []string{"likes", "points", "score"} {
+		votes = max(votes, engagement[field])
+	}
+
+	if votes <= 0 {
+		return 0, false
+	}
+
+	return int(math.Round(100 * math.Min(1, math.Log1p(votes)/ref))), true
 }
 
 // freshness is an item's recency, 10 to 90: 100 today, 0 at the window's start, then 0.8x + 10 (last30days
@@ -109,9 +163,10 @@ func localRank(it Item) float64 {
 // (rerank._fallback_tuple: relevance 0.7, quality 0.1), the fused rank, freshness and quality, plus engagement at
 // 0.15 (rerank.ENGAGEMENT_FINAL_WEIGHT).
 func finalScore(it Item) float64 {
-	rerank := math.Max(0, math.Min(100, it.relevance*100*0.7+sourceQuality*100*0.1))
+	q := quality(it.Source)
+	rerank := math.Max(0, math.Min(100, it.relevance*100*0.7+q*100*0.1))
 	rrf := math.Max(0, math.Min(100, it.rrf/rrfCeiling*100))
-	known := 0.60*rerank + 0.20*rrf + 0.10*float64(it.freshness) + 0.05*sourceQuality*100
+	known := 0.60*rerank + 0.20*rrf + 0.10*float64(it.freshness) + 0.05*q*100
 
 	eng := 0.0
 	if it.EngagementScore != nil {
@@ -138,7 +193,12 @@ func rank(plan Plan, streams []stream, to time.Time) []Item {
 			it.relevance = relevance(st.subquery.Query, it.Title+" "+it.Text)
 			it.freshness = freshness(it.PublishedAt, to, plan.WindowDays)
 
-			if s, ok := EngagementScore(it.Source, it.Engagement); ok {
+			score := EngagementScore
+			if it.Parent != "" {
+				score = CommentScore
+			}
+
+			if s, ok := score(it.Source, it.Engagement); ok {
 				it.EngagementScore = &s
 			}
 

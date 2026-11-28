@@ -188,7 +188,9 @@ func (c call) read(resp *http.Response, address string, r Request) (answer, erro
 	}
 
 	if c.json {
-		if media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); !strings.Contains(media, "json") {
+		// Apple's search answers its JSON as text/javascript (itunes.apple.com, read 2026-11-28).
+		if media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); !strings.Contains(media, "json") &&
+			media != "text/javascript" {
 			return answer{}, Fail(CodeRefused, "the source answered a page (%s), not JSON: a challenge or a sign-in page",
 				media)
 		}

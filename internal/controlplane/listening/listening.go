@@ -131,6 +131,9 @@ type Item struct {
 	EngagementScore *int               `json:"engagement_score,omitempty"`
 	// Parent is the native id of the post a comment answers.
 	Parent string `json:"parent,omitempty"`
+	// Signals mark what the item says beyond its text: a careers page's role out of character for its company,
+	// "founding", "leadership", "specialized" or "new-geo" (last30days hiring_signals.py _strategic_candidates).
+	Signals []string `json:"signals,omitempty"`
 	// Subqueries are the labels of the subqueries that found it.
 	Subqueries []string  `json:"subqueries"`
 	FetchedAt  time.Time `json:"fetched_at"`
@@ -181,6 +184,8 @@ type Service struct {
 	mu sync.Mutex
 	// resting is each backend's rest, by "<platform>/<backend>".
 	resting map[string]*SourceError
+	// health is each source's state after the last search that read it (health.go).
+	health map[string]*Health
 }
 
 // New returns a Service.
@@ -199,7 +204,7 @@ func New(cfg Config) *Service {
 
 	return &Service{
 		platforms: cfg.Platforms, now: cfg.Now, pacer: NewPacer(cfg.Now, cfg.Sleep), logger: cfg.Logger,
-		resting: map[string]*SourceError{},
+		resting: map[string]*SourceError{}, health: map[string]*Health{},
 	}
 }
 
@@ -284,6 +289,8 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 		answer.Coverage = append(answer.Coverage, r.coverage)
 		streams = append(streams, r.streams...)
 	}
+
+	s.record(answer.Coverage, now)
 
 	items := rank(plan, streams, now)
 	if len(items) > PoolSize {

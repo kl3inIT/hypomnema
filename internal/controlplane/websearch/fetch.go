@@ -72,6 +72,13 @@ func (e *refusedError) Error() string {
 // nothing. No proxy is used, so the address checked is the one connected to.
 // Redirects are not followed by the client: Fetch follows them.
 func pageClient(rules egress.Rules) *http.Client {
+	return PageClient(rules)
+}
+
+// PageClient is the client Fetch reads pages with, for another reader of pages a search named (social listening's
+// careers pages and forum threads, issue #1289): it dials only the addresses the rules allow and follows no redirect,
+// so its caller checks each hop by asking again.
+func PageClient(rules egress.Rules) *http.Client {
 	dialer := &net.Dialer{
 		Timeout: 10 * time.Second,
 		Control: func(_, address string, _ syscall.RawConn) error {

@@ -24,15 +24,15 @@ func playReview(id, name, text string, score int, at time.Time, thumbs int) []an
 	return []any{id, []any{name, nil}, score, nil, text, []any{at.Unix(), 0}, thumbs, nil, nil, nil, "7.3.0"}
 }
 
-// playAnswer is Play's batchexecute answer: its guard line, then the RPC's reviews as a JSON string, with the next
-// page's token when there is one.
+// playAnswer is Play's batchexecute answer: its guard line, then the RPC's reviews as a JSON string, the next page's
+// token second to last as Play sends it (google-play-scraper features/reviews.py:60, `[-2][-1]`).
 func playAnswer(reviews [][]any, token string) string {
 	var tail any
 	if token != "" {
 		tail = []any{nil, token}
 	}
 
-	inner, _ := json.Marshal([]any{reviews, tail})
+	inner, _ := json.Marshal([]any{reviews, tail, []any{[]any{nil}}})
 	outer, _ := json.Marshal([]any{[]any{"wrb.fr", "oCPfdb", string(inner), nil, nil, nil, "generic"}})
 
 	return ")]}'\n\n" + string(outer)
@@ -163,7 +163,11 @@ func TestAppStoreReadsThePublicReviewsFeed(t *testing.T) {
 	as, base := startSite(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/search":
-			jsonAnswer(w, map[string]any{"results": []map[string]any{{"trackId": 1179408386, "trackName": "VETC"}}})
+			// Apple answers its search's JSON as text/javascript.
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+				{"trackId": 1179408386, "trackName": "VETC"},
+			}})
 		case strings.Contains(r.URL.Path, "/page=1/"):
 			jsonAnswer(w, map[string]any{"feed": map[string]any{"entry": []any{
 				appStoreEntry("a1", "minh", "Lỗi", "VETC trừ tiền sai", "1", "2026-11-26T19:42:23-07:00"),

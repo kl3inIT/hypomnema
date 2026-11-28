@@ -36,6 +36,9 @@ type Result struct {
 type Platform struct {
 	Name     string
 	Backends []Backend
+	// LiveQuery is what the source's live test searches, one a day (Agent-Reach Action.live_test, channels/base.py;
+	// last30days doctor's probes): a topic it has data on.
+	LiveQuery string
 }
 
 func (p Platform) backendNames() []string {

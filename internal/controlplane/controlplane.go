@@ -455,13 +455,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The web's search and pages (issue #354). A page is read only where the shared browser may go: the same
 	// rules, the owner's list of private destinations and the control plane's own port.
+	searchRules := egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
+		return slices.Contains(ownPorts, port)
+	}}
 	webSearch := websearch.New(websearch.Config{
 		// What the owner set on the Web search page and the keys in the vault, read at each search.
 		Keys: searchKeys(secrets, logger), Settings: gateway.SearchSettings, Usage: gateway,
 		Logger: logger,
-		Rules: egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
-			return slices.Contains(ownPorts, port)
-		}},
+		Rules:  searchRules,
 	})
 	metered := modelgateway.MeteredWeb{Web: webSearch, Gateway: gateway, Logger: logger}
 
@@ -636,8 +637,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
 	}
 	agents.WithWeb(agentsWeb).
-		// Social listening (issue #1287): the web and Reddit, keyless, its web searches on the caller's key.
-		WithListening(agentListening{svc: listening.New(listening.Config{Logger: logger}), web: agentsWeb}).
+		// Social listening (issues #1287, #1289): keyless sources, its web searches on the caller's key, the pages a
+		// search names read through the web fetch's address check.
+		WithListening(agentListening{svc: listening.New(listening.Config{
+			Platforms: listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient),
+			Logger:    logger,
+		}), web: agentsWeb}).
 		WithImages(agentImages{
 			worker: modelgateway.WorkerImages{Server: gatewayServer, Gateway: gateway, Logger: logger},
 			bot:    modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},
