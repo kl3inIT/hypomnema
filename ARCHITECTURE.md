@@ -5248,7 +5248,23 @@ writes no prose (last30days SKILL.md LAW 7).
   the owner's: `POST /gateway/listening/sources/{source}/consent`, `POST …/sign-in`, `POST …/sign-in/check`
   `{label?}`, `PUT …/account` `{cookies, label?}`, `DELETE …/account`. The Social listening card shows the consent
   card, then Sign in (the owner's tab shown in the dialog) or Paste cookies, then the account's state with Sign in
-  again and Sign out. The Chinese platforms behind an account (Zhihu, Weibo, Douyin, Xiaohongshu) are not read yet.
+  again and Sign out. The sign-in memo of the same cookies keys on the login cookies only, so a site's other cookies
+  changing send no new search.
+- Chinese signed-in sources (issue #1362; `listening/chinasigned.go`, `zhihu.go`, `weibo.go`, `douyin.go`,
+  `xiaohongshu.go`), the same mechanism, each off until its own consent card, each last read by `site_search`
+  (`site:zhihu.com`, `weibo.com`, `douyin.com`, `xiaohongshu.com`; only post addresses kept): `zhihu` (`zhihu_api`,
+  `search_v3` with the account's cookie, 401 or 403 `need_login`; then `zhihu_page`, Zhihu's search page in the
+  account's context, its own `search_v3` XHR bodies read through `browser.Page.Body`), `weibo` (`weibo_api`,
+  m.weibo.cn's `getIndex` with the cookie, two pages, each its own turn, ok -100 or the passport `need_login`, a
+  sign-in kept only once `/api/config` says `login`; then `weibo_page`, the same calls made by m.weibo.cn's page),
+  `douyin` (`douyin_page` only: the video search page, the window as `publish_time` 1, 7 or 180, the page's
+  `/aweme/v1/web/search/item` XHR bodies read, 验证 in the page `refused`) and `xiaohongshu` (`xiaohongshu_page`, as
+  xiaohongshu-mcp, Apache-2.0, `third_party/xiaohongshu-mcp`: the search page's state read until ready, the window as
+  the 发布时间 filter chosen by hovering and clicking in its panel, notes only, undated; `/website-login/captcha`,
+  HTTP 461/471 and codes 300011/300012 `refused`, `/website-login` or a page that says no one is signed in
+  `need_login`). Login cookies: `z_c0`, `SUB`, `sessionid`/`sessionid_ss`, `web_session`. Pace: Xiaohongshu 15 s
+  apart and 45 s more after every five, the others 10 s and 30 s; a 429 stops a site for 24 hours. Every read takes
+  its account's turn, reads the stop again inside it, and keeps what it met before the turn ends (`Request.turn`).
 - The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
   - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
     and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the

@@ -5788,7 +5788,7 @@ type ListeningSigned struct {
 	// StopCause What the stop met.
 	StopCause *string `json:"stop_cause,omitempty"`
 
-	// StoppedUntil The site is not asked until then, after a rate-limit page (LinkedIn's 24 hours), not even to check a sign-in.
+	// StoppedUntil The site is not asked until then, after a rate-limit page (24 hours), not even to check a sign-in.
 	StoppedUntil *time.Time `json:"stopped_until,omitempty"`
 }
 
@@ -12024,7 +12024,7 @@ type ClientInterface interface {
 
 	// PasteListeningCookiesWithBody Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 	//
-	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -12033,7 +12033,7 @@ type ClientInterface interface {
 
 	// PasteListeningCookies Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 	//
-	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -12042,7 +12042,7 @@ type ClientInterface interface {
 
 	// ConsentListeningSource Agree to a signed-in social listening source's consent card, and switch it on; only the owner
 	//
-	// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+	// A source read as one of the owner's accounts (X, LinkedIn, Zhihu, Weibo, Douyin, Xiaohongshu; issues #1291, #1362) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
 	//
 	// Corresponds with POST /gateway/listening/sources/{source}/consent (the `ConsentListeningSource` operationId).
 	ConsentListeningSource(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -16968,7 +16968,7 @@ func (c *Client) SignOutListeningAccount(ctx context.Context, source string, req
 
 // PasteListeningCookiesWithBody Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 //
-// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 //
 // Takes any type of body and a specified content type.
 //
@@ -16987,7 +16987,7 @@ func (c *Client) PasteListeningCookiesWithBody(ctx context.Context, source strin
 
 // PasteListeningCookies Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 //
-// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -17006,7 +17006,7 @@ func (c *Client) PasteListeningCookies(ctx context.Context, source string, body 
 
 // ConsentListeningSource Agree to a signed-in social listening source's consent card, and switch it on; only the owner
 //
-// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+// A source read as one of the owner's accounts (X, LinkedIn, Zhihu, Weibo, Douyin, Xiaohongshu; issues #1291, #1362) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
 //
 // Corresponds with POST /gateway/listening/sources/{source}/consent (the `ConsentListeningSource` operationId).
 func (c *Client) ConsentListeningSource(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -38538,7 +38538,7 @@ type ClientWithResponsesInterface interface {
 
 	// PasteListeningCookiesWithBodyWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 	//
-	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -38547,7 +38547,7 @@ type ClientWithResponsesInterface interface {
 
 	// PasteListeningCookiesWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 	//
-	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+	// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -38556,7 +38556,7 @@ type ClientWithResponsesInterface interface {
 
 	// ConsentListeningSourceWithResponse Agree to a signed-in social listening source's consent card, and switch it on; only the owner
 	//
-	// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+	// A source read as one of the owner's accounts (X, LinkedIn, Zhihu, Weibo, Douyin, Xiaohongshu; issues #1291, #1362) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -58636,7 +58636,7 @@ func (c *ClientWithResponses) SignOutListeningAccountWithResponse(ctx context.Co
 
 // PasteListeningCookiesWithBodyWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 //
-// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -58651,7 +58651,7 @@ func (c *ClientWithResponses) PasteListeningCookiesWithBodyWithResponse(ctx cont
 
 // PasteListeningCookiesWithResponse Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
 //
-// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+// The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -58666,7 +58666,7 @@ func (c *ClientWithResponses) PasteListeningCookiesWithResponse(ctx context.Cont
 
 // ConsentListeningSourceWithResponse Agree to a signed-in social listening source's consent card, and switch it on; only the owner
 //
-// A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+// A source read as one of the owner's accounts (X, LinkedIn, Zhihu, Weibo, Douyin, Xiaohongshu; issues #1291, #1362) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
 //
 // Returns a wrapper object for the known response body format(s).
 //

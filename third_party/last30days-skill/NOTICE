@@ -12,7 +12,10 @@ for Hacker News, GitHub, arXiv, Techmeme, DEV.to, YouTube through yt-dlp (search
 highlights) and careers pages (JSON-LD JobPosting, the hiring signals of hiring_signals.py); the robots.txt matcher
 of job_boards/robots.py (robots.go); the engagement weights, references and source qualities of signals.py; and,
 from last30days-skill-cn, Toutiao's search-card and hot-board parser (toutiao.py) and Bilibili's visitor search with
-its WBI signature (bilibili.py), in chinese.go.
+its WBI signature (bilibili.py), in chinese.go; and Zhihu's search_v3 parser (zhihu.py), Weibo's mobile search and its
+dates (weibo.py), Douyin's video parser (douyin.py), Xiaohongshu's note address and counts (xiaohongshu.py), the sites'
+login cookies and sign-in walls and the page's own search XHRs (crawler_bridge.py), in chinasigned.go, zhihu.go,
+weibo.go, douyin.go and xiaohongshu.go (issue #1362).
 
 The MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction, including without

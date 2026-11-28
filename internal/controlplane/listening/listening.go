@@ -276,6 +276,7 @@ func New(cfg Config) *Service {
 	if cfg.Platforms == nil {
 		cfg.Platforms = append(Sources(Endpoints{}, http.DefaultClient), MuseSources(cfg.Muse, http.DefaultClient)...)
 		cfg.Platforms = append(cfg.Platforms, SignedSources(Endpoints{}, http.DefaultClient)...)
+		cfg.Platforms = append(cfg.Platforms, SignedChineseSources(Endpoints{}, http.DefaultClient)...)
 	}
 
 	if cfg.SecretName == nil {

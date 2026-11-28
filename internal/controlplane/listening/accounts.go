@@ -108,6 +108,12 @@ type Page interface {
 	// Responses are the statuses of the requests the tab sent since its last navigation, the page's own fetches
 	// among them (browser.Page.Responses).
 	Responses(ctx context.Context) ([]browser.Response, error)
+	// Body is the body of one of those responses once it loaded (browser.Page.Body): a page's own search XHR, read as
+	// last30days-skill-cn intercepts it (crawler_bridge.py:961-962, 1093-1095).
+	Body(ctx context.Context, r browser.Response) ([]byte, error)
+	// Hover and Click move the mouse to a point of the page and press it there (browser.Page).
+	Hover(ctx context.Context, x, y float64) error
+	Click(ctx context.Context, x, y float64) error
 }
 
 // AccountBrowser is the shared browser as the signed-in sources use it: the owner's tab to sign in through, and a
@@ -330,7 +336,7 @@ func (s *Service) signIn(ctx context.Context, p Platform, jar []browser.Cookie, 
 		return "", err
 	}
 
-	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))
+	sum := loginKey(p.Signed.Site, jar)
 	name := p.Signed.Site.Name
 
 	s.acc.mu.Lock()
@@ -373,6 +379,26 @@ func (s *Service) signIn(ctx context.Context, p Platform, jar []browser.Cookie, 
 		slog.String("source", p.Name))
 
 	return "", nil
+}
+
+// loginKey names a jar by its login cookies only, so the memo of a failed verification holds while only a site's other
+// cookies change: Xiaohongshu's and Weibo's visitors have a web_session or a SUB too, and a sign-in is told by the login
+// cookie changing from the one the visitor had (last30days-skill-cn crawler_bridge.py:73-76 and 537-547, the
+// baseline's web_session); the site's other cookies (a WAF's, rotated on each page) never send another search.
+func loginKey(site signin.Site, jar []browser.Cookie) string {
+	var names []string
+
+	for _, group := range site.Login {
+		names = append(names, group...)
+	}
+
+	h := sha256.New()
+
+	for _, name := range names {
+		_, _ = fmt.Fprintf(h, "%s=%s\x00", name, signin.Value(jar, name))
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // waitingFor is what a sign-in waits for after its verification failed.
@@ -590,6 +616,9 @@ func (s *Service) session(source string) *Session {
 // Site is the site the account is signed in to.
 func (se *Session) Site() signin.Site { return se.signed.Site }
 
+// Verifying says the session is a sign-in's candidate jar being verified, not the kept account.
+func (se *Session) Verifying() bool { return se.candidate != nil }
+
 // Ready says, without a call, why the account cannot be read now; nil when it can. A stop after a throttling page is
 // the site's and holds for a candidate being verified too (review round 1 of PR #1359).
 func (se *Session) Ready(ctx context.Context) *SourceError {
@@ -760,6 +789,33 @@ func (se *Session) stop(ctx context.Context, f *SourceError) {
 		se.s.logger.ErrorContext(ctx, "a listening account's stop was not kept", slog.String("event",
 			"listening.account_unkept"), slog.String("source", se.source), slog.String("error", err.Error()))
 	}
+}
+
+// turn waits for the account's turn at its site at its cadence and reads its state again once the turn came; end keeps
+// what the read met on the account (met) and then ends the turn, so a read or a sign-in's check queued behind it reads
+// the stop, the expiry or the refusal once its turn comes: one read at a time, stopped on any captcha, rate limit or
+// login expiry (trend-opportunity-radar collection-pacing-contract.md:5 and 12), as linkedInSearch keeps its stop
+// before its turn ends (review round 2 of PR #1359). A session that is not ready answers a skip, not a new failure.
+func (r Request) turn(ctx context.Context, host string, c Cadence) (end func(*SourceError), err error) {
+	done := func() {}
+
+	if r.Read != nil {
+		if done, err = r.Read(ctx, host, c); err != nil {
+			return nil, AsFailure(err)
+		}
+	}
+
+	if f := r.Session.Ready(ctx); f != nil {
+		done()
+
+		// Not asked: skipped, and no new stop is made of the old one.
+		return nil, &SourceError{Code: f.Code, Detail: f.Detail, Until: f.Until, resting: true, transient: f.transient}
+	}
+
+	return func(f *SourceError) {
+		r.Session.met(ctx, f)
+		done()
+	}, nil
 }
 
 // worked notes that a real call read with the account.

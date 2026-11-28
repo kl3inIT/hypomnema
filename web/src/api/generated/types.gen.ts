@@ -1230,7 +1230,7 @@ export type ListeningSigned = {
   sign_in_url?: string;
   account?: ListeningAccount;
   /**
-   * The site is not asked until then, after a rate-limit page (LinkedIn's 24 hours), not even to check a sign-in.
+   * The site is not asked until then, after a rate-limit page (24 hours), not even to check a sign-in.
    */
   stopped_until?: string;
   /**

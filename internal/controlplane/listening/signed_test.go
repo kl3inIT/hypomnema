@@ -191,17 +191,58 @@ type pageFake struct {
 	mu     sync.Mutex
 	at     string
 	visits []string
-	// responses are what the requests the page sent since its last navigation were answered (browser.Response).
+	// responses are what the requests the page sent since its last navigation were answered (browser.Response);
+	// respond, when set, answers them instead, by the address and the scrolls; bodies are their bodies by request id.
 	responses []browser.Response
+	respond   func(address string, scrolls int) []browser.Response
+	bodies    map[string]string
 	scrolls   int
 	snapshot  func(address string, scrolls int) map[string]any
+	// eval, when set, answers every script but a scroll, by the script and the address.
+	eval   func(expression, address string) any
+	hovers [][2]float64
+	clicks [][2]float64
 }
 
 func (p *pageFake) Responses(context.Context) ([]browser.Response, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if p.respond != nil {
+		return p.respond(p.at, p.scrolls), nil
+	}
+
 	return p.responses, nil
+}
+
+func (p *pageFake) Body(_ context.Context, r browser.Response) ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	body, ok := p.bodies[r.RequestID]
+	if !ok {
+		return nil, fmt.Errorf("no body for %q", r.RequestID)
+	}
+
+	return []byte(body), nil
+}
+
+func (p *pageFake) Hover(_ context.Context, x, y float64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.hovers = append(p.hovers, [2]float64{x, y})
+
+	return nil
+}
+
+func (p *pageFake) Click(_ context.Context, x, y float64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.clicks = append(p.clicks, [2]float64{x, y})
+
+	return nil
 }
 
 func (p *pageFake) Navigate(_ context.Context, address string) error {
@@ -224,9 +265,17 @@ func (p *pageFake) Evaluate(_ context.Context, expression string, result any) er
 		return nil
 	}
 
-	answer := map[string]any{"href": p.at, "status": 200, "ready": "complete", "posts": []any{}, "empty": false}
-	if p.snapshot != nil {
+	var answer any = map[string]any{"href": p.at, "status": 200, "ready": "complete", "posts": []any{}, "empty": false}
+
+	switch {
+	case p.eval != nil:
+		answer = p.eval(expression, p.at)
+	case p.snapshot != nil:
 		answer = p.snapshot(p.at, p.scrolls)
+	}
+
+	if result == nil {
+		return nil
 	}
 
 	raw, err := json.Marshal(answer)

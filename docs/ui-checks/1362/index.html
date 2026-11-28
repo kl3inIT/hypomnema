@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chinese signed-in listening sources (issue #1362)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 110rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 64rem) { .screens { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Settings → Gateway → Social listening: Zhihu, Weibo, Douyin and Xiaohongshu (issue #1362)</h1>
+    <p>Taken by <code>web/tests/listening-accounts.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Account names are made up. Weibo and Douyin wear the same cards.</p>
+
+    <section>
+      <h2>Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-chinese-sources-desktop.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-chinese-sources-phone.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-chinese-sources-desktop.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-chinese-sources-phone.png" alt="Zhihu read as its account, its backends named in order (its search API, its own search page, the web search on its site); Xiaohongshu off until its consent card, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>Xiaohongshu's consent card: its ban reports, its one web session an account, its pace and its stops</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-consent-xiaohongshu-desktop.png" alt="Xiaohongshu's consent card: its ban reports, its one web session an account, its pace and its stops, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-consent-xiaohongshu-phone.png" alt="Xiaohongshu's consent card: its ban reports, its one web session an account, its pace and its stops, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-consent-xiaohongshu-desktop.png" alt="Xiaohongshu's consent card: its ban reports, its one web session an account, its pace and its stops, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-consent-xiaohongshu-phone.png" alt="Xiaohongshu's consent card: its ban reports, its one web session an account, its pace and its stops, phone, dark">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

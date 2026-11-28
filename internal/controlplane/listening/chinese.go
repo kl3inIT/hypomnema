@@ -21,7 +21,7 @@ import (
 // Toutiao's search page with its embedded result cards and its hot board (toutiao.py), and Bilibili's search as a
 // visitor, WBI-signed then legacy (bilibili.py; Agent-Reach channels/bilibili.py:1-9 dropped yt-dlp there for its
 // 412s). Both answer from zm without a cookie (research note §8, probed 2026-11-28). Zhihu, Weibo, Douyin and
-// Xiaohongshu need a signed-in account (#1291); Sogou's WeChat and Baidu answer empty or a captcha from zm.
+// Xiaohongshu need a signed-in account (#1362, chinasigned.go); Sogou's WeChat and Baidu answer empty or a captcha from zm.
 
 const (
 	toutiaoURL    = "https://so.toutiao.com"
