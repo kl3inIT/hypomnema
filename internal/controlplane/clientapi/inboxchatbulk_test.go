@@ -35,9 +35,8 @@ func TestInboxChatBulkRestoresDefaultAndOwnerChoices(t *testing.T) {
 
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
-
 		raw, err := io.ReadAll(resp.Body)
+		assert.NoError(t, resp.Body.Close())
 		require.NoError(t, err)
 		require.Equal(t, want, resp.StatusCode, string(raw))
 

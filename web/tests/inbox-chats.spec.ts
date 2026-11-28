@@ -83,7 +83,7 @@ async function serve(page: Page) {
           {
             integration: "zalo",
             label: "main",
-            account: "Đạt",
+            account: "Alex Demo",
             counts: countOf(chats["zalo/main"]),
           },
           {

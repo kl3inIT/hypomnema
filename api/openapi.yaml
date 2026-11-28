@@ -5629,6 +5629,41 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/InboxChatList" }
         default: { $ref: "#/components/responses/Error" }
+  /inbox/chat-sources/{integration}/{label}/bulk:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    post:
+      operationId: SetInboxChatsBulk
+      summary: Set whether the secretary reads the selected chats of one account; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InboxChatBulkChoice" }
+      responses:
+        "200":
+          description: The changes. Send this receipt to the undo endpoint for the same account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InboxChatBulkReceipt" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/chat-sources/{integration}/{label}/bulk/undo:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    post:
+      operationId: UndoInboxChatsBulk
+      summary: Undo a batch of chat choices atomically; only the owner
+      description: Returns 409 if any chat has changed since the batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InboxChatBulkReceipt" }
+      responses:
+        "204": { description: The previous choices were restored. }
+        default: { $ref: "#/components/responses/Error" }
   /inbox/chat-sources/{integration}/{label}/{chat}:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -12357,6 +12392,49 @@ components:
         integration: { type: string }
         label: { type: string }
         chat: { type: string }
+        reads: { type: boolean }
+        set_at: { type: string, format: date-time }
+    InboxChatBulkChoice:
+      type: object
+      description: Supply exactly one of chat_ids or filter. Only chats whose reads value changes get an owner choice.
+      required: [reads]
+      properties:
+        reads: { type: boolean }
+        chat_ids:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 200 }
+        filter: { $ref: "#/components/schemas/InboxChatBulkFilter" }
+    InboxChatBulkFilter:
+      type: object
+      description: The same filters and ordering as the chat list. Applies to its first 500 matching chats.
+      properties:
+        q: { type: string, maxLength: 200 }
+        kind: { $ref: "#/components/schemas/InboxChatKind" }
+        state: { $ref: "#/components/schemas/InboxChatState" }
+    InboxChatBulkReceipt:
+      type: object
+      required: [changes]
+      properties:
+        changes:
+          type: array
+          maxItems: 2000
+          items: { $ref: "#/components/schemas/InboxChatBulkChange" }
+    InboxChatBulkChange:
+      type: object
+      required: [chat, reads, set_at]
+      properties:
+        chat: { type: string, minLength: 1, maxLength: 200 }
+        reads: { type: boolean }
+        set_at: { type: string, format: date-time }
+        previous: { $ref: "#/components/schemas/InboxChatPreviousChoice" }
+    InboxChatPreviousChoice:
+      type: object
+      description: The previous owner choice. Its absence means the chat previously used its default.
+      required: [reads, set_at]
+      properties:
         reads: { type: boolean }
         set_at: { type: string, format: date-time }
     InboxChatMove:

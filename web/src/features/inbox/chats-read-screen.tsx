@@ -18,6 +18,7 @@ import { toast } from "@/components/ui/toast"
 import { errorText } from "@/lib/server-error"
 import { cn } from "@/lib/utils"
 
+import { BulkChatActions } from "./bulk-chat-actions"
 import { defaultsLine, kindNames, sourceKey, sourceTitle, why } from "./chats-read-state"
 import type { Source } from "./inbox-state"
 import { SourceIcon } from "./source-icon"
@@ -158,6 +159,14 @@ function SourceChats({ source, title }: { source: InboxChatSource; title: string
           onChange={setState}
         />
       </div>
+      <BulkChatActions
+        source={source}
+        title={title}
+        chats={chats.data?.data ?? []}
+        disabled={
+          Boolean(chats.error) || chats.isFetching || chats.isPlaceholderData || query.trim() !== q
+        }
+      />
       <section
         aria-label={`Chats of ${title}`}
         className="w-full overflow-hidden rounded-xl border bg-card text-card-foreground"

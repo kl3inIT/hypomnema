@@ -5653,7 +5653,12 @@ its client API, its CLI and the Bots' tools.
     plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
     `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
     kind and state filters as the Machines page's segmented controls with counts for the search, and a card of rows, each with its kind's icon,
-    why it is in its state (default or set by him, and when) and a switch.
+    why it is in its state (default or set by him, and when) and a switch. Skip all shown and Read all shown
+    confirm the visible list's count and send its IDs in one `POST …/bulk` request. Only rows whose read state
+    changes become owner choices. One Undo sends the receipt to `POST …/bulk/undo`, which restores all previous
+    overrides or defaults together and refuses the undo if any affected choice changed since the batch.
+    The CLI accepts comma-separated IDs (`inbox chats set zalo:main 1001,2002 off`) or the list filters
+    (`inbox chats set zalo:main off --kind group`). With `--shown` alone it uses the first 500 chats of the account.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 

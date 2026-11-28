@@ -90,7 +90,7 @@ func newSecretaryChatsWorldWith(t *testing.T, files botFolder, closed *atomic.Bo
 	w := newInboxWorld(t)
 
 	for _, c := range []orchestration.Connection{
-		{Integration: "zalo", Label: "main", Account: "Đạt", Secret: "test-zalo"},
+		{Integration: "zalo", Label: "main", Account: "Alex Demo", Secret: "test-zalo"},
 		{Integration: "whatsapp", Label: "me", Account: "+84 90 000 0000", Secret: "test-whatsapp"},
 		{Integration: "lark", Label: "me", Secret: "test-lark", AppLabel: "work"},
 		{Integration: "lark", Label: "helper", Secret: "test-lark-helper"},
