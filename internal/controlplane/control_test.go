@@ -25,13 +25,19 @@ import (
 func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	// Reproduce a worker's long TMPDIR on runners with short temporary paths too.
+	dir := filepath.Join(t.TempDir(), strings.Repeat("a", 108))
+	require.NoError(t, os.Mkdir(dir, 0o700))
 	path := controlSocket(filepath.Join(dir, "hypomnema.db"))
 	assert.Equal(t, filepath.Join(dir, "control.sock"), path)
 	require.NoError(t, os.WriteFile(path, nil, 0o600), "a stale socket")
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
+	defer func() {
+		cancel()
+		<-done
+	}()
 
 	// The update is marked inside the coordinator's lock: here, the call records that it went through it.
 	var (
@@ -52,7 +58,7 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 		defer close(done)
 
 		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, func() int { return 2 },
-			func() int { return 1 }, begin, slog.New(slog.DiscardHandler))
+			func() int { return 1 }, begin, slog.New(slog.NewTextHandler(t.Output(), nil)))
 	}()
 
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
