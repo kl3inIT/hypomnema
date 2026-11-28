@@ -137,15 +137,24 @@ export function accountState(
       }
   }
 
-  if (account.stopped_until && Date.parse(account.stopped_until) > now) {
+  if (stoppedUntil(source, now)) {
     return {
-      label: `Stopped until ${clock.format(new Date(account.stopped_until))}`,
+      label: `Stopped until ${clock.format(new Date(source.signed!.stopped_until!))}`,
       tone: "warning",
       why: "After a rate-limit page it is not read for 24 hours.",
     }
   }
 
   return { label: "Signed in", tone: "success", why: "Searches read as this account." }
+}
+
+// stoppedUntil is when a signed-in source's site may be asked again after a rate-limit page, null when it is not
+// stopped. Nothing is sent to it before then, not even a sign-in's check (review round 1 of PR #1359).
+export function stoppedUntil(source: ListeningSource, now = Date.now()): Date | null {
+  const until = source.signed?.stopped_until
+  if (!until || Date.parse(until) <= now) return null
+
+  return new Date(until)
 }
 
 // readLine says when the source was last read and whether that worked, for the card's head.

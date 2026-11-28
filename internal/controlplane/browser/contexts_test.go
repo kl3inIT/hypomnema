@@ -80,13 +80,54 @@ func TestAContextIsMadeWithItsCookiesAndItsTab(t *testing.T) {
 	assert.Contains(t, sent[1], `Storage.setCookies {"browserContextId":"C1","cookies":[{"name":"hatch_sess","value":"v1"`)
 	assert.Contains(t, sent[2], `Target.createTarget {"browserContextId":"C1","url":"about:blank"}`)
 	assert.Equal(t, []string{
-		"Page.enable", "Runtime.enable", "Runtime.evaluate", "Input.insertText",
+		"Page.enable", "Runtime.enable", "Network.enable", "Runtime.evaluate", "Input.insertText",
 		"Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
 	}, chrome.methods("S1"))
 	assert.Contains(t, strings.Join(sent, "\n"), `Storage.getCookies {"browserContextId":"C1"}`)
 
 	e.DisposeContext(t.Context(), "acc_1")
 	assert.Contains(t, chrome.sent()[len(chrome.sent())-1], `Target.disposeBrowserContext {"browserContextId":"C1"}`)
+}
+
+// A tab keeps the status of each request it sent since its last navigation, the page's own fetches among them, as
+// linkedin-mcp-server's listener does (core/throttle.py): not a request sent before the navigation, nor another
+// tab's (issue #1291, review round 1 of PR #1359).
+func TestATabKeepsTheStatusesOfItsOwnRequestsSinceItsNavigation(t *testing.T) {
+	t.Parallel()
+
+	chrome := contextChrome()
+	e := runningEngine(chrome.serve(t))
+
+	p, err := e.Page(t.Context(), "acc_1", nil)
+	require.NoError(t, err)
+
+	event := func(session, method, params string) {
+		p.iso.event(cdpEvent{Method: method, SessionID: session, Params: []byte(params)})
+	}
+
+	event("S1", "Network.requestWillBeSent", `{"requestId":"old"}`)
+	require.NoError(t, p.Navigate(t.Context(), "https://www.linkedin.com/search/results/content/?keywords=a"))
+
+	event("S1", "Network.responseReceived", `{"requestId":"old","response":{"url":"https://x/old","status":429}}`)
+	event("S1", "Network.requestWillBeSent", `{"requestId":"doc"}`)
+	event("S1", "Network.requestWillBeSent", `{"requestId":"xhr"}`)
+	event("S1", "Network.responseReceived", `{"requestId":"doc","response":{"url":"https://www.linkedin.com/search","status":200}}`)
+	event("S1", "Network.responseReceived",
+		`{"requestId":"xhr","response":{"url":"https://www.linkedin.com/rsc","status":999,"headers":{"retry-after":"60"}}}`)
+	event("S9", "Network.requestWillBeSent", `{"requestId":"other"}`)
+	event("S9", "Network.responseReceived", `{"requestId":"other","response":{"url":"https://y","status":429}}`)
+
+	got, err := p.Responses(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []Response{
+		{URL: "https://www.linkedin.com/search", Status: 200},
+		{URL: "https://www.linkedin.com/rsc", Status: 999, RetryAfter: "60"},
+	}, got)
+
+	require.NoError(t, p.Navigate(t.Context(), "https://www.linkedin.com/search/results/content/?keywords=b"))
+	got, err = p.Responses(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, got, "a navigation starts the record again")
 }
 
 // holdOf is a tab's hold, the one its views take.

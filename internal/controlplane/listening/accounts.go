@@ -24,7 +24,7 @@ import (
 //   - consent: a card with fixed wording, the source's own, agreed to before its first sign-in; until then the source
 //     is off and cannot be switched on (last30days references/reddit-session.md:5-18, "It needs its own yes. X consent
 //     never implies it", and its wording, :13: automated use "may breach Reddit's terms and put that account at
-//     risk"; setup-wizard.md:87: consent is asked before anything is read);
+//     risk"; setup-wizard.md:57-61 and 132: consent is asked before any cookie is read);
 //   - sign-in: the owner signs in himself in his tab of the shared browser, and once the site's login cookies are
 //     there, they are verified by a real search and only then kept in the vault, the account read in a browser
 //     context of its own (the Muse pool's; signin's package comment);
@@ -34,8 +34,9 @@ import (
 //     "choose one, do not switch at random"); a sign-in again replaces it;
 //   - expired: a real call that asks for a sign-in marks the account need_login, the card shows "!" and the owner is
 //     told once (postiz's refreshNeeded, set where it was not, integration.repository.ts:603-616), and the source's
-//     next backend serves meanwhile (Agent-Reach falls back past NEED_LOGIN, runtime/dispatch.py:276-322); only a
-//     real call's answer does, never a missing cookie (Agent-Reach sessions.md:18, 26);
+//     next backend serves meanwhile, the owner's rule in issue #1291 ("the next free backend meanwhile"; Agent-Reach
+//     itself does not fall back past a login wall, runtime/dispatch.py:288-299); only a real call's answer does,
+//     never a missing cookie (Agent-Reach sessions.md:18, 26);
 //   - refused: a challenge or a block marks it refused and stops it until the owner signs in again, never retried by a
 //     test and never answered by another account (radar collection-pacing-contract.md:12, "Waiting longer is not
 //     permission to retry a safety stop"; research note §3, "a login or block stops that account until a person
@@ -72,12 +73,11 @@ type Signed struct {
 
 // Account is a signed-in source's account as the page shows it; its cookies are never part of it.
 type Account struct {
-	Label        string
-	State        string
-	Cause        string
-	SignedInAt   time.Time
-	CheckedAt    time.Time
-	StoppedUntil time.Time
+	Label      string
+	State      string
+	Cause      string
+	SignedInAt time.Time
+	CheckedAt  time.Time
 }
 
 // SignedState is what a signed-in source's card shows of it.
@@ -85,6 +85,10 @@ type SignedState struct {
 	Consent     string
 	ConsentedAt time.Time
 	Account     *Account
+	// StoppedUntil is when the site may be asked again after a throttling page, StopCause what it met; zero when it
+	// is not stopped. It holds for a sign-in too.
+	StoppedUntil time.Time
+	StopCause    string
 	// SignInURL is where the owner signs in; empty when the shared browser is off, and only a pasted cookie header
 	// signs in.
 	SignInURL string
@@ -101,6 +105,9 @@ type SignIn struct {
 type Page interface {
 	Navigate(ctx context.Context, address string) error
 	Evaluate(ctx context.Context, expression string, result any) error
+	// Responses are the statuses of the requests the tab sent since its last navigation, the page's own fetches
+	// among them (browser.Page.Responses).
+	Responses(ctx context.Context) ([]browser.Response, error)
 }
 
 // AccountBrowser is the shared browser as the signed-in sources use it: the owner's tab to sign in through, and a
@@ -334,8 +341,10 @@ func (s *Service) signIn(ctx context.Context, p Platform, jar []browser.Cookie, 
 	}
 
 	last, seen := s.acc.checked[p.Name]
-	// A jar a real search found signed out or refused is not searched with again; one that met a timeout or a rate
-	// limit is, in its turn at the site.
+	// A jar a real search found signed out or refused is not searched with again; one that met a timeout is, in its
+	// turn at the site, and one that met a rate limit only after the site's stop (Session.Ready). Inferred, no
+	// reference keeps such a memo: the sign-in dialog asks every two seconds (the Muse page's), and each ask must not
+	// send the site a search.
 	if seen && last.jar == sum && last.fail != nil && (last.fail.Code == CodeNeedLogin || last.fail.Code == CodeRefused) {
 		s.acc.mu.Unlock()
 
@@ -374,6 +383,13 @@ func waitingFor(site string, f *SourceError) string {
 	case CodeRefused:
 		return site + " refused this account (" + f.Detail + "). It is not kept: clear what " + site +
 			" asks in your own tab, then sign in again."
+	case CodeRateLimited:
+		at := "later"
+		if !f.Until.IsZero() {
+			at = "after " + f.Until.UTC().Format("15:04 UTC, Jan 2")
+		}
+
+		return site + " asked to slow down and is stopped (" + f.Detail + "): sign in " + at + "."
 	default:
 		return site + "'s test search did not answer (" + f.Error() + "); try again in a minute."
 	}
@@ -403,6 +419,11 @@ func (s *Service) verify(ctx context.Context, p Platform, jar []browser.Cookie) 
 	req := s.request(Plan{Topic: query}, Caller{})
 	req.Query, req.Limit, req.To = query, testLimit, s.now().UTC()
 	req.Session = &Session{s: s, source: p.Name, signed: p.Signed, candidate: jar}
+
+	// The site's stop holds for a verification: nothing is sent to it before the stop ends.
+	if f := req.Session.Ready(); f != nil {
+		return f
+	}
 
 	if s.acc.browser != nil {
 		defer s.acc.browser.DisposeContext(context.WithoutCancel(ctx), contextKey(p.Name, true))
@@ -515,7 +536,13 @@ func (s *Service) signedStates(ctx context.Context, kept keptState) (map[string]
 			continue
 		}
 
-		st := &SignedState{Consent: p.Signed.Consent, ConsentedAt: at(kept.sources[p.Name].ConsentedAt)}
+		src := kept.sources[p.Name]
+		st := &SignedState{Consent: p.Signed.Consent, ConsentedAt: at(src.ConsentedAt)}
+
+		if until := at(src.StoppedUntil); until.After(s.now()) {
+			st.StoppedUntil, st.StopCause = until, src.StopCause
+		}
+
 		if s.acc.browser != nil {
 			st.SignInURL = p.Signed.Site.URL
 		}
@@ -524,7 +551,7 @@ func (s *Service) signedStates(ctx context.Context, kept keptState) (map[string]
 			if r.Source == p.Name {
 				st.Account = &Account{
 					Label: r.Label, State: r.State, Cause: r.Cause, SignedInAt: time.UnixMilli(r.SignedInAt).UTC(),
-					CheckedAt: at(r.CheckedAt), StoppedUntil: at(r.StoppedUntil),
+					CheckedAt: at(r.CheckedAt),
 				}
 			}
 		}
@@ -557,8 +584,13 @@ func (s *Service) session(source string) *Session {
 // Site is the site the account is signed in to.
 func (se *Session) Site() signin.Site { return se.signed.Site }
 
-// Ready says, without a call, why the account cannot be read now; nil when it can.
+// Ready says, without a call, why the account cannot be read now; nil when it can. A stop after a throttling page is
+// the site's and holds for a candidate being verified too (review round 1 of PR #1359).
 func (se *Session) Ready() *SourceError {
+	if f := se.s.stopOf(context.Background(), se.source); f != nil {
+		return f
+	}
+
 	if se.candidate != nil {
 		return nil
 	}
@@ -575,9 +607,29 @@ func (se *Session) Ready() *SourceError {
 	case a.State == AccountRefused:
 		return Fail(CodeRefused, "%s refused its account, which waits for a new sign-in: %s", se.signed.Site.Name,
 			a.Cause)
-	case a.StoppedUntil.Valid && se.s.now().Before(at(a.StoppedUntil)):
-		return &SourceError{Code: CodeRateLimited, Detail: "stopped after a throttling page: " + a.Cause,
-			Until: at(a.StoppedUntil), transient: true}
+	}
+
+	return nil
+}
+
+// stopOf is a source's stop after a throttling page while it lasts; nil when it is not stopped.
+func (s *Service) stopOf(ctx context.Context, source string) *SourceError {
+	if s.db == nil {
+		return nil
+	}
+
+	row, err := store.New(s.db).ListeningSourceStop(ctx, source)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+
+	if err != nil {
+		return Fail(CodeBroken, "reading %s's stop: %s", source, err.Error())
+	}
+
+	if until := at(row.StoppedUntil); s.now().Before(until) {
+		return &SourceError{Code: CodeRateLimited, Detail: "stopped after a throttling page: " + row.StopCause,
+			Until: until, transient: true}
 	}
 
 	return nil
@@ -630,9 +682,12 @@ func (se *Session) Page(ctx context.Context) (Page, error) {
 }
 
 // met keeps what a real call's failure says of the account: a sign-in asked marks it need_login, a refusal refused,
-// and a throttling page stops it for its source's Throttle; the owner is told once, when the account's state changes.
+// and a throttling page stops the site for its source's Throttle, a candidate's call too, since it went to the same
+// site. The owner is told once: when the account's state changes and the source's told flag is not already set,
+// the flag a broken reading sets too (health.go record), so one expired session is one notice (review round 1 of PR
+// #1359; postiz notifies only where it sets refreshNeeded, integration.repository.ts:603-616).
 func (se *Session) met(ctx context.Context, f *SourceError) {
-	if se.candidate != nil || f == nil || f.resting {
+	if f == nil || f.resting || se.candidate != nil && f.Code != CodeRateLimited {
 		return
 	}
 
@@ -640,13 +695,18 @@ func (se *Session) met(ctx context.Context, f *SourceError) {
 
 	switch f.Code {
 	case CodeNeedLogin, CodeRefused:
-		var changed int64
+		var flagged bool
 
 		err := se.s.write(ctx, func(q *store.Queries, now int64) error {
-			var err error
-			changed, err = q.MarkListeningAccount(ctx, store.MarkListeningAccountParams{
+			changed, err := q.MarkListeningAccount(ctx, store.MarkListeningAccountParams{
 				Source: se.source, State: string(f.Code), Cause: cut(f.Detail, maxCause), Now: now,
 			})
+			if err != nil || changed == 0 {
+				return err
+			}
+
+			told, err := q.FlagListeningTold(ctx, store.FlagListeningToldParams{Source: se.source, Now: now})
+			flagged = told == 1
 
 			return err
 		})
@@ -657,7 +717,7 @@ func (se *Session) met(ctx context.Context, f *SourceError) {
 			return
 		}
 
-		if changed == 1 && se.s.tell != nil {
+		if flagged && se.s.tell != nil {
 			se.s.tell(ctx, Broken{Source: se.source, Code: f.Code, Detail: f.Detail, Fix: Fix(se.source, f.Code,
 				time.Time{})})
 		}
@@ -672,9 +732,8 @@ func (se *Session) met(ctx context.Context, f *SourceError) {
 		}
 
 		err := se.s.write(ctx, func(q *store.Queries, now int64) error {
-			return q.StopListeningAccount(ctx, store.StopListeningAccountParams{
-				Source: se.source, Until: sql.NullInt64{Int64: until.UnixMilli(), Valid: true},
-				Cause: cut(f.Detail, maxCause), Now: now,
+			return q.StopListeningSource(ctx, store.StopListeningSourceParams{
+				Source: se.source, Until: until.UnixMilli(), Cause: cut(f.Detail, maxCause), Now: now,
 			})
 		})
 		if err != nil {

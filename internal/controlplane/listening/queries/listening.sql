@@ -84,13 +84,11 @@ SELECT * FROM listening_accounts WHERE source = @source;
 
 -- A sign-in, new or again, replaces the account and clears what the last one met.
 -- name: PutListeningAccount :exec
-INSERT INTO listening_accounts (source, label, secret, state, cause, stopped_until, signed_in_at, checked_at,
-    updated_at)
-VALUES (@source, @label, @secret, 'signed_in', '', NULL, CAST(@now AS INTEGER), CAST(@now AS INTEGER),
+INSERT INTO listening_accounts (source, label, secret, state, cause, signed_in_at, checked_at, updated_at)
+VALUES (@source, @label, @secret, 'signed_in', '', CAST(@now AS INTEGER), CAST(@now AS INTEGER),
     CAST(@now AS INTEGER))
 ON CONFLICT (source) DO UPDATE SET label = excluded.label, secret = excluded.secret, state = 'signed_in', cause = '',
-    stopped_until = NULL, signed_in_at = excluded.signed_in_at, checked_at = excluded.checked_at,
-    updated_at = excluded.updated_at;
+    signed_in_at = excluded.signed_in_at, checked_at = excluded.checked_at, updated_at = excluded.updated_at;
 
 -- A real call that asked for a sign-in or refused the account marks it, once: the row changes only when its state
 -- does, so only that call tells the owner (postiz's refreshNeeded, set where it was not, integration.repository.ts:
@@ -100,10 +98,17 @@ UPDATE listening_accounts SET state = @state, cause = @cause, checked_at = CAST(
     updated_at = CAST(@now AS INTEGER)
 WHERE source = @source AND state <> @state AND state <> 'refused';
 
--- name: StopListeningAccount :exec
-UPDATE listening_accounts SET stopped_until = @until, cause = @cause, checked_at = CAST(@now AS INTEGER),
-    updated_at = CAST(@now AS INTEGER)
-WHERE source = @source;
+-- A throttling page stops the source's site until then, a later stop never shortened by an earlier one; nothing but
+-- the time ends it, neither a sign-in nor a search.
+-- name: StopListeningSource :exec
+INSERT INTO listening_sources (source, stopped_until, stop_cause, updated_at)
+VALUES (@source, CAST(@until AS INTEGER), @cause, CAST(@now AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET
+    stopped_until = MAX(COALESCE(listening_sources.stopped_until, 0), excluded.stopped_until),
+    stop_cause = excluded.stop_cause, updated_at = excluded.updated_at;
+
+-- name: ListeningSourceStop :one
+SELECT stopped_until, stop_cause FROM listening_sources WHERE source = @source;
 
 -- name: ConfirmListeningAccount :exec
 UPDATE listening_accounts SET checked_at = CAST(@now AS INTEGER), updated_at = CAST(@now AS INTEGER)

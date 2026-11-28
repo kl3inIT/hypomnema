@@ -36,7 +36,7 @@ import (
 //   - SearchTimeline's query ids rotate. They and the web client's bearer are read from X's own JavaScript bundles,
 //     kept a day, and read again when X answers 404 or a GraphQL validation error (runtime-query-ids.js:5-45,
 //     twitter-client-base.js:96-135, twitter-client-search.js:157-188); bird's baked ids stand when none is found
-//     (query-ids.json, twitter-client-base.js:131-134). Departure: bird bakes the bearer into its code
+//     (query-ids.json, twitter-client-base.js:134-136). Departure: bird bakes the bearer into its code
 //     (twitter-client-base.js:186); it is read here from the same bundles, so the repository holds no token.
 //   - 401, or X's "Could not authenticate you" (code 32), is the session's end: need_login (bird_x.py:153-161); 403 a
 //     refusal of the account (locked or suspended); 429 a rate limit until X's x-rate-limit-reset.
@@ -71,7 +71,7 @@ var xSite = signin.Site{
 }
 
 // xQueryIDs are bird's SearchTimeline ids, its query-ids.json's first, then those its client tries after it
-// (twitter-client-base.js:131-134).
+// (twitter-client-base.js:134-136).
 var xQueryIDs = []string{"6AAys3t42mosm_yTI_QENg", "M1jEez78PEfVfbQLvlWMvQ", "5h0kNbk3ii97rmfY6CdgAA",
 	"Tp1sewRU1AsZpBWhqCZicQ"}
 
@@ -171,8 +171,7 @@ func (x *xReader) discover(ctx context.Context, r Request) (string, []string, er
 	var bundles []string
 
 	for _, page := range xDiscoveryPages {
-		a, err := call{host: "x.com/bundles", gap: webGap, address: page, userAgent: xUserAgent,
-			accept: "text/html", follow: true}.do(ctx, x.client, r)
+		a, err := x.discoveryPage(ctx, r, page)
 		if err != nil {
 			continue
 		}
@@ -198,6 +197,10 @@ func (x *xReader) discover(ctx context.Context, r Request) (string, []string, er
 	)
 
 	for _, u := range bundles {
+		if !xDiscoveryURL(u) {
+			continue
+		}
+
 		a, err := call{host: "abs.twimg.com", gap: 0, address: u, userAgent: xUserAgent, accept: "*/*"}.do(ctx,
 			x.client, r)
 		if err != nil {
@@ -228,6 +231,39 @@ func (x *xReader) discover(ctx context.Context, r Request) (string, []string, er
 	}
 
 	return bearer, ids, nil
+}
+
+// discoveryPage reads one of X's pages for its bundles, following its redirects by hand, each hop only to an https
+// address of x.com or abs.twimg.com with no credentials and no port (runtime-query-ids.js:12, 80-101,
+// validateDiscoveryUrl; :11, at most five redirects).
+func (x *xReader) discoveryPage(ctx context.Context, r Request, address string) (answer, error) {
+	for range maxRedirects + 1 {
+		if !xDiscoveryURL(address) {
+			return answer{}, Fail(CodeBroken, "x.com sent its page to an address its bundles are not read from")
+		}
+
+		a, err := call{host: "x.com/bundles", gap: webGap, address: address, userAgent: xUserAgent,
+			accept: "text/html", redirect: true}.do(ctx, x.client, r)
+		if err != nil || a.location == "" {
+			return a, err
+		}
+
+		address = a.location
+	}
+
+	return answer{}, Fail(CodeBroken, "x.com redirected its page too many times")
+}
+
+// xDiscoveryURL says an address is one X's bundles may be read from (runtime-query-ids.js:80-101).
+func xDiscoveryURL(address string) bool {
+	u, err := url.Parse(address)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return false
+	}
+
+	host := strings.ToLower(u.Hostname())
+
+	return host == "x.com" || host == "abs.twimg.com"
 }
 
 // search reads a subquery from X's search, page after page.

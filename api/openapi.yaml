@@ -7695,6 +7695,12 @@ components:
           type: string
           description: Where the owner signs in, in his tab; absent when the shared browser is off (paste cookies then).
         account: { $ref: "#/components/schemas/ListeningAccount" }
+        stopped_until:
+          type: string
+          format: date-time
+          description: >-
+            The site is not asked until then, after a rate-limit page (LinkedIn's 24 hours), not even to check a sign-in.
+        stop_cause: { type: string, description: What the stop met. }
     ListeningAccount:
       type: object
       description: The source's one account; its cookies are never shown.
@@ -7710,10 +7716,6 @@ components:
         cause: { type: string, description: What the last real call that failed met. }
         signed_in_at: { type: string, format: date-time }
         checked_at: { type: string, format: date-time, description: The last real call made with it. }
-        stopped_until:
-          type: string
-          format: date-time
-          description: Not read until then, after a rate-limit page (LinkedIn's 24 hours).
     ListeningSignInCheck:
       type: object
       additionalProperties: false

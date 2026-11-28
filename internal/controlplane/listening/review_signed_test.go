@@ -77,14 +77,13 @@ func TestReviewLinkedInSignInAgainKeepsTheStop(t *testing.T) {
 	signInLinkedIn(t, rig, throttledPage(999, false))
 
 	_ = rig.search(t, listening.SourceLinkedIn)
-	acct := stateOf(t, rig.svc, listening.SourceLinkedIn).Signed.Account
-	require.Equal(t, start.Add(24*time.Hour), acct.StoppedUntil)
+	require.Equal(t, start.Add(24*time.Hour), stateOf(t, rig.svc, listening.SourceLinkedIn).Signed.StoppedUntil)
 
 	before := visits(rig, "listening-check:linkedin")
 	err := rig.svc.PasteCookies(t.Context(), listening.SourceLinkedIn, "li_at=session-1; JSESSIONID=j", "")
 	require.ErrorIs(t, err, listening.ErrInvalid)
 	assert.Equal(t, before, visits(rig, "listening-check:linkedin"), "the stop holds for a sign-in again")
-	assert.Equal(t, start.Add(24*time.Hour), stateOf(t, rig.svc, listening.SourceLinkedIn).Signed.Account.StoppedUntil)
+	assert.Equal(t, start.Add(24*time.Hour), stateOf(t, rig.svc, listening.SourceLinkedIn).Signed.StoppedUntil)
 }
 
 // P1-2: the document answers 200 while LinkedIn refuses the request that loads its results with 999: a rate limit
@@ -98,7 +97,7 @@ func TestReviewLinkedInRefusedResultsRequestIsRateLimited(t *testing.T) {
 	cov := coverageOf(t, a, listening.SourceLinkedIn)
 	assert.Equal(t, string(listening.CodeRateLimited), cov.Streams[0].Tried[0].Result)
 	assert.Equal(t, start.Add(24*time.Hour),
-		stateOf(t, rig.svc, listening.SourceLinkedIn).Signed.Account.StoppedUntil)
+		stateOf(t, rig.svc, listening.SourceLinkedIn).Signed.StoppedUntil)
 }
 
 // P1-3: X's session ends while the web fallback answers 500: the owner hears of it once.

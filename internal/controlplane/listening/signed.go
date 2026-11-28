@@ -47,7 +47,10 @@ const (
 		"again; after a rate-limit page, for 24 hours."
 )
 
-// SignedSources are X and LinkedIn; client reads X's search.
+// SignedSources are X and LinkedIn; client reads X's search. Inferred, no reference names them: each one's live query,
+// which a sign-in's verification searches too, is a topic the owner researches (VETC, the web's and Reddit's live
+// query, sources.go), and the LinkedIn card's "a secondary account" extends to LinkedIn what the owner asks of X in
+// issue #1291.
 func SignedSources(_ Endpoints, client *http.Client) []Platform {
 	return []Platform{
 		{

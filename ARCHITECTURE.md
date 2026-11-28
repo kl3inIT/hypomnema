@@ -5048,8 +5048,11 @@ writes no prose (last30days SKILL.md LAW 7).
   (`listening_accounts`: label, state, cause, stop), replacing any before it, and cleared from the shared profile;
   the same cookies found signed out are not searched with again. A real call that asks for a sign-in marks the
   account `need_login`, one that refuses it or shows a security check `refused` (cleared only by a new sign-in,
-  never by a test), both told to the owner once and shown as "!" on its card; a LinkedIn rate-limit page (429 or
-  999) stops it for 24 hours, kept across restarts. Sign-out deletes the vault secret, closes the account's browser
+  never by a test), both shown as "!" on its card and told to the owner once, through the same `told` flag a broken
+  reading sets, so a session's end and the source's failure in the same search are one notice; a LinkedIn
+  rate-limit answer (429 or 999, to the page or to any request the page sends for its results) stops the site for 24
+  hours (`listening_sources.stopped_until`), kept across restarts, before any call, a sign-in's check included, and
+  ended by nothing but the time. Sign-out deletes the vault secret, closes the account's browser
   context and clears that site's cookies, no other's, from the shared profile. A cookie goes only to its own site
   (`signin.Site.Header`) and is never logged or answered. Each account reads one call at a time at its site, 10 s
   apart and 30 s more after every five (`Pacer.Read`). X: its web client's `SearchTimeline` GraphQL (bird's, MIT,
@@ -5059,8 +5062,9 @@ writes no prose (last30days SKILL.md LAW 7).
   you" `need_login`, 403 `refused`, 429 rests until `x-rate-limit-reset`. LinkedIn: its Posts search page
   (`/search/results/content/`, the window as `datePosted` when a day, week or month holds it) in the account's own
   browser context, read as rendered (linkedin-mcp-server, Apache-2.0, `third_party/linkedin-mcp-server`): each post
-  paired with its URN by its boundary, its address `/feed/update/<urn>/`, its date from the id's high bits, the page's
-  status from its navigation entry, barriers by the path it landed on (login-restriction, checkpoint, challenge
+  paired with its URN by its boundary, its address `/feed/update/<urn>/`, its date from the id's high bits, only a
+  snapshot of this query's search page taken, the statuses of every request the account's tab sent since it opened
+  the search (`browser.Page.Responses`, from DevTools' Network events) with the document's own, barriers by the path it landed on (login-restriction, checkpoint, challenge
   `refused`; login, authwall `need_login`), and zero posts a clean zero only beside LinkedIn's empty state. API, only
   the owner's: `POST /gateway/listening/sources/{source}/consent`, `POST …/sign-in`, `POST …/sign-in/check`
   `{label?}`, `PUT …/account` `{cookies, label?}`, `DELETE …/account`. The Social listening card shows the consent

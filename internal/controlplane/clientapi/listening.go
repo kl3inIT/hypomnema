@@ -305,7 +305,13 @@ func toListeningSigned(st *listening.SignedState) *openapi.ListeningSigned {
 		return nil
 	}
 
-	out := &openapi.ListeningSigned{Consent: st.Consent, ConsentedAt: timePtr(st.ConsentedAt)}
+	out := &openapi.ListeningSigned{
+		Consent: st.Consent, ConsentedAt: timePtr(st.ConsentedAt), StoppedUntil: timePtr(st.StoppedUntil),
+	}
+	if st.StopCause != "" {
+		out.StopCause = &st.StopCause
+	}
+
 	if st.SignInURL != "" {
 		out.SignInUrl = &st.SignInURL
 	}
@@ -313,7 +319,7 @@ func toListeningSigned(st *listening.SignedState) *openapi.ListeningSigned {
 	if a := st.Account; a != nil {
 		out.Account = &openapi.ListeningAccount{
 			Label: a.Label, State: openapi.ListeningAccountState(a.State), Cause: a.Cause, SignedInAt: a.SignedInAt,
-			CheckedAt: timePtr(a.CheckedAt), StoppedUntil: timePtr(a.StoppedUntil),
+			CheckedAt: timePtr(a.CheckedAt),
 		}
 	}
 

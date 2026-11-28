@@ -24,10 +24,12 @@ import (
 //     FEED_POST_BOUNDARIES_JS, made for the feed and run here on the search page's cards); the post's address is its
 //     /feed/update/<urn>/ (linkedin/feed_payload.py:80-84), its text the boundary's, the media player's lines left
 //     out (linkedin/text.py:172-195);
-//   - throttling is read from the status LinkedIn served the page with, 429 or its 999 "Request denied", never from
-//     the words on it (docs/decisions/2026-09-23-throttling-is-a-status.md, core/throttle.py:43); it is read from the
-//     page's own navigation entry (Performance API responseStatus), the browser here having no response listener
-//     (inferred: linkedin-mcp-server records the status with a page listener, core/throttle.py:67-78);
+//   - throttling is read from the statuses LinkedIn answered, 429 or its 999 "Request denied", never from the words
+//     on the page (docs/decisions/2026-09-23-throttling-is-a-status.md, core/throttle.py:43): the status of every
+//     request the tab sent since it opened the search, the page's own fetches of its results among them, recorded as
+//     linkedin-mcp-server's page listener records them (core/throttle.py:67-78 and 171-210; the tab's record is
+//     browser.Page.Responses), and the document's own from its navigation entry; a read that found posts is left as
+//     it is, one that found none is rate_limited (review round 1 of PR #1359);
 //   - a barrier is read from where the page landed, its path only: the account-restriction route
 //     (login/login-restriction) and a checkpoint or challenge refuse the account, a sign-in route asks for one
 //     (core/auth.py:24-36 and 348-387, docs/linkedin-auth-routes.md);
@@ -40,13 +42,15 @@ import (
 
 const (
 	linkedInURL = "https://www.linkedin.com"
-	// linkedInLoad is how long a page is waited for to render its posts, its empty state or a barrier; linkedInScroll
-	// the wait after one scroll, and linkedInScrolls the most scrolls, one of linkedin-mcp-server's result "pages"
-	// (linkedin/posts.py:16-19, five scrolls a page).
+	// linkedInScrolls is the most scrolls of a search: linkedin-mcp-server's default of three result "pages" of five
+	// scrolls each (tools/post.py:42, linkedin/posts.py:16-19 and 79), a stream stopping sooner once it has its
+	// limit or a scroll shows no new post. Inferred, no reference sets them: linkedInLoad, how long a page is waited
+	// for to render its posts, its empty state or a barrier, looked at every linkedInPoll, and linkedInScroll, the
+	// wait after one scroll.
 	linkedInLoad    = 20 * time.Second
 	linkedInPoll    = time.Second
 	linkedInScroll  = 2 * time.Second
-	linkedInScrolls = 5
+	linkedInScrolls = 15
 	// linkedInStop is how long a rate-limit page stops the account (AGENTS.md:222-223).
 	linkedInStop = 24 * time.Hour
 )
@@ -133,7 +137,7 @@ func linkedInSearch(ctx context.Context, r Request) (Result, error) {
 		return Result{}, Fail(CodeBroken, "opening LinkedIn's search: %s", err.Error())
 	}
 
-	snap, err := linkedInWait(ctx, r, page, func(s linkedInPage) bool { return len(s.Posts) > 0 || s.Empty })
+	snap, err := linkedInWait(ctx, r, page, address, func(s linkedInPage) bool { return len(s.Posts) > 0 || s.Empty })
 	if err != nil {
 		return Result{}, err
 	}
@@ -158,6 +162,10 @@ func linkedInSearch(ctx context.Context, r Request) (Result, error) {
 			return Result{}, f
 		}
 
+		if !linkedInOurs(next, address) {
+			break
+		}
+
 		snap = next
 		if len(snap.Posts) == before {
 			break
@@ -169,9 +177,20 @@ func linkedInSearch(ctx context.Context, r Request) (Result, error) {
 		items = items[:r.Limit]
 	}
 
+	// A refused request of the page's own, its results' above all, is LinkedIn throttling the account; a read that
+	// found posts anyway is left as it is, as linkedin-mcp-server leaves a call that succeeds untouched by its record
+	// (docs/decisions/2026-09-23-throttling-is-a-status.md:28-30), and an empty state beside it is no clean zero.
+	if len(items) == 0 {
+		if f := linkedInThrottled(ctx, page, r.now()); f != nil {
+			return Result{}, f
+		}
+	}
+
 	switch {
 	case len(items) > 0:
 		return Result{Items: items, Detail: fmt.Sprintf("LinkedIn's Posts search showed %d posts", len(items))}, nil
+	case !linkedInOurs(snap, address):
+		return Result{}, Fail(CodeBroken, "LinkedIn's tab did not show this search's results in time")
 	case snap.Empty:
 		return Result{Detail: "LinkedIn's Posts search shows no result"}, nil
 	default:
@@ -206,9 +225,12 @@ func linkedInSearchURL(query string, from, to time.Time) string {
 	return linkedInURL + "/search/results/content/?" + q
 }
 
-// linkedInWait reads the page until done says it rendered, a barrier shows, or the load time ends, counted in looks a
-// poll apart.
-func linkedInWait(ctx context.Context, r Request, page Page, done func(linkedInPage) bool) (linkedInPage, error) {
+// linkedInWait reads the page until done says this search's page rendered, a barrier shows, LinkedIn refused one of the
+// page's requests before any post showed, or the load time ends, counted in looks a poll apart. A page that is not this
+// search's, an earlier query's still shown, is not taken (radar facebook-topic-adapter.md:7-9: confirm the page is the
+// frozen query's before reading it).
+func linkedInWait(ctx context.Context, r Request, page Page, address string, done func(linkedInPage) bool,
+) (linkedInPage, error) {
 	for look := 1; ; look++ {
 		snap, err := linkedInRead(ctx, page)
 		if err == nil {
@@ -216,8 +238,15 @@ func linkedInWait(ctx context.Context, r Request, page Page, done func(linkedInP
 				return linkedInPage{}, f
 			}
 
-			if snap.Ready == "complete" && done(snap) {
+			ours := linkedInOurs(snap, address)
+			if ours && snap.Ready == "complete" && done(snap) {
 				return snap, nil
+			}
+
+			if !ours || len(snap.Posts) == 0 {
+				if f := linkedInThrottled(ctx, page, r.now()); f != nil {
+					return linkedInPage{}, f
+				}
 			}
 		}
 
@@ -233,6 +262,62 @@ func linkedInWait(ctx context.Context, r Request, page Page, done func(linkedInP
 			return linkedInPage{}, AsFailure(err)
 		}
 	}
+}
+
+// linkedInOurs says a snapshot is of the search at address: LinkedIn's Posts search for the same keywords.
+func linkedInOurs(s linkedInPage, address string) bool {
+	got, err := url.Parse(s.Href)
+	if err != nil {
+		return false
+	}
+
+	want, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+
+	return strings.EqualFold(got.Hostname(), want.Hostname()) &&
+		strings.TrimSuffix(got.Path, "/") == strings.TrimSuffix(want.Path, "/") &&
+		got.Query().Get("keywords") == want.Query().Get("keywords")
+}
+
+// linkedInThrottled is LinkedIn refusing a request the page sent since it was opened, 429 or its 999, on its own
+// hosts only (linkedin-mcp-server core/throttle.py:43 and 190-210: another host's 429 is no word from LinkedIn, and
+// only the requests the call sent count); nil when none was.
+func linkedInThrottled(ctx context.Context, page Page, now time.Time) *SourceError {
+	responses, err := page.Responses(ctx)
+	if err != nil {
+		return nil
+	}
+
+	for i := len(responses) - 1; i >= 0; i-- {
+		got := responses[i]
+		if got.Status != 429 && got.Status != 999 {
+			continue
+		}
+
+		u, err := url.Parse(got.URL)
+		if err != nil {
+			continue
+		}
+
+		host := strings.ToLower(u.Hostname())
+		if host != "linkedin.com" && !strings.HasSuffix(host, ".linkedin.com") {
+			continue
+		}
+
+		f := &SourceError{Code: CodeRateLimited, transient: true, Detail: "LinkedIn answered HTTP " +
+			strconv.Itoa(got.Status) + " to " + u.Path + ": it is throttling this account"}
+
+		// A numeric Retry-After, the only form linkedin-mcp-server reads (core/throttle.py:152-168).
+		if secs, err := strconv.Atoi(strings.TrimSpace(got.RetryAfter)); err == nil && secs > 0 {
+			f.Until = now.Add(time.Duration(secs) * time.Second)
+		}
+
+		return f
+	}
+
+	return nil
 }
 
 func linkedInRead(ctx context.Context, page Page) (linkedInPage, error) {

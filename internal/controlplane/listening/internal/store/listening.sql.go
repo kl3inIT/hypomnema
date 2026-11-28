@@ -107,7 +107,7 @@ func (q *Queries) FlagListeningTold(ctx context.Context, arg FlagListeningToldPa
 }
 
 const getListeningAccount = `-- name: GetListeningAccount :one
-SELECT source, label, secret, state, cause, stopped_until, signed_in_at, checked_at, updated_at FROM listening_accounts WHERE source = ?1
+SELECT source, label, secret, state, cause, signed_in_at, checked_at, updated_at FROM listening_accounts WHERE source = ?1
 `
 
 func (q *Queries) GetListeningAccount(ctx context.Context, source string) (ListeningAccount, error) {
@@ -119,7 +119,6 @@ func (q *Queries) GetListeningAccount(ctx context.Context, source string) (Liste
 		&i.Secret,
 		&i.State,
 		&i.Cause,
-		&i.StoppedUntil,
 		&i.SignedInAt,
 		&i.CheckedAt,
 		&i.UpdatedAt,
@@ -128,7 +127,7 @@ func (q *Queries) GetListeningAccount(ctx context.Context, source string) (Liste
 }
 
 const listListeningAccounts = `-- name: ListListeningAccounts :many
-SELECT source, label, secret, state, cause, stopped_until, signed_in_at, checked_at, updated_at FROM listening_accounts ORDER BY source
+SELECT source, label, secret, state, cause, signed_in_at, checked_at, updated_at FROM listening_accounts ORDER BY source
 `
 
 func (q *Queries) ListListeningAccounts(ctx context.Context) ([]ListeningAccount, error) {
@@ -146,7 +145,6 @@ func (q *Queries) ListListeningAccounts(ctx context.Context) ([]ListeningAccount
 			&i.Secret,
 			&i.State,
 			&i.Cause,
-			&i.StoppedUntil,
 			&i.SignedInAt,
 			&i.CheckedAt,
 			&i.UpdatedAt,
@@ -229,7 +227,7 @@ func (q *Queries) ListListeningReadings(ctx context.Context, since string) ([]Li
 
 const listListeningSources = `-- name: ListListeningSources :many
 
-SELECT source, off, told, last_read_at, last_result, last_code, previous_result, last_success_at, last_error_at, last_error_code, last_error_detail, last_error_backend, updated_at, consented_at FROM listening_sources ORDER BY source
+SELECT source, off, told, last_read_at, last_result, last_code, previous_result, last_success_at, last_error_at, last_error_code, last_error_detail, last_error_backend, updated_at, consented_at, stopped_until, stop_cause FROM listening_sources ORDER BY source
 `
 
 // Social listening's sources as the owner sets them and as they last read (issue #1290).
@@ -257,6 +255,8 @@ func (q *Queries) ListListeningSources(ctx context.Context) ([]ListeningSource, 
 			&i.LastErrorBackend,
 			&i.UpdatedAt,
 			&i.ConsentedAt,
+			&i.StoppedUntil,
+			&i.StopCause,
 		); err != nil {
 			return nil, err
 		}
@@ -280,6 +280,22 @@ func (q *Queries) ListeningSourceIsOff(ctx context.Context, source string) (int6
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const listeningSourceStop = `-- name: ListeningSourceStop :one
+SELECT stopped_until, stop_cause FROM listening_sources WHERE source = ?1
+`
+
+type ListeningSourceStopRow struct {
+	StoppedUntil sql.NullInt64
+	StopCause    string
+}
+
+func (q *Queries) ListeningSourceStop(ctx context.Context, source string) (ListeningSourceStopRow, error) {
+	row := q.db.QueryRowContext(ctx, listeningSourceStop, source)
+	var i ListeningSourceStopRow
+	err := row.Scan(&i.StoppedUntil, &i.StopCause)
+	return i, err
 }
 
 const markListeningAccount = `-- name: MarkListeningAccount :execrows
@@ -321,13 +337,11 @@ func (q *Queries) PruneListeningReadings(ctx context.Context, before string) err
 }
 
 const putListeningAccount = `-- name: PutListeningAccount :exec
-INSERT INTO listening_accounts (source, label, secret, state, cause, stopped_until, signed_in_at, checked_at,
-    updated_at)
-VALUES (?1, ?2, ?3, 'signed_in', '', NULL, CAST(?4 AS INTEGER), CAST(?4 AS INTEGER),
+INSERT INTO listening_accounts (source, label, secret, state, cause, signed_in_at, checked_at, updated_at)
+VALUES (?1, ?2, ?3, 'signed_in', '', CAST(?4 AS INTEGER), CAST(?4 AS INTEGER),
     CAST(?4 AS INTEGER))
 ON CONFLICT (source) DO UPDATE SET label = excluded.label, secret = excluded.secret, state = 'signed_in', cause = '',
-    stopped_until = NULL, signed_in_at = excluded.signed_in_at, checked_at = excluded.checked_at,
-    updated_at = excluded.updated_at
+    signed_in_at = excluded.signed_in_at, checked_at = excluded.checked_at, updated_at = excluded.updated_at
 `
 
 type PutListeningAccountParams struct {
@@ -499,25 +513,29 @@ func (q *Queries) SetListeningSourceOff(ctx context.Context, arg SetListeningSou
 	return err
 }
 
-const stopListeningAccount = `-- name: StopListeningAccount :exec
-UPDATE listening_accounts SET stopped_until = ?1, cause = ?2, checked_at = CAST(?3 AS INTEGER),
-    updated_at = CAST(?3 AS INTEGER)
-WHERE source = ?4
+const stopListeningSource = `-- name: StopListeningSource :exec
+INSERT INTO listening_sources (source, stopped_until, stop_cause, updated_at)
+VALUES (?1, CAST(?2 AS INTEGER), ?3, CAST(?4 AS INTEGER))
+ON CONFLICT (source) DO UPDATE SET
+    stopped_until = MAX(COALESCE(listening_sources.stopped_until, 0), excluded.stopped_until),
+    stop_cause = excluded.stop_cause, updated_at = excluded.updated_at
 `
 
-type StopListeningAccountParams struct {
-	Until  sql.NullInt64
+type StopListeningSourceParams struct {
+	Source string
+	Until  int64
 	Cause  string
 	Now    int64
-	Source string
 }
 
-func (q *Queries) StopListeningAccount(ctx context.Context, arg StopListeningAccountParams) error {
-	_, err := q.db.ExecContext(ctx, stopListeningAccount,
+// A throttling page stops the source's site until then, a later stop never shortened by an earlier one; nothing but
+// the time ends it, neither a sign-in nor a search.
+func (q *Queries) StopListeningSource(ctx context.Context, arg StopListeningSourceParams) error {
+	_, err := q.db.ExecContext(ctx, stopListeningSource,
+		arg.Source,
 		arg.Until,
 		arg.Cause,
 		arg.Now,
-		arg.Source,
 	)
 	return err
 }

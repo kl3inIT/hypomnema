@@ -17,10 +17,19 @@ const now = Date.now()
 const iso = (ms: number) => new Date(ms).toISOString()
 const hour = 3_600_000
 
+// The cards' words, as the server sends them (listening/signed.go, xConsent and linkedInConsent).
 const xConsent =
   "Reading X as your account may break X's terms: automated use of a signed-in account can get it limited, " +
   "locked or suspended, and users of twscrape, which reads X the same way, report suspensions since 2026-11-21. " +
-  "Sign in a secondary account made for this, never your own."
+  "Sign in a secondary account made for this, never your own. Hypomnema then searches X as that account, one " +
+  "search at a time, 10 seconds apart. Only X's cookies are kept, in the vault: they are never shown or logged " +
+  "and go only to x.com. If X refuses the account or asks for a check, Hypomnema stops reading it until you sign in again."
+const linkedInConsent =
+  "LinkedIn's terms forbid automated access, so reading it as your account may bring a security check (a " +
+  "challenge or a CAPTCHA) or a restriction of the account. Sign in a secondary account made for this, never your " +
+  "own. Hypomnema then opens LinkedIn's Posts search as that account and reads only the pages LinkedIn shows, one " +
+  "page at a time, 10 seconds apart. Only LinkedIn's cookies are kept, in the vault: they are never shown or logged " +
+  "and go only to linkedin.com. After a security check it stops until you sign in again; after a rate-limit page, for 24 hours."
 
 function start(): Listening {
   const x: ListeningSource = {
@@ -48,7 +57,7 @@ function start(): Listening {
     last_success_at: iso(now - hour),
     items_this_week: 9,
     signed: {
-      consent: "LinkedIn's terms forbid automated access.",
+      consent: linkedInConsent,
       consented_at: iso(now - 48 * hour),
       sign_in_url: "https://www.linkedin.com/login",
       account: {
@@ -57,8 +66,10 @@ function start(): Listening {
         cause: "LinkedIn answered HTTP 999: it is throttling this account",
         signed_in_at: iso(now - 48 * hour),
         checked_at: iso(now - hour),
-        stopped_until: iso(now + 20 * hour),
       },
+      stopped_until: iso(now + 20 * hour),
+      stop_cause:
+        "LinkedIn answered HTTP 999 to /flagship-web/rsc-action: it is throttling this account",
     },
     backends: [
       { name: "rendered_page", opt_in: false, state: "ready" },
@@ -289,4 +300,20 @@ test("an account that must sign in again wears the ! and can be signed out", asy
   await shot(page, "listening-sign-out")
   await page.getByRole("alertdialog").getByRole("button", { name: "Sign out" }).click()
   await expect(card(page, "X")).toContainText("No account is signed in")
+})
+
+// Scenario: LinkedIn before its consent: its card's own words, the security check and the 24-hour stop included.
+test("LinkedIn's consent card says its own risks", async ({ page }) => {
+  const { world } = await fakeServer(page)
+  const linkedin = world.sources[1]!
+  linkedin.on = false
+  linkedin.group = "could_be_on"
+  linkedin.signed = { consent: linkedInConsent, sign_in_url: "https://www.linkedin.com/login" }
+  count(world)
+  await page.goto("/settings/social-listening")
+
+  await card(page, "LinkedIn").getByRole("button", { name: "Read the risks and turn on" }).click()
+  const dialog = page.getByRole("dialog", { name: "Read LinkedIn as your account?" })
+  await expect(dialog).toContainText("for 24 hours")
+  await shot(page, "listening-consent-linkedin")
 })

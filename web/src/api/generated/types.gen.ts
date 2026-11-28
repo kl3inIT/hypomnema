@@ -1223,6 +1223,14 @@ export type ListeningSigned = {
    */
   sign_in_url?: string;
   account?: ListeningAccount;
+  /**
+   * The site is not asked until then, after a rate-limit page (LinkedIn's 24 hours), not even to check a sign-in.
+   */
+  stopped_until?: string;
+  /**
+   * What the stop met.
+   */
+  stop_cause?: string;
 };
 
 /**
@@ -1243,10 +1251,6 @@ export type ListeningAccount = {
    * The last real call made with it.
    */
   checked_at?: string;
-  /**
-   * Not read until then, after a rate-limit page (LinkedIn's 24 hours).
-   */
-  stopped_until?: string;
 };
 
 export type ListeningSignInCheck = {

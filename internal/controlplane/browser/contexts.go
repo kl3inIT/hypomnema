@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +67,9 @@ type Response struct {
 	RetryAfter string
 }
 
+// maxResponses bounds the responses a tab keeps between two navigations.
+const maxResponses = 1000
+
 // isolated is one browser context of the engine's own, with its connection
 // and its one tab.
 type isolated struct {
@@ -76,6 +80,61 @@ type isolated struct {
 	// target and session are its tab and the DevTools session attached to it, empty while it has none.
 	target  string
 	session string
+
+	// The statuses of the requests the tab sent since its last navigation, as linkedin-mcp-server records every
+	// response's status on its page (core/throttle.py:67-78 and 190-210) and counts only the requests sent during
+	// the call that runs (:60-64, 171-187): sent are the requests' ids since the navigation, responses their answers.
+	mu        sync.Mutex
+	sent      map[string]bool
+	responses []Response
+}
+
+// event keeps the status of a response to a request the tab sent since its last navigation.
+func (iso *isolated) event(ev cdpEvent) {
+	if ev.Method != "Network.requestWillBeSent" && ev.Method != "Network.responseReceived" {
+		return
+	}
+
+	var got struct {
+		RequestID string `json:"requestId"`
+		Response  struct {
+			URL     string            `json:"url"`
+			Status  int               `json:"status"`
+			Headers map[string]string `json:"headers"`
+		} `json:"response"`
+	}
+
+	if json.Unmarshal(ev.Params, &got) != nil || got.RequestID == "" {
+		return
+	}
+
+	iso.mu.Lock()
+	defer iso.mu.Unlock()
+
+	if ev.SessionID != iso.session || iso.sent == nil {
+		return
+	}
+
+	if ev.Method == "Network.requestWillBeSent" {
+		iso.sent[got.RequestID] = true
+
+		return
+	}
+
+	if !iso.sent[got.RequestID] || len(iso.responses) >= maxResponses {
+		return
+	}
+
+	retry := ""
+
+	for k, v := range got.Response.Headers {
+		if strings.EqualFold(k, "Retry-After") {
+			retry = v
+		}
+	}
+
+	iso.responses = append(iso.responses, Response{URL: got.Response.URL, Status: got.Response.Status,
+		RetryAfter: retry})
 }
 
 // contexts are the engine's own browser contexts by key, with a lock of
@@ -132,7 +191,9 @@ func (e *Engine) Page(ctx context.Context, key string, cookies []Cookie) (*Page,
 		// A tab closed by itself, or by Chrome, is made again.
 		err := iso.conn.send(ctx, "Target.getTargetInfo", map[string]any{"targetId": iso.target}, "", nil)
 		if err != nil {
+			iso.mu.Lock()
 			iso.target, iso.session = "", ""
+			iso.mu.Unlock()
 		}
 	}
 
@@ -165,10 +226,14 @@ func (e *Engine) ensure(ctx context.Context) (string, error) {
 
 // newIsolated makes a browser context in the Chrome at cdp, with cookies.
 func newIsolated(ctx context.Context, cdp string, cookies []Cookie) (*isolated, error) {
-	conn, err := dialCDP(ctx, cdp, nil)
+	iso := &isolated{cdp: cdp}
+
+	conn, err := dialCDP(ctx, cdp, iso.event)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
+
+	iso.conn = conn
 
 	var made struct {
 		BrowserContextID string `json:"browserContextId"`
@@ -183,7 +248,7 @@ func newIsolated(ctx context.Context, cdp string, cookies []Cookie) (*isolated, 
 		return nil, fmt.Errorf("%w: making a browser context: %w", ErrUnavailable, err)
 	}
 
-	iso := &isolated{cdp: cdp, conn: conn, contextID: made.BrowserContextID}
+	iso.contextID = made.BrowserContextID
 
 	if len(cookies) > 0 {
 		if err := iso.setCookies(ctx, cookies); err != nil {
@@ -219,13 +284,15 @@ func (iso *isolated) newTab(ctx context.Context) error {
 		return fmt.Errorf("%w: attaching to a tab: %w", ErrUnavailable, err)
 	}
 
-	for _, domain := range []string{"Page.enable", "Runtime.enable"} {
+	for _, domain := range []string{"Page.enable", "Runtime.enable", "Network.enable"} {
 		if err := iso.conn.send(ctx, domain, map[string]any{}, attached.SessionID, nil); err != nil {
 			return fmt.Errorf("%w: %w", ErrUnavailable, err)
 		}
 	}
 
+	iso.mu.Lock()
 	iso.target, iso.session = created.TargetID, attached.SessionID
+	iso.mu.Unlock()
 
 	return nil
 }
@@ -292,9 +359,22 @@ func (p *Page) step(ctx context.Context, method string, params any, result any) 
 	return nil
 }
 
-// Navigate loads an address in the tab.
+// Navigate loads an address in the tab. The responses the tab keeps start again from it (Responses).
 func (p *Page) Navigate(ctx context.Context, address string) error {
+	p.iso.mu.Lock()
+	p.iso.sent, p.iso.responses = map[string]bool{}, nil
+	p.iso.mu.Unlock()
+
 	return p.step(ctx, "Page.navigate", map[string]any{"url": address}, nil)
+}
+
+// Responses are the status of each request the tab sent since its last navigation, the page's own fetches among
+// them, and when it was answered; none of their bodies.
+func (p *Page) Responses(context.Context) ([]Response, error) {
+	p.iso.mu.Lock()
+	defer p.iso.mu.Unlock()
+
+	return slices.Clone(p.iso.responses), nil
 }
 
 // Evaluate runs a script in the page, awaiting a promise it returns, and

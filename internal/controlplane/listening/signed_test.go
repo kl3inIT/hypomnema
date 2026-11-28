@@ -188,13 +188,13 @@ func (b *browserFake) profileNames() []string {
 
 // pageFake is a tab whose snapshot answers what is set for the address it navigated to.
 type pageFake struct {
-	mu       sync.Mutex
-	at       string
-	visits   []string
+	mu     sync.Mutex
+	at     string
+	visits []string
 	// responses are what the requests the page sent since its last navigation were answered (browser.Response).
 	responses []browser.Response
-	scrolls  int
-	snapshot func(address string, scrolls int) map[string]any
+	scrolls   int
+	snapshot  func(address string, scrolls int) map[string]any
 }
 
 func (p *pageFake) Responses(context.Context) ([]browser.Response, error) {
@@ -693,7 +693,8 @@ func TestLinkedInBarriersAreReadFromWhereThePageLanded(t *testing.T) {
 			assert.Equal(t, c.acct, acct.State)
 
 			if c.code == listening.CodeRateLimited {
-				assert.Equal(t, start.Add(24*time.Hour), acct.StoppedUntil, "a rate-limit page stops it for a day")
+				assert.Equal(t, start.Add(24*time.Hour),
+					stateOf(t, rig.svc, listening.SourceLinkedIn).Signed.StoppedUntil, "a rate-limit page stops it for a day")
 
 				visits := len(page.visits)
 				rig.clock.Advance(23 * time.Hour)

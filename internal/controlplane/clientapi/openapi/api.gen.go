@@ -5421,9 +5421,6 @@ type ListeningAccount struct {
 
 	// State signed_in; need_login, a real call asked for a sign-in again; refused, the site refused the account or asked for a security check, and it is not read until a new sign-in.
 	State ListeningAccountState `json:"state"`
-
-	// StoppedUntil Not read until then, after a rate-limit page (LinkedIn's 24 hours).
-	StoppedUntil *time.Time `json:"stopped_until,omitempty"`
 }
 
 // ListeningAccountState signed_in; need_login, a real call asked for a sign-in again; refused, the site refused the account or asked for a security check, and it is not read until a new sign-in.
@@ -5515,6 +5512,12 @@ type ListeningSigned struct {
 
 	// SignInUrl Where the owner signs in, in his tab; absent when the shared browser is off (paste cookies then).
 	SignInUrl *string `json:"sign_in_url,omitempty"`
+
+	// StopCause What the stop met.
+	StopCause *string `json:"stop_cause,omitempty"`
+
+	// StoppedUntil The site is not asked until then, after a rate-limit page (LinkedIn's 24 hours), not even to check a sign-in.
+	StoppedUntil *time.Time `json:"stopped_until,omitempty"`
 }
 
 // ListeningSource defines model for ListeningSource.

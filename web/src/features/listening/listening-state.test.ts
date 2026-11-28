@@ -15,6 +15,7 @@ import {
   readLine,
   shownSources,
   signedStep,
+  stoppedUntil,
 } from "./listening-state"
 
 const now = Date.parse("2026-11-28T09:00:00Z")
@@ -128,12 +129,11 @@ describe("a signed-in source (issue #1291)", () => {
       on: false,
       signed: { consent: "Risks.", ...over },
     })
-  const account = (state: "signed_in" | "need_login" | "refused", stopped_until?: string) => ({
+  const account = (state: "signed_in" | "need_login" | "refused") => ({
     label: "secondary",
     state,
     cause: state === "signed_in" ? "" : "X answered 401",
     signed_in_at: "2026-11-27T09:00:00Z",
-    stopped_until,
   })
 
   it("asks for its consent first, then a sign-in, then shows its account", () => {
@@ -157,12 +157,13 @@ describe("a signed-in source (issue #1291)", () => {
     expect(accountState(signed({ account: account("refused") }), now)?.why).toContain(
       "security check",
     )
-    const stopped = accountState(
-      signed({ account: account("signed_in", "2026-11-29T09:00:00Z") }),
-      now,
-    )
+    const stop = { account: account("signed_in"), stopped_until: "2026-11-29T09:00:00Z" }
+    const stopped = accountState(signed(stop), now)
     expect(stopped?.tone).toBe("warning")
     expect(stopped?.label).toMatch(/^Stopped until /)
     expect(accountState(signed(), now)).toBeNull()
+    // The stop is the site's: it shows before any account is signed in, and ends by itself.
+    expect(stoppedUntil(signed({ stopped_until: "2026-11-29T09:00:00Z" }), now)).not.toBeNull()
+    expect(stoppedUntil(signed({ stopped_until: "2026-11-28T08:00:00Z" }), now)).toBeNull()
   })
 })

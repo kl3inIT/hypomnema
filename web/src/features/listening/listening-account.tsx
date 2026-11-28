@@ -34,7 +34,7 @@ import { BrowserView } from "@/features/browser/browser-view"
 import { said } from "@/lib/said"
 import { since } from "@/lib/time"
 
-import { accountState, signedStep } from "./listening-state"
+import { accountState, signedStep, stoppedUntil } from "./listening-state"
 
 // The account of a signed-in source (issue #1291), on its card: its consent card before anything, then a sign-in in
 // the owner's tab of the shared browser, as the Muse page adds an account (muse-screen.tsx AddAccountDialog), or a
@@ -68,6 +68,7 @@ export function AccountPanel({ source }: { source: ListeningSource }) {
 
   const account = source.signed.account
   const state = accountState(source)
+  const stopped = stoppedUntil(source)
 
   return (
     <section
@@ -93,9 +94,19 @@ export function AccountPanel({ source }: { source: ListeningSource }) {
           No account is signed in: its web search reads it meanwhile.
         </span>
       )}
+      {stopped && (
+        <span role="note" className="break-words text-muted-foreground">
+          {source.label} asked to slow down
+          {source.signed.stop_cause ? ` (${source.signed.stop_cause})` : ""}: nothing is sent to it,
+          not even a sign-in's check, until{" "}
+          {stopped.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.
+        </span>
+      )}
       <span className="flex flex-wrap items-center gap-1.5">
-        {source.signed.sign_in_url && <SignInDialog source={source} again={!!account} />}
-        <PasteDialog source={source} />
+        {source.signed.sign_in_url && !stopped && (
+          <SignInDialog source={source} again={!!account} />
+        )}
+        {!stopped && <PasteDialog source={source} />}
         {account && <SignOut source={source} />}
       </span>
     </section>
