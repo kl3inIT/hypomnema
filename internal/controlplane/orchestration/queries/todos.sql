@@ -273,5 +273,6 @@ WHERE replied_at IS NULL AND delivery IN (SELECT value FROM json_each(CAST(@deli
 -- A call reopens an item whose earlier close is still to be answered on GitHub: the calls waiting keep that close,
 -- so the reopen drops no reply (review of PR #1323).
 UPDATE todo_github_calls
-SET closed_state = @closed_state, closed_reason = @closed_reason, closed_evidence = @closed_evidence
+SET closed_revision = @closed_revision, closed_state = @closed_state, closed_reason = @closed_reason,
+    closed_evidence = @closed_evidence
 WHERE todo_id = @todo_id AND replied_at IS NULL AND closed_state IS NULL;

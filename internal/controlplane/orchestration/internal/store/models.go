@@ -1262,6 +1262,7 @@ type TodoGithubCall struct {
 	RepliedAt      sql.NullInt64
 	ReplyUrl       string
 	CreatedAt      int64
+	ClosedRevision sql.NullInt64
 	ClosedState    sql.NullString
 	ClosedReason   sql.NullString
 	ClosedEvidence sql.NullString

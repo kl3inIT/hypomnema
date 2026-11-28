@@ -172,8 +172,10 @@ CREATE TABLE todo_github_calls (
     replied_at INTEGER,
     reply_url  TEXT    NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
-    -- The close a reply still waiting answers, kept when a later call reopens the item before the reply went: its
-    -- state, reason and evidence (JSON), NULL while the item's own close is the one to answer.
+    -- The close a reply still waiting answers, kept when a later call reopens the item before the reply went: the
+    -- item's revision that close left, which names that close alone, and its state, reason and evidence (JSON); NULL
+    -- while the item's own close is the one to answer.
+    closed_revision INTEGER,
     closed_state    TEXT CHECK (closed_state IS NULL OR closed_state IN ('done', 'dropped', 'duplicate')),
     closed_reason   TEXT,
     closed_evidence TEXT

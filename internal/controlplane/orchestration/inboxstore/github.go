@@ -314,7 +314,7 @@ func (s *Store) reopenTx(ctx context.Context, q *store.Queries, now int64, c Git
 	// The calls whose reply still waits keep the close they answer, which the reopen clears from the item (review of
 	// PR #1323): each close is answered with its own outcome.
 	if err := q.KeepGitHubReplyClose(ctx, store.KeepGitHubReplyCloseParams{
-		ClosedState: nullString(row.State), ClosedReason: sql.NullString{String: row.CloseReason, Valid: true},
+		ClosedRevision: sql.NullInt64{Int64: row.Revision, Valid: true}, ClosedState: nullString(row.State), ClosedReason: sql.NullString{String: row.CloseReason, Valid: true},
 		ClosedEvidence: sql.NullString{String: row.Evidence, Valid: true}, TodoID: row.ID,
 	}); err != nil {
 		return fmt.Errorf("keeping the close of to-do %s for its replies: %w", row.ID, err)
@@ -458,12 +458,16 @@ func (s *Store) Replies(ctx context.Context) ([]Reply, error) {
 			return fmt.Errorf("reading GitHub's calls to answer: %w", err)
 		}
 
-		// One reply a close: the item's current close, or a close a reopen kept for the calls waiting then.
+		// One reply a close: the item's current close, or a close a reopen kept for the calls waiting then, named by
+		// the item's revision that close left, never by its outcome, which two closes may share (last review of PR
+		// #1323).
 		at := map[string]int{}
 
 		for _, r := range rows {
-			key := r.TodoID + "\x00" + r.ClosedState.String + "\x00" + r.ClosedReason.String + "\x00" +
-				r.ClosedEvidence.String
+			key := r.TodoID + "\x00current"
+			if r.ClosedRevision.Valid {
+				key = fmt.Sprintf("%s\x00%d", r.TodoID, r.ClosedRevision.Int64)
+			}
 
 			n, ok := at[key]
 			if !ok {

@@ -393,7 +393,7 @@ func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoCha
 }
 
 const getTodoGitHubCall = `-- name: GetTodoGitHubCall :one
-SELECT delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url, replied_at, reply_url, created_at, closed_state, closed_reason, closed_evidence FROM todo_github_calls WHERE delivery = ?1
+SELECT delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url, replied_at, reply_url, created_at, closed_revision, closed_state, closed_reason, closed_evidence FROM todo_github_calls WHERE delivery = ?1
 `
 
 // A call of the GitHub App by its delivery (issue #1232): one delivered again is handled once.
@@ -413,6 +413,7 @@ func (q *Queries) GetTodoGitHubCall(ctx context.Context, delivery string) (TodoG
 		&i.RepliedAt,
 		&i.ReplyUrl,
 		&i.CreatedAt,
+		&i.ClosedRevision,
 		&i.ClosedState,
 		&i.ClosedReason,
 		&i.ClosedEvidence,
@@ -715,11 +716,13 @@ func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) 
 
 const keepGitHubReplyClose = `-- name: KeepGitHubReplyClose :exec
 UPDATE todo_github_calls
-SET closed_state = ?1, closed_reason = ?2, closed_evidence = ?3
-WHERE todo_id = ?4 AND replied_at IS NULL AND closed_state IS NULL
+SET closed_revision = ?1, closed_state = ?2, closed_reason = ?3,
+    closed_evidence = ?4
+WHERE todo_id = ?5 AND replied_at IS NULL AND closed_state IS NULL
 `
 
 type KeepGitHubReplyCloseParams struct {
+	ClosedRevision sql.NullInt64
 	ClosedState    sql.NullString
 	ClosedReason   sql.NullString
 	ClosedEvidence sql.NullString
@@ -730,6 +733,7 @@ type KeepGitHubReplyCloseParams struct {
 // so the reopen drops no reply (review of PR #1323).
 func (q *Queries) KeepGitHubReplyClose(ctx context.Context, arg KeepGitHubReplyCloseParams) error {
 	_, err := q.db.ExecContext(ctx, keepGitHubReplyClose,
+		arg.ClosedRevision,
 		arg.ClosedState,
 		arg.ClosedReason,
 		arg.ClosedEvidence,
@@ -806,7 +810,7 @@ func (q *Queries) LatestTodoOfSource(ctx context.Context, arg LatestTodoOfSource
 }
 
 const listGitHubCallsToReply = `-- name: ListGitHubCallsToReply :many
-SELECT c.delivery, c.todo_id, c.repository, c.number, c.kind, c.comment_id, c.reply_to, c.login, c.url, c.replied_at, c.reply_url, c.created_at, c.closed_state, c.closed_reason, c.closed_evidence FROM todo_github_calls c
+SELECT c.delivery, c.todo_id, c.repository, c.number, c.kind, c.comment_id, c.reply_to, c.login, c.url, c.replied_at, c.reply_url, c.created_at, c.closed_revision, c.closed_state, c.closed_reason, c.closed_evidence FROM todo_github_calls c
 JOIN todos t ON t.id = c.todo_id
 WHERE c.replied_at IS NULL AND (c.closed_state IS NOT NULL OR t.state IN ('done', 'dropped', 'duplicate'))
 ORDER BY c.created_at, c.delivery
@@ -837,6 +841,7 @@ func (q *Queries) ListGitHubCallsToReply(ctx context.Context, lim int64) ([]Todo
 			&i.RepliedAt,
 			&i.ReplyUrl,
 			&i.CreatedAt,
+			&i.ClosedRevision,
 			&i.ClosedState,
 			&i.ClosedReason,
 			&i.ClosedEvidence,
