@@ -178,7 +178,7 @@ func TestListenSearchAnswersItemsClustersAndCoverage(t *testing.T) {
 	}
 
 	require.NoError(t, json.Unmarshal([]byte(text), &bounded))
-	assert.Equal(t, listening.Limits{Depth: listening.DepthQuick, Pool: 15, Shortlist: 12, Read: 2}, bounded.Limits)
+	assert.Equal(t, listening.Limits{Depth: listening.DepthQuick, Pool: 15, Shortlist: 15, Read: 2}, bounded.Limits)
 	assert.Equal(t, listening.StepFallback, bounded.Pass.Rerank.State, "this test's service has no model")
 	assert.NotEmpty(t, bounded.Pass.Rerank.Reason)
 }
