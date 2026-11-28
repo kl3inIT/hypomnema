@@ -336,7 +336,7 @@ func TestEveryKeylessSourceIsOnAndWorkingOnlyAfterARealRun(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"web", "reddit", "youtube", "google_play", "app_store", "hackernews", "github", "arxiv", "techmeme", "devto",
-		"bluesky", "careers", "voz", "tinhte", "otofun",
+		"bluesky", "toutiao", "bilibili", "careers", "voz", "tinhte", "otofun",
 	}, names)
 
 	c := newClock()
