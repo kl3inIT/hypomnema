@@ -53,7 +53,7 @@ const (
 // Ask is a question a linking waits on. The owner's answer goes back with Answer, and the linking's next step
 // follows on its channel: the next question (the same one with Again after a wrong answer), a code, or its end. The
 // shape is the smallest that carries mautrix-telegram's user-input step (a field to fill, its instructions, the step
-// again when refused, login.go:215-241) through a linking that is followed in the background.
+// again when refused, login.go:231-257) through a linking that is followed in the background.
 type Ask struct {
 	// Field is AskPhone, AskCode or AskPassword.
 	Field string
@@ -73,7 +73,7 @@ type Readier interface {
 
 // PhoneLinker is a service that also links an account by its phone number and the code sent to it, when its QR
 // code cannot be scanned (Telegram, issue #1184), as mautrix-telegram offers its phone login beside its QR login
-// (pkg/connector/login.go:106-129). Its steps are Link's, the first asking for the number.
+// (pkg/connector/login.go:122-145). Its steps are Link's, the first asking for the number.
 type PhoneLinker interface {
 	LinkByPhone(ctx context.Context) (<-chan LinkStep, error)
 }

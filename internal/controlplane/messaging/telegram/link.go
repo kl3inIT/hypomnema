@@ -4,11 +4,11 @@ package telegram
 // Desktop Device, with his two-step password when the account has one, as gotd's QR login does it
 // (telegram/auth/qrlogin/qrlogin.go: Auth, Options.Password; examples/qrauth.go: the password again when wrong); or,
 // when the code cannot be scanned, by his phone number and the code Telegram sends, step by step as mautrix/telegram's
-// phone login asks them (pkg/connector/loginphone.go:91-214: the number, the code, the code again when wrong, the
+// phone login asks them (pkg/connector/loginphone.go:100-214: the number, the code, the code again when wrong, the
 // password). Each typed answer is a step of the linking that asks for it (messaging.Ask). The linking runs a client of
 // its own over a session in memory; once Telegram authorized it, the session is kept under the account's user id and
 // the account opened over it, as mautrix keeps a login's session in its metadata and connects it
-// (login.go:260-298).
+// (login.go:276-310).
 
 import (
 	"context"
@@ -29,7 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 )
 
-// linkTimeout bounds a linking, as mautrix's LoginTimeout (loginqr.go:47); the device link's own time is shorter.
+// linkTimeout bounds a linking, as mautrix's LoginTimeout (loginqr.go:49); the device link's own time is shorter.
 const linkTimeout = 10 * time.Minute
 
 // Link starts linking an account by QR code.
@@ -74,7 +74,7 @@ func (s *Service) runLink(ctx context.Context, appID int, appHash string, byPhon
 	steps chan<- messaging.LinkStep,
 ) (*Account, error) {
 	// The QR code's acceptance comes as updateLoginToken (gotd's examples/userbot, main.go:136); nothing else of the
-	// updates is wanted, as mautrix's login client (login.go:177-187).
+	// updates is wanted, as mautrix's login client (login.go:183-203).
 	dispatcher := tg.NewUpdateDispatcher()
 	loggedIn := qrlogin.OnLoginToken(dispatcher)
 	memory := &session.StorageMemory{}
@@ -219,7 +219,7 @@ func (l *linker) qr(ctx context.Context) (*tg.AuthAuthorization, error) {
 }
 
 // phone asks the number, sends the code to it and asks the code, again while either is refused, then the password
-// when the account has one, as mautrix's phone login (loginphone.go:144-214).
+// when the account has one, as mautrix's phone login (loginphone.go:152-214).
 func (l *linker) phone(ctx context.Context) (*tg.AuthAuthorization, error) {
 	client := auth.NewClient(l.api, crypto.DefaultRand(), l.appID, l.appHash)
 
@@ -324,7 +324,7 @@ func (l *linker) askPassword(ctx context.Context, again bool) (string, error) {
 	return l.ask(ctx, messaging.AskPassword, hint, again)
 }
 
-// codeSentTo says where Telegram sent the code, as mautrix's phoneCodeStep (loginphone.go:101-128).
+// codeSentTo says where Telegram sent the code, as mautrix's phoneCodeStep (loginphone.go:110-137).
 func codeSentTo(t tg.AuthSentCodeTypeClass) string {
 	switch t := t.(type) {
 	case *tg.AuthSentCodeTypeApp:

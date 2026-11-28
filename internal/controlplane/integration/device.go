@@ -357,7 +357,7 @@ const answerWait = 30 * time.Second
 
 // Answer gives a linking the owner's answer to the question it waits on (issue #1184): his phone number, the code
 // sent to it, or his two-step password, and answers the step after it, as mautrix-telegram's SubmitUserInput answers
-// the next login step (pkg/connector/loginphone.go:91-99). The answer is never kept or logged; a password is given
+// the next login step (pkg/connector/loginphone.go:100-108). The answer is never kept or logged; a password is given
 // as typed, the others without the spaces around them.
 func (s *Service) Answer(ctx context.Context, integration, id, value string) (SignIn, error) {
 	s.mu.Lock()
