@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
 // Backend is one way of reading a source: Agent-Reach's (backend label, method) of an Action
@@ -28,8 +30,11 @@ type Backend struct {
 
 // Result is what a backend read: the items, and a note on how (which provider answered, which step failed).
 type Result struct {
-	Items  []Item
-	Detail string
+	Items       []Item
+	Detail      string
+	provider    string
+	windowBasis websearch.WindowBasis
+	dropped     Drops
 	// Failed is a failure beside the items read: a part of the read that could not be done (a page, an order, a
 	// thread). With items the stream is partial, without it is not read: a failure is never a clean zero
 	// (last30days doctor.audit_state, lib/doctor.py:128-161, a partial read is unverified).
@@ -89,9 +94,11 @@ func (r Request) now() time.Time {
 // Attempt is one backend tried for a stream, as Agent-Reach's meta.attempts (runtime/dispatch.py:255-290): its
 // result, "ok" or a failure code, what happened, and until when it rests.
 type Attempt struct {
-	Backend string `json:"backend"`
-	Result  string `json:"result"`
-	Detail  string `json:"detail,omitempty"`
+	Backend     string                `json:"backend"`
+	Result      string                `json:"result"`
+	Detail      string                `json:"detail,omitempty"`
+	Provider    string                `json:"provider,omitempty"`
+	WindowBasis websearch.WindowBasis `json:"window_basis,omitempty"`
 	// Until is when it may be asked again, after a refusal or a rate limit.
 	Until string `json:"until,omitempty"`
 	// Skipped: not asked this time, because it rests, its probe failed or its site already refused.
@@ -164,6 +171,8 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 		}
 
 		res, err := b.Search(ctx, req)
+		st.report.dropped.add(res.dropped)
+		attempt := Attempt{Backend: b.Name, Detail: res.Detail, Provider: res.provider, WindowBasis: res.windowBasis}
 		if err != nil {
 			f := AsFailure(err)
 			if f.resting {
@@ -188,12 +197,12 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 				until = s.rest(id, f)
 			}
 
-			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail}
+			attempt.Result, attempt.Detail = string(f.Code), f.Detail
 			if !until.IsZero() {
-				a.Until = until.UTC().Format(time.RFC3339)
+				attempt.Until = until.UTC().Format(time.RFC3339)
 			}
 
-			st.report.Tried = append(st.report.Tried, a)
+			st.report.Tried = append(st.report.Tried, attempt)
 			failed = append(failed, f.Code)
 
 			s.logger.WarnContext(ctx, "a listening backend failed", slog.String("event", "listening.backend_failed"),
@@ -210,14 +219,14 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 			continue
 		}
 
-		items := s.inWindow(res.Items, p.Name, b.Name, sq.Label, req)
+		items := s.inWindow(res, p.Name, b.Name, sq.Label, req, &st.report.dropped)
 		if f := res.Failed; f != nil && len(items) == 0 {
-			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: joinDetail(res.Detail, f.Detail)}
+			attempt.Result, attempt.Detail = string(f.Code), joinDetail(res.Detail, f.Detail)
 			if !f.Until.IsZero() {
-				a.Until = f.Until.UTC().Format(time.RFC3339)
+				attempt.Until = f.Until.UTC().Format(time.RFC3339)
 			}
 
-			st.report.Tried = append(st.report.Tried, a)
+			st.report.Tried = append(st.report.Tried, attempt)
 			failed = append(failed, f.Code)
 
 			if stopsHost(f.Code) {
@@ -230,18 +239,17 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 		if len(items) == 0 {
 			clean = true
 
-			st.report.Tried = append(st.report.Tried, Attempt{
-				Backend: b.Name, Result: string(CodeNoResults), Detail: res.Detail,
-			})
+			attempt.Result = string(CodeNoResults)
+			st.report.Tried = append(st.report.Tried, attempt)
 
 			continue
 		}
 
-		served := Attempt{Backend: b.Name, Result: resultOK, Detail: res.Detail}
+		attempt.Result = resultOK
 		if f := res.Failed; f != nil {
 			// Read in part: the stream keeps the failure's code, so its source is partial.
 			st.report.Code = f.Code
-			served.Detail = joinDetail(res.Detail, "part not read: "+f.Error())
+			attempt.Detail = joinDetail(res.Detail, "part not read: "+f.Error())
 
 			until := f.Until
 			if f.restBackend {
@@ -249,11 +257,11 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 			}
 
 			if !until.IsZero() {
-				served.Until = until.UTC().Format(time.RFC3339)
+				attempt.Until = until.UTC().Format(time.RFC3339)
 			}
 		}
 
-		st.report.Tried = append(st.report.Tried, served)
+		st.report.Tried = append(st.report.Tried, attempt)
 		st.report.ServedBy = b.Name
 		st.report.Items = len(items)
 		st.items = items
@@ -284,17 +292,26 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 	return st
 }
 
-// inWindow keeps the items dated inside the window, or not dated, at most the request's limit, each stamped with
-// where it came from: last30days filter_by_date_range (normalize.py:48-74), which compares days, so an item dated
-// later today is in (normalize.py:66), and keeps an undated web result only on some backends; here an undated item
-// stays, with a low date confidence, since the web search's providers often give no date.
-func (s *Service) inWindow(items []Item, source, backend, label string, req Request) []Item {
+// inWindow keeps items dated inside the UTC calendar window. Undated web items require server bounds.
+func (s *Service) inWindow(res Result, source, backend, label string, req Request, dropped *Drops) []Item {
 	now := s.now().UTC()
 
 	var out []Item
 
-	for _, it := range items {
+	for _, it := range res.Items {
 		if !inDays(it.PublishedAt, req.From, req.To) {
+			dropped.OutsideWindow++
+
+			continue
+		}
+
+		if it.PublishedAt == nil && source == SourceWeb && res.windowBasis != websearch.WindowServerBounds {
+			dropped.MissingDate++
+
+			continue
+		}
+
+		if len(out) == req.Limit {
 			continue
 		}
 
@@ -312,10 +329,6 @@ func (s *Service) inWindow(items []Item, source, backend, label string, req Requ
 		it.Text = clip(it.Text, maxTextRunes)
 		it.Title = strings.Join(strings.Fields(it.Title), " ")
 		out = append(out, it)
-
-		if len(out) == req.Limit {
-			break
-		}
 	}
 
 	return out
