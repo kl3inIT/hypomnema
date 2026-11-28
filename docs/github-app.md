@@ -53,8 +53,9 @@ review whose own text names the App by its handle, `@<app-slug>` (the slug is in
 `@<app-slug> fix issue này`. The slug is read from the App's record, never a fixed word: the owner's App is
 `hypo-bot` (App 5961579, checked with `hypomnema hosts app` on zm, 2026-11-28), so it is called with `@hypo-bot`. A
 shorter handle, such as the slug without `-bot`, is another GitHub account: it does not call the App, and GitHub
-notifies that account of every mention, so never write it. The request is the rest of the line that names the App:
-a line before it and the paragraphs after it are not part of it. An edited comment, an issue's or pull
+notifies that account of every mention, so never write it. The request is the rest of the line that names the App
+(a line ends as GitHub's Markdown ends one, a lone carriage return included): a line before it and the paragraphs
+after it are not part of it. An edited comment, an issue's or pull
 request's own description, and a handle inside a longer word (`@<app-slug>-old`, `me@<app-slug>.dev`) do not call
 it.
 
@@ -103,7 +104,9 @@ request needs, inbox_start first: a review, leave one with gh api -X POST repos/
 -f event=COMMENT (or REQUEST_CHANGES) -f body=…, which goes as the GitHub App and answers the review's html_url; not gh
 pr review, which goes as the owner; a fix, start a Run whose pull request makes it; or pass the item to a project Bot
 when one fits better. End with inbox_done and your work on it as evidence: the review's address (url, the html_url
-that call answered), or the Run and its pull request. The control plane then answers the caller on GitHub with one
+that call answered), or the Run and its pull request; the review is recorded as your work when GitHub answers that
+call made from this chat; when inbox_done still refuses it as no work of yours, wait a moment and retry inbox_done
+once, then give the item back if it refuses again. The control plane then answers the caller on GitHub with one
 comment linking it: post no report there yourself. Give the item back to the owner with inbox_update hand_back when
 he must decide.
 This call is not the owner's: it lends you none of his own accounts (WhatsApp, Zalo, his sign-ins).
@@ -112,6 +115,7 @@ Never send a message to a client or a boss yourself.
 
 The review goes as the App because the REST call names the repository, which the service proxy reads to pick the
 App's installation token; `gh pr review` sends a mutation that names only the pull request's id, so it would go with
-the owner's own token and not count. The review counts as Hypo's work only when the App's own account left it and
-GitHub submitted it after Hypo's current attempt began: GitHub tells the App of it, and the item's history shows "The
-GitHub App reviewed the pull request".
+the owner's own token and not count. The review counts as Hypo's work only when the App's own POST of it, from the
+chat of Hypo's current attempt, was answered by GitHub: the proxy records it then, by the review's id, and the item's
+history shows "The GitHub App reviewed the pull request". GitHub's later review event records nothing, so an older
+review, or one made elsewhere, never counts.

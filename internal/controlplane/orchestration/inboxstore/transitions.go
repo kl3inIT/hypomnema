@@ -667,7 +667,7 @@ func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 // item's own chat since the attempt began), a pull request such a Run's task gave when it finished, its own comment
 // on the item in this attempt that carries a file or an Artifact it made (inbox_comment's files and artifacts), a
 // message it sent for the item in this attempt, as its send recorded it (RecordSent), or the review the GitHub App
-// left on the item's pull request in this attempt, by its address, as GitHub's event recorded it (RecordReview,
+// made on the item's pull request in this attempt, by its address, as the App's own POST recorded it (RecordReview,
 // issue #1232). Nothing the owner or anyone
 // else made is the Bot's work: his comment, a message he sent, his message in a chat, a link or a file he gave, a
 // person's message, a mail, a meeting's line; each is recorded for whom it shows (for_owner, done_by), or shows
@@ -711,7 +711,7 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string,
 
 			if slices.ContainsFunc(events, func(e store.TodoEvent) bool {
 				if l.Kind == LinkURL {
-					return reviewedInAttempt(e, cur, l.Ref)
+					return reviewedInAttempt(e, cur, bot, l.Ref)
 				}
 
 				return attemptsWork(e, cur, bot, l)

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
@@ -28,8 +27,9 @@ const FromGitHub = "github"
 // WakeCall is a kind of Wake: a call of the GitHub App on the item's issue or pull request.
 const WakeCall = "call"
 
-// EventReviewed records on an item the review the GitHub App left on its pull request while a Bot's attempt was on
-// it (RecordReview): after.review is the review's address, after.work_attempt the attempt.
+// EventReviewed records on an item the review the GitHub App made on its pull request in a Bot's attempt on it
+// (RecordReview): after.review is the review's address, after.review_id GitHub's id of it, after.work_attempt the
+// attempt.
 const EventReviewed = "reviewed"
 
 // The kinds of GitHubCall: a comment on an issue or a pull request's conversation, a comment in a pull request's
@@ -258,23 +258,29 @@ func (s *Store) callItemTx(ctx context.Context, q *store.Queries, now int64, c G
 	return id, queuePush(ctx, q, now, system, id)
 }
 
-// RecordReview records on a pull request's item the review the GitHub App left on it (issue #1232), when a Bot's
-// attempt is on the item and GitHub submitted the review since that attempt began: GitHub's signed event says the
-// App's own account submitted it and when, as RecordSent records a message the Bot sent in its attempt when its send
-// is made (issue #1206). It is then that attempt's work, the evidence its Bot closes the item with (botsWork). A
-// review submitted before the attempt, whose event comes during it, is not (review round 1 of PR #1323); GitHub
-// gives the time to the second, so the attempt's start is read to its second. False when it is not recorded.
-func (s *Store) RecordReview(ctx context.Context, repository string, number int, url string, submitted time.Time,
-) (bool, error) {
-	if url == "" || utf8.RuneCountInString(url) > MaxRef {
-		return false, fmt.Errorf("%w: a review names its address", storeerr.ErrInvalid)
+// MadeReview is a review the GitHub App made on a pull request, as GitHub answered the POST that made it, and where
+// it was made: the Bot whose gh sent it and the work of the chat it was sent from (a chat, or its Routine's run).
+type MadeReview struct {
+	Repository string
+	Number     int
+	ID         int64
+	URL        string
+	Bot        string
+	Work       Work
+}
+
+// RecordReview records on a pull request's item the review the GitHub App made on it, by the id GitHub gave it in
+// its answer to the App's own POST (issue #1232; review round 2 of PR #1323), when the Bot's attempt on the item is
+// in the chat the review was made from: then it is that attempt's work, the evidence its Bot closes the item with
+// (botsWork). As RecordSent records a message when its send is made (issue #1206), it is recorded when it is made, so
+// no review made before the attempt or elsewhere is ever its work, whatever GitHub's events say or when they come.
+// False when it is not recorded.
+func (s *Store) RecordReview(ctx context.Context, r MadeReview) (bool, error) {
+	if r.URL == "" || utf8.RuneCountInString(r.URL) > MaxRef || r.ID <= 0 || r.Bot == "" {
+		return false, fmt.Errorf("%w: a review names its id, its address and its Bot", storeerr.ErrInvalid)
 	}
 
-	if submitted.IsZero() {
-		return false, nil
-	}
-
-	source := fmt.Sprintf("%s#%d", strings.ToLower(repository), number)
+	source := fmt.Sprintf("%s#%d", strings.ToLower(r.Repository), r.Number)
 	recorded := false
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
@@ -285,17 +291,15 @@ func (s *Store) RecordReview(ctx context.Context, repository string, number int,
 			return nil
 		case err != nil:
 			return fmt.Errorf("reading the item of %s: %w", source, err)
-		case row.State != Doing && row.State != Review:
-			return nil
-		case submitted.Before(time.UnixMilli(row.WorkStartedAt.Int64).Truncate(time.Second)):
+		case row.State != Doing && row.State != Review, row.WorkBot.String != r.Bot,
+			row.WorkKind.String != r.Work.Kind, row.WorkID.String != r.Work.ID:
 			return nil
 		}
 
 		recorded = true
 
-		return commentlessTx(ctx, q, now, Actor{Kind: System, ID: "github"}, row, EventReviewed, map[string]any{
-			"review": url, "work_attempt": row.WorkAttempt.String, "work_bot": row.WorkBot.String,
-			"submitted_at": submitted.UTC().Format(time.RFC3339),
+		return commentlessTx(ctx, q, now, Actor{Kind: Bot, ID: r.Bot}, row, EventReviewed, map[string]any{
+			"review": r.URL, "review_id": r.ID, "work_attempt": row.WorkAttempt.String,
 		})
 	})
 	if err != nil {
@@ -322,10 +326,10 @@ func commentlessTx(ctx context.Context, q *store.Queries, now int64, actor Actor
 	return addEvent(ctx, q, cur.ID, now, cur.Revision+1, actor, kind, map[string]any{}, after)
 }
 
-// reviewedInAttempt says whether an event of the item is the GitHub App's review at the address ref, recorded during
-// the item's current attempt (RecordReview).
-func reviewedInAttempt(e store.TodoEvent, cur store.Todo, ref string) bool {
-	if e.Kind != EventReviewed || e.ActorKind != System {
+// reviewedInAttempt says whether an event of the item is the GitHub App's review at the address ref that bot made
+// in the item's current attempt (RecordReview).
+func reviewedInAttempt(e store.TodoEvent, cur store.Todo, bot, ref string) bool {
+	if e.Kind != EventReviewed || e.ActorKind != Bot || e.Actor != bot {
 		return false
 	}
 

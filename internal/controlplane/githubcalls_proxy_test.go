@@ -64,6 +64,7 @@ func (w *appWorld) ghIn(chat string) *botGitHub {
 
 			return token.Value, err == nil && ok
 		},
+		AppReviewed: appReviewed(w.svc, logger),
 	})
 	require.NoError(w.t, err)
 

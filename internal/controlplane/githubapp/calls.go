@@ -76,8 +76,8 @@ func mentionWord(ch byte) bool {
 }
 
 // Request is the caller's request in body: their words after the first mention of the App, to the end of that line
-// (#1232, row 4: "the caller's line after the mention is the request"). A line before it and the paragraphs after it
-// are not (review round 1 of PR #1323), as claude-code-action takes only the trigger's own words as a request
+// (#1232, row 4: "the caller's line after the mention is the request"), a line ending as GitHub's Markdown ends one
+// (LF, CR LF or CR alone). A line before it and the paragraphs after it are not (review round 1 of PR #1323), as claude-code-action takes only the trigger's own words as a request
 // (docs/security.md:5). Empty when nothing follows the mention on its line.
 func Request(body, slug string) string {
 	end, ok := mention(body, slug)
@@ -85,7 +85,10 @@ func Request(body, slug string) string {
 		return ""
 	}
 
-	line, _, _ := strings.Cut(body[end:], "\n")
+	line := body[end:]
+	if cut := strings.IndexAny(line, "\r\n"); cut >= 0 {
+		line = line[:cut] // a lone CR ends a line too (GFM, "line ending")
+	}
 
 	return strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), ",:;!?."))
 }
@@ -216,40 +219,16 @@ func (a *App) isOwner(cred Credential, u User) bool {
 		(cred.OwnerUserID == 0 || cred.OwnerUserID == u.ID)
 }
 
-// reviewed records the review the App itself left on a pull request on the item of its calls, the work of the Bot
-// whose attempt is on the item (inboxstore.RecordReview). Only the App's own account's review is: its login is its
-// slug with [bot], which no person's can be (claude-code-action actor.ts), and its id the bot's when known (#1312).
-func (a *App) reviewed(ctx context.Context, cred Credential, ev Event) (bool, error) {
-	r := ev.Review
-	if ev.Action != "submitted" || ev.PullRequest == nil || r == nil || r.User.Type != "Bot" ||
-		!strings.EqualFold(r.User.Login, cred.Slug+"[bot]") || (cred.BotUserID > 0 && r.User.ID != cred.BotUserID) ||
-		!strings.HasPrefix(r.HTMLURL, "https://github.com/") {
-		return false, nil
-	}
-
-	return a.svc.Inbox().RecordReview(ctx, ev.Repo(), ev.PullRequest.Number, r.HTMLURL, r.SubmittedAt)
-}
-
-// conversed acts on a conversation's delivery: a call of the App, or a review the App itself left. One that is
-// neither is forgotten once handled, its id too (review round 1 of PR #1323): only what is acted on is kept.
+// conversed acts on a conversation's delivery that may be a call of the App. One that is not a call taken is
+// forgotten once handled, its id too (review round 1 of PR #1323): only what is acted on is kept. The App's own
+// reviews are recorded when the App makes them (serviceproxy.AppReviewed), never from their events.
 func (a *App) conversed(ctx context.Context, cred Credential, ev Event) error {
-	recorded := false
-
-	var errs []error
-
-	if ev.Name == "pull_request_review" {
-		ok, err := a.reviewed(ctx, cred, ev)
-		recorded, errs = ok, append(errs, err)
-	}
-
 	taken, err := a.call(ctx, cred, ev)
-	errs = append(errs, err)
-
-	if !recorded && !taken {
-		errs = append(errs, a.store().ForgetDelivery(ctx, ev.Delivery))
+	if taken {
+		return err
 	}
 
-	return errors.Join(errs...)
+	return errors.Join(err, a.store().ForgetDelivery(ctx, ev.Delivery))
 }
 
 // replyRetry is how long an item whose reply GitHub refused waits before it is tried again; the other items' replies
@@ -409,12 +388,8 @@ func replyText(r inboxstore.Reply) string {
 		b.WriteString("Closed without doing it.")
 	}
 
-	if reason := []rune(plainReason(r.Todo.CloseReason)); len(reason) > 0 {
-		if len(reason) > maxReplyReason {
-			reason = append(reason[:maxReplyReason-1], '…')
-		}
-
-		b.WriteString(" " + string(reason))
+	if reason := plainReason(r.Todo.CloseReason); reason != "" {
+		b.WriteString(" " + reason)
 	}
 
 	var links []string
@@ -444,14 +419,19 @@ var (
 	handle        = regexp.MustCompile(`(^|[^A-Za-z0-9_` + "`" + `])@([A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?)`)
 )
 
-// plainReason is a Bot's closing reason as a reply may quote it: on one line, without what is hidden, and with every
-// handle in a code span, where GitHub mentions nobody.
+// plainReason is a Bot's closing reason as a reply may quote it: on one line, without what is hidden, cut to
+// maxReplyReason, and with every handle in a code span, where GitHub mentions nobody.
 func plainReason(reason string) string {
 	for _, re := range []*regexp.Regexp{hiddenComment, htmlTag, image, invisible} {
 		reason = re.ReplaceAllString(reason, "")
 	}
 
 	reason = strings.Join(strings.Fields(strings.ReplaceAll(reason, "`", "'")), " ")
+
+	// Cut first, then put the handles in code: a cut made after would break a code span (review round 2 of PR #1323).
+	if text := []rune(reason); len(text) > maxReplyReason {
+		reason = string(text[:maxReplyReason-1]) + "…"
+	}
 
 	return handle.ReplaceAllString(reason, "$1`@$2`")
 }

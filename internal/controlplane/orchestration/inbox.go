@@ -77,6 +77,35 @@ func (s *Service) InboxWorkOf(ctx context.Context, chatID string) (inboxstore.Wo
 	return inboxstore.Work{Kind: inboxstore.WorkChat, ID: chatID}, nil
 }
 
+// RecordAppReview records a review the owner's GitHub App made through the service proxy on the item of its pull
+// request (issue #1232): the work of the attempt that the chat it was made from holds, by the chat's own Bot; a
+// review made from any other chat, or by another Bot, is not recorded. False when it is not.
+func (s *Service) RecordAppReview(ctx context.Context, chat, bot, repository string, number int, id int64,
+	url string,
+) (bool, error) {
+	if chat == "" {
+		return false, nil
+	}
+
+	c, err := s.GetChat(ctx, chat)
+	if err != nil {
+		return false, err
+	}
+
+	if bot != "" && bot != c.Bot {
+		return false, nil
+	}
+
+	work, err := s.InboxWorkOf(ctx, chat)
+	if err != nil {
+		return false, err
+	}
+
+	return s.inbox.RecordReview(ctx, inboxstore.MadeReview{
+		Repository: repository, Number: number, ID: id, URL: url, Bot: c.Bot, Work: work,
+	})
+}
+
 // InboxAttempt is the attempt of a Bot's pi at the Inbox item it names (issue #1004): the item's current attempt
 // when the Bot is doing it in this chat or the chat's Routine's run, so that an Approval the Bot asks while working
 // on the item records it (NewApproval.AttemptID) and the Bot never handles attempt ids. Any other item is a conflict

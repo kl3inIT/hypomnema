@@ -408,7 +408,10 @@ func callWakeRule(w inboxstore.Wake) string {
 			"(or REQUEST_CHANGES) -f body=…, which goes as the GitHub App and answers the review's html_url; not gh "+
 			"pr review, which goes as the owner; a fix, start a Run whose pull request makes it", c.Repository,
 			c.Number)
-		evidence = "the review's address (url, the html_url that call answered), or the Run and its pull request"
+		evidence = "the review's address (url, the html_url that call answered), or the Run and its pull request; " +
+			"the review is recorded as your work when GitHub answers that call made from this chat; when inbox_done " +
+			"still refuses it as no work of yours, wait a moment and retry inbox_done once, then give the item back " +
+			"if it refuses again"
 	}
 
 	var b strings.Builder

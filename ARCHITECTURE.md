@@ -2673,15 +2673,16 @@ flowchart LR
       (`Credential.Slug`, never a fixed word; `@<slug>` or `@<slug>[bot]`, any
       case, Omnara's `githubMentionsBot`, `github_event.go:363-393`) on a repository it is installed on (the
       delivery's installation the one kept for it) is a call; an edit, an issue's or pull request's own body and a
-      `pull_request` event never are; a conversation's delivery that is neither a call taken nor the App's own
-      review is forgotten once handled, its id too, and the migration clears the bodies 00188 kept. The caller is
+      `pull_request` event never are; a conversation's delivery that is not a call taken is forgotten once
+      handled, its id too, and the migration clears the bodies 00188 kept. The caller is
       the delivery's `sender`, never the text: a `User` whose id is
       the comment's author's (Omnara `github_event.go:255-262`, claude-code-action `trigger.ts` `isTextFromActor`),
       with `admin` or `write` on the repository as `GET /repos/{owner}/{repo}/collaborators/{login}/permission`
       answers with the installation's token for the same id (claude-code-action `permissions.ts:189-206`, Omnara
       `permissions.go:12-37`); a bot (the App itself included), a reader or anyone else leaves no trace but the
       delivery's id, and gets no answer. The request is the caller's words after the first mention on that line
-      only (`githubapp.Request`; claude-code-action `docs/security.md:5`). `Inbox().Call` gives it, in one write, to the item of that issue or pull request that
+      only, a line ending at LF, CR LF or a lone CR as GitHub's Markdown ends one (`githubapp.Request`;
+      claude-code-action `docs/security.md:5`). `Inbox().Call` gives it, in one write, to the item of that issue or pull request that
       is not closed (`LatestTodoOfSource`, source `github`), else to a new open item given to the main Bot, created
       by the system (`github`); an item the owner holds is given to the main Bot again, one a Bot holds stays with
       it; a closed item is never reopened (only the owner reopens one), so a call after it makes a new item. The
@@ -2699,16 +2700,20 @@ flowchart LR
       kind, comment id, for a review comment the thread's first comment `reply_to`, login, address; never its
       words), and a comment gets 👀 (`POST
       .../issues/comments/{id}/reactions` or `.../pulls/comments/{id}/reactions`, Omnara's `AcknowledgeComment`); a
-      review has no reaction on GitHub. A review the App's own account (`<slug>[bot]`, with `BotUserID` when known)
-      submits on a pull request whose item a Bot's attempt is on, at a `submitted_at` no earlier than the attempt's
-      start (to its second), is recorded on the item (`reviewed`), the evidence that Bot closes it with.
+      review has no reaction on GitHub. A review the App makes is recorded when its own POST
+      `/repos/{owner}/{repo}/pulls/{n}/reviews` through the service proxy, sent with the App's installation token,
+      is answered 2xx (`serviceproxy.AppReviewed`, `orchestration.RecordAppReview`): by GitHub's id and address of
+      the review, on the item of that pull request whose attempt the chat it was sent from holds (the chat's work,
+      by the chat's own Bot), as an event `reviewed` by that Bot, the evidence it closes the item with; GitHub's
+      `pull_request_review` events never record one, so a review made before the attempt or from another chat,
+      whenever its event comes, is never its work (review round 2 of PR #1323, after `RecordSent`).
       `App.Run`, started by `serve`, reads after each commit the calls not answered whose item closed
       (`ListGitHubCallsToReply`) and answers each item once on GitHub with the installation's token, as the web
       push sender reads its outbox: one comment where its latest call was made (the review thread, on its first
       comment `reply_to`, else, or when GitHub refuses the thread, the conversation, claude-code-action
       `create-initial.ts:67-100`), naming each caller, how it ended, the Bot's reason as plain text (hidden
-      comments, tags, images and invisible characters dropped, every handle put in a code span so it mentions
-      nobody) and the web links of its evidence (the review, the pull request); an item whose reply GitHub refused is tried
+      comments, tags, images and invisible characters dropped, cut to 2,000 characters, then every handle put in a
+      code span so it mentions nobody) and the web links of its evidence (the review, the pull request); an item whose reply GitHub refused is tried
       again a minute later without holding back the others, and one GitHub refuses for good (404, 410, 422) or of a
       repository the App no longer covers is marked answered with no address.
     - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks
@@ -5378,8 +5383,8 @@ its client API, its CLI and the Bots' tools.
   reader), a `*_message` naming the account and chat that its send recorded on the item in this attempt
   (`RecordSent`, an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the
   store cannot tell the Bot's message from the owner's on his account), or a `url` that is the review the GitHub App
-  left on the item's pull request in this attempt (`RecordReview`, an event `reviewed` written when GitHub's signed
-  `pull_request_review` says the App's own account submitted it, issue #1232); a close whose evidence holds a link, a mail,
+  made on the item's pull request in this attempt (`RecordReview`, an event `reviewed` written when the App's own
+  POST of it through the service proxy from the attempt's chat is answered, by the review's id, issue #1232); a close whose evidence holds a link, a mail,
   his comment, a message he sent, his message in a chat, a person's message or a meeting's line is refused, even
   beside its own work, so his answer stays his and work he handed to the Bot closes as the Bot's with what it made,
   as GitHub records the person who merged and the pull request; the
