@@ -138,7 +138,8 @@ func TestATabKeepsTheStatusesOfItsOwnRequestsSinceItsNavigation(t *testing.T) {
 	}
 
 	event("S1", "Network.requestWillBeSent", `{"requestId":"late"}`)
-	event("S1", "Network.responseReceived", `{"requestId":"late","response":{"url":"https://www.linkedin.com/r","status":999}}`)
+	event("S1", "Network.responseReceived",
+		`{"requestId":"late","response":{"url":"https://www.linkedin.com/r","status":999}}`)
 
 	got, err = p.Responses(t.Context())
 	require.NoError(t, err)
