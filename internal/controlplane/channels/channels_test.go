@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -76,6 +77,8 @@ type lark struct {
 	marks   map[string][]string
 	refuse  error
 	notices []string
+	// noticeSent observes what the app was actually asked to send.
+	noticeSent chan<- string
 	// files are the files sent, as "chat: name", and their bytes by name.
 	files  []string
 	bytes  map[string][]byte
@@ -238,11 +241,20 @@ func (l *lark) pressed(operator string, b channels.Button) string {
 	return press(channels.Press{Operator: operator, Value: b.Value})
 }
 
-func (l *lark) Notice(_ context.Context, chatID, text string) error {
+func (l *lark) Notice(ctx context.Context, chatID, text string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.notices = append(l.notices, chatID+": "+text)
+	notice := chatID + ": " + text
+	l.notices = append(l.notices, notice)
+
+	if l.noticeSent != nil {
+		select {
+		case l.noticeSent <- notice:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 
 	return nil
 }
@@ -1427,8 +1439,26 @@ func (w *world) botOf(chatID string) string {
 func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, twoChannelsAreDoorsToTwoBots)
+}
+
+func twoChannelsAreDoorsToTwoBots(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
+	notices := make(chan string, 1)
+	w.larkMaps.noticeSent = notices
+
+	waitNotice := func(want string) {
+		t.Helper()
+
+		select {
+		case got := <-notices:
+			require.Equal(t, want, got)
+		case <-time.After(eventual):
+			t.Fatalf("maps did not send notice %q", want)
+		}
+	}
+
 	w.setUp(channelstore.ChannelAllowlist)
 	w.setUpMaps(channelstore.ChannelAllowlist)
 
@@ -1438,6 +1468,10 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 	first, second := w.chatOf(ownerDM), w.chatOf(mapsDM)
 	assert.Equal(t, orchestration.DefaultBotID, w.botOf(first))
 	assert.Equal(t, w.vmap, w.botOf(second))
+
+	// Watching a chat can start before its first message reaches the Bot.
+	synctest.Wait()
+	require.Equal(t, []string{"owner: where is the depot"}, w.texts(second))
 
 	w.answer(second, "At the ", "north gate.")
 	require.Eventually(t, func() bool {
@@ -1458,12 +1492,11 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 
 	w.pi.works(second, true)
 	w.larkMaps.say(direct("om_5", mapsDM, mapsOwner, "and its hours"))
-	require.Eventually(t, func() bool { return len(w.larkMaps.noticed()) == 1 }, eventual, tick)
-	assert.Equal(t, mapsDM+": ⏳ Queued: vmap is still working on the message before.", w.larkMaps.noticed()[0])
+	waitNotice(mapsDM + ": ⏳ Queued: vmap is still working on the message before.")
 	w.pi.works(second, false)
 
 	w.larkMaps.say(direct("om_6", mapsDM, mapsOwner, "/new"))
-	require.Eventually(t, func() bool { return len(w.larkMaps.noticed()) == 2 }, eventual, tick)
+	waitNotice(mapsDM + ": A new conversation has started.")
 	w.larkMaps.say(direct("om_7", mapsDM, mapsOwner, "another thing"))
 
 	var third string
