@@ -48,13 +48,14 @@ import (
 // its own, as generate_image goes to all. The Muse tools (muse.go, issue #782)
 // are every runtime's and a Bot's pi's, no CLI having Muse of its own.
 var toolsOf = map[string][]string{
-	"claude": append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
-		museTools...),
-	"codex": append([]string{toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak}, museTools...),
-	"omp": append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
-		museTools...),
-	"opencode": append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
-		museTools...),
+	"claude": slices.Concat([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
+		museTools, []string{agenttool.ToolListenSearch}),
+	"codex": slices.Concat([]string{toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak}, museTools,
+		[]string{agenttool.ToolListenSearch}),
+	"omp": slices.Concat([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
+		museTools, []string{agenttool.ToolListenSearch}),
+	"opencode": slices.Concat([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe,
+		toolSpeak}, museTools, []string{agenttool.ToolListenSearch}),
 }
 
 // botTools are a Bot's pi's (issue #492): all of them, pi having no web,
@@ -62,8 +63,8 @@ var toolsOf = map[string][]string{
 // `agents` server's generate_image (server/drivers/pi-mcp-servers.ts) and
 // send_voice_note (agents-catalog.ts:497). A Routine's script, which has no
 // MCP, keeps `hypomnema web`, `hypomnema image` and `hypomnema audio`.
-var botTools = append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
-	museTools...)
+var botTools = slices.Concat([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe,
+	toolSpeak}, museTools, []string{agenttool.ToolListenSearch})
 
 const (
 	toolWebSearch  = agenttool.ToolWebSearch
@@ -108,7 +109,7 @@ func (s *Server) WithWeb(web Web) *Server {
 // gatewayTools are the gateway's tools this control plane has: a worker's by its runtime, all for a Bot's pi
 // and the owner, none for the coordinator or a Routine script.
 func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
-	if s.web == nil && s.images == nil && s.audio == nil && s.muse == nil {
+	if s.web == nil && s.images == nil && s.audio == nil && s.muse == nil && s.listening == nil {
 		return nil
 	}
 
@@ -154,6 +155,10 @@ func (s *Server) configuredGatewayTools(ctx context.Context, named []string) []s
 			if s.audio != nil {
 				out = append(out, name)
 			}
+		case name == agenttool.ToolListenSearch:
+			if s.listening != nil {
+				out = append(out, name)
+			}
 		case s.web != nil:
 			out = append(out, name)
 		}
@@ -175,7 +180,9 @@ func (s *Server) gatewayToolList(ctx context.Context, a agent) []agenttool.Brows
 
 	out = append(out, audioToolList(names, a.chatID != "")...)
 
-	return append(out, museToolList(names)...)
+	out = append(out, museToolList(names)...)
+
+	return append(out, s.listeningToolList(names)...)
 }
 
 // gatewayCall runs one of the gateway's tools for an agent.
@@ -187,6 +194,8 @@ func (s *Server) gatewayCall(w http.ResponseWriter, r *http.Request, a agent, ca
 		s.transcribeCall(w, r, a, call)
 	case toolSpeak:
 		s.speakCall(w, r, a, call)
+	case agenttool.ToolListenSearch:
+		s.listenCall(w, r, a, call)
 	default:
 		if slices.Contains(museTools, call.Tool) {
 			s.museCall(w, r, a, call)

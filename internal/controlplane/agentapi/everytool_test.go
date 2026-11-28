@@ -45,13 +45,13 @@ var (
 		"inbox_start", "inbox_release", "inbox_done", "inbox_comment", "inbox_drop", "inbox_chats", "meeting_list",
 		"meeting_get",
 		"web_search", "web_fetch", "generate_image", "audio_transcribe", "audio_speak", "muse_ask", "muse_chats",
-		"muse_messages", "whatsapp_chats", "whatsapp_messages", "whatsapp_media", "whatsapp_history", "whatsapp_send",
+		"muse_messages", "listen_search", "whatsapp_chats", "whatsapp_messages", "whatsapp_media", "whatsapp_history", "whatsapp_send",
 		"zalo_chats", "zalo_messages", "zalo_media", "zalo_history", "zalo_send", "node_exec", "node_process",
 		"node_process_kill", "browser_video_start", "browser_video_say", "browser_video_stop",
 	}, agenttool.BrowserTools)
 	expectedWorkerTools = slices.Concat([]string{
 		"memory", "show_artifact", "web_search", "web_fetch", "generate_image", "audio_transcribe", "audio_speak",
-		"muse_ask", "muse_chats", "muse_messages", "node_exec", "node_process", "node_process_kill",
+		"muse_ask", "muse_chats", "muse_messages", "listen_search", "node_exec", "node_process", "node_process_kill",
 		"browser_video_start", "browser_video_say", "browser_video_stop",
 	}, agenttool.BrowserTools)
 	// The coordinator token and a Routine's script have no MCP and no other tool of the list, but each keeps a
@@ -73,7 +73,8 @@ func TestEveryListedToolIsReachedOnTheCurrentRoutes(t *testing.T) {
 	phone := &sharedPhone{}
 	w := newWorldWith(t, 0, func(s *agentapi.Server) {
 		s.WithBrowser(engine).WithAudio(&fakeAudio{}).WithWeb(&fakeWeb{}).WithImages(&fakeImages{}).
-			WithDevice(phone).WithMuse(&fakeMuse{on: true}).WithBrowserTakes(&filmingBrowser{}).
+			WithDevice(phone).WithMuse(&fakeMuse{on: true}).WithListening(newFakeListening()).
+			WithBrowserTakes(&filmingBrowser{}).
 			WithMeetings(recordedMeetings{}).
 			WithNodeExec(&machines{}, &machines{}, func(context.Context, orchestration.Node) (string, error) {
 				return "", nil

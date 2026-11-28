@@ -98,7 +98,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn,<br/>chat_search over its own chats"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>listen_search,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn,<br/>chat_search over its own chats"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -1946,8 +1946,9 @@ sequenceDiagram
     takes `--agent <name>` or `--owner` beside `--bot`; `hypomnema memory ls|cat|put|rm` the notes. Removing a Bot
     with its chats removes its notes; a Bot with notes is not removed plainly.
   - On the web (`web/src/features/memory/`): an agent's page has Memory beside Configuration and Versions, and
-    Settings has "About you" under Agents, as OpenMausBot's About me; both, and a Bot's memory, are one editor
-    (`memory-editor.tsx`) that follows the server while untouched and says when the memory changed under an edit.
+    Settings has "About you" beside Notifications under Preferences, as OpenClaw's Profile (issue #1296).
+    These pages and a Bot's memory use one editor (`memory-editor.tsx`) that follows the server while untouched
+    and says when the memory changed under an edit.
     Under a Bot's and an agent's memory, Notes (`memory-notes.tsx`) lists the notes with their sizes; the owner
     opens one to read, edit or remove it, and writes a new one.
   - Not built (step 2 is issue #805, a search over a Bot's past chats): entries tagged by repository (OpenClaw;
@@ -2040,8 +2041,8 @@ flowchart LR
     ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
     PR["a profile's YAML<br/>skills, skills_off"]
     BL["a Bot's lists<br/>skills, skills_off"]
-    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, the phone"}
-    RB{"requires (metadata.hypomnema):<br/>what the Bot may use now, the phone"}
+    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, devices and tools"}
+    RB{"requires (metadata.hypomnema):<br/>the Bot's Connections, devices and tools"}
     DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
     NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
@@ -2118,7 +2119,7 @@ flowchart LR
     `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
     (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
     tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
-    `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
+    `metadata.hypomnema.requires` (`integration: superset`, `device: android`, `tool: listen_search`), as OpenClaw's skills declare
     `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
     and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
     frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
@@ -2609,6 +2610,8 @@ flowchart LR
       key and webhook secret as one value in the vault secret `github-app` (`githubapp.Credential`, as Omnara keeps
       them as one credential); the key and the secret are never answered, logged or written anywhere else. A new
       registration replaces the App. `GET /integrations/github/app` (`hypomnema hosts app`) shows it without them.
+      The setup page's buttons accept `Sec-Fetch-Site: same-origin`. With no fetch metadata, an `Origin` matching
+      the request host or the configured public host is accepted, as is a request with neither header (#1308).
     - **Its installations** are read from GitHub (`GET /app/installations` with the App's JWT, RS256 and nine
       minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
       back from installing it, on each `installation` and `installation_repositories` event, and on
@@ -4948,6 +4951,74 @@ not checked against the live site in the change that wrote them.
 - Not built: Muse's images and videos as tools (#781, step 3), a history screen for `muse.db`, watching an account's
   tab live, Muse Spark through `api.meta.ai`.
 
+Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issue #1287, step 2 of #781,
+[research](docs/research/2026-11-27-social-listening.md)): the tool `listen_search` finds what people say about a
+topic. The calling model writes the plan; the tool answers with items, clusters and each source's coverage, and
+writes no prose (last30days SKILL.md LAW 7).
+- Plan: `topic`, 1 to 5 `subqueries` (`label`, `query`, `sources`, `weight`), the
+  `sources` a subquery naming none reads, `source_weights`, `window_days` (1 to 365, default 30), `max_results` a
+  stream keeps (1 to 50, default 25, last30days' default and deep depths), and `backends` pinning a source to one
+  backend. A plan that cannot run is the
+  tool's error, naming why; an unknown field is refused.
+- Sources, each an ordered chain of backends (`Platform`, `Backend`: name, host, opt-in, a side-effect-free probe,
+  search): `web` is `web_search`, the web search chain above; `reddit` is `reddit_json`, Reddit's keyless
+  `/search.json` (with the `<platform>:<app>:<version>` User-Agent), then `web_arctic`, the web search's
+  `site:reddit.com <query>` threads (20 asked), every one read from Arctic Shift's keyless `/api/posts/ids` for its
+  score, comments, author and date (a score under 36 hours old is left out; threads the archive cannot fill, or
+  while it rests, stay as the search showed them), then those dated in the window, then those whose title names the
+  topic (last30days' topic bar: the topic's first word when longer than three letters and not generic), then cut at
+  the stream's limit; the detail counts the threads dropped. When the archive could not be read and the bar leaves
+  none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. That failure rests the archive's path only, not
+  `web_arctic`: the next subquery still searches the web and keeps its threads as the search showed them. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
+  `web_arctic` was added for that (owner, 2026-11-27).
+- A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
+  refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
+  first with items serves. An opt-in backend is asked only when pinned. After `need_login`, `refused`,
+  `rate_limited` or `limit_reached`, the same host's other backends are not asked in that search. A source's
+  subqueries run one after another; sources run at once.
+- Failure codes, a closed set: `need_login` (401), `refused` (403, a page where JSON was asked), `rate_limited` (429,
+  Arctic Shift's 422), `limit_reached` (402), `not_found` (404, 410), `timeout`, `broken`, and `no_results`, the only
+  clean zero. Rests, in memory: a wait the source or the chain named, else refused 6 hours, rate limited what the source said (`Retry-After`,
+  `x-ratelimit-reset`) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
+- Pacing: one call at a time per host, Reddit's at least 1 s apart, Arctic Shift's 400 ms (`Pacer`), whoever asks.
+  The web searches a plan makes wait in the chain for their route's turn, one call at a time per key or keyless
+  provider and 1 s apart (`websearch.WithPace`); a provider's rest is stored before its turn ends, and a route that
+  came to rest meanwhile is skipped. A source's `Retry-After` counts from when its answer arrived. Reddit's
+  `/search.json` and Arctic Shift's `/api/posts/ids` each rest on their own as paths, checked again once a call has
+  its turn, so a search queued behind a 403 or a 429 sends nothing.
+- The web search chain's failure keeps each route's rest (`websearch.FailedError`: rests, providers asked, empty,
+  other failures): when every provider that failed rests, the web's code is the rest's (`rate_limited`,
+  `limit_reached`, `refused`) until the first is free; another failure is `broken`.
+- Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
+  anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
+  tried with its result, detail and rest (`until`, `skipped`).
+- Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
+  container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
+  without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
+  on the source's log scale (Reddit's only; a web page has none), parent, the subqueries that found it, fetch time,
+  score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
+  Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
+  freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
+  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
+  the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
+- Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
+  character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
+  or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
+  test on Vietnamese posts (`listening/cluster_test.go`).
+- Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
+  are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
+  `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
+  search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
+  with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
+- The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
+  `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
+  agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
+  leads once and caps web supplements. Both web phases use the `web` source of `listen_search` for keyless
+  search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
+  risks and next focus, then reviews it once.
+- Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
+  (issues #1289 to #1295).
+
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md); Soniox's update, issue #1285,
@@ -5618,6 +5689,7 @@ again on it. A turn that calls no tool keeps the list it had.
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | all three |
 | `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | both |
 | `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | yes, while on |
+| `listen_search` (Social listening, above) | every runtime | yes | yes |
 | `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | all Superset Connections |
 | `whatsapp_*`, `zalo_*` (Messaging, above) | no | for its Bot's Connections, reads on the owner's turn | all messaging Connections, sends follow the same approval policy |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | yes, its own tab per token |
@@ -6175,6 +6247,34 @@ The owner's commands:
   `## Reviewed head` section appended to its spec, naming the Task, verdict and head of the latest one and asking
   for that verdict's findings and `git diff <reviewed_sha>..<head>`. A spec without `Head:` is not refused.
   Verdicts given before the migration that adds `review_verdicts` are not recorded.
+  The control plane posts a commit status `review` on the head a verdict covers (issue #1279,
+  `orchestration/reviewstatus.go`, after claude-code-action's `agent-approval-check`, a commit status on the head
+  made a required check): `success` for `correct` ("correct: reviewed by Task <id>"), `failure` for `incorrect` or
+  `blocked`, its description the verdict and the review's first finding (its `Findings:` field, else the first
+  line under a Findings heading, else its first line of prose), cut to 140 characters, linking the Task on the
+  Team page under `HYPOMNEMA_PUBLIC_URL`. A `quick` Task's pull request, which needs no worker review, gets
+  `success` "no review needed: quick Task <id>" on each of its heads: the Task is kept in `no_review_requests`
+  (repository, branch, the pull request its evidence names) when it succeeds, whatever becomes of its Run, and each
+  pass finds its pull request by that branch (`githost.FindRequest`, as the follower) and queues its open head,
+  only when the quick Task itself is the Task whose Dispatch last reported publishing that head (`dispatch_effects`
+  `git_push`, from `publish_branch`), so a narrow or broad Task that continues it, or is reopened on it, makes the
+  heads it pushes need their review, and a Task canceled before it pushed changes nothing. A head without that
+  record (on GitLab, where `publish_branch` does not run, or a push the node did not report) gets no automatic
+  status: it fails closed and is posted by hand ([CI runbook](docs/ci.md)). A queued status is dropped as
+  `superseded` when its head is no longer the quick Task's. It is followed until it is merged or closed, its head is
+  not the quick Task's, or a day passed. A branch without a pull request yet is
+  looked up every pass for 10 minutes, then every 15 minutes. The migration keeps the quick Tasks that succeeded
+  before it, with the pull request the follower found. Each status is queued in `review_statuses` (pull request,
+  full head SHA, Task, reason) in the transaction that learns it, a later
+  verdict on the same head replacing it; a verdict naming an abbreviated head is not queued, since a prefix may
+  name a newer commit too. Once a minute, after the reads, the follower reads each queued one's pull request with
+  its repository's Connection token (found by branch with the GitHub App's token where the App covers it; the App
+  only reads statuses) and posts it on that head when it is exactly the pull request's head
+  (`githost.PostStatus`; on GitHub `POST /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
+  open, a head that moved, a repository without a token and a status still unposted after a day are dropped
+  with that outcome; a failed post is tried again next minute. A status is of one commit, so a new head has none
+  until it is reviewed. The migration that adds the table queues each pull request's latest verdict, so the
+  open ones get theirs on the first pass. Pull requests no Task made get nothing ([CI runbook](docs/ci.md)).
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the
@@ -7125,7 +7225,7 @@ Node (`internal/node`):
     password field and sends it once; it is never read back. A company's server is added from its product's card
     ("Add server") with its address (a name or a pasted URL) and, if wanted, its token; it runs what the card is.
     Removing a token or a declared server asks first.
-  - `/settings/repositories` (under Agents, after Skills and About you; issue #647, as t3code lists its Projects
+  - `/settings/repositories` (under Agents, after Skills; issue #647, as t3code lists its Projects
     and Orca its repositories in Settings) opens with the control plane's SSH key: the public key with a copy
     button, as Coder's SSH keys page, and the git hosts whose repositories are cloned over SSH, each with a link to
     that host's page for SSH keys. Below, the registered repositories as rows: name, an HTTPS or SSH badge, the

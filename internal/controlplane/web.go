@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -81,6 +82,21 @@ func (a agentWeb) Fetch(ctx context.Context, who agentapi.Who, url string) (webs
 
 	return a.bot.Fetch(ctx, who.ChatID, url)
 }
+
+// agentListening is social listening as the agent API gives it (issue #1287): the web searches a plan makes go
+// through the agent's metered web, each recorded on the key of who asked, as its own web_search is.
+type agentListening struct {
+	svc *listening.Service
+	web agentWeb
+}
+
+func (a agentListening) Search(ctx context.Context, who agentapi.Who, plan listening.Plan) (listening.Answer, error) {
+	return a.svc.Search(ctx, plan, func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+		return a.web.Search(ctx, who, query, limit, "")
+	})
+}
+
+func (a agentListening) SourceNames() []string { return a.svc.SourceNames() }
 
 // dispatchRuntime is the runtime a Dispatch's worker runs: its
 // Conversation's.

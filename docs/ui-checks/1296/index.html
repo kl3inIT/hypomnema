@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>About you in Settings</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 48rem) {
+      .screens { grid-template-columns: minmax(0, 1fr); }
+      .phone { max-width: 25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>About you in Settings</h1>
+    <div class="screens">
+      <figure>
+        <figcaption>Desktop</figcaption>
+        <img src="about-you-desktop.png" alt="About you selected beside Notifications under Preferences in the Settings sidebar">
+      </figure>
+      <figure class="phone">
+        <figcaption>Phone</figcaption>
+        <img src="settings-list-phone.png" alt="About you above Notifications under Preferences in the Settings list">
+      </figure>
+    </div>
+  </main>
+</body>
+</html>
