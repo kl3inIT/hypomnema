@@ -327,7 +327,8 @@ func TestAResetIsReadFromTheHeadersThenTheWords(t *testing.T) {
 
 // Scenario (review of PR #1307): Google answers 429 with ErrorInfo's INSUFFICIENT_G1_CREDITS_BALANCE, the credits
 // balance spent. The shared reading names it billing, as omp does (packages/ai/test/rate-limit-utils.test.ts:357-363),
-// and the gateway's 429 says so; the model waits as long as any throttle with no named delay, as before (row 8).
+// and the gateway's 429 says so; the model waits the usage wait, an hour, since only the owner can add credits
+// (issue #1335, row 4; review of PR #1342).
 func TestAnAntigravityCreditsBalanceSpentIsBilling(t *testing.T) {
 	t.Parallel()
 
@@ -349,7 +350,7 @@ func TestAnAntigravityCreditsBalanceSpentIsBilling(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal([]byte(body), &refusal), body)
 	assert.Equal(t, "billing", refusal.Error.CoolingCode)
-	assert.LessOrEqual(t, atoi(t, headers.Get("Retry-After")), 31.0, "the throttle's wait, as before")
+	assert.GreaterOrEqual(t, atoi(t, headers.Get("Retry-After")), 3590.0, "the usage wait")
 }
 
 // Scenario (review of PR #1307): OpenCode Go answers 402 with GoUsageLimitError and names no reset. A 402 is billing
