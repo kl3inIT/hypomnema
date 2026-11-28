@@ -77,6 +77,12 @@ describe("a card", () => {
       "before",
     )
     expect(failureShown(source({ last_error: failure(recent), last_success_at: old }))).toBe("now")
+    // Not read for a day, it is unverified: an error older than its last success is still from before it.
+    expect(
+      failureShown(
+        source({ group: "unverified", last_error: failure(old), last_success_at: recent }),
+      ),
+    ).toBe("before")
     expect(
       failureShown(source({ group: "could_be_on", on: false, last_error: failure(old) })),
     ).toBe("now")
