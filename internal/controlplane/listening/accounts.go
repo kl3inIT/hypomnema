@@ -421,7 +421,7 @@ func (s *Service) verify(ctx context.Context, p Platform, jar []browser.Cookie) 
 	req.Session = &Session{s: s, source: p.Name, signed: p.Signed, candidate: jar}
 
 	// The site's stop holds for a verification: nothing is sent to it before the stop ends.
-	if f := req.Session.Ready(); f != nil {
+	if f := req.Session.Ready(ctx); f != nil {
 		return f
 	}
 
@@ -586,8 +586,8 @@ func (se *Session) Site() signin.Site { return se.signed.Site }
 
 // Ready says, without a call, why the account cannot be read now; nil when it can. A stop after a throttling page is
 // the site's and holds for a candidate being verified too (review round 1 of PR #1359).
-func (se *Session) Ready() *SourceError {
-	if f := se.s.stopOf(context.Background(), se.source); f != nil {
+func (se *Session) Ready(ctx context.Context) *SourceError {
+	if f := se.s.stopOf(ctx, se.source); f != nil {
 		return f
 	}
 
@@ -595,7 +595,7 @@ func (se *Session) Ready() *SourceError {
 		return nil
 	}
 
-	a, err := se.s.account(context.Background(), se.source)
+	a, err := se.s.account(ctx, se.source)
 
 	switch {
 	case err != nil:
@@ -767,7 +767,8 @@ func sessionBackend(b Backend) Backend {
 			return Fail(CodeBroken, "this source's account cannot be read here")
 		}
 
-		return r.Session.Ready()
+		// A probe has no context of its own: it only reads the database.
+		return r.Session.Ready(context.Background())
 	}
 	b.Search = func(ctx context.Context, r Request) (Result, error) {
 		if r.Session == nil {

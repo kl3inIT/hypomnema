@@ -111,7 +111,8 @@ func TestATabKeepsTheStatusesOfItsOwnRequestsSinceItsNavigation(t *testing.T) {
 	event("S1", "Network.responseReceived", `{"requestId":"old","response":{"url":"https://x/old","status":429}}`)
 	event("S1", "Network.requestWillBeSent", `{"requestId":"doc"}`)
 	event("S1", "Network.requestWillBeSent", `{"requestId":"xhr"}`)
-	event("S1", "Network.responseReceived", `{"requestId":"doc","response":{"url":"https://www.linkedin.com/search","status":200}}`)
+	event("S1", "Network.responseReceived",
+		`{"requestId":"doc","response":{"url":"https://www.linkedin.com/search","status":200}}`)
 	event("S1", "Network.responseReceived",
 		`{"requestId":"xhr","response":{"url":"https://www.linkedin.com/rsc","status":999,"headers":{"retry-after":"60"}}}`)
 	event("S9", "Network.requestWillBeSent", `{"requestId":"other"}`)

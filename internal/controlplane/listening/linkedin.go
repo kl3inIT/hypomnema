@@ -285,9 +285,10 @@ func linkedInOurs(s linkedInPage, address string) bool {
 // hosts only (linkedin-mcp-server core/throttle.py:43 and 190-210: another host's 429 is no word from LinkedIn, and
 // only the requests the call sent count); nil when none was.
 func linkedInThrottled(ctx context.Context, page Page, now time.Time) *SourceError {
+	// A record that cannot be read says nothing of a throttle.
 	responses, err := page.Responses(ctx)
 	if err != nil {
-		return nil
+		responses = nil
 	}
 
 	for i := len(responses) - 1; i >= 0; i-- {
