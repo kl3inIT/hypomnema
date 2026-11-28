@@ -20,6 +20,8 @@ type Coverage struct {
 	State string `json:"state"`
 	// Items are those read in the window, before duplicates are removed.
 	Items int `json:"items"`
+	// Unverified counts what a model said it found that its links did not bear out (Answer.Unverified).
+	Unverified int `json:"unverified,omitempty"`
 	// Code is why a stream was not read, the most actionable of them (last30days FAILURE_SPECIFICITY); empty when
 	// every stream was read.
 	Code    Code     `json:"code,omitempty"`
@@ -31,6 +33,8 @@ type Stream struct {
 	Subquery string `json:"subquery"`
 	ServedBy string `json:"served_by,omitempty"`
 	Items    int    `json:"items"`
+	// Unverified counts the stream's unverified items (Answer.Unverified).
+	Unverified int `json:"unverified,omitempty"`
 	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served.
 	Code  Code      `json:"code,omitempty"`
 	Tried []Attempt `json:"tried"`

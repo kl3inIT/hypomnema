@@ -111,8 +111,8 @@ type museSite struct {
 	// messages, when set, are every answer in the thread once sent, each with its links: what a read from the
 	// script's first answer shows (readAnswer's "from").
 	messages []answerMessage
-	auth           map[string]any
-	session        map[string]any
+	auth     map[string]any
+	session  map[string]any
 	// woken are the machines a wake was asked for; awake, when set, is the session read after one.
 	woken           []string
 	awake           map[string]any

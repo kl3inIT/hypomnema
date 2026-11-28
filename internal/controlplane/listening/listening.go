@@ -137,6 +137,11 @@ type Item struct {
 	// Score orders the answer's items, higher first; Cluster is the cluster it is in.
 	Score   float64 `json:"score"`
 	Cluster string  `json:"cluster,omitempty"`
+	// QuoteFrom says where the text was read, for an item a model found: caption, image_text or comment.
+	QuoteFrom string `json:"quote_from,omitempty"`
+	// Check is how an item a model found was checked, its link opened (muse.go): "verified: …", or in the answer's
+	// Unverified, why not. Empty for an item a source's own API gave.
+	Check string `json:"check,omitempty"`
 
 	// signals for the ranking, never answered.
 	relevance float64
@@ -155,6 +160,10 @@ type Answer struct {
 	// Items are the best PoolSize, the best first; Omitted counts those left out.
 	Items   []Item `json:"items"`
 	Omitted int    `json:"omitted,omitempty"`
+	// Unverified are what a model said it found and its link did not bear out, at most PoolSize, each with why in
+	// its Check: leads to look at, never evidence, so neither ranked, clustered nor counted as items (issue #1292;
+	// last30days grok_x._validate_items drops them, lib/grok_x.py:400-440).
+	Unverified []Item `json:"unverified,omitempty"`
 }
 
 // WebSearch asks the control plane's web search chain, recorded on the caller's gateway key.
@@ -169,6 +178,9 @@ type Config struct {
 	// Sleep waits between two calls to one site; nil: a timer.
 	Sleep  func(ctx context.Context, d time.Duration) error
 	Logger *slog.Logger
+	// Muse is the owner's Muse pool, the backend of Facebook, Instagram and Threads (muse.go); nil: those sources
+	// cannot be read. Used only when Platforms is nil.
+	Muse Muse
 }
 
 // Service searches the sources.
@@ -186,7 +198,7 @@ type Service struct {
 // New returns a Service.
 func New(cfg Config) *Service {
 	if cfg.Platforms == nil {
-		cfg.Platforms = Sources(Endpoints{}, http.DefaultClient)
+		cfg.Platforms = append(Sources(Endpoints{}, http.DefaultClient), MuseSources(cfg.Muse, http.DefaultClient)...)
 	}
 
 	if cfg.Now == nil {
