@@ -568,3 +568,20 @@ test("an item given to a person is in Waiting on others, with Take it back", () 
   expect(doneWhenOf(waiting)).toBe("")
   expect(doneWhenOf({ done_when: "", why_open: "asked_directly" })).toMatch(/^You answer/)
 })
+
+// Issue #1232: an item a call of the GitHub App made is from GitHub, and opens the call's comment there.
+test("a GitHub call is from GitHub and opens its comment", () => {
+  const call = todo("g", {
+    source: {
+      kind: "github",
+      id: "kl3init/hypomnema#1269",
+      ref: { kind: "url", ref: "https://github.com/kl3inIT/hypomnema/pull/1269#issuecomment-9" },
+    },
+  })
+  const row = (t: Todo): Row => ({ key: `todo:${t.id}`, kind: "todo", todo: t, needsYou: false })
+
+  expect(sourceOf(row(call))).toBe("github")
+  expect(sourceTarget(call, () => undefined)).toEqual({
+    href: "https://github.com/kl3inIT/hypomnema/pull/1269#issuecomment-9",
+  })
+})

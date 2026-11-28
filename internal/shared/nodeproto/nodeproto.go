@@ -335,6 +335,23 @@ type HelloRequest struct {
 	// say it, and keeps the token an offer carries for the Dispatch's whole life: it is then given the owner's
 	// token, as before, since an App's token ends after an hour.
 	GitHubApp bool `json:"github_app,omitempty"`
+	// MemoryLimit says whether the node runs its workers in its systemd user slice WorkerSlice, under the memory
+	// ceiling the control plane sends as WorkerMemoryMax (issue #1313); nil: a node of an earlier release, which
+	// does not say.
+	MemoryLimit *MemoryLimit `json:"memory_limit,omitempty"`
+}
+
+// WorkerSlice is the systemd user slice every worker of a node runs in, each in a scope of its own, so that one
+// memory ceiling covers them all and the node daemon stays outside it (issue #1313, as Buildkite's Elastic CI Stack
+// runs its agent's jobs in buildkite-agent.slice).
+const WorkerSlice = "hypomnema-workers.slice"
+
+// MemoryLimit is whether a node's workers run under a memory ceiling (issue #1313), and why not when they do not.
+type MemoryLimit struct {
+	On bool `json:"on"`
+	// Reason says why it is off: the machine is not Linux, has no systemd, or its user manager does not delegate
+	// the memory controller.
+	Reason string `json:"reason,omitempty"`
 }
 
 // TempIsolation is whether a node runs its workers with their Dispatch's
@@ -607,6 +624,11 @@ type HelloResponse struct {
 	// (Ask.OneQuestion): a Dispatch offered by a later control plane may
 	// report to an earlier one after a reconnect.
 	QuestionParts bool `json:"question_parts,omitempty"`
+	// WorkerMemoryMax is the memory, in bytes, that all the node's workers may use together: its allocatable
+	// memory as the control plane computes it (issue #1313). The node makes it WorkerSlice's MemoryMax. Zero (a
+	// node that never said its memory, or whose owner reserved all of it) and nil (not said, by a control plane of
+	// an earlier release or one that could not read it): the node keeps the ceiling it applied last, never none.
+	WorkerMemoryMax *int64 `json:"worker_memory_max,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.
@@ -616,6 +638,8 @@ type HeartbeatAck struct {
 	GitHosts []string `json:"git_hosts,omitempty"`
 	// Tools are the tools the node should have now.
 	Tools []Tool `json:"tools,omitempty"`
+	// WorkerMemoryMax is HelloResponse's, as it is now: the owner's reserve may have changed since.
+	WorkerMemoryMax *int64 `json:"worker_memory_max,omitempty"`
 }
 
 // Offer is a queued Dispatch for the node, with what it needs to prepare it.
@@ -718,6 +742,9 @@ type Offer struct {
 	// for its pull request's CI with `hypomnema ci wait`, which the App's events end. Sent only to a node that said
 	// GitHubApp at hello.
 	GitHubApp bool `json:"github_app,omitempty"`
+	// MemoryLimit is the worker's own memory ceiling, in bytes, from its profile's limits.memory (issue #1313): the
+	// node makes it the MemoryMax of the worker's scope. Zero: none of its own, only the node's WorkerSlice.
+	MemoryLimit int64 `json:"memory_limit,omitempty"`
 }
 
 // Skill is one skill a worker is given, at one revision; its digest names
@@ -915,7 +942,15 @@ type Exit struct {
 	Kind   string `json:"kind"`
 	Code   *int   `json:"code,omitempty"`
 	Signal string `json:"signal,omitempty"`
+	// Reason is ExitOOMKilled when the kernel killed a process of the worker for memory (issue #1313); empty
+	// otherwise.
+	Reason string `json:"reason,omitempty"`
 }
+
+// ExitOOMKilled is the Exit reason of a worker one of whose processes the kernel killed for memory, from its scope's
+// memory.events oom_kill count (issue #1313), as Kubernetes says OOMKilled for a container's (containerd
+// internal/cri/server/helpers.go oomExitReason).
+const ExitOOMKilled = "oom_killed"
 
 // Usage is what the worker spent.
 type Usage struct {

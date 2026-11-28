@@ -48,6 +48,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -371,10 +372,13 @@ func (s *Service) SearchIn(ctx context.Context, scope Scope, query string, limit
 	// A setting the owner changes makes another search: an answer kept from before is not given for it.
 	key := cacheKey(query, provider, limit, set, scope, dates)
 
-	if a, ok := s.cached(key); ok {
-		a.Cached = true
+	// A fresh search (Fresh) is never answered from the cache: a live test must read the source now.
+	if fresh, _ := ctx.Value(freshKey{}).(bool); !fresh {
+		if a, ok := s.cached(key); ok {
+			a.Cached = true
 
-		return a, nil
+			return a, nil
+		}
 	}
 
 	// The same search asked while one is out waits for it, as OmniRoute's
@@ -447,8 +451,9 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		skipKeys = map[string]bool{}
 		// rests are the rests of the routes this search could not use, for a caller that tells them apart.
 		rests []RouteRest
-		// others counts the providers asked that failed without resting and not for want of results.
-		others int
+		// others counts the providers asked that failed without resting and not for want of results; timeouts those
+		// of them that did not answer in time.
+		others, timeouts int
 	)
 
 	// skipResting notes a resting route as a failure, and says whether it rests.
@@ -555,6 +560,10 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 				rests = append(rests, RouteRest{Provider: r.provider, Why: rs.why, Until: rs.until})
 			} else if len(rep.results) > 0 || !errors.Is(err, errNoResults) {
 				others++
+
+				if timedOut(err) {
+					timeouts++
+				}
 			}
 
 			s.cfg.Logger.WarnContext(ctx, "a web search provider failed",
@@ -576,7 +585,9 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		return Answer{}, &RestingError{Until: firstFree}
 	}
 
-	return Answer{}, &FailedError{Failures: failures, Rests: rests, Asked: asked, Empty: empty, Others: others}
+	return Answer{}, &FailedError{
+		Failures: failures, Rests: rests, Asked: asked, Empty: empty, Others: others, Timeouts: timeouts,
+	}
 }
 
 // FailedError is a search no provider answered (an ErrFailed): why each failed, and the rests the routes it could
@@ -587,8 +598,26 @@ type FailedError struct {
 	Failures []Failure
 	Rests    []RouteRest
 	// Asked counts the providers asked; Empty those that answered with nothing; Others those that failed without
-	// resting (a 5xx, a timeout, an answer that could not be read).
-	Asked, Empty, Others int
+	// resting (a 5xx, a timeout, an answer that could not be read); Timeouts those of Others that did not answer in
+	// time, which a caller keeps as a timeout (issue #1290, review round 1; Agent-Reach classifies a network timeout
+	// as TIMEOUT, runtime/result.py:74-78).
+	Asked, Empty, Others, Timeouts int
+}
+
+// timedOut says a provider did not answer in time: its deadline or the network's passed, as Agent-Reach classifies a
+// network timeout as TIMEOUT (runtime/result.py:74-78), or it answered 408 or 504. The HTTP statuses are
+// Hypomnema's own rule, the one the listening sources already read (listening.HTTPFailure,
+// internal/controlplane/listening/failure.go:132-133): Agent-Reach puts an HTTP 408 or 504 under UPSTREAM_BROKEN
+// (runtime/result.py:68-73).
+func timedOut(err error) bool {
+	var refused *providerError
+	if errors.As(err, &refused) {
+		return refused.status == http.StatusRequestTimeout || refused.status == http.StatusGatewayTimeout
+	}
+
+	var netErr net.Error
+
+	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // errNoResults is a provider's empty answer, which is not an answer: the next is asked (omp: no renderable content).
@@ -615,6 +644,16 @@ type Pace func(ctx context.Context, route string) (func(), error)
 type paceKey struct{}
 
 type keylessKey struct{}
+
+type freshKey struct{}
+
+// Fresh makes the searches asked with ctx ask a provider now, never answered from the cache: social listening's live
+// test (issue #1290, review round 1), as an explicit last30days doctor always runs live and never serves its cached
+// report (skills/last30days/scripts/lib/doctor.py:2882-2902) and probes the sources when no fresh run exists
+// (:2954-2958). The answer is kept for the searches after it.
+func Fresh(ctx context.Context) context.Context {
+	return context.WithValue(ctx, freshKey{}, true)
+}
 
 // KeylessOnly makes the searches asked with ctx use the keyless providers only.
 func KeylessOnly(ctx context.Context) context.Context {

@@ -57,7 +57,8 @@ export function apiProvidersOf(providers: Provider[]): Provider[] {
 
 export type Tone = "success" | "warning" | "destructive" | "outline"
 
-export type AccountState = { label: string; tone: Tone; why?: string } | null
+// action is what the owner does to end a rest that does not end by itself (issue #1335, row 4).
+export type AccountState = { label: string; tone: Tone; why?: string; action?: string } | null
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
 const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
@@ -95,6 +96,22 @@ export function restLabel(code: CoolingCode | undefined, iso: string, now = Date
 // restTone is how loud a rest is: a refused key is the owner's to fix, the rest pass by themselves.
 export function restTone(code: CoolingCode | undefined): Tone {
   return code === "auth" ? "destructive" : "warning"
+}
+
+// restAction is what the owner does when only the owner can end a rest (issue #1335, row 4): a refused sign-in is
+// signed in again, spent credits are added; the gateway rests such an account for the usage wait, since trying it
+// again changes nothing. OpenClaw keeps a billing failure off until the owner acts
+// (docs/research/2026-11-13-gateway-features.md:70-72). An OpenCode key is not signed in again: a new key is a new
+// account (issues #854, #965).
+function restAction(code: CoolingCode | undefined, runtime: string) {
+  if (code === "auth") {
+    return runtime === "opencode_go" || runtime === "opencode_zen"
+      ? "Add a new key"
+      : "Sign in again"
+  }
+  if (code === "billing") return "Add credits"
+
+  return undefined
 }
 
 // resting reports whether an account waits for a usage limit to end.
@@ -135,6 +152,7 @@ export function accountState(account: Account, now = Date.now()): AccountState {
       label: restLabel(account.cooling_code, account.cooling_until!, now),
       tone: restTone(account.cooling_code),
       why: account.cooling_reason,
+      action: restAction(account.cooling_code, account.runtime),
     }
   }
 

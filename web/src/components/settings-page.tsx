@@ -18,6 +18,7 @@ import {
   Link2,
   MessagesSquare,
   Plug,
+  Radar,
   Server,
   SquareTerminal,
   UserRound,
@@ -41,6 +42,7 @@ type Section = {
     | "/settings/web-search"
     | "/settings/images"
     | "/settings/muse"
+    | "/settings/social-listening"
     | "/settings/audio"
     | "/settings/gateway-keys"
     | "/settings/usage"
@@ -90,6 +92,9 @@ const groups: { heading: string; sections: Section[] }[] = [
       { to: "/settings/web-search", label: "Web search", icon: Globe },
       { to: "/settings/images", label: "Images", icon: ImageIcon },
       { to: "/settings/muse", label: "Muse", icon: Telescope },
+      // Social listening (issue #1290) after Web search and Muse, with no group of its own: a group of one entry adds
+      // nothing (docs/research/2026-11-27-social-listening.md, §5b "Menu").
+      { to: "/settings/social-listening", label: "Social listening", icon: Radar },
       { to: "/settings/audio", label: "Audio", icon: AudioLines },
       { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
       { to: "/settings/usage", label: "Usage", icon: ChartColumn },

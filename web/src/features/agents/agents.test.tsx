@@ -606,6 +606,7 @@ const draft = (m: Partial<Draft>): Draft => ({
   toolsOff: [],
   cpu: "",
   memory: "",
+  memoryLimit: "",
   ...m,
 })
 
@@ -655,6 +656,17 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
     [...written.matchAll(new RegExp(`^${indent}([a-z_]+):`, "gm"))].map((m) => m[1] ?? "")
   expect(keys("").filter((k) => !(k in profileSchema.properties))).toEqual([])
   expect(keys("  ").filter((k) => !(k in profileSchema.properties.requests.properties))).toEqual([])
+  // And the most memory each worker may use (issue #1313), as the profile's limits: the builder keeps them.
+  const limited = toYaml(draft({ memory: "2Gi", memoryLimit: "4Gi" }), models)
+  expect(limited).toBe(
+    'name: a\ndescription: "d"\nruntime: claude\nrequests:\n  memory: "2Gi"\nlimits:\n  memory: "4Gi"\n',
+  )
+  expect(
+    [...limited.matchAll(/^([a-z_]+):/gm)]
+      .map((m) => m[1] ?? "")
+      .filter((k) => !(k in profileSchema.properties)),
+  ).toEqual([])
+  expect(Object.keys(profileSchema.properties.limits.properties)).toEqual(["memory"])
   expect(cpuText(1500)).toBe("1500m")
   expect(cpuText(2000)).toBe("2")
   expect(memoryText(3 * 2 ** 30)).toBe("3Gi")

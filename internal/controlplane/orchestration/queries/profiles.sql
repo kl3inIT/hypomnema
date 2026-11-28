@@ -45,9 +45,10 @@ UPDATE profiles SET updated_at = @now, deleted_at = @now WHERE name = @name;
 -- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
                               instructions, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis,
-                              memory_request_bytes, preset, created_at)
+                              memory_request_bytes, memory_limit_bytes, preset, created_at)
 VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @provider, @model, @effort, @instructions,
-        @fallbacks, @skills, @skills_off, @tools, @tools_off, @cpu_request_millis, @memory_request_bytes, @preset, @now);
+        @fallbacks, @skills, @skills_off, @tools, @tools_off, @cpu_request_millis, @memory_request_bytes,
+        @memory_limit_bytes, @preset, @now);
 
 -- name: GetProfileVersion :one
 SELECT * FROM profile_versions WHERE id = @id;

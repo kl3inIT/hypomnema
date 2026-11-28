@@ -561,6 +561,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 			return token.Value, err == nil && ok
 		},
+		// A review the App makes through it is its Bot's attempt's work (issue #1232).
+		AppReviews: appReviews{svc: svc, logger: logger},
 		// A request to AWS is signed again with the session of the role it was made for (issue #331).
 		AWS: integrations.RoleCredentials,
 		// A Connection that has its own address (Superset) is sent a relayed request by the service that signs
@@ -645,15 +647,28 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agentsWeb := agentWeb{
 		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
 	}
+	// Social listening (issues #1287, #1290): the web and Reddit, keyless, its web searches on the caller's key; the
+	// owner's switches and each source's readings kept in the database. The owner is told when a source breaks once
+	// the Channels below exist.
+	var tellListening func(ctx context.Context, b listening.Broken)
+
+	listen := listening.New(listening.Config{
+		Platforms: listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient),
+		Logger:    logger, DB: db, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
+		Muse: listeningMuse(musePool),
+		Tell: func(ctx context.Context, b listening.Broken) {
+			if tellListening != nil {
+				tellListening(ctx, b)
+			}
+		},
+	})
+
 	agents.WithWeb(agentsWeb).
 		// Social listening (issues #1287, #1289): keyless sources, its web searches, page reads and model calls
-		// (issue #1306) on the caller's key, the pages a search names read through the web fetch's address check.
+		// (issue #1306) on the caller's key, the pages a search names read through the web fetch's address check; Facebook, Instagram and Threads through
+		// the Muse pool (issue #1292).
 		WithListening(agentListening{
-			svc: listening.New(listening.Config{
-				Platforms: listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)},
-					http.DefaultClient),
-				Logger: logger, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
-			}),
+			svc: listen,
 			web: agentsWeb,
 			models: agentModels{
 				worker: modelgateway.WorkerModels{Server: gatewayServer, Gateway: gateway, Logger: logger},
@@ -692,6 +707,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// A node still out of disk after trimming its caches, and its recovery, are told to the owner as a failing
 	// Routine is (issue #1017).
 	nodes.WithDiskAlerts(tellDiskAlert(svc, runtime, logger))
+
+	// A social listening source that broke is told to him the same way, once until it works again (issue #1290).
+	tellListening = tellListeningBroken(svc, runtime, logger)
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
 	routineRunner := routines.New(svc, svc.Routines(), routines.Config{
@@ -737,6 +755,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithMeetings(meetingWork).
 		WithWeb(modelgateway.BotWeb{MeteredWeb: metered, Chats: sup}).
 		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
+		WithListening(listeningSettings{svc: listen, web: webSearch}).
 		WithImages(modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},
 			imageSettings{Service: gateway, server: gatewayServer}).
 		WithAudio(modelgateway.BotAudio{Speech: voice, Gateway: gateway, Chats: sup, Logger: logger},
@@ -892,6 +911,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = sup.Run(ctx)
 	}()
 
+	// A social listening source not read for a day is tested, every hour (issue #1290).
+	listeningDone := make(chan struct{})
+
+	go func() {
+		defer close(listeningDone)
+
+		listen.Run(ctx, listeningSettings{svc: listen, web: webSearch}.search)
+	}()
+
 	routinesDone := make(chan struct{})
 
 	go func() {
@@ -935,6 +963,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		pusher.Run(ctx)
 	}()
 
+	// The GitHub App's calls are answered on GitHub once their Inbox item closes (issue #1232).
+	callsDone := make(chan struct{})
+
+	go func() {
+		defer close(callsDone)
+
+		app.Run(ctx)
+	}()
+
 	// `hypomnema update` waits for Bots' turns, tool calls and video renders (issues #716, #1060, #1328).
 	controlDone := make(chan struct{})
 
@@ -951,10 +988,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	cancel(nil)
 	<-controlDone
 	<-pushDone
+	<-callsDone
 	<-pprofDone
 	<-browserDone
 	<-meetingsDone
 	<-routinesDone
+	<-listeningDone
 	<-channelsDone
 	<-loopDone
 	<-machinesDone
@@ -1211,4 +1250,30 @@ func backgroundBeside(coordinator []string) []string {
 	out[len(out)-1] = filepath.Join(filepath.Dir(coordinator[len(coordinator)-1]), "hypomnema-background")
 
 	return out
+}
+
+// appReviews ties a review the owner's GitHub App makes through the service proxy to the Inbox attempt it is made in,
+// as its Bot's work (issue #1232, review rounds 2 and 3 of PR #1323). A review it cannot record is only logged: GitHub
+// has it, and the Bot is told that inbox_done refuses it.
+type appReviews struct {
+	svc    *orchestration.Service
+	logger *slog.Logger
+}
+
+func (a appReviews) AppReviewAttempt(ctx context.Context, chat, bot, repository string, number int) (string, error) {
+	return a.svc.AppReviewAttempt(ctx, chat, bot, repository, number)
+}
+
+func (a appReviews) AppReviewed(ctx context.Context, r serviceproxy.AppReview) {
+	recorded, err := a.svc.RecordAppReview(ctx, r.Chat, r.Bot, r.Attempt, r.Repository, r.Number, r.ID, r.URL)
+	if err != nil {
+		a.logger.WarnContext(ctx, "a review the GitHub App made could not be recorded",
+			slog.String("event", "githubapp.review_failed"), slog.String("repository", r.Repository),
+			slog.String("error", err.Error()))
+
+		return
+	}
+
+	a.logger.InfoContext(ctx, "the GitHub App made a review", slog.String("event", "githubapp.reviewed"),
+		slog.String("repository", r.Repository), slog.Int("number", r.Number), slog.Bool("recorded", recorded))
 }

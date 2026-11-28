@@ -132,6 +132,9 @@ export type Draft = {
   // "512Mi"); empty is the default for building work (issue #731).
   cpu: string
   memory: string
+  // memoryLimit is the most memory each worker may use, as the YAML's limits.memory writes it ("4Gi"); empty is none
+  // of its own (issue #1313). The builder does not edit it yet; saving keeps it.
+  memoryLimit: string
 }
 
 // cpuText writes thousandths of a core as a request: whole cores as a number, the rest in millicores.
@@ -169,6 +172,7 @@ export const emptyDraft: Draft = {
   toolsOff: [],
   cpu: "",
   memory: "",
+  memoryLimit: "",
 }
 
 export function draftOf(profile: Profile): Draft {
@@ -187,6 +191,7 @@ export function draftOf(profile: Profile): Draft {
     toolsOff: profile.tools_off,
     cpu: cpuText(profile.cpu_request_millis),
     memory: memoryText(profile.memory_request_bytes),
+    memoryLimit: memoryText(profile.memory_limit_bytes),
   }
 }
 
@@ -233,7 +238,8 @@ export function sameDraft(a: Draft, b: Draft) {
     a.toolsOff.join() === b.toolsOff.join() &&
     a.preset === b.preset &&
     a.cpu.trim() === b.cpu.trim() &&
-    a.memory.trim() === b.memory.trim()
+    a.memory.trim() === b.memory.trim() &&
+    a.memoryLimit.trim() === b.memoryLimit.trim()
   )
 }
 
@@ -279,7 +285,7 @@ function text(key: string, value: string, fold: boolean) {
 }
 
 // toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model,
-// instructions, list of fallbacks and skills, and the optional requests).
+// instructions, list of fallbacks and skills, and the optional requests and limits).
 export function toYaml(draft: Draft, models: Model[]) {
   let out = `name: ${scalar(draft.name.trim())}\n`
   out += text("description", draft.description.trim(), draft.description.trim().length > 80)
@@ -313,6 +319,9 @@ export function toYaml(draft: Draft, models: Model[]) {
     if (cpu) out += `  cpu: ${JSON.stringify(cpu)}\n`
     if (memory) out += `  memory: ${JSON.stringify(memory)}\n`
   }
+
+  const memoryLimit = draft.memoryLimit.trim()
+  if (memoryLimit) out += `limits:\n  memory: ${JSON.stringify(memoryLimit)}\n`
 
   return out
 }

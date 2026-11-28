@@ -86,5 +86,20 @@ export const profileSchema = {
         },
       },
     },
+    limits: {
+      type: "object",
+      additionalProperties: false,
+      description:
+        "The most a worker of this agent may use; left out, none of its own, only its machine's limit for all its " +
+        "workers.",
+      properties: {
+        memory: {
+          type: ["string", "number"],
+          description:
+            "Bytes, or a number with Ki, Mi, Gi, Ti, k, M, G or T (4Gi), at least requests.memory. Its machine " +
+            "kills a process of a worker that goes over it.",
+        },
+      },
+    },
   },
 }

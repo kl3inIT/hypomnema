@@ -311,15 +311,26 @@ func (s *Server) antigravityRefused(
 			wait = antigravityQuotaWait
 		}
 
-		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait),
-			Code: antigravityRestCode(f, CoolingUsageLimit), Reason: f.Message})
+		code := antigravityRestCode(f, CoolingUsageLimit)
+		if ownersToFix(code) {
+			// The credits balance spent: the usage wait, however long the delay Google names (issue #1335, row 4;
+			// review round 2 of PR #1342).
+			wait = ownersWait(now, now.Add(wait))
+		}
+
+		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait), Code: code, Reason: f.Message})
 	default:
 		if wait <= 0 {
 			wait = antigravityRateWait
 		}
 
-		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait),
-			Code: antigravityRestCode(f, CoolingRateLimit), Reason: f.Message})
+		code := antigravityRestCode(f, CoolingRateLimit)
+		if ownersToFix(code) {
+			// The credits balance spent: the usage wait, as any rest only the owner ends (issue #1335, row 4).
+			wait = ownersWait(now, now.Add(wait))
+		}
+
+		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait), Code: code, Reason: f.Message})
 	}
 
 	kind := typeServer

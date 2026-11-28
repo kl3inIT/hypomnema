@@ -478,7 +478,8 @@ var commands = []command{
 			fs.String("provider", "", "the provider of the model; or name both in --model as <provider>/<model>")
 			fs.String("model", "", "the model pi runs for the bot, as <provider>/<model> or with --provider; empty "+
 				"for pi's default")
-			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas; empty clears them")
+			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas, tried when the "+
+				"Bot's model is out of capacity, limited, refused or out of credits; empty clears them")
 			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
 			fs.String("instructions-file", "", "a file with what the bot is and how it behaves, or - for standard input")
 			fs.String("persona-file", "", "--instructions-file under its name until 2026-11-28, kept for one release")

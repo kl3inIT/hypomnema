@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -213,10 +212,48 @@ func (r chatRequest) forUpstream(model string) ([]byte, error) {
 	return body, nil
 }
 
-// retryable are the answers after which the next target is tried: the
-// provider is limiting or failing, not refusing the request.
-func retryable(status int) bool {
-	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+// codeMovesOn reports whether a target's refusal is tried on the next target, or on the Bot's fallback after the
+// model's last (issue #1335, rows 1 and 2): the account or the provider cannot serve now, a plan's window or a
+// throttle, a balance spent, a key refused or a provider out of capacity, 5xx and 529 included; not a failure no code
+// names, which a refusal of the request itself is (a 400, 413 or 422 without a throttle's words reads unknown), since
+// another provider would refuse the same. Bifrost rotates on the same failure classes and not on its caller_fault or
+// unknown (docs/features/retries-and-fallbacks.mdx:36-47, read 2026-11-28), OpenClaw by its failover reasons
+// (failover-policy.ts), and LiteLLM falls back after a 5xx (router.py).
+func codeMovesOn(code CoolingCode) bool {
+	switch code {
+	case CoolingUsageLimit, CoolingRateLimit, CoolingBilling, CoolingAuth, CoolingOverloaded:
+		return true
+	default:
+		return false
+	}
+}
+
+// targetMovesOn reads a target's answer: why it refused, and whether that sends the request on (codeMovesOn); an
+// answer of 2xx is passed on unread.
+func targetMovesOn(resp *http.Response) (CoolingCode, bool) {
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		return "", false
+	}
+
+	code := refusalCode(resp)
+
+	return code, codeMovesOn(code)
+}
+
+// refusalCode is why a target refused, read from its answer as an account's rest is (classifyFailure), or the code
+// the gateway's own 429 names when every account of the target rests (accountsCooling). It reads the body, at most
+// maxErrorBytes, and puts it back for the client.
+func refusalCode(resp *http.Response) CoolingCode {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
+	_ = resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+
+	var own errorBody
+	if json.Unmarshal(body, &own) == nil && own.Error.CoolingCode != "" {
+		return own.Error.CoolingCode
+	}
+
+	return classifyFailure(resp.StatusCode, providerCodes(body), string(body))
 }
 
 // upstreamFor resolves a target to its provider, adapter and key.
@@ -330,38 +367,26 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 // serveChat tries the model's targets in order until one gives an answer to
 // pass on, and fills the record. The next target is tried only while nothing
-// has been sent to the client, as every reference does.
+// has been sent to the client, as every reference does. When the model's last
+// target ends on a code that moves on (movesOn), the Bot's fallbacks are tried in
+// order (issue #870), each as its own model.
 func (s *Server) serveChat(
 	w http.ResponseWriter, r *http.Request, req chatRequest, model Model, key Key, record *Usage,
 ) {
 	ctx := r.Context()
-	fallbacks := sync.OnceValue(func() []string {
-		if key.ChatID == "" || s.chatFallbacks == nil || ctx.Err() != nil {
-			return nil
-		}
-		names, err := s.chatFallbacks(ctx, key.ChatID, model.Name)
-		if err != nil {
-			s.logger.WarnContext(ctx, "reading Bot fallbacks", slog.String("error", err.Error()))
-		}
-		return names
-	})
-	hasFallbacks := func() bool { return len(fallbacks()) != 0 }
 
-	resp, exhausted := s.tryChat(ctx, req, model, key.ID, record, hasFallbacks)
+	resp, exhausted, code := s.tryChat(ctx, req, model, key.ID, record)
 	if exhausted {
-		for _, name := range fallbacks() {
+		for _, fallback := range s.botFallbacks(ctx, key, model) {
 			if ctx.Err() != nil {
 				break
-			}
-			fallback, err := s.svc.GetModel(ctx, name)
-			if err != nil || fallback.Capability != CapabilityChat {
-				continue
 			}
 			if resp != nil {
 				drain(resp)
 			}
 			record.Model = fallback.Name
-			resp, exhausted = s.tryChat(ctx, req, fallback, key.ID, record, hasFallbacks)
+			record.movedOn(code)
+			resp, exhausted, code = s.tryChat(ctx, req, fallback, key.ID, record)
 			if !exhausted {
 				break
 			}
@@ -390,11 +415,41 @@ func (s *Server) serveChat(
 		fmt.Sprintf("no provider of model %q could be reached", record.Model))
 }
 
+// botFallbacks are the chat models the Bot of a chat's key falls back to after model, in its order (issue #870).
+func (s *Server) botFallbacks(ctx context.Context, key Key, model Model) []Model {
+	if key.ChatID == "" || s.chatFallbacks == nil || ctx.Err() != nil {
+		return nil
+	}
+
+	names, err := s.chatFallbacks(ctx, key.ChatID, model.Name)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading Bot fallbacks", slog.String("error", err.Error()))
+	}
+
+	models := make([]Model, 0, len(names))
+	for _, name := range names {
+		fallback, err := s.svc.GetModel(ctx, name)
+		if err != nil || fallback.Capability != CapabilityChat {
+			continue
+		}
+
+		models = append(models, fallback)
+	}
+
+	return models
+}
+
+// tryChat tries a model's targets in order. It returns the answer to pass on, whether the model's last target ended
+// on a code that moves on, its accounts all resting included, so the Bot's fallback may be tried (issue #1335, row
+// 2), and that code. The record keeps the code of each move to the next target (row 6).
 func (s *Server) tryChat(
-	ctx context.Context, req chatRequest, model Model, keyID string, record *Usage, hasFallbacks func() bool,
-) (*http.Response, bool) {
-	exhausted := len(model.Targets) > 0
-	var cooling modelCooling
+	ctx context.Context, req chatRequest, model Model, keyID string, record *Usage,
+) (*http.Response, bool, CoolingCode) {
+	var (
+		cooling   modelCooling
+		exhausted bool
+		code      CoolingCode
+	)
 	record.Outcome, record.Error = "", ""
 	for i, target := range model.Targets {
 		last := i == len(model.Targets)-1
@@ -406,12 +461,22 @@ func (s *Server) tryChat(
 		resp, err := s.send(ctx, chatCall{req: req, keyID: keyID, model: model.Name}, target)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, false
+				return nil, false, ""
 			}
 			if cooling.add(err) {
+				// Every account of the target rests, or none serves the model: the next target is tried, as before.
+				// A skip that names no code keeps the code of the move before it (review of PR #1342).
+				exhausted = true
+				if c := restCode(err); c != "" {
+					code = c
+				}
+				if !last {
+					record.movedOn(code)
+				}
+
 				continue
 			}
-			exhausted = false
+			exhausted, code = false, ""
 
 			s.logger.WarnContext(ctx, "a gateway target gave no answer",
 				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
@@ -422,29 +487,38 @@ func (s *Server) tryChat(
 
 		record.Status = resp.StatusCode
 		cooling.other = true
-		refused := accountRefused(resp.StatusCode)
-		exhausted = exhausted && refused
 
-		if !last && (retryable(resp.StatusCode) || (refused && hasFallbacks())) {
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBytes))
-			_ = resp.Body.Close()
+		var moves bool
+		if code, moves = targetMovesOn(resp); moves && !last {
+			record.movedOn(code)
+			drain(resp)
 
 			continue
 		}
 
-		return resp, exhausted
+		return resp, moves, code
 	}
 
-	return s.coolingResponse(ctx, "/v1/chat/completions", cooling, record), exhausted
+	return s.coolingResponse(ctx, "/v1/chat/completions", cooling, record), exhausted, code
 }
 
-func accountRefused(status int) bool {
-	switch status {
-	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests:
-		return true
-	default:
-		return false
+// movedOn keeps in the record the code the request moved on for (issue #1335, row 6); a move that names none, such
+// as a target with no account at all, keeps the last one (review of PR #1342).
+func (u *Usage) movedOn(code CoolingCode) {
+	if code != "" {
+		u.CoolingCode = code
 	}
+}
+
+// restCode is the code a target's resting accounts give (modelCooling.add): why the account free first rests, or
+// none for a target no account can serve.
+func restCode(err error) CoolingCode {
+	var cooling *CoolingError
+	if errors.As(err, &cooling) {
+		return cooling.Code
+	}
+
+	return ""
 }
 
 // send makes one attempt at one target and returns the answer in OpenAI's

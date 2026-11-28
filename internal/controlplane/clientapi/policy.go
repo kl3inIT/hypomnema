@@ -334,6 +334,12 @@ var policies = map[string]policy{
 	"GetImages":        {},
 	"SetImageProvider": {scope: scopeOwner},
 	"SetImageOrder":    {scope: scopeOwner},
+	// Social listening (issue #1290): only the owner sees and changes its sources, as Muse's pool; agents read them
+	// through listen_search. A test reads each of a source's backends, longer than the write timeout at worst.
+	"GetListening":        {scope: scopeOwner},
+	"SetListeningSource":  {scope: scopeOwner},
+	"SetListeningOrder":   {scope: scopeOwner},
+	"TestListeningSource": {scope: scopeOwner, long: true},
 	// Muse (issue #782): only the owner sees and changes the pool; agents ask it through their tools.
 	"GetMuse":           {scope: scopeOwner},
 	"SetMuseTools":      {scope: scopeOwner},

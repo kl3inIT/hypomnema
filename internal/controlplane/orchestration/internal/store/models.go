@@ -575,6 +575,7 @@ type GatewayUsage struct {
 	TtftMs             sql.NullInt64
 	VideoID            string
 	VideoRev           int64
+	CoolingCode        string
 }
 
 type GatewayUsageDaily struct {
@@ -653,6 +654,39 @@ type IntegrationClient struct {
 type LegacyProfileFallback struct {
 	VersionID string
 	Fallbacks string
+}
+
+type ListeningBackend struct {
+	Source      string
+	Backend     string
+	Position    sql.NullInt64
+	LastOkAt    sql.NullInt64
+	LastErrorAt sql.NullInt64
+	LastCode    string
+	LastDetail  string
+	UpdatedAt   int64
+}
+
+type ListeningReading struct {
+	Source string
+	Day    string
+	Items  int64
+}
+
+type ListeningSource struct {
+	Source           string
+	Off              int64
+	Told             int64
+	LastReadAt       sql.NullInt64
+	LastResult       string
+	LastCode         string
+	PreviousResult   string
+	LastSuccessAt    sql.NullInt64
+	LastErrorAt      sql.NullInt64
+	LastErrorCode    string
+	LastErrorDetail  string
+	LastErrorBackend string
+	UpdatedAt        int64
 }
 
 type MachineProvider struct {
@@ -830,6 +864,8 @@ type Node struct {
 	TaskBranches        int64
 	DiskAlert           string
 	DiskAlertUntil      int64
+	MemoryLimit         sql.NullInt64
+	MemoryLimitReason   string
 }
 
 type NodeToken struct {
@@ -872,6 +908,7 @@ type ProfileVersion struct {
 	CpuRequestMillis   sql.NullInt64
 	MemoryRequestBytes sql.NullInt64
 	Preset             string
+	MemoryLimitBytes   sql.NullInt64
 }
 
 type Provider struct {
@@ -1264,6 +1301,25 @@ type TodoEvent struct {
 	Kind      string
 	Before    string
 	After     string
+}
+
+type TodoGithubCall struct {
+	Delivery       string
+	TodoID         string
+	Repository     string
+	Number         int64
+	Kind           string
+	CommentID      int64
+	ReplyTo        int64
+	Login          string
+	Url            string
+	RepliedAt      sql.NullInt64
+	ReplyUrl       string
+	CreatedAt      int64
+	ClosedRevision sql.NullInt64
+	ClosedState    sql.NullString
+	ClosedReason   sql.NullString
+	ClosedEvidence sql.NullString
 }
 
 type User struct {

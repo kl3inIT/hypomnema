@@ -98,6 +98,8 @@ type Server struct {
 	web Web
 	// webSearch is the web search chain and its switches (issue #354); nil when the control plane wired none.
 	webSearch WebSearchSettings
+	// listening is social listening's sources and their switches (issue #1290); nil when none is wired.
+	listening ListeningSettings
 	// images makes images and imageSettings are the Images page's (issue #431); nil when the control plane wired none.
 	images        Images
 	imageSettings ImageSettings
