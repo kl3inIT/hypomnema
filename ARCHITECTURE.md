@@ -2610,6 +2610,8 @@ flowchart LR
       key and webhook secret as one value in the vault secret `github-app` (`githubapp.Credential`, as Omnara keeps
       them as one credential); the key and the secret are never answered, logged or written anywhere else. A new
       registration replaces the App. `GET /integrations/github/app` (`hypomnema hosts app`) shows it without them.
+      The setup page's buttons accept `Sec-Fetch-Site: same-origin`. With no fetch metadata, an `Origin` matching
+      the request host or the configured public host is accepted, as is a request with neither header (#1308).
     - **Its installations** are read from GitHub (`GET /app/installations` with the App's JWT, RS256 and nine
       minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
       back from installing it, on each `installation` and `installation_repositories` event, and on

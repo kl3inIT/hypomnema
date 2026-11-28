@@ -90,7 +90,8 @@ func newAppWorld(t *testing.T) *appWorld {
 	t.Cleanup(func() { close(stop) })
 
 	mux := http.NewServeMux()
-	require.NoError(t, clientapi.New(w.svc, logger, stop).WithGitHubApp(clientGitHubApp{w.app}).Register(mux))
+	api := clientapi.New(w.svc, logger, stop).WithGitHubApp(clientGitHubApp{w.app}, appPublicURL)
+	require.NoError(t, api.Register(mux))
 	mux.HandleFunc("POST "+githubapp.EventsPath, w.app.ServeEvents)
 
 	hs := httptest.NewServer(mux)
@@ -224,8 +225,6 @@ func TestTheManifestCallbackKeepsTheCredentialInTheVaultAndShowsNoSecret(t *test
 
 // The owner's form works when a proxy forwards it with a loopback Host (issue #1308).
 func TestGitHubAppSetupFormChecksRequestOrigin(t *testing.T) {
-	t.Parallel()
-
 	w := newAppWorld(t)
 	registered, _ := w.register()
 	require.Equal(t, githubapp.SetupPath+"?done=registered", registered.Header.Get("Location"))
