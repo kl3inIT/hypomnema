@@ -5268,8 +5268,12 @@ writes no prose (last30days SKILL.md LAW 7).
   apart and 45 s more after every five, the others 10 s and 30 s; a 429 stops a site for 24 hours. Every request a
   read makes the site answer (a page's search, each scroll, the filter's search, each fetch m.weibo.cn's page asks)
   takes its account's turn and counts as a read, reads the stop again inside it, and keeps what it met before the
-  turn ends (`Request.turn`, `pageStep`); the first stop ends the read, the items read before it kept. A sign-in's
-  verification asks the API, then the account's page when the API failed without a stop (`Signed.Also`).
+  turn ends (`Request.turn`, `pageStep`), the tab's log read again once the turn came and before the request is sent;
+  the first stop ends the read, the items read before it kept. A page read holds its account's tab for the whole read
+  (`Session.Hold`), so a second search waits and never navigates the tab under the first. A sign-in's verification asks
+  the API, then the account's page when the API failed without a stop (`Signed.Also`); a stop it meets, even after
+  posts, refuses the cookies. On Xiaohongshu a sign-in landing beside a search answered 200 whose body has not loaded
+  is looked at again, up to five looks, before it is trusted.
 - TikTok (issue #1294; `listening/tiktok.go`): `tiktok`, a signed-in source as above, its login cookies `sessionid`
   (or `sid_tt` or `uid_tt`) and `msToken`, with three backends. `web_api`: TikTok's own web API asked from the account's
   tab in the shared browser, TikTok-Api's mechanism (MIT, `third_party/tiktok-api`) without its Python or its

@@ -298,7 +298,7 @@ func New(cfg Config) *Service {
 		resting: map[string]*SourceError{}, pathOwner: map[string]string{}, health: map[string]*Health{},
 		acc: accounts{
 			browser: cfg.Browser, secrets: cfg.Secrets, secretName: cfg.SecretName,
-			checking: map[string]bool{}, checked: map[string]verification{},
+			checking: map[string]bool{}, checked: map[string]verification{}, tabs: map[string]chan struct{}{},
 		},
 	}
 }

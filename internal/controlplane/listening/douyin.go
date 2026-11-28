@@ -181,6 +181,14 @@ func douyinPageRead(ctx context.Context, r Request, page Page) (Result, error) {
 		before := len(res.Items)
 
 		f = r.pageStep(ctx, "douyin.com", chineseCadence, func() *SourceError {
+			// What the tab logged while the read waited for this turn, read before the scroll: a 429 that came in the
+			// wait stops the read without another scroll (review round 2 of PR #1364).
+			take()
+
+			if f := met(); f != nil {
+				return f
+			}
+
 			if page.Evaluate(ctx, "window.scrollBy(0, 2400)", nil) != nil {
 				return Fail(CodeBroken, "scrolling Douyin's search")
 			}

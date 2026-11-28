@@ -44,6 +44,9 @@ const (
 	// (search.go:175, 15 s).
 	xiaohongshuLoad       = 60 * time.Second
 	xiaohongshuFilterWait = 15 * time.Second
+	// xiaohongshuBodyLooks is how many looks, pagePoll apart, a search's body not loaded yet is waited for before a
+	// sign-in landing is trusted. Inferred: no reference bounds it.
+	xiaohongshuBodyLooks = 5
 )
 
 // xiaohongshuRefused are the search answer's captcha statuses (MediaCrawler xhs/client.py:158-164, read only).
@@ -81,13 +84,21 @@ func xiaohongshuBlocked(path string) *SourceError {
 
 // xiaohongshuReadiness reads the page at once: where it stands, whether its state is this keyword's search, ready,
 // empty or failed (searchReadinessJS, search_ready.go:142-160), whether its state says someone is signed in
-// (crawler_bridge.py:524-534), and the feeds' ids (feedIDsJS, search.go:207-212).
+// (below), and the feeds' ids (feedIDsJS, search.go:207-212).
+//
+// Signed in is any of the references' signs: the state's loggedIn flag, or its userInfo naming a user who is no guest
+// (last30days-skill-cn crawler_bridge.py:524-533), or the signed-in user's link in the page's side bar, the element
+// xiaohongshu-mcp looks for (login.go:20-36). A flag of false says no one is signed in. Inferred, under #781's rule:
+// neither reference combines the two, and neither says which wins when they disagree; any positive sign is taken,
+// and a verification keeps the cookies only beside one.
 const xiaohongshuReadiness = `((keyword) => {
   const path = location.pathname, host = location.hostname;
   const unwrap = v => v?.value !== undefined ? v.value : (v?._value !== undefined ? v._value : v);
   const s = window.__INITIAL_STATE__;
-  const user = unwrap(s?.user?.loggedIn);
-  const out = { path, host, logged_in: user === true ? 1 : (user === false ? 0 : -1) };
+  const flag = unwrap(s?.user?.loggedIn), info = unwrap(s?.user?.userInfo);
+  const signedIn = flag === true || !!(info && (info.user_id || info.userId) && !info.guest) ||
+    !!document.querySelector('.main-container .user .link-wrapper .channel');
+  const out = { path, host, logged_in: signedIn ? 1 : (flag === false ? 0 : -1) };
   const search = s?.search;
   const current = unwrap(search?.searchContext)?.keyword;
   const urlKeyword = new URL(location.href).searchParams.get('keyword');
@@ -187,13 +198,18 @@ type xiaohongshuAnswer struct {
 type xiaohongshuSearched struct {
 	empty  bool
 	failed *SourceError
+	// pending: a search was answered 200 and its body has not loaded yet.
+	pending bool
 }
 
 // read reads the search answers the page received since its last look (search_ready.go:57-135): a captcha status,
 // a rate limit, a refusing code or a failed answer is kept, and an answer with no item and has_more false confirms an
 // empty search.
 func (s *xiaohongshuSearched) read(ctx context.Context, page Page, seen map[string]bool, now time.Time) {
-	for _, x := range pageXHRs(ctx, page, xiaohongshuSearchXHR, seen) {
+	got, pending := pageXHRsPending(ctx, page, xiaohongshuSearchXHR, seen)
+	s.pending = pending > 0
+
+	for _, x := range got {
 		if x.Status != http.StatusOK {
 			s.empty = false
 
@@ -260,21 +276,33 @@ func xiaohongshuPageRead(ctx context.Context, r Request, page Page) (Result, err
 			return xiaohongshuState{}, nil //nolint:nilerr // Not a failure of the read: the next look reads it.
 		}
 
-		searched.read(ctx, page, seen, r.now())
+		for tries := 1; ; tries++ {
+			searched.read(ctx, page, seen, r.now())
 
-		if f := siteThrottled(ctx, page, xiaohongshuSite, r.now(), xiaohongshuRefused...); f != nil {
-			return got, f
+			if f := siteThrottled(ctx, page, xiaohongshuSite, r.now(), xiaohongshuRefused...); f != nil {
+				return got, f
+			}
+
+			if f := searched.failed; f != nil && f.Code != CodeBroken {
+				return got, f
+			}
+
+			f := xiaohongshuLanding(got)
+			if f == nil {
+				return got, nil
+			}
+
+			// A sign-in landing beside a search answered 200 whose body has not loaded is not trusted yet: the body
+			// may hold 300012 or 300011 (review round 2 of PR #1364), so it is waited for, as xiaohongshu-mcp reads an
+			// answer once it has loaded (search_ready.go:61-84). How long, xiaohongshuBodyLooks, is inferred.
+			if f.Code != CodeNeedLogin || !searched.pending || tries >= xiaohongshuBodyLooks {
+				return got, f
+			}
+
+			if err := r.wait(ctx, pagePoll); err != nil {
+				return got, AsFailure(err)
+			}
 		}
-
-		if f := searched.failed; f != nil && f.Code != CodeBroken {
-			return got, f
-		}
-
-		if f := xiaohongshuLanding(got); f != nil {
-			return got, f
-		}
-
-		return got, nil
 	}
 
 	// finish looks once more before the feeds are read, a block may land in between (search.go:128-133), and reads
@@ -353,6 +381,11 @@ func xiaohongshuPageRead(ctx context.Context, r Request, page Page) (Result, err
 	}
 
 	f = r.pageStep(ctx, "xiaohongshu.com", xiaohongshuCadence, func() *SourceError {
+		// What the tab logged during the wait for this turn, read before the filter's search is sent.
+		if _, f := look(); f != nil {
+			return f
+		}
+
 		before := st.IDs
 		searched.empty = false
 

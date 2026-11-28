@@ -303,6 +303,13 @@ func zhihuPageRead(ctx context.Context, r Request, page Page) (Result, error) {
 
 	if read && len(res.Items) < r.Limit {
 		f = r.pageStep(ctx, "zhihu.com", chineseCadence, func() *SourceError {
+			// What the tab logged during the wait for this turn, read before the scroll.
+			take()
+
+			if f := met(); f != nil {
+				return f
+			}
+
 			if page.Evaluate(ctx, "window.scrollBy(0, 2400)", nil) != nil {
 				return nil //nolint:nilerr // A scroll that cannot be made reads nothing more: the first page stands.
 			}

@@ -450,6 +450,11 @@ func weiboPageRead(ctx context.Context, r Request, page Page) (Result, error) {
 		var items []Item
 
 		f := r.pageStep(ctx, "weibo.com", chineseCadence, func() *SourceError {
+			// What the tab logged during the wait for this turn, read before the next fetch.
+			if t := throttled(); t != nil {
+				return t
+			}
+
 			got, f := ask("/api/container/getIndex?" + weiboParams(r.Query, n).Encode())
 			if f == nil {
 				var err error

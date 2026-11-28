@@ -67,7 +67,8 @@ const (
 	// pageScrolls is the most scrolls of a search page (crawler_bridge.py:969, range(8)).
 	pageScrolls = 8
 	// mobileUA is the User-Agent Safari on iOS 18.5 sends, a phone's, as m.weibo.cn is read with a phone's headers
-	// (last30days-skill-cn weibo.py:151-153, kind="mobile").
+	// (last30days-skill-cn weibo.py:151-153, kind="mobile"). The string is the one crawler_bridge.py:63-66 holds: the
+	// browser's own identifier, a fact taken, no code (third_party/last30days-skill/NOTICE).
 	mobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) " +
 		"Version/18.5 Mobile/15E148 Safari/604.1"
 )
@@ -226,7 +227,8 @@ func signedSearch(host string, cadence Cadence, read func(ctx context.Context, r
 	}
 }
 
-// signedPageSearch is a read in the account's tab, opened before any turn as linkedInSearch opens it. The read takes
+// signedPageSearch is a read in the account's tab, held for the whole read (Session.Hold) and opened before any turn
+// as linkedInSearch opens it. The read takes
 // a turn for each request it makes the page send (pageStep): its search, a scroll's next page, a filter's search, a
 // fetch the page asks; each counts toward the cadence's cooldown (trend-opportunity-radar
 // collection-pacing-contract.md:7-10, "count a retry and a separately requested comment read as new requests"; review
@@ -234,6 +236,12 @@ func signedSearch(host string, cadence Cadence, read func(ctx context.Context, r
 func signedPageSearch(read func(ctx context.Context, r Request, page Page) (Result, error),
 ) func(ctx context.Context, r Request) (Result, error) {
 	return func(ctx context.Context, r Request) (Result, error) {
+		release, err := r.Session.Hold(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		defer release()
+
 		page, err := r.Session.Page(ctx)
 		if err != nil {
 			return Result{}, err
@@ -390,12 +398,22 @@ type xhr struct {
 // each once (seen keeps those read), as last30days-skill-cn's response listeners keep a search's XHR
 // (crawler_bridge.py:944-962, 1083-1095). A body not loaded yet is read at the next look.
 func pageXHRs(ctx context.Context, page Page, match func(*url.URL) bool, seen map[string]bool) []xhr {
+	out, _ := pageXHRsPending(ctx, page, match, seen)
+
+	return out
+}
+
+// pageXHRsPending is pageXHRs, with how many answers of 200 have a body not loaded yet.
+func pageXHRsPending(ctx context.Context, page Page, match func(*url.URL) bool, seen map[string]bool) ([]xhr, int) {
 	responses, err := page.Responses(ctx)
 	if err != nil {
-		return nil
+		return nil, 0
 	}
 
-	var out []xhr
+	var (
+		out     []xhr
+		pending int
+	)
 
 	for _, got := range responses {
 		u, err := url.Parse(got.URL)
@@ -414,6 +432,8 @@ func pageXHRs(ctx context.Context, page Page, match func(*url.URL) bool, seen ma
 
 		body, err := page.Body(ctx, got)
 		if err != nil {
+			pending++
+
 			continue
 		}
 
@@ -421,7 +441,7 @@ func pageXHRs(ctx context.Context, page Page, match func(*url.URL) bool, seen ma
 		out = append(out, xhr{URL: got.URL, Status: got.Status, Body: body})
 	}
 
-	return out
+	return out, pending
 }
 
 // jsArgs are strings as a script's arguments, each a JSON string, which is a JavaScript one.

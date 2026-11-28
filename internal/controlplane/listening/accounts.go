@@ -154,6 +154,9 @@ type accounts struct {
 	// cookies.
 	checking map[string]bool
 	checked  map[string]verification
+
+	// tabs are the accounts' tabs' holds, by browser context: one read at a time in a tab (Session.Hold).
+	tabs map[string]chan struct{}
 }
 
 type verification struct {
@@ -477,7 +480,9 @@ func (s *Service) verify(ctx context.Context, p Platform, jar []browser.Cookie) 
 		switch {
 		case err != nil:
 			last = AsFailure(err)
-		case res.Failed != nil && len(res.Items) == 0:
+		case res.Failed != nil && (len(res.Items) == 0 || stops(res.Failed)):
+			// A stop met after some posts (a session's end, a refusal, a rate limit) is the check's answer: the session
+			// is not kept, whatever was read before it (review round 2 of PR #1364).
 			last = res.Failed
 		default:
 			return nil
@@ -649,6 +654,34 @@ func (se *Session) verifying() bool { return se.candidate != nil }
 
 // Site is the site the account is signed in to.
 func (se *Session) Site() signin.Site { return se.signed.Site }
+
+// Hold takes the account's tab for one whole read, and gives the function that lets it go: a read in the tab
+// navigates it and reads the answers it receives, so a second read waits for the first to end and never navigates
+// the tab between two of its requests, each still paced in its own turn (trend-opportunity-radar
+// collection-pacing-contract.md:5, "at most one browser read at a time for a research run and browser profile";
+// review round 2 of PR #1364). A candidate's tab, in a context of its own, has a hold of its own.
+func (se *Session) Hold(ctx context.Context) (func(), error) {
+	key := contextKey(se.source, se.candidate != nil)
+
+	se.s.acc.mu.Lock()
+	if se.s.acc.tabs == nil {
+		se.s.acc.tabs = map[string]chan struct{}{}
+	}
+
+	hold, ok := se.s.acc.tabs[key]
+	if !ok {
+		hold = make(chan struct{}, 1)
+		se.s.acc.tabs[key] = hold
+	}
+	se.s.acc.mu.Unlock()
+
+	select {
+	case hold <- struct{}{}:
+		return func() { <-hold }, nil
+	case <-ctx.Done():
+		return nil, AsFailure(ctx.Err())
+	}
+}
 
 // Verifying says the session is a sign-in's candidate jar being verified, not the kept account.
 func (se *Session) Verifying() bool { return se.candidate != nil }

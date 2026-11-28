@@ -21,14 +21,17 @@ And from last30days-skill-cn, Zhihu's search_v3 parser (zhihu.py), Weibo's mobil
 dates (weibo.py), Douyin's video parser (douyin.py) and Xiaohongshu's note address and counts (xiaohongshu.py), in
 chinasigned.go, zhihu.go, weibo.go, douyin.go and xiaohongshu.go (issue #1362).
 
-The terms that apply (issue #1362, review round 1 of PR #1364): the repository's LICENSE is the MIT License below, and
-the parsers named above are adapted under it. Its usage terms (docs/usage.en.md:196-209) and the header of its
-browser bridge (scripts/lib/crawler_bridge.py:1-21) also ask that it not be used commercially, for large-scale or
-high-frequency scraping, or to resell data. crawler_bridge.py is therefore read for ideas only and none of its code is
-copied: what Hypomnema takes from it is facts about the sites (their sign-in pages and login cookies, the addresses of
-their search pages and of the requests those pages send, the words of their sign-in walls), each written anew. Hypomnema
-reads these sites with the owner's own account, one request at a time at the pace of its consent cards, for his own
-research, and resells nothing.
+The terms that apply (issue #1362, review rounds 1 and 2 of PR #1364). Both repositories' LICENSE files are the MIT
+License below, at the commits named above (no NOTICE file); MIT is the licence the parsers named above are adapted
+under. last30days-skill-cn also states usage terms for the whole project (docs/usage.en.md:196-209, "this project"):
+learning and research only, no commercial use, no large-scale or high-frequency scraping, no resale of data; and its
+browser bridge repeats them in its header (scripts/lib/crawler_bridge.py:1-21). Those terms speak of using the project,
+its parsers included, beside its MIT LICENSE; this notice keeps them as written and does not read them away. From
+crawler_bridge.py no code is copied: only facts about the sites are taken (their sign-in pages and login cookies, the
+addresses of their search pages and of the requests those pages send, the words of their sign-in walls, and the
+User-Agent string Safari on iOS sends, crawler_bridge.py:63-66), each written anew. Hypomnema reads these sites with the
+owner's own account, one request at a time at the pace of its consent cards, for his own research, and resells
+nothing; whether that use stays within the usage terms is the owner's call, recorded in issue #1362's pull request.
 
 The MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction, including without
