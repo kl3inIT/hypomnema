@@ -3917,7 +3917,7 @@ flowchart LR
     CB --> K
     CT --> K
     K --> CHAT --> MT
-    MT -- "next target on no answer, 429, 5xx,<br/>while nothing was sent" --> OC
+    MT -- "next target on no answer, or a refusal whose code moves on,<br/>while nothing was sent" --> OC
     MT --> SUB --> ACC
     K -- "/v1/search, /v1/web/fetch, /v1/alpha/search" --> WS
     K -- "/v1/images/generations, /edits" --> IMG
@@ -4040,8 +4040,9 @@ capabilities do not exist yet.
     gateway fallbacks (`bots.fallbacks`, migration 00122, issue #870), set on its page or with `bots set --fallbacks`
     and shown by `bots show`. A chat using that Bot's model uses the `hypomnema-fallback` provider in `models.json`,
     which speaks Chat Completions so the gateway can switch vendors without replaying the turn. It tries the
-    model's own targets and accounts first; when all are resting or refuse access, it tries the Bot's backups in
-    order before sending an answer. The key still only accepts requests for the primary model, and usage records
+    model's own targets and accounts first; when its last target ends on a cooling code that moves on (a used-up
+    window, a throttle, spent credits, a refused key, or an overload, 5xx and 529 included; issue #1335), or all
+    its accounts rest, it tries the Bot's backups in order before sending an answer. The key still only accepts requests for the primary model, and usage records
     the model that served it. A chat that chooses its own model keeps its own wire and does not use the Bot's
     fallbacks. A Bot that names no model runs on Claude Opus 5.5 under the Claude
     subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
@@ -4142,7 +4143,7 @@ capabilities do not exist yet.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
   Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
-  model's targets in order, the next on 429 or 5xx. An `opencode_go` or `opencode_zen` target whose model OpenCode
+  model's targets in order, the next on a refusal whose cooling code moves on (below). An `opencode_go` or `opencode_zen` target whose model OpenCode
   serves on Messages is passed the body as sent but for the model's name, under the provider's keys (issues #854,
   #965), and its answer comes back as Anthropic's does below. A `claude_subscription` target is passed the request:
   - The body is passed on as sent but for the model's name (`modelgateway/claude`, `PassThrough`). A client that is
@@ -4353,8 +4354,20 @@ capabilities do not exist yet.
   usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
   comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
   mark, ends with an error event (`upstream_truncated`) instead of looking whole.
-- The next target is tried when one gives no answer, or answers 429 or 5xx, and only while nothing was sent to the
-  client. Any other answer of a provider reaches the client with its status and body. When no target can be reached
+- The next target is tried when one gives no answer, or refuses with a cooling code that moves on (issue #1335,
+  `modelgateway/chat.go` `codeMovesOn`, the same classifier as an account's rest): `usage_limit`, `rate_limit`,
+  `billing`, `auth` or `overloaded` (5xx and 529 included), and only while nothing was sent to the client; on every
+  chat route (`/chat/completions`, `/responses`, `/messages`, and the control plane's own completions). A failure
+  no code names (`unknown`) does not move on, nor does a refusal of the request itself (a 400, 413 or 422 without
+  a throttle's words), as Bifrost rotates on its failure classes but not on `caller_fault` or `unknown`
+  (`docs/features/retries-and-fallbacks.mdx`). A refusal of the request's content ends the turn: it reads
+  `unknown` whatever its status, a 403 included (OpenRouter's moderation 403 with `flagged_input`, its typed
+  refusal with `error_type: "refusal"` and the provider's `bio_policy` or `cyber_policy` in `error.metadata`, read
+  before the status, and the codes and words LiteLLM maps to `ContentPolicyViolationError`), while a 403 that
+  refuses the key moves on. Such a refusal is not tried on the subscription's next account either, and rests no
+  account: a 4xx that reads `unknown` costs the account nothing. A target that is
+  skipped because none of its accounts exists keeps the code of the move before it in the record. Any other answer
+  of a provider reaches the client with its status and body. When no target can be reached
   the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
   is not declared, or the body is wrong) and 413.
 - A provider is of one of two sorts. An `openai_compatible` one is data the owner declares (a base URL, a key in the
@@ -4392,8 +4405,16 @@ capabilities do not exist yet.
     `RateLimitCooldown` before it runs the Task again.
   - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
-    minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
-    401, 402 or 403; 30 seconds after another 5xx.
+    minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 1 hour, the usage
+    wait, after a refused key or sign-in (`auth`) or spent credits (`billing`), or the provider's reset when later
+    (at most 2 hours), never a shorter `Retry-After`, since nothing changes until the owner signs in again or pays
+    (issue #1335; OpenClaw's billing off-time; the same for an image model's rest and an Antigravity model's wait on
+    a spent credits balance), and the Models page's account card
+    says what to do, "Sign in again" ("Add a new key" for an OpenCode key) or "Add credits"; 2 minutes after
+    another 401, 402 or 403; 30 seconds after another 5xx. A Claude account rests by its code (issue #1335):
+    `usage_limit` (the unified status `rejected`, or a 429 whose words name its 5-hour or weekly limit) until
+    Anthropic's unified reset, or the hour when none is named; `rate_limit` the short doubling
+    wait, or the `Retry-After` it names, never the window's reset that every answer carries.
   - Why an account rests is one closed set for every adapter (issue #1305, `modelgateway/cooling_code.go`):
     `usage_limit` (a plan's window or allowance used up), `rate_limit`, `billing` (credits, a balance or a budget
     spent), `auth` (the key or sign-in refused), `overloaded`, `unknown`. One classifier reads every refusal, the
@@ -4403,14 +4424,15 @@ capabilities do not exist yet.
     `usage_limit_reached`, Google's `QUOTA_EXHAUSTED`), an auth code, or a server code on no 4xx decides; then
     401/403, a 429 (its words say a spent balance or a used-up plan, else a rate limit), a generic throttle code
     (`rate_limit_error`, read after a 429's words since Anthropic-shaped endpoints put it on every 429), a 5xx;
-    then the words alone. A Claude 429 is `usage_limit` only with `anthropic-ratelimit-unified-status: rejected`
-    (OmniRoute `isClaudeUsageWall`); an Antigravity model that waits on a used-up quota is `usage_limit`, one that
+    then the words alone. A Claude 429 is `usage_limit` with `anthropic-ratelimit-unified-status: rejected`
+    (OmniRoute `isClaudeUsageWall`) or when its words name its 5-hour or weekly limit (issue #1335), else
+    `rate_limit`; an Antigravity model that waits on a used-up quota is `usage_limit`, one that
     waits on a throttle `rate_limit`, either `billing` when Google says the credits balance is spent; a suspended
     account or one to verify is `auth`. The waits are unchanged, a Go 402 `GoUsageLimitError` keeping the used-up
-    allowance's hour. The reset a refusal names is read from its headers first
+    allowance's hour (since #1335 the waits follow the code, above). The reset a refusal names is read from its headers first
     (`retry-after-ms`, `Retry-After` as seconds or a date, `x-ratelimit-reset-ms`, `x-ratelimit-reset`,
     `x-ratelimit-reset-after`), else from its words, the pairs after "resets in" summed ("2hr 15min", "3 days";
-    omp `extractRetryHint`); Claude's unified reset still comes before both. The account's cooldown keeps the code
+    omp `extractRetryHint`); Claude's unified reset comes before both for a `usage_limit`. The account's cooldown keeps the code
     (`account_cooldowns.code`, checked against the set; a node Dispatch's rate limit is `rate_limit`) beside the
     provider's own message (`reason`); the accounts API gives `cooling_code` and `cooling_reason`, `accounts list`
     prints both, and the Models page's account card says the code in words ("Usage limit, resets 12:42 AM", "Key
@@ -4649,7 +4671,9 @@ capabilities do not exist yet.
   Since migration 00058 a row also holds the subscription account of the last attempt (`account_id`, empty for an
   API provider; noted on the request's context by the loop over accounts) and, for a request that failed, the
   provider's message (`error`, at most 500 characters: `error.message` of its body, else the body; a set sentence
-  when it said nothing). No prompt or answer is kept.
+  when it said nothing). No prompt or answer is kept. A request that moved on to the model's next target or the
+  Bot's fallback keeps the cooling code it last moved on for (`cooling_code`, issue #1335; empty when it did not),
+  given as `cooling_code` by `GET /gateway/usage/requests`.
   Since migration 00060 it also holds the tokens written to the provider's cache (`cache_write_tokens`, Anthropic's
   `cache_creation_input_tokens`, carried in a chat answer's usage as LiteLLM and 9router-go carry it) and its cost
   at the vendor's API price (`cost_micros`, NULL when unpriced, and `priced_model`; issue #304, after Coder). The

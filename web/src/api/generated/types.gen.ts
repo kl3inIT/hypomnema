@@ -3514,6 +3514,7 @@ export type GatewayRequest = {
    * The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
    */
   error?: string;
+  cooling_code?: CoolingCode;
   prompt_tokens: number;
   cached_tokens: number;
   completion_tokens: number;
@@ -3989,7 +3990,7 @@ export type Bot = {
   provider?: string;
   model?: string;
   /**
-   * Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+   * Ordered gateway models (provider/model), tried when the inherited model's last target refuses with a cooling code that moves on (usage_limit, rate_limit, billing, auth, overloaded) or its accounts all rest.
    */
   fallbacks: Array<string>;
   effort?: string;

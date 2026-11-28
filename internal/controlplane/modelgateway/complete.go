@@ -90,6 +90,11 @@ func (s *Server) complete(ctx context.Context, req chatRequest, model Model, key
 				return nil, ctx.Err()
 			}
 			if cooling.add(err) {
+				// The code of a target whose accounts all rest is kept as a move's (issue #1335, row 6).
+				if !last {
+					record.movedOn(restCode(err))
+				}
+
 				continue
 			}
 
@@ -103,9 +108,10 @@ func (s *Server) complete(ctx context.Context, req chatRequest, model Model, key
 		record.Status = resp.StatusCode
 		cooling.other = true
 
-		if retryable(resp.StatusCode) && !last {
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBytes))
-			_ = resp.Body.Close()
+		// The code decides whether the next target is tried, and the record keeps it (issue #1335, rows 1 and 6).
+		if code, moves := targetMovesOn(resp); moves && !last {
+			record.movedOn(code)
+			drain(resp)
 
 			continue
 		}

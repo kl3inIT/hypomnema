@@ -684,7 +684,8 @@ func TestTheNextAccountServesWhenOneIsLimited(t *testing.T) {
 }
 
 // Scenario: what each kind of refusal costs an account. A payment or
-// permission refusal cools it two minutes and the next account is tried; a
+// permission refusal cools it for the usage wait, an hour, since only the
+// owner can end it (issue #1335, row 4), and the next account is tried; a
 // server error that is no overload cools it thirty seconds and reaches the
 // client, since another account would not help; a request the backend finds
 // wrong costs nothing. A cooldown says why by its status when the backend
@@ -698,7 +699,7 @@ func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
 		calls  int
 		code   modelgateway.CoolingCode
 	}{
-		"forbidden":      {http.StatusForbidden, []time.Duration{2 * time.Minute}, 2, modelgateway.CoolingAuth},
+		"forbidden":      {http.StatusForbidden, []time.Duration{time.Hour}, 2, modelgateway.CoolingAuth},
 		"server error":   {http.StatusInternalServerError, []time.Duration{30 * time.Second}, 1, "overloaded"},
 		"bad request":    {http.StatusBadRequest, nil, 1, ""},
 		"overloaded 503": {http.StatusServiceUnavailable, []time.Duration{2 * time.Second}, 2, "overloaded"},

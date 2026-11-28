@@ -3668,7 +3668,7 @@ type Bot struct {
 	Department *string `json:"department,omitempty"`
 	Effort     *string `json:"effort,omitempty"`
 
-	// Fallbacks Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+	// Fallbacks Ordered gateway models (provider/model), tried when the inherited model's last target refuses with a cooling code that moves on (usage_limit, rate_limit, billing, auth, overloaded) or its accounts all rest.
 	Fallbacks []string `json:"fallbacks"`
 
 	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
@@ -4684,6 +4684,9 @@ type GatewayRequest struct {
 	// Characters The characters an audio speech request spoke; absent for other requests.
 	Characters       *int64 `json:"characters,omitempty"`
 	CompletionTokens int64  `json:"completion_tokens"`
+
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
 
 	// CostMicros The cost at the vendor's API price, in micro-dollars: its tokens, searches, seconds or characters, at the price of each (LiteLLM's price map for those not counted in tokens); absent when there is none.
 	CostMicros *int64    `json:"cost_micros,omitempty"`

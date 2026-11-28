@@ -10013,6 +10013,11 @@ components:
         error:
           type: string
           description: The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
+        cooling_code:
+          $ref: "#/components/schemas/CoolingCode"
+          description: >-
+            Why the request last moved on to the model's next target or the Bot's fallback (issue #1335); absent when
+            it did not move on.
         prompt_tokens: { type: integer, format: int64 }
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }
@@ -10609,7 +10614,9 @@ components:
           type: array
           maxItems: 5
           items: { type: string }
-          description: Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+          description: >-
+            Ordered gateway models (provider/model), tried when the inherited model's last target refuses with a
+            cooling code that moves on (usage_limit, rate_limit, billing, auth, overloaded) or its accounts all rest.
         effort: { type: string }
         persona:
           type: string

@@ -66,6 +66,9 @@ type Usage struct {
 	AccountID string
 	// Error is the provider's message for a request that failed.
 	Error string
+	// CoolingCode is why the request last moved on to the next target or the Bot's fallback (issue #1335, row 6);
+	// empty when it did not move on.
+	CoolingCode CoolingCode
 	// CostMicros is what the tokens cost at the vendor's API, in
 	// micro-dollars, and PricedModel the model priced; nil and empty when the
 	// price book has none (issue #304).
@@ -157,7 +160,7 @@ func (s *Service) recordUsage(ctx context.Context, u Usage) error {
 			CacheWriteTokens: u.Tokens.CacheWrite, CacheWrite1hTokens: u.Tokens.CacheWrite1h,
 			CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, AudioMs: u.Audio.Milliseconds(),
 			Characters: u.Characters, WebSearches: u.WebSearches, Images: u.Images, TtftMs: ttftMs(u.TTFT),
-			VideoID: u.VideoID, VideoRev: int64(u.VideoRev), Now: now,
+			VideoID: u.VideoID, VideoRev: int64(u.VideoRev), CoolingCode: string(u.CoolingCode), Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording usage: %w", err)
 		}
@@ -260,6 +263,7 @@ func usageOf(r store.ListGatewayUsageRow) Usage {
 		Images:      r.Images,
 		Duration:    time.Duration(r.DurationMs) * time.Millisecond,
 		TTFT:        ttftOf(r.TtftMs),
+		CoolingCode: CoolingCode(r.CoolingCode),
 		CreatedAt:   time.UnixMilli(r.CreatedAt).UTC(),
 	}
 }
