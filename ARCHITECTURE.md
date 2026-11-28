@@ -1637,7 +1637,8 @@ sequenceDiagram
     and the converted list, and applying that text unchanged makes no new version.
   - **Versions** (issue #1336, after the profiles' versions and Paperclip's `agent_config_revisions` with
     `createdByUserId`, `createdByAgentId`, `source` and `rolledBackFromRevisionId`): each save that changes a Bot's
-    settings keeps a row of `bot_versions` (`id`, `bot_id`, `version`, the settings as the setup changes keep them,
+    settings keeps a row of `bot_versions` (`id`, `bot_id`, `version`, the settings as the setup changes keep them
+    but with the instructions under `instructions`, where the setup changes keep `persona` for their undo's hash,
     `source` `save`, `restore` or `undo`, `saved_by` `owner` or `main_bot` with its `chat_id`, `restored_from`,
     `created_at`): `PUT`/`POST /bots`, the undo of a setup change and the owner's grant of a Connection a Bot asked
     for. A Bot saved before versions keeps what it had as a `before_versions` version at its next save. Its name
@@ -2461,9 +2462,13 @@ flowchart LR
   #1336, after OpenClaw's model fallbacks, `src/config/zod-schema.agent-model.ts`); they are kept in the version.
   Until 2026-11-28 they named other workers' profiles (issue #171,
   [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); migration `agent_spec` gave each version
-  that named backups each backup's current model, in order, dropping a role, a backup with no model of its own, a
-  name no profile has, a repeat and the version's own model, and kept what they named in
-  `legacy_profile_fallbacks`, which its Down puts back.
+  that named backups each backup's current model, in order, that the API accepts and the version's runtime can run
+  (`CheckFallbacksTx`: the provider's kind among the runtime's, as `runtimeProviders` was on 2026-11-28, and the
+  model in the catalog), dropping a model the runtime cannot run (a Claude subscription's for a Codex profile), a
+  role, a backup with no model of its own, a name no profile has, a repeat and the version's own model, and every
+  backup of a version with no model of its own, since fallbacks follow a primary; it kept what they named in
+  `legacy_profile_fallbacks`. Its Down puts those lists back and writes the YAML of a version applied since in the
+  names the release before reads: `instructions:` as `instruction:`, and its `fallbacks`, models, left out.
   The starting set: `implementer`, `reviewer` and `explorer` on Claude Code through the provider `model-gateway`
   (issue #462, migration 00081), the implementer and the reviewer on `claude-opus-5-5`, the explorer on
   `claude-sonnet-5-5`; providers `claude-subscription` and `model-gateway` (the gateway, below). The migration
@@ -2583,7 +2588,10 @@ flowchart LR
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
   A Task of a profile with `fallbacks` runs down a chain of its own (issue #1336; `profileChain`), as a role's
   chain is run (role routing, above): the profile's model first, then each fallback, on the profile's runtime,
-  with the profile's effort and version. While the gateway cools the model, or every account of its runtime cools
+  with the profile's effort and version. Such a Task is the profile's, not a role's: its offer is not
+  `role_routed` (`roleRouted`, which says where the chain came from, kept apart from the Dispatch's
+  `chain_entry`), so a writer stays a writer and may publish on every model of it, and a role's chain, a role
+  profile's Task or a `review_of`, takes the role's effort. While the gateway cools the model, or every account of its runtime cools
   down, the next entry that can run is placed (`placeRoleBackup`). Only a Task that names no runtime or model of
   its own has a chain; with no entry that can run, the Task waits as before. Until 2026-11-28 the list named
   backup profiles, under whose own version a Task ran (issue #171); a Dispatch made then that is still open keeps

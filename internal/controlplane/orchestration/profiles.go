@@ -283,7 +283,7 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 			return r, err
 		}
 	}
-	if v.Runtime == profilestore.RoleRuntime || task.AuthorVendor != "" {
+	if roleRouted(v, task) {
 		chain, err := chosenRoleChain(ctx, q, task)
 		if err != nil {
 			return resolved{}, err

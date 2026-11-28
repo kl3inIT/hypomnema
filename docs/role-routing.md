@@ -21,12 +21,16 @@ The commands were `hypomnema profiles routing`, `routing-apply` and `metrics` un
 spellings still work for one release.
 
 A profile that names its own runtime and model runs down a chain of its own when it has fallbacks (issue #1336):
-its model first, then each `provider/model` of its `fallbacks`, on its own runtime, as a role's chain is run. Until
-2026-11-28 a profile's fallbacks named backup profiles; the migration gave each version those profiles' models.
+its model first, then each `provider/model` of its `fallbacks`, on its own runtime, with its own effort. It is not
+a role: its worker may write and publish on every model of that chain, where a routed `planner`, `explorer` or
+`reviewer` is read-only. Until 2026-11-28 a profile's fallbacks named backup profiles; the migration gave each
+version those profiles' models that the version's runtime can run, and nothing to a version with no model of its
+own.
 
 ## Owner-confirmed cutover
 
-No migration modifies the existing worker profiles, Bots or stored memories. Legacy profiles with a runtime
+Apart from that conversion of the profiles' fallbacks (issue #1336), no migration modifies the existing worker
+profiles, Bots or stored memories. Legacy profiles with a runtime
 continue to use that configuration. In a separate owner-approved step, check active Tasks and the model catalog,
 export and reconcile the old profiles' memories into the corresponding roles, and apply the four YAML files in
 [`deploy/profiles`](../deploy/profiles). These new versions omit runtime, model and profile fallbacks. The role's

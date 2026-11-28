@@ -48,6 +48,15 @@ type BotVersion struct {
 	CreatedAt    time.Time
 }
 
+// versionSettings are a Bot version's settings: the setup changes' (botSettings), with the instructions under
+// their own name. Only the setup changes keep them under persona, for their undo's hash (setupchanges.go); bot_versions
+// began with this name (issue #1336).
+type versionSettings struct {
+	botSettings
+
+	Instructions string `json:"instructions,omitempty"`
+}
+
 // botSave says how a save of a Bot's settings is kept as a version.
 type botSave struct {
 	source       string
@@ -78,8 +87,9 @@ func (s *Service) keepBotVersion(ctx context.Context, q *store.Queries, now int6
 func (s *Service) insertBotVersion(ctx context.Context, q *store.Queries, now int64, chat string, b Bot,
 	save botSave,
 ) error {
-	settings := settingsOfBot(b)
+	settings := versionSettings{botSettings: settingsOfBot(b)}
 	settings.Name = ""
+	settings.Instructions, settings.botSettings.Instructions = settings.botSettings.Instructions, ""
 
 	raw, err := json.Marshal(settings)
 	if err != nil {
@@ -134,10 +144,13 @@ func (s *Service) ListBotVersions(ctx context.Context, id string) ([]BotVersion,
 }
 
 func botVersionFromRow(r store.BotVersion) (BotVersion, error) {
-	var settings botSettings
-	if err := json.Unmarshal([]byte(r.Settings), &settings); err != nil {
+	var kept versionSettings
+	if err := json.Unmarshal([]byte(r.Settings), &kept); err != nil {
 		return BotVersion{}, fmt.Errorf("reading version %s of bot %s: %w", r.ID, r.BotID, err)
 	}
+
+	settings := kept.botSettings
+	settings.Instructions = kept.Instructions
 
 	b := settings.bot(r.BotID)
 	b.Name = ""
