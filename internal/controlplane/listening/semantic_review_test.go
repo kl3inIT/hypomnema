@@ -61,7 +61,9 @@ func readWith(rows map[string]string) func(modelCall) (string, error) {
 func TestAModelDateMustBeTheDateItsWordsGive(t *testing.T) {
 	t.Parallel()
 
-	it := webPost("https://c.example/lane", "VETC mở thêm làn", "", -1)
+	// Since #1319 an undated web item from an unbounded provider is dropped at the search: this one has the
+	// search snippet's date, 2026-11-26, and no metadata date on its page.
+	it := webPost("https://c.example/lane", "VETC mở thêm làn", "", 1)
 	it.URL = it.NativeID
 	web := pages{it.URL: {Content: "Đăng ngày 22/11/2026\n\nVETC mở thêm làn ở trạm Long Thành."}}
 	p := plan([]string{listening.SourceWeb}, "VETC")
@@ -70,9 +72,9 @@ func TestAModelDateMustBeTheDateItsWordsGive(t *testing.T) {
 		date, quote string
 		want        string
 	}{
-		{"2026-01-22", "Đăng ngày 22/11/2026", ""},
+		{"2026-01-22", "Đăng ngày 22/11/2026", "2026-11-26"},
 		{"2026-11-22", "Đăng ngày 22/11/2026", "2026-11-22"},
-		{"2026-11-21", "Đăng ngày 22/11/2026", ""},
+		{"2026-11-21", "Đăng ngày 22/11/2026", "2026-11-26"},
 	} {
 		m := &fakeModel{answer: steps(nil, nil, readWith(map[string]string{
 			"VETC mở thêm làn": fmt.Sprintf(`"quotes":["VETC mở thêm làn"],"claims":[],`+

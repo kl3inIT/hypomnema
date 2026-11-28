@@ -248,7 +248,7 @@ func webBackend() Backend {
 	return Backend{
 		Name: BackendWebSearch, Host: BackendWebSearch, Probe: needsWeb,
 		Search: func(ctx context.Context, r Request) (Result, error) {
-			a, err := r.Web(ctx, r.Query, min(r.Limit, websearch.MaxResults))
+			a, err := r.Web(websearch.WithWindow(ctx, r.From, r.To), r.Query, min(r.Limit, websearch.MaxResults))
 			if errors.Is(err, websearch.ErrNoResults) {
 				return Result{Detail: "no provider found anything"}, nil
 			}
@@ -265,7 +265,12 @@ func webBackend() Backend {
 				})
 			}
 
-			return Result{Items: items, Detail: answeredBy(a)}, nil
+			basis := a.WindowBasis
+			if basis == "" {
+				basis = websearch.WindowNone
+			}
+
+			return Result{Items: items, Detail: answeredBy(a), provider: a.Provider, windowBasis: basis}, nil
 		},
 	}
 }
@@ -471,7 +476,9 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 
 			threads := webThreads(a)
 			if len(threads) == 0 {
-				return Result{Detail: "the web search found no Reddit thread"}, nil
+				return Result{
+					Detail: "the web search found no Reddit thread", provider: a.Provider, windowBasis: websearch.WindowNone,
+				}, nil
 			}
 
 			threads = threads[:min(len(threads), arcticIDs)]
@@ -495,6 +502,7 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 			}
 
 			detail := "web search " + answeredBy(a)
+			res := Result{provider: a.Provider, windowBasis: websearch.WindowNone}
 
 			var archiveFailed *SourceError
 
@@ -527,6 +535,8 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 
 				if inDays(it.PublishedAt, r.From, r.To) {
 					inWindow = append(inWindow, it)
+				} else {
+					res.dropped.OutsideWindow++
 				}
 			}
 
@@ -536,7 +546,8 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 				}
 			}
 
-			if dropped := len(inWindow) - len(named); dropped > 0 {
+			res.dropped.OffTopic = len(inWindow) - len(named)
+			if dropped := res.dropped.OffTopic; dropped > 0 {
 				// last30days BarResult.note (reddit_discover.py:125-135).
 				detail += fmt.Sprintf("; %d of %d threads dropped for not naming the topic", dropped, len(inWindow))
 			}
@@ -547,10 +558,12 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 			if len(named) == 0 && len(inWindow) > 0 && archiveFailed != nil {
 				archiveFailed.Detail = detail
 
-				return Result{}, archiveFailed
+				return res, archiveFailed
 			}
 
-			return Result{Items: named[:min(len(named), r.Limit)], Detail: detail}, nil
+			res.Items, res.Detail = named[:min(len(named), r.Limit)], detail
+
+			return res, nil
 		},
 	}
 }

@@ -169,8 +169,9 @@ type Item struct {
 	relevance float64
 	freshness int
 	rrf       float64
-	// rerank is the model's relevance, 0-100, when Provenance is llm.
-	rerank float64
+	// rerank is the model's relevance, 0-100, when Provenance is llm; outside says it is dated outside the window.
+	rerank  float64
+	outside bool
 	// body is the text as the source gave it, before it was cut, for the full read.
 	body string
 }
@@ -183,6 +184,7 @@ type Answer struct {
 	// Coverage says, for each source, what was read and what was not, and why.
 	Coverage []Coverage `json:"coverage"`
 	Clusters []Cluster  `json:"clusters"`
+	Warnings []string   `json:"warnings,omitempty"`
 	// Items are the best of the pool, the best first; Omitted counts those left out.
 	Items   []Item `json:"items"`
 	Omitted int    `json:"omitted,omitempty"`
@@ -337,6 +339,21 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 	}
 
 	answer.Items, answer.Clusters, answer.Pass = s.semantic(ctx, plan, items, c, answer.Limits, from, now)
+
+	// last30days-skill-cn render._assess_data_freshness measures dated evidence in the returned results, after the
+	// full read dated some by their pages and dropped those outside the window.
+	dated := 0
+
+	for _, it := range answer.Items {
+		if it.PublishedAt != nil && inDays(it.PublishedAt, from, now) {
+			dated++
+		}
+	}
+
+	if dated < 5 || dated*10 < len(answer.Items)*3 {
+		answer.Warnings = []string{fmt.Sprintf("Thin date coverage: %d of %d returned items have a date inside the window.",
+			dated, len(answer.Items))}
+	}
 
 	if answer.Items == nil {
 		answer.Items = []Item{}

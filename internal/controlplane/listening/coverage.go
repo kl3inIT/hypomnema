@@ -19,11 +19,25 @@ type Coverage struct {
 	// State is StateOK, StatePartial, StateNoResults or StateNotRead.
 	State string `json:"state"`
 	// Items are those read in the window, before duplicates are removed.
-	Items int `json:"items"`
+	Items   int   `json:"items"`
+	Dropped Drops `json:"dropped"`
 	// Code is why a stream was not read, the most actionable of them (last30days FAILURE_SPECIFICITY); empty when
 	// every stream was read.
 	Code    Code     `json:"code,omitempty"`
 	Streams []Stream `json:"streams"`
+}
+
+// Drops counts rejected candidates before deduplication, one reason per candidate.
+type Drops struct {
+	MissingDate   int `json:"missing_date"`
+	OutsideWindow int `json:"outside_window"`
+	OffTopic      int `json:"off_topic"`
+}
+
+func (d *Drops) add(other Drops) {
+	d.MissingDate += other.MissingDate
+	d.OutsideWindow += other.OutsideWindow
+	d.OffTopic += other.OffTopic
 }
 
 // Stream is one subquery's reading of the source: the backend that served, or why none did, and each tried.
@@ -32,8 +46,9 @@ type Stream struct {
 	ServedBy string `json:"served_by,omitempty"`
 	Items    int    `json:"items"`
 	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served.
-	Code  Code      `json:"code,omitempty"`
-	Tried []Attempt `json:"tried"`
+	Code    Code      `json:"code,omitempty"`
+	Tried   []Attempt `json:"tried"`
+	dropped Drops
 }
 
 // read says the stream was read: served, or read and empty.
@@ -49,6 +64,7 @@ func (c Coverage) settle() Coverage {
 
 	for _, s := range c.Streams {
 		c.Items += s.Items
+		c.Dropped.add(s.dropped)
 
 		if s.read() {
 			read++

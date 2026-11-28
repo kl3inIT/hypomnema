@@ -22,7 +22,8 @@ import (
 func TestADateWithItsMonthNamedIsRead(t *testing.T) {
 	t.Parallel()
 
-	it := webPost("https://g.example/old", "VETC ra mắt", "", -1)
+	// Dated by the search's snippet, 2026-11-26 (since #1319 an undated web item is dropped at the search).
+	it := webPost("https://g.example/old", "VETC ra mắt", "", 1)
 	it.URL = it.NativeID
 	p := plan([]string{listening.SourceWeb}, "VETC")
 
@@ -57,7 +58,7 @@ func TestADateWithItsMonthNamedIsRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, a.Pass.Read.OutsideWindow)
 	require.Len(t, a.Items, 1)
-	assert.Nil(t, a.Items[0].PublishedAt)
+	assert.Equal(t, "2026-11-26", a.Items[0].PublishedAt.Format(time.DateOnly), "the snippet's date stands")
 }
 
 // Finding 2: the reading is kept by everything the model is given for the item, its title included: a search title

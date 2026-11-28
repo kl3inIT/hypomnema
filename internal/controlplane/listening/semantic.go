@@ -167,6 +167,7 @@ func (s *Service) semantic(ctx context.Context, plan Plan, items []Item, c Calle
 		}
 
 		it.freshness = freshness(it.PublishedAt, to, plan.WindowDays)
+		it.outside = !inDays(it.PublishedAt, from, to)
 		it.Score = math.Round(finalScore(it)*10) / 10
 		kept = append(kept, it)
 	}

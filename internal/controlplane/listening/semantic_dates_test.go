@@ -91,8 +91,9 @@ func TestThePageDatesTheItemAndDropsItOutsideTheWindow(t *testing.T) {
 	items := []listening.Item{
 		webPost("https://a.example/old", "VETC ra mắt thẻ dán", "", 2),
 		webPost("https://a.example/moved", "VETC đổi giá thẻ", "", 1),
-		webPost("https://a.example/said", "VETC mở thêm làn", "", -1),
-		webPost("https://a.example/lied", "VETC nâng cấp ứng dụng", "", -1),
+		// Dated by the search's snippet (since #1319 an undated web item is dropped at the search).
+		webPost("https://a.example/said", "VETC mở thêm làn", "", 3),
+		webPost("https://a.example/lied", "VETC nâng cấp ứng dụng", "", 4),
 	}
 	for i := range items {
 		items[i].URL = items[i].NativeID
@@ -149,7 +150,8 @@ func TestThePageDatesTheItemAndDropsItOutsideTheWindow(t *testing.T) {
 	require.NotNil(t, said.PublishedAt, "the model's date, its words on the page")
 	assert.Equal(t, "2026-11-22", said.PublishedAt.Format(time.DateOnly))
 
-	assert.Nil(t, itemByTitle(t, a, "VETC nâng cấp ứng dụng").PublishedAt,
+	lied := itemByTitle(t, a, "VETC nâng cấp ứng dụng")
+	assert.Equal(t, day(4).Format(time.DateOnly), lied.PublishedAt.Format(time.DateOnly),
 		"a date whose words do not hold it is not taken")
 
 	// With the read's model failing, the pages' own dates still stand.
