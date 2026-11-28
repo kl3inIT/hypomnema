@@ -54,6 +54,8 @@ type App struct {
 
 	mu     sync.Mutex
 	states map[string]time.Time
+	// botLookup serializes backfilling the bot user ID on a credential already in the vault.
+	botLookup sync.Mutex
 	// waiters are the waits for the CI of a pull request, by its key, each woken when its CI changes.
 	waiters map[string]map[chan struct{}]struct{}
 }
@@ -89,21 +91,27 @@ var errNoGitHubApp = fmt.Errorf("%w: no GitHub App is registered; the owner regi
 
 // credential opens the App's credential, and false when none is registered.
 func (a *App) credential(ctx context.Context) (Credential, bool, error) {
+	cred, _, ok, err := a.credentialVersion(ctx)
+
+	return cred, ok, err
+}
+
+func (a *App) credentialVersion(ctx context.Context) (Credential, int, bool, error) {
 	opened, err := a.vault.Open(ctx, AppSecret)
 	if errors.Is(err, vault.ErrNotFound) || errors.Is(err, vault.ErrNotConfigured) {
-		return Credential{}, false, nil
+		return Credential{}, 0, false, nil
 	}
 
 	if err != nil {
-		return Credential{}, false, vaultError(err)
+		return Credential{}, 0, false, vaultError(err)
 	}
 
 	cred, err := DecodeCredential(opened.Payload[vault.KeyValue])
 	if err != nil {
-		return Credential{}, false, err
+		return Credential{}, 0, false, err
 	}
 
-	return cred, true, nil
+	return cred, opened.Version, true, nil
 }
 
 // Status is what the owner is shown of the App: never its key or secret.
@@ -209,6 +217,11 @@ func (a *App) CompleteRegistration(ctx context.Context, state, code string) erro
 		return fmt.Errorf("exchanging GitHub's code for the App: %w", err)
 	}
 
+	// Keep the one-use registration even if GitHub does not expose the bot yet. The first App offer retries.
+	lookup, stop := context.WithTimeout(ctx, gitHubRead)
+	cred.BotUserID, _ = a.client.userID(lookup, cred.Slug+"[bot]", "")
+	stop()
+
 	value, err := cred.Encode()
 	if err != nil {
 		return err
@@ -288,27 +301,33 @@ func (a *App) TestDelivery(ctx context.Context) (string, string, error) {
 // TokenFor is a token of the App's installation on a repository (host github.com, path owner/name), and false when
 // no App is registered or none of its installations covers it: its work then uses the owner's token, as before.
 func (a *App) TokenFor(ctx context.Context, host, path string) (Token, bool, error) {
+	token, _, ok, err := a.tokenFor(ctx, host, path)
+
+	return token, ok, err
+}
+
+func (a *App) tokenFor(ctx context.Context, host, path string) (Token, Credential, bool, error) {
 	if a == nil || !strings.EqualFold(host, Host) {
-		return Token{}, false, nil
+		return Token{}, Credential{}, false, nil
 	}
 
 	installation, ok, err := a.store().InstallationOf(ctx, path)
 	if err != nil || !ok {
-		return Token{}, false, err
+		return Token{}, Credential{}, false, err
 	}
 
 	cred, ok, err := a.credential(ctx)
 	if err != nil || !ok {
-		return Token{}, false, err
+		return Token{}, Credential{}, false, err
 	}
 
 	token, err := a.tokens.Of(ctx, cred, installation.InstallationID, installation.RepositoryID)
 	if err != nil {
-		return Token{}, false, fmt.Errorf("making a token of the GitHub App's installation on %s: %w",
+		return Token{}, Credential{}, false, fmt.Errorf("making a token of the GitHub App's installation on %s: %w",
 			path, err)
 	}
 
-	return token, true, nil
+	return token, cred, true, nil
 }
 
 // Covers says whether a repository's work goes with the App's tokens: an App is registered and installed on it.
@@ -736,23 +755,6 @@ func (a *App) TokenOfDispatch(ctx context.Context, dispatchID string) (agenttool
 	}
 
 	return agenttool.GitHubToken{Token: token.Value, ExpiresAt: token.ExpiresAt}, true, nil
-}
-
-// CoversOffer says whether an offer on a repository goes as the App's, for the node API: the App covers it and a
-// token of it can be made now (kept in the cache for the worker's first asks). The offer then carries no token: the
-// node asks for one at each use. False, and the offer goes with the owner's token, when it does not or none can be
-// made.
-func (a *App) CoversOffer(ctx context.Context, host, path string) bool {
-	_, ok, err := a.TokenFor(ctx, host, path)
-	if err != nil {
-		a.logger.WarnContext(ctx, "an offer goes with the owner's token: the GitHub App's could not be made",
-			slog.String("event", "githubapp.token_failed"), slog.String("repository", path),
-			slog.String("error", err.Error()))
-
-		return false
-	}
-
-	return ok
 }
 
 // FindRequest finds and reads a followed pull request (githost.FindRequest) with the App's token, when the App covers

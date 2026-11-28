@@ -22,11 +22,11 @@ import (
 // The App the fake registers, and its one installation.
 const (
 	AppID        = 4242
+	BotUserID    = 4343
+	OwnerUserID  = 164090677
 	Slug         = "hypomnema-owner"
 	Installation = 77
 	Head         = "abc1234def5678"
-	// OwnerID is GitHub's id of the account that registers the App, kl3inIT.
-	OwnerID = 101
 )
 
 // GitHub answers the App's requests.
@@ -46,9 +46,10 @@ type GitHub struct {
 	state       string
 	// reads counts the reads of the pull request's checks, minted the installation tokens made; asked holds the
 	// Authorization of each read.
-	reads  int
-	minted int
-	asked  []string
+	reads    int
+	botReads int
+	minted   int
+	asked    []string
 	// scopes holds the repository_ids each token was asked for, nil for a token of the whole installation.
 	scopes [][]int64
 	// head is the pull request's head.
@@ -206,6 +207,14 @@ func (g *GitHub) Asked() []string {
 	return append([]string(nil), g.asked...)
 }
 
+// BotReads is how often GitHub was asked for the App's bot user.
+func (g *GitHub) BotReads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.botReads
+}
+
 // Token is the n-th installation token minted, from 1.
 func Token(n int) string { return fmt.Sprintf("ghs_installation_token_%d", n) }
 
@@ -227,8 +236,14 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 		strings.HasSuffix(path, "/conversions"):
 		return answer(http.StatusCreated, map[string]any{
 			"id": AppID, "slug": Slug, "html_url": "https://github.com/apps/" + Slug,
-			"owner": map[string]any{"login": "kl3inIT", "id": OwnerID}, "pem": g.PEM, "webhook_secret": g.Secret,
+			"owner": map[string]any{"login": "kl3inIT", "id": OwnerUserID}, "pem": g.PEM, "webhook_secret": g.Secret,
 		})
+	case r.Method == http.MethodGet && path == "/users/"+Slug+"[bot]":
+		g.botReads++
+
+		return answer(http.StatusOK, map[string]any{"id": BotUserID})
+	case r.Method == http.MethodGet && path == "/users/kl3inIT":
+		return answer(http.StatusOK, map[string]any{"id": OwnerUserID})
 	case r.Method == http.MethodGet && path == "/app/installations":
 		if !strings.HasPrefix(auth, "Bearer ey") {
 			return answer(http.StatusUnauthorized, map[string]any{"message": "a JWT is required"})

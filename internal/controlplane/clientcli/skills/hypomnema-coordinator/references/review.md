@@ -4,6 +4,11 @@
 example a queue fix or a refactor) needs a reviewer from another vendor. The author's spec says "A review comes
 before the merge: do not turn on auto-merge." Hold the PR if no independent reviewer can run.
 
+The control plane posts the commit status `review` on a PR's head: success where a verdict on that head is
+`correct`, failure with the first finding where it is `incorrect` or `blocked`, and success "no review needed" on
+each head of a `quick` Task's PR. A new head has none until it is reviewed; where `review` is a required check,
+the PR merges only at a head a reviewer judged correct.
+
 Review a plan before showing it to the owner: use `profile: reviewer`, `kind: broad` and `review_of` set to the
 succeeded planner Task's id. For example, "Check whether this retry design is executable; verify the cited paths
 and the acceptance checks", followed by the plan verbatim. Ask the planner to address blockers. Once the owner
@@ -19,6 +24,8 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    Look at its checks first (`gh pr checks <url>`).
    Do not rerun a failing test to get a green check. Hold the merge until the failure is fixed or, for a flaky
    test, the test is quarantined with an issue and a note visible to the owner (issue #1281).
+   When a review or fix Task investigates a flaky test or asks for repeated test runs, load the `recovery`
+   reference and copy its [test repeat rules](recovery.md#flaky-tests-and-repeat-runs) into the Task's spec.
    For an important pull request you may first ask CodeRabbit to review it: `gh pr comment <url> --body
    "@coderabbitai review"`, a write the owner approves like any other. Important means it adds a migration,
    changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
@@ -100,7 +107,8 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    where `<reviewed_sha>` is the earlier `Head:`, and set `"effort": "medium"` on the Task. Review the whole change
    again, at the usual effort, only for new behavior, a redesign or a large new diff. A head whose only change
    since the reviewed head is a clean merge of the base, a `make migration-fix` rename of the change's migrations
-   or wording needs green CI only, no new review. Every verdict names the head it covers.
+   or wording needs only a review of that diff, at `"effort": "medium"`, for its `review` status. Every verdict
+   names the head it covers.
    After round 3, if any blocking finding remains, give the owner a one-line report with the verdict
    and remaining blockers, then stop without waiting for an answer (issue #871). Leave the Run and pull request open
    with auto-merge off and add no Task. The "Waiting for you" label may stay until work is added or the Run ends.

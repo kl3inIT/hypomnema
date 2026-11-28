@@ -20,11 +20,11 @@ import (
 // The people of these scenarios (issue #1232): the owner, who registered the App (the fake's manifest answers
 // kl3inIT); Linh, a teammate with write access; a visitor who can only read; and a bot.
 var (
-	ownerOnGitHub = githubapptest.Person{Login: "kl3inIT", ID: githubapptest.OwnerID}
+	ownerOnGitHub = githubapptest.Person{Login: "kl3inIT", ID: githubapptest.OwnerUserID}
 	linhOnGitHub  = githubapptest.Person{Login: "linh-dev", ID: 501}
 	visitor       = githubapptest.Person{Login: "visitor", ID: 601}
 	aBot          = githubapptest.Person{Login: "dependabot[bot]", ID: 49699333, Type: "Bot"}
-	theApp        = githubapptest.Person{Login: githubapptest.Slug + "[bot]", ID: 7001, Type: "Bot"}
+	theApp        = githubapptest.Person{Login: githubapptest.Slug + "[bot]", ID: githubapptest.BotUserID, Type: "Bot"}
 )
 
 // mention is the App's handle, as its slug names it.

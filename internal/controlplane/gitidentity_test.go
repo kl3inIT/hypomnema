@@ -25,14 +25,23 @@ import (
 type fakeHosts struct {
 	mu    sync.Mutex
 	asked []string
+	body  string            // the last request body sent, if any
 	users map[string]string // token → body
 }
 
 func (f *fakeHosts) RoundTrip(r *http.Request) (*http.Response, error) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
+	var sent []byte
+	if r.Body != nil {
+		sent, _ = io.ReadAll(r.Body)
+	}
+
 	f.mu.Lock()
 	f.asked = append(f.asked, r.URL.Host+r.URL.Path+" "+token)
+	if len(sent) > 0 {
+		f.body = string(sent)
+	}
 	body, ok := f.users[token]
 	f.mu.Unlock()
 
@@ -52,6 +61,13 @@ func (f *fakeHosts) askedSoFar() []string {
 	defer f.mu.Unlock()
 
 	return slices.Clone(f.asked)
+}
+
+func (f *fakeHosts) lastBody() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.body
 }
 
 // lockedLog is a log written beside the test.

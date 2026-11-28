@@ -198,16 +198,17 @@ func (a *App) call(ctx context.Context, cred Credential, ev Event) error {
 // isOwner says whether a caller is the owner's account: the one that registered the App (#1232, row 7), by its login,
 // and by GitHub's id of it when the registration kept one, since a login given up can be taken by someone else.
 func (a *App) isOwner(cred Credential, u User) bool {
-	return cred.Owner != "" && strings.EqualFold(cred.Owner, u.Login) && (cred.OwnerID == 0 || cred.OwnerID == u.ID)
+	return cred.Owner != "" && strings.EqualFold(cred.Owner, u.Login) && (cred.OwnerUserID == 0 || cred.OwnerUserID == u.ID)
 }
 
 // reviewed records the review the App itself left on a pull request on the item of its calls, the work of the Bot
 // whose attempt is on the item (inboxstore.RecordReview). Only the App's own account's review is: its login is its
-// slug with [bot], which no person's can be (claude-code-action actor.ts).
+// slug with [bot], which no person's can be (claude-code-action actor.ts), and its id the bot's when known (#1312).
 func (a *App) reviewed(ctx context.Context, cred Credential, ev Event) error {
 	r := ev.Review
 	if ev.Action != "submitted" || ev.PullRequest == nil || r == nil || r.User.Type != "Bot" ||
-		!strings.EqualFold(r.User.Login, cred.Slug+"[bot]") || !strings.HasPrefix(r.HTMLURL, "https://github.com/") {
+		!strings.EqualFold(r.User.Login, cred.Slug+"[bot]") || (cred.BotUserID > 0 && r.User.ID != cred.BotUserID) ||
+		!strings.HasPrefix(r.HTMLURL, "https://github.com/") {
 		return nil
 	}
 
