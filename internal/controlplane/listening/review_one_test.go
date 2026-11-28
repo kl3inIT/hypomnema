@@ -357,7 +357,8 @@ func TestReviewOneCareersCountsOnePlaceOnce(t *testing.T) {
 			return
 		}
 
-		_, _ = io.WriteString(w, `<a href="/jobs/a">a</a><a href="/jobs/b">b</a><a href="/jobs/c">c</a><a href="/jobs/d">d</a>`)
+		_, _ = io.WriteString(w, `<a href="/jobs/a">a</a><a href="/jobs/b">b</a>`+
+			`<a href="/jobs/c">c</a><a href="/jobs/d">d</a>`)
 	})
 
 	web := func(context.Context, string, int) (websearch.Answer, error) {
