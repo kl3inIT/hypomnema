@@ -58,6 +58,14 @@ type Cookie struct {
 	SameSite string  `json:"sameSite,omitempty"`
 }
 
+// Response is the answer to one request a context's tab sent since its last navigation: its address, status and
+// numeric Retry-After, none of its body (linkedin-mcp-server core/throttle.py:46-53, ThrottleHit).
+type Response struct {
+	URL        string
+	Status     int
+	RetryAfter string
+}
+
 // isolated is one browser context of the engine's own, with its connection
 // and its one tab.
 type isolated struct {

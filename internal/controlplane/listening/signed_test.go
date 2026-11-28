@@ -191,8 +191,17 @@ type pageFake struct {
 	mu       sync.Mutex
 	at       string
 	visits   []string
+	// responses are what the requests the page sent since its last navigation were answered (browser.Response).
+	responses []browser.Response
 	scrolls  int
 	snapshot func(address string, scrolls int) map[string]any
+}
+
+func (p *pageFake) Responses(context.Context) ([]browser.Response, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.responses, nil
 }
 
 func (p *pageFake) Navigate(_ context.Context, address string) error {
