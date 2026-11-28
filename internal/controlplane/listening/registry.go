@@ -41,6 +41,19 @@ type Result struct {
 type Platform struct {
 	Name     string
 	Backends []Backend
+	// Read reads one of its items in full, the post and its top comments, for the semantic pass's full read
+	// (Agent-Reach's read action beside search, channels/base.py:30-50; last30days reads a kept thread's comments
+	// after ranking, reddit_hydrate.py); nil: its items are not read.
+	Read func(ctx context.Context, r Request, it Item) (Document, error)
+}
+
+// Document is an item read in full: its text, and when its page says it was published, nil when it says none. Its text
+// is empty unless the post or the page itself was read: a search's snippet is never a Document's text.
+type Document struct {
+	Text string
+	// Title is the post's own title, when the read gave one other than the search's; it is in Text too.
+	Title     string
+	Published *time.Time
 }
 
 func (p Platform) backendNames() []string {
@@ -60,8 +73,9 @@ type Request struct {
 	Limit int
 	// From and To are the window: an item dated outside it is dropped.
 	From, To time.Time
-	// Web asks the web search chain; nil: it cannot be asked.
-	Web WebSearch
+	// Web asks the web search chain, Fetch reads a page; nil: it cannot be asked.
+	Web   WebSearch
+	Fetch WebFetch
 	// Pace waits for the backend's turn at a host, at least gap after the last call there, and gives the function
 	// that ends its turn.
 	Pace func(ctx context.Context, host string, gap time.Duration) (func(), error)
@@ -282,6 +296,7 @@ func (s *Service) inWindow(res Result, source, backend, label string, req Reques
 			it.DateConfidence = "high"
 		}
 
+		it.body = it.Text
 		it.Text = clip(it.Text, maxTextRunes)
 		it.Title = strings.Join(strings.Fields(it.Title), " ")
 		out = append(out, it)

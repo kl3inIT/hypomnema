@@ -166,6 +166,12 @@ type Page struct {
 	// Truncated says Content was cut at MaxContent characters, or the page at
 	// its byte limit.
 	Truncated bool
+	// Published is when the page says it was published, from its own
+	// metadata (Readability's: JSON-LD datePublished, article:published_time,
+	// Dublin Core) or Jina Reader's "Published Time:" line, as Agent-Reach
+	// reads it (agent_reach/channels/web.py:141-150); nil when it says none
+	// (issue #1306: a page's own date, not a search snippet's).
+	Published *time.Time
 }
 
 // Key is one of the owner's API keys for a provider, as the vault holds it.
