@@ -32,7 +32,7 @@ import (
 // runs, run a live test", doctor.py:2954-2958), with Agent-Reach's live test, a fixed search asked of each backend
 // (channels/reddit.py:50, {"query": "python", "limit": 2}; manage.py:143-208). The owner tests one again with a press
 // on its card, which first clears its rests, as an explicit doctor run clears Reddit's path skips ("a doctor run is
-// how a user says 'try that path again'", doctor.py:2939-2946).
+// how a user says 'try that path again'", doctor.py:2945-2950).
 //
 // When a source breaks the owner is told once, and told again only after it has worked in between: postiz flags a
 // channel whose refresh failed only where the flag was not set, and only the attempt that set it notifies
@@ -419,7 +419,7 @@ func (s *Service) kept(ctx context.Context, now time.Time) keptState {
 
 // Test reads a source with its live test, each of its backends asked in turn (Agent-Reach run_checks,
 // runtime/manage.py:143-208), and keeps what it found; again clears its rests first, the owner asking to try it now
-// (doctor.py:2939-2946). It passes when one backend reads an item (manage.py:181-185).
+// (doctor.py:2945-2950). It passes when one backend reads an item (manage.py:181-185).
 func (s *Service) Test(ctx context.Context, source string, web WebSearch, again bool) error {
 	platforms, on, err := s.live(ctx)
 	if err != nil {
