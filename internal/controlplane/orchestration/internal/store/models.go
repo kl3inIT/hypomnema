@@ -752,6 +752,17 @@ type Model struct {
 	Name     string
 }
 
+type NoReviewRequest struct {
+	TaskID      string
+	RepoHost    string
+	Repo        string
+	Branch      string
+	PullRequest string
+	Since       int64
+	LookedAt    int64
+	DoneAt      sql.NullInt64
+}
+
 type Node struct {
 	ID                  string
 	Name                string
@@ -940,6 +951,16 @@ type Repo struct {
 
 type RestartBoot struct {
 	At int64
+}
+
+type ReviewStatus struct {
+	PullRequest string
+	HeadSha     string
+	TaskID      string
+	Reason      string
+	QueuedAt    int64
+	DoneAt      sql.NullInt64
+	Outcome     sql.NullString
 }
 
 type ReviewVerdict struct {

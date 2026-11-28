@@ -6239,6 +6239,34 @@ The owner's commands:
   `## Reviewed head` section appended to its spec, naming the Task, verdict and head of the latest one and asking
   for that verdict's findings and `git diff <reviewed_sha>..<head>`. A spec without `Head:` is not refused.
   Verdicts given before the migration that adds `review_verdicts` are not recorded.
+  The control plane posts a commit status `review` on the head a verdict covers (issue #1279,
+  `orchestration/reviewstatus.go`, after claude-code-action's `agent-approval-check`, a commit status on the head
+  made a required check): `success` for `correct` ("correct: reviewed by Task <id>"), `failure` for `incorrect` or
+  `blocked`, its description the verdict and the review's first finding (its `Findings:` field, else the first
+  line under a Findings heading, else its first line of prose), cut to 140 characters, linking the Task on the
+  Team page under `HYPOMNEMA_PUBLIC_URL`. A `quick` Task's pull request, which needs no worker review, gets
+  `success` "no review needed: quick Task <id>" on each of its heads: the Task is kept in `no_review_requests`
+  (repository, branch, the pull request its evidence names) when it succeeds, whatever becomes of its Run, and each
+  pass finds its pull request by that branch (`githost.FindRequest`, as the follower) and queues its open head,
+  only when the quick Task itself is the Task whose Dispatch last reported publishing that head (`dispatch_effects`
+  `git_push`, from `publish_branch`), so a narrow or broad Task that continues it, or is reopened on it, makes the
+  heads it pushes need their review, and a Task canceled before it pushed changes nothing. A head without that
+  record (on GitLab, where `publish_branch` does not run, or a push the node did not report) gets no automatic
+  status: it fails closed and is posted by hand ([CI runbook](docs/ci.md)). A queued status is dropped as
+  `superseded` when its head is no longer the quick Task's. It is followed until it is merged or closed, its head is
+  not the quick Task's, or a day passed. A branch without a pull request yet is
+  looked up every pass for 10 minutes, then every 15 minutes. The migration keeps the quick Tasks that succeeded
+  before it, with the pull request the follower found. Each status is queued in `review_statuses` (pull request,
+  full head SHA, Task, reason) in the transaction that learns it, a later
+  verdict on the same head replacing it; a verdict naming an abbreviated head is not queued, since a prefix may
+  name a newer commit too. Once a minute, after the reads, the follower reads each queued one's pull request with
+  its repository's Connection token (found by branch with the GitHub App's token where the App covers it; the App
+  only reads statuses) and posts it on that head when it is exactly the pull request's head
+  (`githost.PostStatus`; on GitHub `POST /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
+  open, a head that moved, a repository without a token and a status still unposted after a day are dropped
+  with that outcome; a failed post is tried again next minute. A status is of one commit, so a new head has none
+  until it is reviewed. The migration that adds the table queues each pull request's latest verdict, so the
+  open ones get theirs on the first pass. Pull requests no Task made get nothing ([CI runbook](docs/ci.md)).
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the

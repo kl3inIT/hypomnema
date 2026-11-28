@@ -78,7 +78,8 @@ availability: these depend on the kind and the accounts. Do not dispatch a retir
   owner sees it. Load `investigate` and `review`.
 - `explorer` answers standalone questions when the relevant files are not known. Load `investigate`.
 - `reviewer` checks from another vendor. `quick` needs green CI and no worker review. For `narrow` and `broad`,
-  load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec.
+  load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec. The
+  control plane posts the commit status `review` on the head a verdict covers (`review` reference).
 - For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
   a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
   the owner approves like any other. Nothing waits for CodeRabbit when it is rate-limited or does not answer, and it
