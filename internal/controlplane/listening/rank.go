@@ -54,7 +54,8 @@ var engagementWeights = map[string]struct {
 		fields: []weighted{{"likes", 0.55}, {"reposts", 0.25}, {"replies", 0.15}, {"quotes", 0.05}}, reference: 9.2,
 	},
 	// TikTok's weights without its top-comment slot, on the view scale YouTube's run on (lib/signals.py:278-285 and
-	// 399-410).
+	// 399-410). Departure, as YouTube's: the 0.10 that _tiktok_engagement gives the top comment's likes is left out,
+	// a comment being an item of its own here, scored on commentReference.
 	SourceTikTok: {
 		fields: []weighted{{"views", 0.45}, {"likes", 0.27}, {"comments", 0.18}}, reference: 11.5, floor: 2.1,
 	},

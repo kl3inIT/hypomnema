@@ -587,6 +587,9 @@ func (s *Service) session(source string) *Session {
 	return &Session{s: s, source: source, signed: p.Signed}
 }
 
+// restID is the registry's id of the backend that reads as the account (runStream's p.Name + "/" + b.Name).
+func (se *Session) restID() string { return se.source + "/" + se.signed.Backend }
+
 // verifying says the session is a sign-in's candidate being verified, whose read only shows that it reads.
 func (se *Session) verifying() bool { return se.candidate != nil }
 
@@ -598,6 +601,14 @@ func (se *Session) Site() signin.Site { return se.signed.Site }
 func (se *Session) Ready(ctx context.Context) *SourceError {
 	if f := se.s.stopOf(ctx, se.source); f != nil {
 		return f
+	}
+
+	// A rate limit's rest of the account's backend, for a source whose site sets no longer stop (stop), holds for a
+	// sign-in's check too: the owner's tab, which asks every two seconds, sends nothing until the site's wait ends
+	// (review round 1 of PR #1363; radar collection-pacing-contract.md:12, "waiting longer is not permission to
+	// retry").
+	if r := se.s.restOf(se.restID()); r != nil && (r.Code == CodeRateLimited || r.Code == CodeLimitReached) {
+		return &SourceError{Code: r.Code, Detail: r.Detail, Until: r.Until, transient: true}
 	}
 
 	if se.candidate != nil {
@@ -739,11 +750,19 @@ func (se *Session) met(ctx context.Context, f *SourceError) {
 }
 
 // stop keeps a throttle's stop of the source's site for its Throttle, or longer when the site named a later time; an
-// earlier stop is never shortened (StopListeningSource). A backend calls it before its turn at the site ends, so a
-// read queued behind it reads the stop once its turn comes, as call.do rests a path before its turn ends
-// (http.go:72-101).
+// earlier stop is never shortened (StopListeningSource). A source with no Throttle rests its account's backend as the
+// registry rests any backend, until the site's Retry-After or for RateLimitedRest (restFor), the rest a search
+// skips and Ready reads, a sign-in's check included (review round 1 of PR #1363). A backend calls it before its turn
+// at the site ends, so a read queued behind it reads the stop once its turn comes, as call.do rests a path before its
+// turn ends (http.go:72-101).
 func (se *Session) stop(ctx context.Context, f *SourceError) {
-	if f == nil || f.resting || f.Code != CodeRateLimited || se.signed.Throttle == 0 {
+	if f == nil || f.resting || f.Code != CodeRateLimited {
+		return
+	}
+
+	if se.signed.Throttle == 0 {
+		se.s.rest(se.restID(), f)
+
 		return
 	}
 

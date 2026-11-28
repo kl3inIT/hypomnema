@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -261,8 +262,8 @@ func TestTikTokIsOffUntilItsConsentAndNeedsItsSessionAndMsToken(t *testing.T) {
 
 	require.NoError(t, rig.svc.Consent(t.Context(), listening.SourceTikTok))
 
-	for header, missing := range map[string]string{ //nolint:gosec // Made-up cookies.
-		"msToken=only-a-visitors-token": "sessionid or sessionid_ss",
+	for header, missing := range map[string]string{
+		"msToken=only-a-visitors-token": "sessionid or sid_tt or uid_tt",
 		"sessionid=very-secret":         "msToken",
 	} {
 		err := rig.svc.PasteCookies(t.Context(), listening.SourceTikTok, header, "")
@@ -312,7 +313,7 @@ func TestTikTokReadsItsWebAPIFromTheAccountsTab(t *testing.T) {
 			}
 			for i, text := range said {
 				comments = append(comments, map[string]any{
-					"cid": video + strconv.Itoa(i+1), "text": text + " (" + author + ")", "digg_count": 3,
+					"cid": video + strconv.Itoa(i+1), "text": text + " (" + author + ")", "digg_count": 3 + 50*(i/6),
 					"create_time": recent.Add(time.Minute).Unix(),
 					"user":        map[string]any{"unique_id": fmt.Sprintf("%s-u%d", author, i)},
 				})
@@ -357,6 +358,9 @@ func TestTikTokReadsItsWebAPIFromTheAccountsTab(t *testing.T) {
 	assert.True(t, v.Direct)
 
 	require.Len(t, comments, 2*5, "five comments of each video read, the author's own left out")
+
+	assert.True(t, slices.ContainsFunc(comments, func(c listening.Item) bool { return c.Author == "top.one-u6" }),
+		"the most liked comment, last in TikTok's list, is kept: the most liked come first")
 
 	for _, c := range comments {
 		assert.NotEqual(t, "top.one", c.Author)

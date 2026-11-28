@@ -1740,7 +1740,7 @@ export const signOutListeningAccount = <ThrowOnError extends boolean = true>(opt
 /**
  * Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
  *
- * The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, TikTok's sessionid or sessionid_ss and msToken), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+ * The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, TikTok's sessionid, sid_tt or uid_tt and msToken), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
  */
 export const pasteListeningCookies = <ThrowOnError extends boolean = true>(options: Options<PasteListeningCookiesData, ThrowOnError>): RequestResult<PasteListeningCookiesResponses, PasteListeningCookiesErrors, ThrowOnError> => (options.client ?? client).put<PasteListeningCookiesResponses, PasteListeningCookiesErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

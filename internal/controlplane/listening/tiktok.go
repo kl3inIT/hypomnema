@@ -56,9 +56,9 @@ import (
 //   - Comments are /api/comment/list/ with aweme_id, count 20 and cursor 0 (video.py:258-303), each with cid, text,
 //     user and digg_count (TikTokApi/api/comment.py:43-52); top-level only, the list's, never replies (comment.py:54-70
 //     reads those apart); five at most of each of the three most watched videos (radar browser-collection.md:41, "at
-//     most five visible comment bodies"; last30days' three videos, as YouTube's here), the video's own author left out.
-//     A comment's date is its create_time, read in the snake case of the fields comment.py reads (inferred: issue
-//     #1236 finds createTime missing on comments).
+//     most five visible comment bodies"; last30days' three videos, as YouTube's here), the most liked first and the
+//     video's own author left out (last30days _normalize_comments on the same endpoint, tiktok.py:695-780, its
+//     _PUBLIC_COMMENTS_URL; it sorts by digg_count, :746-751). A comment's date is its create_time (tiktok.py:761-767).
 //   - An empty body is TikTok refusing the session as a bot (TikTok-Api README.md:110, "this means TikTok is blocking
 //     the request and detects you're a bot"; tiktok.py:885-889, raised without a retry; MediaCrawler, read only,
 //     treats Douyin's empty answer as "account blocked"): the account is refused until the owner signs in again
@@ -110,13 +110,13 @@ const (
 // tiktokCadence is TikTok's pace as an account (radar collection-pacing-contract.md:7-8).
 var tiktokCadence = Cadence{Gap: 12 * time.Second, Every: 5, Cooldown: 30 * time.Second}
 
-// tiktokSite is TikTok as the shared sign-in knows it: the msToken cookie TikTok-Api needs (README.md:129, "get your
-// own ms_token from your cookies on tiktok.com"; tiktok.py:329-332) and the session cookie only a signed-in account
-// has, sessionid or sessionid_ss, as last30days-skill-cn checks Douyin's, ByteDance's other web client
-// (crawler_bridge.py:99-104). Inferred: that TikTok's session cookies carry Douyin's names.
+// tiktokSite is TikTok as the shared sign-in knows it: its sign-in page and the session cookies only a signed-in
+// account has, sessionid, sid_tt or uid_tt, as OpenCLI checks a TikTok session (jackwener/OpenCLI, Apache-2.0,
+// clis/tiktok/auth.js:4-8 and 60), and the msToken cookie TikTok-Api needs (README.md:129, "get your own ms_token
+// from your cookies on tiktok.com"; tiktok.py:329-332).
 var tiktokSite = signin.Site{
 	Name: "TikTok", URL: tiktokURL + "/login", Domains: []string{"tiktok.com"},
-	Login: [][]string{{"sessionid", "sessionid_ss"}, {"msToken"}},
+	Login: [][]string{{"sessionid", "sid_tt", "uid_tt"}, {"msToken"}},
 }
 
 // tiktokPostPath is a video's path (last30days shortform_oss._TT_RE, shortform_oss.py:33-35).
@@ -321,7 +321,13 @@ func tiktokCall(ctx context.Context, r Request, page Page, address string) ([]by
 		return nil, Fail(CodeBroken, "asking TikTok from the account's tab: %s", oneLine(err.Error()))
 	}
 
-	return tiktokBody(got, address, r.now())
+	body, f := tiktokBody(got, address, r.now())
+
+	// A rate limit is kept before TikTok's turn ends, a sign-in's check's too, so a read or a check queued behind it
+	// sends nothing until TikTok's wait ends (accounts.go stop; linkedInSearch does the same, linkedin.go:144-150).
+	r.Session.stop(ctx, f)
+
+	return body, f
 }
 
 // tiktokBody is a request's answer, or what it says of the session (the package comment's rules).
@@ -342,6 +348,14 @@ func tiktokBody(got tiktokAnswer, address string, now time.Time) ([]byte, *Sourc
 		f := HTTPFailure(got.Status, h, now)
 		f.Detail = "TikTok answered " + f.Detail + " to " + path
 		f.transient = f.Code == CodeRateLimited
+
+		// A 404 here is the web API's endpoint gone, not the question's page: TikTok's web API changed, and the
+		// source's next route is still asked (review round 1 of PR #1363; registry.go stops a source's chain at a
+		// not_found, which is about the question, Agent-Reach FINAL_CODES). Inferred: no reference reads a 404 of
+		// TikTok's web API; TikTok-Api raises it as an invalid response (video.py:104-107 for a page).
+		if f.Code == CodeNotFound {
+			f.Code, f.Detail = CodeBroken, f.Detail+": TikTok's web API may have changed"
+		}
 
 		return nil, f
 	}
@@ -443,9 +457,10 @@ func tiktokBarrier(st tiktokState) *SourceError {
 	return nil
 }
 
-// tiktokVideos are a search answer's videos. An answer with has_more and no item_list is TikTok's own empty answer, as
-// TikTok-Api reads a missing list (search.py:107 and 111); one with neither was not read, never a clean zero (radar
-// facebook-topic-adapter.md:9: no zero without the site's own empty answer).
+// tiktokVideos are a search answer's videos. An answer with neither item_list nor has_more was not read, never a clean
+// zero (radar facebook-topic-adapter.md:9: no zero without the site's own empty answer). Inferred, no reference
+// says it: one with has_more and no item_list is TikTok's own empty answer; TikTok-Api reads any missing list as
+// empty (search.py:107 and 111), which this narrows to an answer that carries has_more.
 func tiktokVideos(body []byte, now time.Time) ([]Item, *SourceError) {
 	var payload struct {
 		Items   *[]tiktokVideo  `json:"item_list"`
@@ -557,6 +572,14 @@ func tiktokCommentsOf(ctx context.Context, r Request, page Page, v Item) ([]Item
 
 	var items []Item
 
+	// The most liked first (last30days _normalize_comments, tiktok.py:746-751).
+	slices.SortStableFunc(payload.Comments, func(a, b tiktokComment) int {
+		x, _ := countOf(a.Likes)
+		y, _ := countOf(b.Likes)
+
+		return cmp.Compare(y, x)
+	})
+
 	for _, c := range payload.Comments {
 		text := strings.TrimSpace(c.Text)
 		if c.CID == "" || strings.Trim(c.CID, "0123456789") != "" || text == "" ||
@@ -564,8 +587,9 @@ func tiktokCommentsOf(ctx context.Context, r Request, page Page, v Item) ([]Item
 			continue
 		}
 
-		// Inferred, TikTok gives a comment no address of its own: the video's, with the comment's id as a parameter
-		// TikTok's page ignores, so that each comment keeps its own address through the dedupe.
+		// Inferred, TikTok gives a comment no address of its own: the video's, with the comment's id as a parameter,
+		// so that each comment keeps its own address through the dedupe (NormalizeURL keeps the query, text.go).
+		// Nothing shows that TikTok's page opens that comment: it opens the video.
 		it := Item{
 			NativeID: c.CID, URL: v.URL + "?comment_id=" + c.CID, Author: c.User.UniqueID, Text: text,
 			Parent: v.NativeID, Container: tiktokCaptionLine(v.Text),
@@ -725,7 +749,9 @@ func tiktokYtDlpBackend(run Command) Backend {
 
 			var (
 				notes []string
-				first *SourceError
+				// first is the first video's failure, a value: kept as the part not read, never returned as an error.
+				first  SourceError
+				missed int
 			)
 
 			for _, address := range urls {
@@ -754,13 +780,24 @@ func tiktokYtDlpBackend(run Command) Backend {
 				}
 
 				notes = append(notes, address+": "+f.Error())
-				first = cmp.Or(first, f)
+				if missed++; missed == 1 {
+					first = *f
+				}
 			}
 
 			// Nothing read and every read failed: the failure, never a clean zero (last30days "yt-dlp extracted 0
-			// posts", shortform_oss.py:747-749).
-			if len(res.Items) == 0 && first != nil {
-				return Result{}, first
+			// posts", shortform_oss.py:747-749). It is the videos', each one's own (a video gone answers "Video
+			// unavailable", ytFailureAt's not_found), not the question's, so it is kept as the part not read and the
+			// source's next route is still asked, where an error with not_found would end the source's chain
+			// (registry.go; review round 1 of PR #1363); last30days likewise drops a post yt-dlp cannot read and
+			// goes on (enrich_urls, --ignore-errors, shortform_oss.py:560-571 and 617-637).
+			if len(res.Items) == 0 && missed > 0 {
+				res.Failed = &SourceError{Code: first.Code, Detail: "yt-dlp read none of the " + strconv.Itoa(len(urls)) +
+					" TikTok videos the web search named: " + strings.Join(notes, "; "), Until: first.Until,
+					transient: first.transient}
+				res.Detail = answeredBy(a)
+
+				return res, nil
 			}
 
 			res.Detail = fmt.Sprintf("%s; yt-dlp read %d of %d TikTok videos", answeredBy(a), len(res.Items), len(urls))
@@ -785,7 +822,11 @@ func nearWindow(at time.Time, r Request) bool {
 	return !at.Before(r.From.Add(-day)) && !at.After(r.To.Add(day))
 }
 
-// tiktokYtDlp reads one video with yt-dlp in TikTok's turn.
+// tiktokYtDlp reads one video with yt-dlp in TikTok's turn: one yt-dlp run at a time at TikTok, the account's reads
+// queued in the same turn, with no gap between two runs. The gap is the one YouTube's yt-dlp reads take here (ytRun);
+// last30days runs four such reads at once (shortform_oss.py:43-46, _ENRICH_WORKERS), and radar's cadence, 12 seconds
+// for TikTok, is for a browser-backed read (collection-pacing-contract.md:3), which a CLI run without an account is
+// not.
 func tiktokYtDlp(ctx context.Context, run Command, r Request, address string) (Item, *SourceError) {
 	if r.Pace != nil {
 		done, err := r.Pace(ctx, tiktokHost, 0)
