@@ -48,7 +48,8 @@ const (
 )
 
 // Events are the events the App subscribes to (the comment's step 1): CI's end, a pull request's change, and the
-// conversations #1232 will answer. GitHub sends an App its installation events without a subscription.
+// conversations whose mentions of the App are its calls (issue #1232). GitHub sends an App its installation events
+// without a subscription.
 var Events = []string{
 	"check_suite", "workflow_run", "pull_request", "issue_comment", "pull_request_review",
 	"pull_request_review_comment",
@@ -86,8 +87,10 @@ func RegistrationURL(state string) string {
 // Credential is the App's: its id and what GitHub said of it, its private key and its webhook secret, kept as one
 // secret in the vault, as Omnara keeps the same values as one credential (github_app_setup_callback.go:137-145).
 type Credential struct {
-	AppID       int64  `json:"app_id"`
-	Slug        string `json:"slug"`
+	AppID int64  `json:"app_id"`
+	Slug  string `json:"slug"`
+	// Owner is the account that registered the App, the owner's (issue #1232, row 7), and OwnerUserID GitHub's id
+	// of it.
 	Owner       string `json:"owner"`
 	HTMLURL     string `json:"html_url"`
 	BotUserID   int64  `json:"bot_user_id,omitempty"`
@@ -190,7 +193,9 @@ func (c Client) do(ctx context.Context, method, path, token string, in, out any)
 		body = bytes.NewReader(raw)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, body)
+	// The host is GitHub's API, fixed or a test's; path holds only names checked before (RepositoryName, a login
+	// validLogin passed and url.PathEscape escaped, numbers), never a host (G704).
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, body) //nolint:gosec // above
 	if err != nil {
 		return fmt.Errorf("asking GitHub: %w", err)
 	}
@@ -212,7 +217,7 @@ func (c Client) do(ctx context.Context, method, path, token string, in, out any)
 		client = http.DefaultClient
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: the request's host is GitHub's API, as above
 	if err != nil {
 		// The URL holds no credential; the error is the transport's.
 		return fmt.Errorf("asking GitHub: %w", err)

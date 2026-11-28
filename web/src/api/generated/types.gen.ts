@@ -5721,14 +5721,14 @@ export type TodoLink = {
 };
 
 /**
- * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+ * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
  */
-export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp' | 'gmail' | 'meeting';
+export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp' | 'gmail' | 'meeting' | 'github';
 
 export type TodoSource = {
   kind: TodoSourceKind;
   /**
-   * The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting.
+   * The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, the meeting, or a GitHub issue's or pull request's owner/name#number.
    */
   id?: string;
   /**

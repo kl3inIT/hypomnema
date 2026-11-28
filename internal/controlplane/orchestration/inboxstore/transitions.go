@@ -84,6 +84,9 @@ type Change struct {
 	// Actor is, never from a field the Bot sends; empty when it acts elsewhere. The owner's message in it is evidence
 	// when the Bot records for him.
 	Chat string
+	// byCall says the change is a call of the GitHub App reopening its closed item (owner, 2026-11-28, issue
+	// #1232): the one exception to "only the owner reopens", which only reopenTx, in this package, can set.
+	byCall bool
 }
 
 // change is one guarded write of a to-do: it reads the row, checks the revision and the attempt, lets apply make
@@ -162,7 +165,8 @@ func (s *Store) changeTx(
 		}
 
 		if stateful || next.State != cur.State {
-			if err := allowed(cur.State, next.State, c.Actor); err != nil {
+			reopenByCall := c.byCall && Closed(cur.State) && next.State == Open
+			if err := allowed(cur.State, next.State, c.Actor); err != nil && !reopenByCall {
 				return err
 			}
 
@@ -669,8 +673,10 @@ func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 // its why_open. The Bot closes as its own only what it did on this item in this attempt, and its evidence shows that
 // work as the control plane recorded it: a Run of the attempt (its own Run, or one the Bot started from the
 // item's own chat since the attempt began), a pull request such a Run's task gave when it finished, its own comment
-// on the item in this attempt that carries a file or an Artifact it made (inbox_comment's files and artifacts), or a
-// message it sent for the item in this attempt, as its send recorded it (RecordSent). Nothing the owner or anyone
+// on the item in this attempt that carries a file or an Artifact it made (inbox_comment's files and artifacts), a
+// message it sent for the item in this attempt, as its send recorded it (RecordSent), or the review the GitHub App
+// made on the item's pull request in this attempt, by its address, as the App's own POST recorded it (RecordReview,
+// issue #1232). Nothing the owner or anyone
 // else made is the Bot's work: his comment, a message he sent, his message in a chat, a link or a file he gave, a
 // person's message, a mail, a meeting's line; each is recorded for whom it shows (for_owner, done_by), or shows
 // nothing. So the owner's reply stays his whatever the item's status, and work he handed to the Bot (a fix, a
@@ -704,14 +710,20 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string,
 		case l.Kind == LinkPullRequest:
 			n, err = q.CountAttemptPullRequest(ctx, store.CountAttemptPullRequestParams{Bot: bot, WorkRun: workRun,
 				WorkChat: workChat, Since: since, Url: l.Ref})
-		case l.Kind == LinkComment || personsMessage(l):
+		case l.Kind == LinkComment || personsMessage(l) || l.Kind == LinkURL:
 			if events == nil {
 				if events, err = q.ListTodoEvents(ctx, store.ListTodoEventsParams{TodoID: cur.ID, Lim: MaxEvents}); err != nil {
 					return fmt.Errorf("reading the history of to-do %s: %w", cur.ID, err)
 				}
 			}
 
-			if slices.ContainsFunc(events, func(e store.TodoEvent) bool { return attemptsWork(e, cur, bot, l) }) {
+			if slices.ContainsFunc(events, func(e store.TodoEvent) bool {
+				if l.Kind == LinkURL {
+					return reviewedInAttempt(e, cur, bot, l.Ref)
+				}
+
+				return attemptsWork(e, cur, bot, l)
+			}) {
 				n = 1
 			}
 		}
@@ -723,7 +735,8 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string,
 		if n == 0 {
 			return fmt.Errorf("%w: a Bot closes as its own only what it did on this to-do in this attempt, and every "+
 				"piece of its evidence is that work: a Run of the attempt, a pull request a task of it opened, its own "+
-				"comment with a file it made, or a message it sent for the item (with the account and the chat); %s "+
+				"comment with a file it made, a message it sent for the item (with the account and the chat), or the "+
+				"review the GitHub App left on the item's pull request in this attempt (url); %s "+
 				"is not; the owner's message or comment shows that he did it (for_owner), a person's that they did "+
 				"(done_by)", storeerr.ErrInvalid, l.Kind)
 		}

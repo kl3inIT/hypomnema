@@ -2663,9 +2663,8 @@ flowchart LR
       Omnara's `webhooks.go:21-120`): a body over 2 MiB, or one whose `X-Hub-Signature-256` is not the HMAC-SHA256
       of the body with the webhook secret (compared in constant time), is refused (401 for a signature) and changes
       nothing. Each delivery is recorded by its `X-GitHub-Delivery` id (`github_deliveries`, kept 30 days): one
-      whose id was recorded is answered 200 and not handled again. The body of `issue_comment`,
-      `pull_request_review` and `pull_request_review_comment` is kept for #1232, which answers them; nothing else is
-      done with them yet. `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
+      whose id was recorded is answered 200 and not handled again; no delivery's body is kept (a call's words go
+      to its Inbox item, below). `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
       for reads its checks once with the repository's token; `pull_request` `synchronize` (a new head) or
       `reopened` resets that wait to pending at the new head, unread, so the next ask reads the new head's checks;
       each change of the row grows its `version`, and a read of GitHub's keeps what it found only when the row is
@@ -2677,6 +2676,64 @@ flowchart LR
       closed never wins so, and a reopen's pending stands;
       `pull_request` `closed` marks it merged or closed and settles a followed pull request (#1053) without reading
       GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
+    - **Its calls** (issue #1232, `githubapp/calls.go`, `inboxstore/github.go`; who may call in
+      [docs/github-app.md](docs/github-app.md)): an `issue_comment` or `pull_request_review_comment` `created`, or a
+      `pull_request_review` `submitted`, whose own body names the App as a word by the slug kept in its credential
+      (`Credential.Slug`, never a fixed word; `@<slug>` or `@<slug>[bot]`, any
+      case, Omnara's `githubMentionsBot`, `github_event.go:363-393`) on a repository it is installed on (the
+      delivery's installation the one kept for it) is a call; an edit, an issue's or pull request's own body and a
+      `pull_request` event never are; a conversation's delivery that is not a call taken is forgotten once
+      handled, its id too, and the migration clears the bodies 00188 kept. The caller is
+      the delivery's `sender`, never the text: a `User` whose id is
+      the comment's author's (Omnara `github_event.go:255-262`, claude-code-action `trigger.ts` `isTextFromActor`),
+      with `admin` or `write` on the repository as `GET /repos/{owner}/{repo}/collaborators/{login}/permission`
+      answers with the installation's token for the same id (claude-code-action `permissions.ts:189-206`, Omnara
+      `permissions.go:12-37`); a bot (the App itself included), a reader or anyone else leaves no trace but the
+      delivery's id, and gets no answer. The request is the caller's words after the first mention on that line
+      only, a line ending at LF, CR LF or a lone CR as GitHub's Markdown ends one (`githubapp.Request`;
+      claude-code-action `docs/security.md:5`). `Inbox().Call` gives it, in one write, to the item of that issue or pull request that
+      has (`LatestTodoOfSource`, source `github`), else to a new open item given to the main Bot, created by the
+      system (`github`); an item the owner holds is given to the main Bot again, one a Bot holds stays with it; a
+      closed item is reopened by the call (`reopenTx`, its close cleared as `Reopen` clears it, a `state` event by
+      the caller, the owner or the system as `github:<login>`, with `after.github` the login and the call's address),
+      the owner's one exception to "only the owner reopens" (owner, 2026-11-28; design row 4, Omnara
+      `github.mdx:298`), which only `reopenTx` can make (`Change.byCall`, unexported: `Reopen` with any system actor
+      is refused); the calls whose reply still waits keep the close they answer (`closed_revision`, the item's revision
+      that close left, which names it, with `closed_state`, `closed_reason`, `closed_evidence`), so each close,
+      even one alike another, gets its own reply where its calls were made. The
+      words go into the thread as a `commented` event with `after.github` (login, address, kind), by the owner for
+      his own account (the login that registered the App, `Credential.Owner`, and its id `OwnerUserID`
+      when known, #1312), else by the system as `github:<login>`, which the web shows as "<login> on
+      GitHub"; and they wake the Bot the item is given to in the item's chat (`WakeCall`), with the request in
+      `<github_request>`, who called and where, the review to leave by `gh api -X POST
+      repos/{owner}/{repo}/pulls/{n}/reviews` (a REST path the service proxy reads to pick the App's token; `gh pr
+      review`'s mutation names only the pull request's id and would go with the owner's), and the rule that
+      everything else on GitHub is data
+      (`callWakeHead`, `callWakeRule`; text in docs/github-app.md). The owner's call is his turn there
+      (`wake_by` `owner`, recall his words), a teammate's is `bot`, which is no turn of his and clears the owner's
+      mark for good (#1229 rule 3). Each call is kept (`todo_github_calls`: delivery, item, repository, number,
+      kind, comment id, for a review comment the thread's first comment `reply_to`, login, address; never its
+      words), and a comment gets 👀 (`POST
+      .../issues/comments/{id}/reactions` or `.../pulls/comments/{id}/reactions`, Omnara's `AcknowledgeComment`); a
+      review has no reaction on GitHub. A review the App makes is recorded when its own POST
+      `/repos/{owner}/{repo}/pulls/{n}/reviews` through the service proxy, sent with the App's installation token,
+      is answered 2xx (`serviceproxy.AppReviews`, `orchestration.AppReviewAttempt` and `RecordAppReview`): only from a
+      pi token, which names its chat and its Bot, the chat's own; the item's attempt that chat holds is read before
+      the POST goes out and checked again when the answer comes, so a late answer never counts for a later attempt;
+      the answer, unpacked by its `Content-Encoding` (gzip or deflate) for reading and passed on to gh as GitHub
+      sent it, gives GitHub's id and address of the review, recorded as an event `reviewed` by that Bot, the
+      evidence it closes the item with (review round 3 of PR #1323); GitHub's
+      `pull_request_review` events never record one, so a review made before the attempt or from another chat,
+      whenever its event comes, is never its work (review round 2 of PR #1323, after `RecordSent`).
+      `App.Run`, started by `serve`, reads after each commit the calls not answered whose item closed
+      (`ListGitHubCallsToReply`) and answers each item once on GitHub with the installation's token, as the web
+      push sender reads its outbox: one comment where its latest call was made (the review thread, on its first
+      comment `reply_to`, else, or when GitHub refuses the thread, the conversation, claude-code-action
+      `create-initial.ts:67-100`), naming each caller, how it ended, the Bot's reason as plain text (hidden
+      comments, tags, images and invisible characters dropped, cut to 2,000 characters, then every handle put in a
+      code span so it mentions nobody) and the web links of its evidence (the review, the pull request); an item whose reply GitHub refused is tried
+      again a minute later without holding back the others, and one GitHub refuses for good (404, 410, 422) or of a
+      repository the App no longer covers is marked answered with no address.
     - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks
       `GET /pull-requests/ci` (client API, for the coordinator) or `GET /agent/v1/ci/wait` (a worker, through its
       `hypomnema` script) again and again, each ask held up to 50 s, under a reverse proxy's minute. The first wait
@@ -3525,7 +3582,7 @@ flowchart LR
       the owner's own: another person's message, a Run's event, a Routine's run and an Approval answered after
       its request each end it (OpenMausBot `outside-lineage.ts`, OpenClaw "a wake is never an owner turn").
       In an Inbox item's chat, his own words typed in the Inbox (his prompt as he hands the item over, his comment)
-      are his turn as his message is, and a wake-up without his words is not (decision 7 of issue #1229); a chat
+      and his own call of the GitHub App (issue #1232) are his turn as his message is, and a wake-up without his words is not (decision 7 of issue #1229); a chat
       that holds **the owner's mark** is his turn while its last input is the hand-off that marked it (the Inbox's
       passing from Bot to Bot, below).
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
@@ -5538,7 +5595,10 @@ its client API, its CLI and the Bots' tools.
   `routine` with its run, `lark`, `zalo` or `whatsapp` with the chat's id at the service and its message as a
   `lark_message`, `zalo_message` or `whatsapp_message` reference, `gmail` with the thread's id and its mail as a
   `mail` reference (the Gmail message's id), `meeting` with the meeting's id and, when the action has one, its line
-  as a `meeting_line` reference `<meeting>/<line>` (issue #1105); for `zalo`, `whatsapp` and `gmail` the owner's
+  as a `meeting_line` reference `<meeting>/<line>` (issue #1105), `github` with an issue's or pull request's
+  `owner/name#number` in lower case and its first call as a `url` reference, made only by a call of the GitHub App
+  (issue #1232, migration `inbox_github_calls`, which rebuilds `todos` with every column, index and event kept); for
+  `zalo`, `whatsapp` and `gmail` the owner's
   account (its Connection's label) the chat or thread is in (`source_account`, optional for `lark`, never for a
   meeting), as their stores key a message by account, chat and id and a thread opens in its account; a quote ≤ 2,000
   and a typed reference; a named account is checked against the integration's Connection labels on create, source
@@ -5607,9 +5667,11 @@ its client API, its CLI and the Bots' tools.
   `pullrequests.go` leaves it out), its own `comment` in this attempt carrying an Artifact or files the agent API
   read in its folder at the path the comment keeps, every one of them (`Attached.Read`, `FolderPath`,
   `files_checked`, through `agentapi.WithBotFiles`, the Files panel's
-  reader), or a `*_message` naming the account and chat that its send recorded on the item in this attempt
+  reader), a `*_message` naming the account and chat that its send recorded on the item in this attempt
   (`RecordSent`, an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the
-  store cannot tell the Bot's message from the owner's on his account); a close whose evidence holds a link, a mail,
+  store cannot tell the Bot's message from the owner's on his account), or a `url` that is the review the GitHub App
+  made on the item's pull request in this attempt (`RecordReview`, an event `reviewed` written when the App's own
+  POST of it through the service proxy from the attempt's chat is answered, by the review's id, issue #1232); a close whose evidence holds a link, a mail,
   his comment, a message he sent, his message in a chat, a person's message or a meeting's line is refused, even
   beside its own work, so his answer stays his and work he handed to the Bot closes as the Bot's with what it made,
   as GitHub records the person who merged and the pull request; the
@@ -5735,8 +5797,9 @@ its client API, its CLI and the Bots' tools.
   `server/host/cloud-lending-turns.ts`, and OpenClaw's `spawnedBySenderIsOwner`,
   `src/agents/subagents/spawn/spawn-parent-lineage.ts`): each wake-up of an item records who it comes from and the
   item, `chat_messages.wake_by` and `wake_todo` (`owner` for his own words, his prompt as he hands it over or his
-  comment, which are his turn in that chat as his message is, decision 7; `owner_gave` when he gives it without a
-  word, no turn of his; `bot_for_owner` for a Bot's hand-off on his line; `bot` for any other). A Bot's `pass_to`, or
+  comment, or his own call of the GitHub App (issue #1232), which are his turn in that chat as his message is,
+  decision 7; `owner_gave` when he gives it without a word, no turn of his; `bot_for_owner` for a Bot's hand-off on
+  his line; `bot` for any other, a teammate's call of the GitHub App included). A Bot's `pass_to`, or
   its add of an item for another Bot (`inbox_add`, the client API's `POST /inbox`), is on his line when the chat the
   Bot acts in (`Change.Chat`, `NewTodo.Chat`, from its token; none in a Routine's run) has as its last turn input his
   own message or words, or the hand-off that marked it for this same item (`orchestration.whoseTurn`, `lineFor`): a

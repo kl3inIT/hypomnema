@@ -28,6 +28,16 @@ func (q *Queries) DeleteGitHubDeliveriesBefore(ctx context.Context, before int64
 	return err
 }
 
+const deleteGitHubDelivery = `-- name: DeleteGitHubDelivery :exec
+DELETE FROM github_deliveries WHERE id = ?1
+`
+
+// A delivery that was no call of the App is forgotten once handled (issue #1232): only a call is kept.
+func (q *Queries) DeleteGitHubDelivery(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteGitHubDelivery, id)
+	return err
+}
+
 const deletePullRequestCIBefore = `-- name: DeletePullRequestCIBefore :exec
 DELETE FROM pull_request_ci WHERE updated_at < ?1
 `
