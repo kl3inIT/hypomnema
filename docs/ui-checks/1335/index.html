@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What the owner does to end a rest (#1335)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 48rem) {
+      .screens { grid-template-columns: minmax(0, 1fr); }
+      .phone { max-width: 25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>What the owner does to end a rest (#1335)</h1>
+    <p>
+      Settings &rarr; Models, the Claude card with three resting accounts: a refused sign-in (auth) says "Sign in again",
+      spent credits (billing) say "Add credits", each with until when the gateway passes it over (the usage wait, an
+      hour); a throttle (rate_limit) ends by itself and says nothing more. Taken by <code>web/tests/models.spec.ts</code>,
+      "an account that only the owner can bring back says what to do".
+    </p>
+    <section>
+      <h2>Light</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="models-rest-action-light-desktop.png" alt="Claude accounts resting for a refused sign-in and spent credits, each saying what to do, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="models-rest-action-light-phone.png" alt="Claude accounts resting for a refused sign-in and spent credits, each saying what to do, phone, light">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Dark</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="models-rest-action-dark-desktop.png" alt="Claude accounts resting for a refused sign-in and spent credits, each saying what to do, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="models-rest-action-dark-phone.png" alt="Claude accounts resting for a refused sign-in and spent credits, each saying what to do, phone, dark">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

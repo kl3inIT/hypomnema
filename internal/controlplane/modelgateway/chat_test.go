@@ -379,8 +379,13 @@ func TestBotFallbacksSkipRestingAccountsAndKeepTheirOrder(t *testing.T) {
 	assert.Equal(t, "backup", usage.Model)
 	assert.Equal(t, 3, usage.Attempts)
 
-	status, _, _ = g.call(t, g.key, `{"model":"gpt","messages":[]}`)
-	assert.Equal(t, http.StatusForbidden, status, "a non-chat key cannot use the Bot's fallbacks")
+	// A refused key moves on to the model's next target (issue #1335, row 1); a key of no chat has no Bot to fall
+	// back to.
+	status, _, body = g.call(t, g.key, `{"model":"gpt","messages":[]}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, "gpt", g.lastUsage(t).Model, "a non-chat key does not use the Bot's fallbacks")
+	assert.Equal(t, 2, backupCalls.calls(), "p2 is gpt's own next target")
+	assert.Zero(t, remainingCalls.calls())
 
 	_, key, err = g.svc.AddChatKey(ctx, "chat_inherited", "", "gpt")
 	require.NoError(t, err)

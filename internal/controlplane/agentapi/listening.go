@@ -26,7 +26,8 @@ import (
 // of who asked, as the web tools' calls are.
 type Listening interface {
 	Search(ctx context.Context, who Who, plan listening.Plan) (listening.Answer, error)
-	SourceNames() []string
+	// SourceNames are the sources a plan may name now: those the owner has not switched off.
+	SourceNames(ctx context.Context) []string
 }
 
 // WithListening gives workers and Bots listen_search.
@@ -65,11 +66,13 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"against the post read in full, and `claims` beside them; its date taken from its own page when read), " +
 			"`clusters` (items telling one story, tagged single-source or thin-evidence when the evidence is weak; a " +
 			"model-reviewed cluster carries its `audit`, and a failed one cannot back a finding alone), `coverage`, " +
-			"one line per source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with " +
-			"its code (need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend " +
-			"tried, `limits` (the pool, the model's shortlist and the full reads used) and `pass`, what each model " +
+			"one line per source: ok, partial, no_results (read, nothing found: the only real zero), not_read with " +
+			"its code (need_login, refused, rate_limited, limit_reached, not_found, timeout, broken), the one step " +
+			"that fixes it (`fix`) and each backend tried, or off (the owner switched it off during the search: " +
+			"nothing of it is answered), `limits` (the pool, the model's shortlist and the full reads used) and `pass`, what each model " +
 			"step did and cost: model or fallback (the code's ranking stands, with why) or off; `pass.read` counts " +
-			"the items dropped because their own page dates them outside the window (`outside_window`). " +
+			"the items dropped because their own page dates them outside the window (`outside_window`). The sources " +
+			"listed are those the owner keeps on, on Settings → Gateway → Social listening; use only those. " +
 			"facebook, instagram and threads are read by asking the owner's Muse, about a minute a question and one " +
 			"at a time, all of a call's Muse questions within six minutes: give them one or two subqueries (a " +
 			"source not reached in time is not_read, timeout). Each post Muse names is checked by opening its link; " +
@@ -170,11 +173,16 @@ func (s *Server) listenCall(w http.ResponseWriter, r *http.Request, a agent, cal
 	answerTool(w, string(raw), false)
 }
 
-// listeningToolList is listen_search's definition, when it is named.
-func (s *Server) listeningToolList(names []string) []agenttool.BrowserTool {
+// listeningToolList is listen_search's definition, when it is named and a source is on.
+func (s *Server) listeningToolList(ctx context.Context, names []string) []agenttool.BrowserTool {
 	if !slices.Contains(names, agenttool.ToolListenSearch) || s.listening == nil {
 		return nil
 	}
 
-	return []agenttool.BrowserTool{listeningTool(s.listening.SourceNames())}
+	sources := s.listening.SourceNames(ctx)
+	if len(sources) == 0 {
+		return nil
+	}
+
+	return []agenttool.BrowserTool{listeningTool(sources)}
 }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
@@ -52,4 +54,23 @@ func TestDiskAlertTellsTheMainChatAndTheMainBotsChannels(t *testing.T) {
 	tellDiskAlert(r, r, slog.New(slog.DiscardHandler))(t.Context(), orchestration.DiskAlert{Node: "n"})
 	assert.Empty(t, r.lines, "a main Bot without a main chat is told through its Channels only")
 	assert.Len(t, r.cards, 1)
+}
+
+// Issue #1290, "the owner is told once when a source breaks": the listening service's one call becomes a line in the
+// main chat and a card through the main Bot's Channels, saying the source, its code and the one step that fixes it.
+func TestABrokenListeningSourceIsToldInTheMainChatAndTheChannels(t *testing.T) {
+	t.Parallel()
+
+	r := &diskAlertRecorder{mainChat: "chat_main"}
+	fix := listening.Fix(listening.SourceReddit, listening.CodeBroken, time.Time{})
+
+	tellListeningBroken(r, r, slog.New(slog.DiscardHandler))(t.Context(), listening.Broken{
+		Source: listening.SourceReddit, Code: listening.CodeBroken, Detail: "a page, not JSON", Fix: fix,
+	})
+
+	require.Len(t, r.lines, 1)
+	assert.Equal(t, "chat_main: Reddit could not be read (broken: a page, not JSON). "+fix+
+		" Settings → Gateway → Social listening shows it.", r.lines[0])
+	assert.Equal(t, []string{orchestration.DefaultBotID + " chat_main Reddit stopped working for social listening"},
+		r.cards)
 }

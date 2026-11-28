@@ -233,6 +233,13 @@ func (s *Server) tryAccounts(
 			return resp, true, err
 		}
 
+		// A refusal of the request's content (it reads unknown on these statuses) is the request's, not the
+		// account's: another account would refuse it the same (review round 2 of PR #1342; Bifrost rotates no key
+		// on a caller_fault, docs/features/retries-and-fallbacks.mdx).
+		if code, _ := targetMovesOn(resp); code == CoolingUnknown {
+			return resp, true, nil
+		}
+
 		if refusal != nil {
 			_ = refusal.Body.Close()
 		}
@@ -374,26 +381,51 @@ func (s *Server) tokenAfterRefusal(ctx context.Context, refused AccountToken, mo
 // a quota that is used up; a growing wait after a rate limit or an overload;
 // two minutes after a refusal; thirty seconds after another server error. The
 // account keeps why (code, classifyFailure) beside the provider's words
-// (reason; issue #1305).
+// (reason; issue #1305). A refused key or sign-in (auth) and spent credits
+// (billing) rest for the usage wait, an hour, not two minutes: nothing changes
+// until the owner signs in again or pays (issue #1335, row 4; OpenClaw's
+// billing off-time, docs/research/2026-11-13-gateway-features.md:70-72; Bifrost
+// does not retry a credential failure on the same key).
 func (s *Server) cool(
 	ctx context.Context, runtime string, token AccountToken, status int, quotaUsedUp bool, reset time.Time,
 	code CoolingCode, reason string,
 ) {
-	if until, ok := s.coolingUntil(token, status, quotaUsedUp, reset); ok {
+	if until, ok := s.coolingUntil(token, status, quotaUsedUp, reset, code); ok {
 		s.park(ctx, runtime, token, until, code, reason)
 	}
+}
+
+// ownersToFix reports whether a rest ends only when the owner acts: a key or sign-in refused, or credits spent
+// (issue #1335, row 4).
+func ownersToFix(code CoolingCode) bool {
+	return code == CoolingAuth || code == CoolingBilling
+}
+
+// ownersWait is how long a rest the owner ends (ownersToFix) lasts: the usage wait, or the reset the provider names
+// when that is later, at most maxProviderReset. A shorter Retry-After is not trusted: a used-up balance comes back
+// only when the owner adds credit (opencode_adapter.go's Zen rest, "an hour whatever Retry-After says"; review of
+// PR #1342).
+func ownersWait(now, reset time.Time) time.Duration {
+	return max(quotaCooldown, min(reset.Sub(now), maxProviderReset))
 }
 
 // coolingUntil is until when a failure keeps an account, or one model of it, out of use (cool); false when the
 // failure costs it nothing.
 func (s *Server) coolingUntil(
-	token AccountToken, status int, quotaUsedUp bool, reset time.Time,
+	token AccountToken, status int, quotaUsedUp bool, reset time.Time, code CoolingCode,
 ) (time.Time, bool) {
 	now := s.svc.clock.Now()
 
 	var wait time.Duration
 
 	switch {
+	case code == CoolingUnknown && status >= http.StatusBadRequest && status < http.StatusInternalServerError:
+		// A refusal no code names, such as one of the request's content, says nothing of the account: it rests
+		// nothing (OpenRouter: a policy block "does not count against the provider's health",
+		// openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/gpt-6; review round 2 of PR #1342).
+		return time.Time{}, false
+	case ownersToFix(code):
+		wait = ownersWait(now, reset)
 	case reset.After(now) && reset.Sub(now) <= maxProviderReset:
 		// The provider's own moment, kept as it was given.
 		return reset, true

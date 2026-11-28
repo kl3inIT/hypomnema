@@ -58,6 +58,11 @@ type Platform struct {
 	// (Agent-Reach's read action beside search, channels/base.py:30-50; last30days reads a kept thread's comments
 	// after ranking, reddit_hydrate.py); nil: its items are not read.
 	Read func(ctx context.Context, r Request, it Item) (Document, error)
+	// Adds says what the source brings when it is on, as last30days' nudge says what each missing source would add
+	// (quality_nudge.py:458-462, "video transcripts with key moments").
+	Adds string
+	// Page is the page of Settings where its accounts are, for a source that has them; its card links there.
+	Page string
 }
 
 // Document is an item read in full: its text, and when its page says it was published, nil when it says none. Its text
@@ -125,6 +130,8 @@ type Attempt struct {
 	Until string `json:"until,omitempty"`
 	// Skipped: not asked this time, because it rests, its probe failed or its site already refused.
 	Skipped bool `json:"skipped,omitempty"`
+	// transient: one of its providers failed in a way that comes back by itself (SourceError.transient).
+	transient bool
 }
 
 const resultOK = "ok"
@@ -135,6 +142,8 @@ type stream struct {
 	subquery Subquery
 	source   string
 	items    []Item
+	// off: the owner switched the source off while it ran; no backend was asked after.
+	off bool
 	// unverified are what a model said it found that its links did not bear out (Answer.Unverified).
 	unverified []Item
 	// req is what the stream's backends were asked; then and thenBackend, what a backend reads after the first pass.
@@ -169,7 +178,7 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 
 		id := p.Name + "/" + b.Name
 		skip := func(f *SourceError) {
-			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail, Skipped: true}
+			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail, Skipped: true, transient: f.transient}
 			if !f.Until.IsZero() {
 				a.Until = f.Until.UTC().Format(time.RFC3339)
 			}
@@ -198,7 +207,23 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 			}
 		}
 
+		// The owner's switch is read again before each read starts: once saved Off, no new read begins.
+		if s.switchedOff(ctx, p.Name) {
+			st.off = true
+
+			return st
+		}
+
 		res, err := b.Search(ctx, req)
+
+		// And again once it answered, before the stream is settled and the read kept: a source switched off during its
+		// last request answers nothing (review round 2 of PR #1322).
+		if s.switchedOff(ctx, p.Name) {
+			st.off = true
+
+			return st
+		}
+
 		st.report.dropped.add(res.dropped)
 		attempt := Attempt{Backend: b.Name, Detail: res.Detail, Provider: res.provider, WindowBasis: res.windowBasis}
 		if err != nil {
@@ -225,7 +250,7 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 				until = s.rest(id, f)
 			}
 
-			attempt.Result, attempt.Detail = string(f.Code), f.Detail
+			attempt.Result, attempt.Detail, attempt.transient = string(f.Code), f.Detail, f.transient
 			if !until.IsZero() {
 				attempt.Until = until.UTC().Format(time.RFC3339)
 			}
@@ -334,7 +359,8 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 	return st
 }
 
-// inWindow keeps items dated inside the UTC calendar window. Undated web items require server bounds.
+// inWindow keeps items dated inside the UTC calendar window. Undated web items require server bounds, unless the
+// request has no window at all (no start: the live test's, as Agent-Reach's name none, channels/reddit.py:50).
 func (s *Service) inWindow(res Result, source, backend, label string, req Request, dropped *Drops) []Item {
 	now := s.now().UTC()
 
@@ -347,7 +373,8 @@ func (s *Service) inWindow(res Result, source, backend, label string, req Reques
 			continue
 		}
 
-		if it.PublishedAt == nil && source == SourceWeb && res.windowBasis != websearch.WindowServerBounds {
+		if it.PublishedAt == nil && source == SourceWeb && !req.From.IsZero() &&
+			res.windowBasis != websearch.WindowServerBounds {
 			dropped.MissingDate++
 
 			continue

@@ -563,6 +563,7 @@ type GatewayUsage struct {
 	TtftMs             sql.NullInt64
 	VideoID            string
 	VideoRev           int64
+	CoolingCode        string
 }
 
 type GatewayUsageDaily struct {
@@ -636,6 +637,39 @@ type IntegrationClient struct {
 	Secret      string
 	CreatedAt   int64
 	UpdatedAt   int64
+}
+
+type ListeningBackend struct {
+	Source      string
+	Backend     string
+	Position    sql.NullInt64
+	LastOkAt    sql.NullInt64
+	LastErrorAt sql.NullInt64
+	LastCode    string
+	LastDetail  string
+	UpdatedAt   int64
+}
+
+type ListeningReading struct {
+	Source string
+	Day    string
+	Items  int64
+}
+
+type ListeningSource struct {
+	Source           string
+	Off              int64
+	Told             int64
+	LastReadAt       sql.NullInt64
+	LastResult       string
+	LastCode         string
+	PreviousResult   string
+	LastSuccessAt    sql.NullInt64
+	LastErrorAt      sql.NullInt64
+	LastErrorCode    string
+	LastErrorDetail  string
+	LastErrorBackend string
+	UpdatedAt        int64
 }
 
 type MachineProvider struct {

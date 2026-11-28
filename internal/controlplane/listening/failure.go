@@ -71,6 +71,9 @@ type SourceError struct {
 	// pathRest: the failure is a path's, already resting on its own (Request.Rest); the backend is not rested for
 	// it, so its other paths serve the next stream.
 	pathRest bool
+	// transient: a provider behind the backend failed in a way that comes back by itself (a timeout, a rate limit,
+	// a spent quota), whatever the code the failure takes; it is kept up to whether the owner is told (health.go).
+	transient bool
 	// restBackend: a part not read beside items (Result.Failed) rests the backend as a failure does, the site having
 	// refused or asked to slow down (YouTube's recent-uploads search).
 	restBackend bool
