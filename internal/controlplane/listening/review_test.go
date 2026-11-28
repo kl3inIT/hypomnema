@@ -89,7 +89,8 @@ func TestReviewOffTopicRedditThreadsAreDropped(t *testing.T) {
 	s := redditOnly(t, c, redditURL, arcticURL)
 
 	p := plan([]string{listening.SourceReddit}, "VETC")
-	a, err := s.Search(t.Context(), p, threadsWeb([2]string{"aaa1", "x"}, [2]string{"bbb2", "y"}, [2]string{"ccc3", "z"}))
+	a, err := s.Search(t.Context(), p,
+		listening.Caller{Web: threadsWeb([2]string{"aaa1", "x"}, [2]string{"bbb2", "y"}, [2]string{"ccc3", "z"})})
 	require.NoError(t, err)
 
 	require.Len(t, a.Items, 1)
@@ -99,7 +100,7 @@ func TestReviewOffTopicRedditThreadsAreDropped(t *testing.T) {
 	assert.Equal(t, 1, cov.Items)
 	assert.Contains(t, cov.Streams[0].Tried[1].Detail, "2 of 3 threads dropped for not naming the topic")
 
-	a, err = s.Search(t.Context(), p, threadsWeb([2]string{"bbb2", "y"}, [2]string{"ccc3", "z"}))
+	a, err = s.Search(t.Context(), p, listening.Caller{Web: threadsWeb([2]string{"bbb2", "y"}, [2]string{"ccc3", "z"})})
 	require.NoError(t, err)
 	assert.Empty(t, a.Items)
 	assert.Equal(t, listening.StateNoResults, coverageOf(t, a, listening.SourceReddit).State)
@@ -138,7 +139,8 @@ func TestReviewWindowBeforeStreamCap(t *testing.T) {
 	archived, arcticURL := archiveOf(t, posts)
 	s := redditOnly(t, c, redditURL, arcticURL)
 
-	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), threadsWeb(found...))
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"),
+		listening.Caller{Web: threadsWeb(found...)})
 	require.NoError(t, err)
 
 	require.Len(t, archived.Requests(), 1)
@@ -206,7 +208,7 @@ func TestReviewWebCallsDoNotOverlapOnARoute(t *testing.T) {
 	for i := range 3 {
 		wg.Go(func() {
 			p := plan([]string{listening.SourceWeb, listening.SourceReddit}, fmt.Sprintf("VETC %d", i))
-			_, errs[i] = s.Search(t.Context(), p, search)
+			_, errs[i] = s.Search(t.Context(), p, listening.Caller{Web: search})
 		})
 	}
 
@@ -238,7 +240,7 @@ func TestReviewQueued403(t *testing.T) {
 
 	for i := range 2 {
 		wg.Go(func() {
-			answers[i], errs[i] = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), nil)
+			answers[i], errs[i] = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), listening.Caller{})
 		})
 	}
 
@@ -265,7 +267,7 @@ func TestReviewArchiveRateLimit(t *testing.T) {
 	s := redditOnly(t, c, redditURL, arcticURL)
 
 	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC một", "VETC hai"),
-		threadsWeb([2]string{"abc123", "VETC trừ tiền"}))
+		listening.Caller{Web: threadsWeb([2]string{"abc123", "VETC trừ tiền"})})
 	require.NoError(t, err)
 
 	assert.Len(t, archived.Requests(), 1, "the archive rests 120 s after its 429")
@@ -298,7 +300,7 @@ func TestReviewWebRateLimitCode(t *testing.T) {
 		}}
 	}
 
-	a, err := s.Search(t.Context(), plan([]string{listening.SourceWeb}, "VETC"), limited)
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceWeb}, "VETC"), listening.Caller{Web: limited})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, a, listening.SourceWeb)
@@ -315,7 +317,7 @@ func TestReviewWebRateLimitCode(t *testing.T) {
 		}}
 	}
 
-	a, err = s.Search(t.Context(), plan([]string{listening.SourceWeb}, "VETC"), broken)
+	a, err = s.Search(t.Context(), plan([]string{listening.SourceWeb}, "VETC"), listening.Caller{Web: broken})
 	require.NoError(t, err)
 	assert.Equal(t, listening.CodeBroken, coverageOf(t, a, listening.SourceWeb).Code)
 }
@@ -363,7 +365,7 @@ func TestRoundTwoArcticRetryAfterFromResponse(t *testing.T) {
 	s := redditOnly(t, c, redditURL, arcticURL)
 	web := threadsWeb([2]string{"abc123", "VETC trừ tiền"})
 
-	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	until := start.Add(13 * time.Second).UTC().Format(time.RFC3339)
@@ -372,7 +374,7 @@ func TestRoundTwoArcticRetryAfterFromResponse(t *testing.T) {
 	limited.Store(false)
 	c.Advance(6 * time.Second)
 
-	_, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	_, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), listening.Caller{Web: web})
 	require.NoError(t, err)
 	assert.Len(t, archived.Requests(), 2, "after its Retry-After the archive is asked again")
 }
@@ -407,7 +409,7 @@ func TestRoundTwoNoCleanZeroWhenTopicCannotBeHydrated(t *testing.T) {
 	s := redditOnly(t, c, redditURL, arcticURL)
 	web := threadsWeb([2]string{"abc123", "Reddit"})
 
-	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, a, listening.SourceReddit)
@@ -419,7 +421,7 @@ func TestRoundTwoNoCleanZeroWhenTopicCannotBeHydrated(t *testing.T) {
 	limited.Store(false)
 	c.Advance(time.Minute)
 
-	a, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), web)
+	a, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), listening.Caller{Web: web})
 	require.NoError(t, err)
 	require.Len(t, a.Items, 1)
 	assert.Equal(t, "VETC trừ tiền hai lần", a.Items[0].Title)
@@ -464,9 +466,9 @@ func TestRoundTwoListeningUsesKeylessRoutesOnly(t *testing.T) {
 	})
 
 	_, err := s.Search(t.Context(), plan([]string{listening.SourceWeb, listening.SourceReddit}, "VETC"),
-		func(ctx context.Context, q string, limit int) (websearch.Answer, error) {
+		listening.Caller{Web: func(ctx context.Context, q string, limit int) (websearch.Answer, error) {
 			return web.Search(ctx, q, limit, "")
-		})
+		}})
 	require.NoError(t, err)
 	assert.Zero(t, keyed.Load(), "the owner's Exa key is not used by listening")
 	assert.Equal(t, int32(2), keyless.Load(), "the web and the site:reddit.com search, keyless")
@@ -502,7 +504,8 @@ func TestRoundThreeArcticRestLeavesWebDiscoveryAvailable(t *testing.T) {
 		}}}, nil
 	}
 
-	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC một", "VETC hai"), web)
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC một", "VETC hai"),
+		listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(2), webCalls.Load(), "the second subquery still searches the web")

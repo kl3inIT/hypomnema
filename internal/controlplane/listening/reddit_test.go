@@ -105,7 +105,7 @@ func TestARedditRefusalRestsSixHoursAndTheArchiveServes(t *testing.T) {
 	})
 	p := plan([]string{listening.SourceReddit}, "VETC")
 
-	a, err := s.Search(t.Context(), p, redditWeb)
+	a, err := s.Search(t.Context(), p, listening.Caller{Web: redditWeb})
 	require.NoError(t, err)
 	require.Len(t, reddit.Requests(), 1)
 
@@ -145,7 +145,7 @@ func TestARedditRefusalRestsSixHoursAndTheArchiveServes(t *testing.T) {
 
 	c.Advance(time.Hour)
 
-	a, err = s.Search(t.Context(), p, redditWeb)
+	a, err = s.Search(t.Context(), p, listening.Caller{Web: redditWeb})
 	require.NoError(t, err)
 	assert.Len(t, reddit.Requests(), 1, "a refused path is not asked again within 6 hours")
 	tried := coverageOf(t, a, listening.SourceReddit).Streams[0].Tried
@@ -156,7 +156,7 @@ func TestARedditRefusalRestsSixHoursAndTheArchiveServes(t *testing.T) {
 
 	c.Advance(5*time.Hour + time.Minute)
 
-	_, err = s.Search(t.Context(), p, redditWeb)
+	_, err = s.Search(t.Context(), p, listening.Caller{Web: redditWeb})
 	require.NoError(t, err)
 	assert.Len(t, reddit.Requests(), 2, "after 6 hours it is asked again")
 }
@@ -178,7 +178,7 @@ func TestRedditFailingEverywhereIsNotRead(t *testing.T) {
 		return websearch.Answer{}, &websearch.RestingError{Until: start.Add(10 * time.Minute)}
 	}
 
-	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), noWeb)
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), listening.Caller{Web: noWeb})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, a, listening.SourceReddit)
@@ -195,7 +195,7 @@ func TestRedditFailingEverywhereIsNotRead(t *testing.T) {
 		Now:       c.Now, Sleep: noSleep,
 	})
 
-	a, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), nil)
+	a, err = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 	assert.Len(t, limited.Requests(), 1)
 	first := coverageOf(t, a, listening.SourceReddit).Streams[0].Tried[0]
@@ -226,7 +226,7 @@ func TestRedditJSONServesWhenItAnswers(t *testing.T) {
 
 	p := plan([]string{listening.SourceReddit}, "Cốc Cốc")
 	p.WindowDays = 7
-	a, err := s.Search(t.Context(), p, nil)
+	a, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "reddit_json", coverageOf(t, a, listening.SourceReddit).Streams[0].ServedBy)
