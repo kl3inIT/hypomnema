@@ -474,7 +474,7 @@ var (
 	dayMonthName = regexp.MustCompile(`(?i)(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthName + `,?\s+(\d{4})`)
 )
 
-// wholeDates are the matches of a date form in text whose neighbours are not digits, each with its groups.
+// wholeDates are the matches of a date form in text whose neighbors are not digits, each with its groups.
 func wholeDates(form *regexp.Regexp, text string) [][]string {
 	var out [][]string
 
