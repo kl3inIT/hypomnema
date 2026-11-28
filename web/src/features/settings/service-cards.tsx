@@ -464,7 +464,8 @@ function AccountItem({
               }
             />
           )}
-          {device && (
+          {/* A device whose service lacks what a link needs (Telegram's api_id) is not linked again until it has it. */}
+          {device && !service.unready && (
             <LinkDeviceDialog
               service={service}
               connection={connection}
@@ -1141,6 +1142,9 @@ function LinkDeviceDialog({
   // How the owner chose to link, set by the button he pressed before the form is sent.
   const flow = useRef<LinkFlow>("qr")
   const [typed, setTyped] = useState("")
+  // The answer being sent: read once by the answer's request and cleared, so that what the owner typed (his code, his
+  // password) is never a mutation's variables, which TanStack Query keeps in its cache (review of #1333).
+  const sending = useRef("")
   // Each linking the owner starts; closing the dialog moves it on, so a late answer of a closed one is dropped.
   const attempt = useRef(0)
 
@@ -1168,13 +1172,19 @@ function LinkDeviceDialog({
   })
 
   const answer = useMutation({
-    mutationFn: async (value: string) =>
-      (
+    mutationFn: async () => {
+      const value = sending.current
+      sending.current = ""
+
+      return (
         await answerIntegrationSignIn({
           path: { integration: service.id, sign_in_id: started?.id ?? "" },
           body: { value },
         })
-      ).data,
+      ).data
+    },
+    // Nothing of an answer outlives the dialog.
+    gcTime: 0,
     onSuccess: (next) => {
       // The step after the answer is the current one until the next read.
       queryClient.setQueryData(getIntegrationSignInQueryKey({ path: currentPath }), next)
@@ -1185,30 +1195,44 @@ function LinkDeviceDialog({
   const form = useForm({
     defaultValues: { label: connection?.label ?? "main" },
     validators: { onSubmit: linkSchema },
-    onSubmit: async ({ value }) => {
-      const mine = ++attempt.current
-      let signIn: SignIn
-      try {
-        signIn = await begin.mutateAsync({ ...value, flow: flow.current })
-      } catch {
-        return // The dialog stays open and shows what the server refused.
-      }
-      if (attempt.current !== mine) return
-
-      setStarted(signIn)
-
-      try {
-        await complete.mutateAsync(signIn.id)
-      } catch {
-        return // The dialog shows why, and the owner starts again.
-      }
-
-      await refresh()
-      if (attempt.current !== mine) return
-      change(false)
-      said(`${service.name} ${value.label} is linked`)
-    },
+    onSubmit: ({ value }) => link(value.label, flow.current),
   })
+
+  // link starts a linking of the label the chosen way and waits for its end; a linking started after it (the owner
+  // switched from the QR code to his phone number) drops its end.
+  async function link(label: string, how: LinkFlow) {
+    const mine = ++attempt.current
+    let signIn: SignIn
+    try {
+      signIn = await begin.mutateAsync({ label, flow: how })
+    } catch {
+      return // The dialog stays open and shows what the server refused.
+    }
+    if (attempt.current !== mine) return
+
+    setStarted(signIn)
+
+    try {
+      await complete.mutateAsync(signIn.id)
+    } catch {
+      return // The dialog shows why, and the owner starts again.
+    }
+
+    await refresh()
+    if (attempt.current !== mine) return
+    change(false)
+    said(`${service.name} ${label} is linked`)
+  }
+
+  // byPhoneInstead leaves the QR code shown for a linking by phone number, in the same dialog.
+  function byPhoneInstead() {
+    setStarted(null)
+    setTyped("")
+    complete.reset()
+    answer.reset()
+    flow.current = "phone"
+    void link(form.state.values.label, "phone")
+  }
 
   function change(next: boolean) {
     setOpen(next)
@@ -1311,7 +1335,10 @@ function LinkDeviceDialog({
               className="flex flex-col gap-4"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (typed.trim() !== "") answer.mutate(typed)
+                if (typed.trim() === "") return
+                sending.current = typed
+                setTyped("")
+                answer.mutate()
               }}
             >
               <Field data-invalid={ask.again || undefined}>
@@ -1323,7 +1350,7 @@ function LinkDeviceDialog({
                   }
                   inputMode={ask.field === "code" ? "numeric" : undefined}
                   autoComplete={ask.field === "code" ? "one-time-code" : "off"}
-                  placeholder={ask.field === "phone" ? "+84 912 345 678" : undefined}
+                  placeholder={ask.field === "phone" ? "+999 66 1 2345" : undefined}
                   value={typed}
                   aria-invalid={ask.again || undefined}
                   onChange={(event) => setTyped(event.target.value)}
@@ -1338,6 +1365,10 @@ function LinkDeviceDialog({
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
           {started && complete.isError ? (
             <Button onClick={again}>Start again</Button>
+          ) : started && waiting && !ask && byPhone ? (
+            <Button variant="outline" onClick={byPhoneInstead}>
+              Use phone number
+            </Button>
           ) : started && waiting && ask ? (
             <Button
               type="submit"

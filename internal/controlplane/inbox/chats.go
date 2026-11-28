@@ -88,7 +88,12 @@ func (c Chats) List(ctx context.Context, integration, label string) ([]Chat, err
 	for _, r := range set {
 		i, ok := at[r.Chat]
 		if !ok {
-			out = append(out, Chat{ID: r.Chat, Name: r.Chat, Kind: inboxstore.ChatKind("", "", r.Chat)})
+			kind := inboxstore.ChatKind("", "", r.Chat)
+			if integration == "telegram" {
+				kind = inboxstore.TelegramIDKind(r.Chat)
+			}
+
+			out = append(out, Chat{ID: r.Chat, Name: r.Chat, Kind: kind})
 			i = len(out) - 1
 		}
 
@@ -107,6 +112,11 @@ func (c Chats) keptChats(ctx context.Context, integration, label string) ([]Chat
 	out := make([]Chat, 0, len(kept))
 	for _, k := range kept {
 		kind := inboxstore.ChatKind(k.Kind, k.Name, k.ID)
+		if integration == "telegram" {
+			// Telegram's kinds come from its own flags, never from a name (issue #1184).
+			kind = inboxstore.FlagKind(k.Kind)
+		}
+
 		out = append(out, Chat{
 			ID: k.ID, Name: k.Name, Kind: kind, LastMessageAt: k.LastMessageAt, Reads: inboxstore.DefaultReads(kind),
 		})

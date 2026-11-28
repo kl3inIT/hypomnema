@@ -25,10 +25,21 @@ sends in bulk, sends only what he approved, and never marks a chat as read.
    **Continue**. If the code cannot be scanned, press **Use phone number** instead: type your number with its
    country code, then the code Telegram sends to your app, then the password if asked. A wrong code or password is
    asked again. The card then says **Linked**, and Telegram's list of devices shows "Hypomnema".
-4. **Give it to a Bot.** On the Bot's page, allow the Connection `telegram:main`. On your turn in its chat the Bot
-   has `telegram_chats`, `telegram_messages`, `telegram_media`, `telegram_history` and `telegram_send`; each send
-   waits for your approval (the action `telegram.send`). Which Telegram chats the secretary reads is on the Inbox's
-   chats page (gear icon), tab Telegram: direct chats and groups on, bots and channels off by default.
+4. **Give it to a Bot.** On the Bot's page, allow the Connection `telegram:main`. The Bot then has
+   `telegram_chats`, `telegram_messages`, `telegram_media`, `telegram_history` and `telegram_send`, exactly as it has
+   WhatsApp's tools:
+   - **On your turn only**: a call made after someone else spoke last in the Bot's chat is refused, with two
+     exceptions WhatsApp has too. A Routine you set to read your accounts (a read run) uses the four reading tools
+     in its runs, never `telegram_send`. A send you approved once runs on that approval when the Bot wakes after
+     your turn ended, once.
+   - **Each send waits for your approval** (the action `telegram.send`, as `whatsapp.send`): the Approval shows the
+     chat, the text, the file and what it replies to. Answering **Approve for this chat** instead of **Approve**
+     lets the Bot's later sends in that same chat run without asking again, for the rest of that chat; **Never** on the
+     Connection's actions (Integrations › What agents may do) refuses them all. This is WhatsApp's behaviour,
+     unchanged for Telegram.
+   Which Telegram chats the secretary reads is on the Inbox's chats page (gear icon), tab Telegram: direct chats and
+   groups on, bots, accounts Telegram marks verified, support, scam or fake, and channels off by default, by
+   Telegram's own flags only (a group's name never makes it a bot).
 
 To stop: **Disconnect** the account on the Integrations page, which ends the session at Telegram (it leaves the list
 of devices) and forgets what was kept. Changing the `api_id` later: replace both secrets and link again.

@@ -3440,16 +3440,19 @@ flowchart LR
     - **The link**: QR first (`POST /integrations/telegram/sign-ins`), Telegram's login link (`tg://login?token=…`,
       gotd's `qrlogin`, a new one as each expires) as the `qr_code`; once the phone accepted it, an account with a
       two-step password is asked for it (`qrlogin`'s `Options.Password`, again while wrong as gotd's
-      `examples/qrauth.go`), with the hint he set. With `flow: phone` the link asks the number, sends the code and
+      `examples/qrauth.go`), with the hint he set. The page can leave the QR code for the phone flow without
+      closing; what the owner types is never a mutation's variables in the browser's query cache. With `flow: phone` the link asks the number, sends the code and
       asks it, again while either is refused, then the password, as mautrix/telegram's phone login
-      (`loginphone.go`); a number with no account is never signed up. A step that asks is a `messaging.LinkStep`
+      (`loginphone.go`); a code Telegram sent to the account's email goes back as `auth.signIn`'s
+      `email_verification`; a number with no account is never signed up. A step that asks is a `messaging.LinkStep`
       with an `Ask` (`phone`, `code` or `password`, a hint, `again` when the last answer was refused), the
       sign-in's `ask`; `POST …/sign-ins/{id}/answer` (`value`, never kept or logged) gives it and answers the
       sign-in at its next step, as mautrix's `SubmitUserInput` (the smallest shape: inference). A service links by
       phone when it is a `messaging.PhoneLinker`. The link runs a client of its own over a session in memory; once
       authorized, the session is kept under the account's user id (the Connection's vault secret names it) and the
       account opened. Linking the same account again ends its old session at Telegram first.
-    - **Send** (`telegram_send`, the action `telegram.send` of the proxy's catalog, NeedsCare): as mautrix sends, a
+    - **Send** (`telegram_send`, the action `telegram.send` of the proxy's catalog, NeedsCare, decided as
+      `whatsapp.send` is, "Approve for this chat" included): as mautrix sends, a
       text with `messages.sendMessage`, a file uploaded with gotd's uploader and sent with `messages.sendMedia` (a
       JPEG or PNG as a photo, else a document with its name and type) with the text as its caption, a reply naming
       the message it answers; the sent message is read back from Telegram's answer and kept as the owner's, its file
@@ -5891,7 +5894,8 @@ its client API, its CLI and the Bots' tools.
     its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
     official account's is not. For Zalo and WhatsApp, that means a broadcast list or a chat whose name or id
     matches `inboxstore.BotPatterns` (the check's former `dropChats` defaults); for Telegram, a chat of kind `bot` or
-    `broadcast` (a bot, an account Telegram marks verified, support, scam or fake, a channel; issue #1184). Lark uses
+    `broadcast` (a bot, an account Telegram marks verified, support, scam or fake, a channel; issue #1184), by its
+    flags alone (`inboxstore.FlagKind`: no name pattern; a group the owner left is a group by its id). Lark uses
     the chat list's bot mode or a P2P peer type of app or bot. The list recomputes the kind and default on each read,
     then applies the owner's stored choice. The triage check uses the same Lark metadata before reading a chat's
     history. `internal/controlplane/inbox` (`Chats`)

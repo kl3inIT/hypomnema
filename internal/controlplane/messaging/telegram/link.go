@@ -225,7 +225,7 @@ func (l *linker) phone(ctx context.Context) (*tg.AuthAuthorization, error) {
 
 	var (
 		number, hash, hint string
-		again              bool
+		again, byEmail     bool
 	)
 
 	for hash == "" {
@@ -254,6 +254,7 @@ func (l *linker) phone(ctx context.Context) (*tg.AuthAuthorization, error) {
 			}
 
 			hash, hint = s.PhoneCodeHash, codeSentTo(s.Type)
+			_, byEmail = s.Type.(*tg.AuthSentCodeTypeEmailCode)
 		case *tg.AuthSentCodeSuccess:
 			return authorized(s.Authorization)
 		default:
@@ -267,7 +268,7 @@ func (l *linker) phone(ctx context.Context) (*tg.AuthAuthorization, error) {
 			return nil, err
 		}
 
-		authz, err := client.SignIn(ctx, number, code, hash)
+		authz, err := l.signIn(ctx, client, number, code, hash, byEmail)
 
 		var signUp *auth.SignUpRequired
 
@@ -281,6 +282,37 @@ func (l *linker) phone(ctx context.Context) (*tg.AuthAuthorization, error) {
 		}
 
 		return authz, err
+	}
+}
+
+// signIn signs in with the code Telegram sent: a code sent to the account's email goes as the email verification, as
+// auth.signIn takes it (core.telegram.org/method/auth.signIn: email_verification), with the answers gotd's
+// auth.Client.SignIn gives for a phone code (telegram/auth/user.go:145-162).
+func (l *linker) signIn(ctx context.Context, client *auth.Client, number, code, hash string, byEmail bool,
+) (*tg.AuthAuthorization, error) {
+	if !byEmail {
+		return client.SignIn(ctx, number, code, hash)
+	}
+
+	req := &tg.AuthSignInRequest{PhoneNumber: number, PhoneCodeHash: hash}
+	req.SetEmailVerification(&tg.EmailVerificationCode{Code: code})
+
+	res, err := l.api.AuthSignIn(ctx, req)
+	if tgerr.Is(err, "SESSION_PASSWORD_NEEDED") {
+		return nil, auth.ErrPasswordAuthNeeded
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("sign in: %w", err)
+	}
+
+	switch a := res.(type) {
+	case *tg.AuthAuthorization:
+		return a, nil
+	case *tg.AuthAuthorizationSignUpRequired:
+		return nil, &auth.SignUpRequired{TermsOfService: a.TermsOfService}
+	default:
+		return nil, fmt.Errorf("telegram: unexpected answer %T to signing in", res)
 	}
 }
 

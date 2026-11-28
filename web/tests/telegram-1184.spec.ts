@@ -21,6 +21,14 @@ const telegramChats: Chat[] = [
   { id: "user:5001", name: "Minh Anh", kind: "direct", reads: true, set_by: "default" },
   { id: "chat:6001", name: "Gia đình", kind: "group", reads: true, set_by: "default" },
   { id: "channel:7001", name: "Platform Team", kind: "group", reads: true, set_by: "default" },
+  // An ordinary group whose name the Zalo/WhatsApp patterns would take for a newsletter: read, by Telegram's flags.
+  {
+    id: "channel:7003",
+    name: "Engineering Newsletter",
+    kind: "group",
+    reads: true,
+    set_by: "default",
+  },
   { id: "user:5002", name: "BotFather", kind: "bot", reads: false, set_by: "default" },
   { id: "user:777000", name: "Telegram", kind: "bot", reads: false, set_by: "default" },
   { id: "channel:7002", name: "Tech News", kind: "bot", reads: false, set_by: "default" },
@@ -108,7 +116,11 @@ async function serve(
           defaults: { direct: true, group: true, bot: false, bot_patterns: ["\\bOA\\b"] },
         })
       case "GET /inbox/chat-sources/telegram/main":
-        return json({ data: telegramChats, counts: countOf(telegramChats), matched: 6 })
+        return json({
+          data: telegramChats,
+          counts: countOf(telegramChats),
+          matched: telegramChats.length,
+        })
       case "GET /tasks":
         return json({ data: [], runs: [], after: 0 })
       case "GET /inbox":
@@ -160,7 +172,8 @@ for (const theme of ["light", "dark"] as const) {
       page,
       isMobile,
     }) => {
-      const server = await serve(page, true)
+      // The first password typed is wrong and asked again.
+      const server = await serve(page, true, () => ask("password", "the cat", true))
       const card = await openTelegram(page, isMobile)
       await card.getByRole("button", { name: "Link phone" }).click()
       const dialog = page.getByRole("dialog")
@@ -177,6 +190,11 @@ for (const theme of ["light", "dark"] as const) {
       await expect(dialog).toContainText("Your hint: the cat")
       await dialog.getByLabel("Two-step password").fill("hunter2")
       await shot(page, `telegram-link-password-${theme}`)
+
+      await dialog.getByRole("button", { name: "Continue" }).click()
+      await expect(dialog).toContainText("That password was wrong; type it again.")
+      await expect(dialog.getByLabel("Two-step password")).toHaveValue("")
+      await shot(page, `telegram-link-password-again-${theme}`)
     })
 
     // Scenario: the phone number, then the code Telegram sent; a wrong code is asked again.
@@ -198,6 +216,8 @@ for (const theme of ["light", "dark"] as const) {
       await shot(page, `telegram-link-phone-${theme}`)
       await dialog.getByRole("button", { name: "Continue" }).click()
 
+      await expect(dialog).toContainText("Sent to the Telegram app.")
+      await shot(page, `telegram-link-code-${theme}`)
       await dialog.getByLabel("Code").fill("11111")
       await dialog.getByRole("button", { name: "Continue" }).click()
       await expect(dialog).toContainText("That code was wrong; type it again.")
@@ -211,10 +231,11 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto("/inbox/chats")
       if (isMobile) await page.keyboard.press("Escape")
 
-      await expect(page.getByRole("tab", { name: /Telegram\s*6/ })).toBeVisible()
+      await expect(page.getByRole("tab", { name: /Telegram\s*7/ })).toBeVisible()
       const row = (name: string) => page.getByTestId("secretary-chat").filter({ hasText: name })
       await expect(row("Minh Anh")).toContainText("Direct · Read · Default")
       await expect(row("Platform Team")).toContainText("Group · Read · Default")
+      await expect(row("Engineering Newsletter")).toContainText("Group · Read · Default")
       await expect(row("BotFather")).toContainText("Bot · Skipped · Default for bots")
       await expect(row("Tech News")).toContainText("Bot · Skipped · Default for bots")
       await shot(page, `telegram-chats-${theme}`)
