@@ -201,6 +201,11 @@ func TestAQuickTasksPullRequestGetsReviewSuccessWithItsReason(t *testing.T) {
 
 	for _, task := range tasks {
 		_, c := w.start(task.ID)
+		if task.ID == quick.ID {
+			recordPush(t, w, c, task, statusHead)
+			recordPush(t, w, c, task, statusNewHead)
+		}
+
 		done := success("Opened the pull request.")
 		done.Result.Evidence = nil
 		require.NoError(t, w.finish(c, done))
@@ -329,9 +334,19 @@ func TestTheMigrationQueuesEachPullRequestsLatestVerdict(t *testing.T) {
 	assert.Equal(t, 1, h.reads, "only the latest verdict is queued")
 }
 
+// recordPush has the running Dispatch of c report that it published sha to task's branch, as the node reports a
+// push through publish_branch.
+func recordPush(t *testing.T, w *world, c NodeCall, task Task, sha string) {
+	t.Helper()
+
+	current := w.task(task.ID)
+	require.NoError(t, w.s.RecordPublishedHead(t.Context(), w.again(c),
+		PublishedHead{Branch: TaskPushBranch(current.ID, current.PushBranch), SHA: sha}))
+}
+
 // quickWorld is a world with a quick Task that succeeded without naming its pull request, in a Run of
-// kl3inIT/hypomnema the coordinator finished.
-func quickWorld(t *testing.T) (*world, Task) {
+// kl3inIT/hypomnema the coordinator finished, having reported pushing heads (statusHead when none is named).
+func quickWorld(t *testing.T, heads ...string) (*world, Task) {
 	t.Helper()
 
 	w := newWorld(t)
@@ -345,6 +360,15 @@ func quickWorld(t *testing.T) (*world, Task) {
 
 	quick := w.tasks(NewTask{Ref: "quick", Profile: "implementer", Kind: "quick", Spec: "rename the setting"})[0]
 	_, c := w.start(quick.ID)
+
+	if len(heads) == 0 {
+		heads = []string{statusHead}
+	}
+
+	for _, sha := range heads {
+		recordPush(t, w, c, quick, sha)
+	}
+
 	done := success("Opened the pull request.")
 	done.Result.Evidence = nil
 	require.NoError(t, w.finish(c, done))
@@ -374,9 +398,7 @@ func pushes(t *testing.T, w *world, task Task, sha string) NodeCall {
 
 	w.advance(time.Minute)
 	_, c := w.start(task.ID)
-	current := w.task(task.ID)
-	require.NoError(t, w.s.RecordPublishedHead(t.Context(), w.again(c),
-		PublishedHead{Branch: TaskPushBranch(current.ID, current.PushBranch), SHA: sha}))
+	recordPush(t, w, c, task, sha)
 
 	return c
 }
@@ -387,7 +409,7 @@ func pushes(t *testing.T, w *world, task Task, sha string) NodeCall {
 func TestAQuickPullRequestContinuedByANarrowTaskNeedsItsReview(t *testing.T) {
 	t.Parallel()
 
-	w, quick := quickWorld(t)
+	w, quick := quickWorld(t, statusHead, statusNewHead)
 	ctx := t.Context()
 
 	head := statusHead
@@ -561,4 +583,53 @@ func TestANarrowTaskCanceledBeforeItRanLeavesTheQuickPullRequestItsStatus(t *tes
 	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
 	require.Len(t, h.posted, 1)
 	assert.Equal(t, "no review needed: quick Task "+quick.ID, h.posted[0].Description)
+}
+
+// Scenario (issue #1279, review round 4): on GitLab no Dispatch reports its pushes (publish_branch is GitHub's),
+// so no head has a record of the quick Task pushing it. A quick Task succeeded; a quick Task that continues it
+// failed; a narrow Task continues that and pushes a new head; the failed quick Task is reopened, starts and is
+// canceled before it pushes. The head is the narrow Task's, unreviewed: no "no review needed" is posted on it, nor
+// on any head without the quick Task's own push record.
+func TestAHeadWithoutTheQuickTasksPushRecordGetsNoNoReviewStatus(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.branchHello(w.node.ID, true)
+	ctx := t.Context()
+
+	var err error
+
+	w.run, err = w.s.CreateRun(ctx, NewRun{Objective: "Rename it", CreatedBy: "pi",
+		Repo: "https://gitlab.com/group/project.git"})
+	require.NoError(t, err)
+
+	first := w.tasks(NewTask{Ref: "first", Profile: "implementer", Kind: "quick", Spec: "rename the setting"})[0]
+	w.advance(time.Minute)
+	w.succeed(first.ID, "Opened the merge request.")
+
+	again := w.tasks(NewTask{Ref: "again", Profile: "implementer", Kind: "quick", Spec: "rename the rest",
+		Continues: first.ID})[0]
+	for w.task(again.ID).Status != TaskFailed {
+		w.advance(BackoffMax)
+		w.failOnce(again.ID, FailureWorkerError)
+	}
+
+	narrow := w.tasks(NewTask{Ref: "narrow", Profile: "implementer", Kind: "narrow", Spec: "fix the callers",
+		Continues: again.ID})[0]
+	w.advance(time.Minute)
+	w.succeed(narrow.ID, "Pushed the fix.")
+
+	require.NoError(t, w.s.ReopenTask(ctx, again.ID))
+	w.advance(time.Minute)
+	w.start(again.ID)
+	require.NoError(t, w.s.CancelTask(ctx, again.ID))
+
+	repo := githost.Repo{Host: "gitlab.com", Path: "group/project"}
+	h := &statusHost{state: githost.RequestState{Status: githost.RequestOpen, Head: statusNewHead}}
+	h.find = func(_ context.Context, f FollowedRequest) (githost.Request, githost.RequestState, error) {
+		return githost.Request{Repo: repo, Number: 7},
+			githost.RequestState{Status: githost.RequestOpen, Head: statusNewHead, Branch: f.Branch}, nil
+	}
+	require.NoError(t, w.s.PostReviewStatuses(ctx, h.host()))
+	assert.Empty(t, h.posted, "a head no quick Task reported pushing gets no automatic status")
 }
