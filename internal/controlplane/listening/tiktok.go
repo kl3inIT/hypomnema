@@ -296,7 +296,12 @@ func tiktokCall(ctx context.Context, r Request, page Page, address string) ([]by
 	if r.Read != nil {
 		done, err := r.Read(ctx, tiktokHost, tiktokCadence)
 		if err != nil {
-			return nil, AsFailure(err)
+			// Stopped while it waited for TikTok's turn: nothing was sent, so nothing rests on it (review round 2 of
+			// PR #1363); it is skipped as a read not asked.
+			f := AsFailure(err)
+
+			return nil, &SourceError{Code: CodeTimeout, Detail: "stopped before TikTok's turn came: " + f.Detail,
+				resting: true, transient: true}
 		}
 
 		defer done()
@@ -457,10 +462,10 @@ func tiktokBarrier(st tiktokState) *SourceError {
 	return nil
 }
 
-// tiktokVideos are a search answer's videos. An answer with neither item_list nor has_more was not read, never a clean
-// zero (radar facebook-topic-adapter.md:9: no zero without the site's own empty answer). Inferred, no reference
-// says it: one with has_more and no item_list is TikTok's own empty answer; TikTok-Api reads any missing list as
-// empty (search.py:107 and 111), which this narrows to an answer that carries has_more.
+// tiktokVideos are a search answer's videos. An answer without item_list was not read, never a clean zero (radar
+// facebook-topic-adapter.md:9: no zero without the site's own empty answer), unless its has_more is 0. Inferred, no
+// reference says it: has_more 0 beside no item_list is TikTok's own empty answer; TikTok-Api reads any missing list
+// as empty (search.py:107 and 111), which this narrows to an answer that says it has no more.
 func tiktokVideos(body []byte, now time.Time) ([]Item, *SourceError) {
 	var payload struct {
 		Items   *[]tiktokVideo  `json:"item_list"`
@@ -472,7 +477,10 @@ func tiktokVideos(body []byte, now time.Time) ([]Item, *SourceError) {
 	}
 
 	if payload.Items == nil {
-		if len(payload.HasMore) > 0 {
+		// has_more 0 (or false) beside no list ends TikTok's results; has_more 1 says there are results, which TikTok-Api
+		// reads as a next page to ask (search.py:111-115), so without the list it is no read and no sign-in's proof
+		// (review round 2 of PR #1363).
+		if more, ok := countOf(payload.HasMore); ok && more == 0 || string(payload.HasMore) == "false" {
 			return nil, nil
 		}
 

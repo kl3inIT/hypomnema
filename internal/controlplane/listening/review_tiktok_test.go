@@ -85,7 +85,7 @@ func TestReviewTikTokNotFoundStillFallsBack(t *testing.T) {
 }
 
 // Review round 2 of PR #1363, P1: a Bot's search passed the registry's check and waits for TikTok's turn while a
-// sign-in's check holds it; the check meets a 429 with Retry-After 120 and keeps TikTok's rest; the search, cancelled
+// sign-in's check holds it; the check meets a 429 with Retry-After 120 and keeps TikTok's rest; the search, canceled
 // while it waits, sent nothing to TikTok and must not replace that rest with its own timeout. The owner's next check,
 // two seconds later, then sends nothing either.
 func TestReviewTikTokCancelledSearchKeepsTheRetryAfter(t *testing.T) {
@@ -153,7 +153,7 @@ func TestReviewTikTokCancelledSearchKeepsTheRetryAfter(t *testing.T) {
 	cancel()
 	<-searched
 
-	assert.Empty(t, rig.tab.fetched(), "the cancelled search sent TikTok nothing")
+	assert.Empty(t, rig.tab.fetched(), "the canceled search sent TikTok nothing")
 
 	rig.clock.Advance(2 * time.Second)
 
@@ -161,4 +161,17 @@ func TestReviewTikTokCancelledSearchKeepsTheRetryAfter(t *testing.T) {
 	require.ErrorIs(t, err, listening.ErrInvalid)
 	assert.Contains(t, err.Error(), "slow down")
 	assert.Len(t, rig.check.fetched(), asked, "nothing is sent to TikTok while its Retry-After lasts")
+}
+
+// Review round 2 of PR #1363, P2: has_more 1 without item_list is no read, so a sign-in is not kept on it.
+func TestReviewTikTokMoreWithoutAListKeepsNoSignIn(t *testing.T) {
+	rig := newTikTokRig(t)
+	require.NoError(t, rig.svc.Consent(t.Context(), listening.SourceTikTok))
+	rig.check.answer = func(string) map[string]any {
+		return tiktokBody(map[string]any{"status_code": 0, "has_more": 1})
+	}
+
+	err := rig.svc.PasteCookies(t.Context(), listening.SourceTikTok, "sessionid=made-up; msToken=made-up", "")
+	require.ErrorIs(t, err, listening.ErrInvalid)
+	assert.False(t, rig.vault.has("listening-tiktok"))
 }

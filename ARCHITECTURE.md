@@ -5262,8 +5262,10 @@ writes no prose (last30days SKILL.md LAW 7).
   (trend-opportunity-radar's TikTok pace). An empty body `refused` (TikTok taking the session for a bot), 401 or a
   landing on `/login` `need_login`, 403 `refused`, 429 a rate limit until its Retry-After (else an hour), kept as
   `web_api`'s rest before TikTok's turn ends and read inside the turn by every later read and by a sign-in's check,
-  so the owner's tab sends nothing meanwhile; a 404, or an answer that is not JSON, has a non-zero `status_code` or
-  no `item_list`, `broken` (a 404 is the endpoint's, so the next backend is still asked); a failure of a comment list after the videos keeps them as
+  so the owner's tab sends nothing meanwhile (no other call's failure shortens or replaces a rest in force after a rate
+  limit or a spent quota, any source's, and a TikTok read stopped while it waits for TikTok's turn sent nothing and
+  records no rest); a 404, or an answer that is not JSON, has a non-zero `status_code` or no `item_list` (unless its
+  `has_more` is 0, TikTok's empty answer), `broken` (a 404 is the endpoint's, so the next backend is still asked); a failure of a comment list after the videos keeps them as
   a part read. `yt_dlp`, while the account cannot be read: `site:tiktok.com <query>` through the web search, the
   videos it names (at most 12, none whose id dates it more than a day outside the window) each read by one yt-dlp
   run, from the control plane's PATH as YouTube's, at TikTok's host in turn, with no gap between runs (YouTube's

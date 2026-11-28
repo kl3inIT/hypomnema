@@ -491,6 +491,8 @@ func TestTikTokBarriersAndBrokenAnswersAreNotZeros(t *testing.T) {
 		{name: "status code", answer: tiktokBody(map[string]any{"status_code": 10201, "status_msg": "x"}),
 			code: listening.CodeBroken},
 		{name: "no list", answer: tiktokBody(map[string]any{"status_code": 0}), code: listening.CodeBroken},
+		{name: "more without a list", answer: tiktokBody(map[string]any{"status_code": 0, "has_more": 1}),
+			code: listening.CodeBroken},
 		{name: "fetch failed", answer: map[string]any{"status": 0, "error": "Failed to fetch"}, code: listening.CodeBroken},
 	}
 
