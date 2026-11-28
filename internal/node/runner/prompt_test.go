@@ -496,3 +496,16 @@ func TestPromptWaitsForCIOnTheAppsEventsWhenItsTokenIsTheApps(t *testing.T) {
 	d.Offer.RepoToken, d.Offer.GitHubApp = "ghp_x", false
 	assert.Contains(t, Prompt(d), "`gh pr checks <url> --required --watch --interval 60`")
 }
+
+func TestPromptGivesTheWorkerTheFallbackCoAuthorTrailer(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.GitHubApp = true
+	const trailer = "Co-authored-by: octo <1+octo@users.noreply.github.com>"
+	d.Offer.GitCoAuthor = trailer
+
+	assert.Contains(t, Prompt(d), trailer)
+}

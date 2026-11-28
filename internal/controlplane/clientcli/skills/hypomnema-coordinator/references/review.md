@@ -24,6 +24,8 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    Look at its checks first (`gh pr checks <url>`).
    Do not rerun a failing test to get a green check. Hold the merge until the failure is fixed or, for a flaky
    test, the test is quarantined with an issue and a note visible to the owner (issue #1281).
+   When a review or fix Task investigates a flaky test or asks for repeated test runs, load the `recovery`
+   reference and copy its [test repeat rules](recovery.md#flaky-tests-and-repeat-runs) into the Task's spec.
    For an important pull request you may first ask CodeRabbit to review it: `gh pr comment <url> --body
    "@coderabbitai review"`, a write the owner approves like any other. Important means it adds a migration,
    changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or

@@ -86,10 +86,12 @@ func RegistrationURL(state string) string {
 // Credential is the App's: its id and what GitHub said of it, its private key and its webhook secret, kept as one
 // secret in the vault, as Omnara keeps the same values as one credential (github_app_setup_callback.go:137-145).
 type Credential struct {
-	AppID   int64  `json:"app_id"`
-	Slug    string `json:"slug"`
-	Owner   string `json:"owner"`
-	HTMLURL string `json:"html_url"`
+	AppID       int64  `json:"app_id"`
+	Slug        string `json:"slug"`
+	Owner       string `json:"owner"`
+	HTMLURL     string `json:"html_url"`
+	BotUserID   int64  `json:"bot_user_id,omitempty"`
+	OwnerUserID int64  `json:"owner_user_id,omitempty"`
 	// PrivateKey is the App's RSA key in PEM, and WebhookSecret the secret its deliveries are signed with: never
 	// shown, logged or written anywhere but the vault.
 	PrivateKey    string `json:"private_key"`
@@ -266,6 +268,7 @@ func (c Client) Convert(ctx context.Context, code string) (Credential, error) {
 		HTMLURL string `json:"html_url"`
 		Owner   struct {
 			Login string `json:"login"`
+			ID    int64  `json:"id"`
 		} `json:"owner"`
 		PEM           string `json:"pem"`
 		WebhookSecret string `json:"webhook_secret"`
@@ -277,7 +280,7 @@ func (c Client) Convert(ctx context.Context, code string) (Credential, error) {
 
 	cred := Credential{
 		AppID: answer.ID, Slug: answer.Slug, HTMLURL: answer.HTMLURL, Owner: answer.Owner.Login,
-		PrivateKey: answer.PEM, WebhookSecret: answer.WebhookSecret,
+		OwnerUserID: answer.Owner.ID, PrivateKey: answer.PEM, WebhookSecret: answer.WebhookSecret,
 	}
 	if cred.AppID <= 0 || cred.WebhookSecret == "" || !validSlug(cred.Slug) {
 		return Credential{}, errors.New("GitHub's answer holds no App")
@@ -288,6 +291,23 @@ func (c Client) Convert(ctx context.Context, code string) (Credential, error) {
 	}
 
 	return cred, nil
+}
+
+// userID reads the GitHub user ID that goes in a noreply address. An App's bot user and App have different IDs.
+func (c Client) userID(ctx context.Context, login, token string) (int64, error) {
+	var answer struct {
+		ID int64 `json:"id"`
+	}
+
+	if err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(login), token, nil, &answer); err != nil {
+		return 0, fmt.Errorf("reading the GitHub account ID: %w", err)
+	}
+
+	if answer.ID <= 0 {
+		return 0, errors.New("GitHub's answer holds no user ID")
+	}
+
+	return answer.ID, nil
 }
 
 func validSlug(s string) bool {

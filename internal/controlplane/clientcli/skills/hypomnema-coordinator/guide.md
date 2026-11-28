@@ -125,6 +125,8 @@ its branch does not hold another Task's unmerged changes. So:
   Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
 - For a bug fix, ask for a test that fails without the fix, committed before the fix, so a disputed finding is
   settled by running that test at either commit.
+- For a Task about a flaky test or a Task that asks for repeated test runs, load the `recovery` reference and
+  copy its [test repeat rules](references/recovery.md#flaky-tests-and-repeat-runs) into the worker's spec.
 
 Make each spec self-contained: the goal, decisions already made, what it may change, the deliverable and the
 evidence that proves it is done.
