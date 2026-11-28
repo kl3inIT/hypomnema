@@ -16,17 +16,20 @@ func TestWindowUsesEachProvidersDocumentedArguments(t *testing.T) {
 	for _, tc := range []struct {
 		name, provider, bodyPart string
 		stand                    func(*world) *provider
+		basis                    websearch.WindowBasis
 		key                      bool
 	}{
 		{"exa REST", "exa", `"startPublishedDate":"2026-11-01T00:00:00.000Z"`,
-			func(w *world) *provider { return w.exa }, true},
+			func(w *world) *provider { return w.exa }, websearch.WindowServerBounds, true},
 		{"exa MCP", "exa", `"endPublishedDate":"2026-11-13T23:59:59.999Z"`,
-			func(w *world) *provider { return w.exaMCP }, false},
+			func(w *world) *provider { return w.exaMCP }, websearch.WindowServerBounds, false},
 		{"keyed Parallel", "parallel", `"source_policy":{"after_date":"2026-11-01"}`,
-			func(w *world) *provider { return w.parallel }, true},
-		{"Tavily", "tavily", `"filter_by_published_date":true`, func(w *world) *provider { return w.tavily }, false},
-		{"You.com", "you", `"freshness":"2026-11-01to2026-11-13"`, func(w *world) *provider { return w.you }, false},
-		{"TinyFish", "tinyfish", "", func(w *world) *provider { return w.tinyFish }, true},
+			func(w *world) *provider { return w.parallel }, websearch.WindowServerBounds, true},
+		{"Tavily", "tavily", `"filter_by_published_date":true`,
+			func(w *world) *provider { return w.tavily }, websearch.WindowServerBounds, false},
+		{"You.com", "you", `"freshness":"2026-11-01to2026-11-13"`,
+			func(w *world) *provider { return w.you }, websearch.WindowNone, false},
+		{"TinyFish", "tinyfish", "", func(w *world) *provider { return w.tinyFish }, websearch.WindowServerBounds, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -43,7 +46,7 @@ func TestWindowUsesEachProvidersDocumentedArguments(t *testing.T) {
 			ctx := websearch.WithWindow(t.Context(), from, to)
 			a, err := w.svc.Search(ctx, "go", 3, tc.provider)
 			require.NoError(t, err)
-			assert.Equal(t, websearch.WindowServerBounds, a.WindowBasis)
+			assert.Equal(t, tc.basis, a.WindowBasis)
 
 			req, body := tc.stand(w).request()
 			if tc.bodyPart != "" {
