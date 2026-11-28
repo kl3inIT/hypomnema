@@ -1305,18 +1305,16 @@ var commands = []command{
 	{
 		name: "inbox chats", args: "[<integration>:<label>]", max: 1,
 		summary: "the owner's accounts whose chats the secretary reads, or one's chats with whether it reads each (owner)",
-		flags: func(fs *flag.FlagSet) {
-			fs.String("q", "", "only the chats whose name or id has these words")
-			fs.String("kind", "", "only the chats of this kind: direct, group or bot")
-			fs.String("state", "", "only the chats the secretary reads (read) or skips (skipped)")
-			jsonFlag(fs)
-		},
-		run: inboxChats,
+		flags:   inboxChatFilterFlags, run: inboxChats,
 	},
 	{
-		name: "inbox chats set", args: "<integration>:<label> <chat_id> on|off", min: 3, max: 3,
-		summary: "set whether the secretary reads a chat; off, it is still kept and read on request (owner)",
-		flags:   jsonFlag, run: inboxChatsSet,
+		name: "inbox chats set", args: "<integration>:<label> [<chat_id>[,<chat_id>...]] on|off", min: 2, max: 3,
+		summary: "set whether the secretary reads one chat, a list of chat IDs, or the filtered list (owner)",
+		flags: func(fs *flag.FlagSet) {
+			inboxChatFilterFlags(fs)
+			fs.Bool("shown", false, "set the first 500 shown chats, even without search or filters")
+		},
+		run: inboxChatsSet,
 	},
 	{
 		name:    "inbox chats move",

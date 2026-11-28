@@ -5,7 +5,7 @@
 -- The owner's choice for one chat, replacing the one he made before.
 INSERT INTO inbox_chat_reads (integration, label, chat_id, reads, set_at)
 VALUES (@integration, @label, @chat_id, @reads, @now)
-ON CONFLICT (integration, label, chat_id) DO UPDATE SET reads = excluded.reads, set_at = excluded.set_at
+ON CONFLICT (integration, label, chat_id) DO UPDATE SET reads = excluded.reads, set_at = max(excluded.set_at, inbox_chat_reads.set_at + 1)
 RETURNING *;
 
 -- name: AddInboxChatRead :execrows
@@ -20,3 +20,8 @@ ON CONFLICT (integration, label, chat_id) DO NOTHING;
 SELECT * FROM inbox_chat_reads
 WHERE (CAST(@integration AS TEXT) = '' OR (integration = CAST(@integration AS TEXT) AND label = CAST(@label AS TEXT)))
 ORDER BY integration, label, chat_id;
+
+-- name: DeleteInboxChatReadIfCurrent :execrows
+DELETE FROM inbox_chat_reads
+WHERE integration = @integration AND label = @label AND chat_id = @chat_id
+  AND reads = @reads AND set_at = @set_at;

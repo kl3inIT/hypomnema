@@ -39,6 +39,34 @@ func (q *Queries) AddInboxChatRead(ctx context.Context, arg AddInboxChatReadPara
 	return result.RowsAffected()
 }
 
+const deleteInboxChatReadIfCurrent = `-- name: DeleteInboxChatReadIfCurrent :execrows
+DELETE FROM inbox_chat_reads
+WHERE integration = ?1 AND label = ?2 AND chat_id = ?3
+  AND reads = ?4 AND set_at = ?5
+`
+
+type DeleteInboxChatReadIfCurrentParams struct {
+	Integration string
+	Label       string
+	ChatID      string
+	Reads       int64
+	SetAt       int64
+}
+
+func (q *Queries) DeleteInboxChatReadIfCurrent(ctx context.Context, arg DeleteInboxChatReadIfCurrentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteInboxChatReadIfCurrent,
+		arg.Integration,
+		arg.Label,
+		arg.ChatID,
+		arg.Reads,
+		arg.SetAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const listInboxChatReads = `-- name: ListInboxChatReads :many
 SELECT integration, label, chat_id, reads, set_at FROM inbox_chat_reads
 WHERE (CAST(?1 AS TEXT) = '' OR (integration = CAST(?1 AS TEXT) AND label = CAST(?2 AS TEXT)))
@@ -84,7 +112,7 @@ const setInboxChatRead = `-- name: SetInboxChatRead :one
 
 INSERT INTO inbox_chat_reads (integration, label, chat_id, reads, set_at)
 VALUES (?1, ?2, ?3, ?4, ?5)
-ON CONFLICT (integration, label, chat_id) DO UPDATE SET reads = excluded.reads, set_at = excluded.set_at
+ON CONFLICT (integration, label, chat_id) DO UPDATE SET reads = excluded.reads, set_at = max(excluded.set_at, inbox_chat_reads.set_at + 1)
 RETURNING integration, label, chat_id, reads, set_at
 `
 
