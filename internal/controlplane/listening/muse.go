@@ -485,9 +485,10 @@ func (mr *museReader) ask(ctx context.Context, r Request, lane *museLane, prompt
 
 	// The pool answers a question its deadline cut with an error or an unknown end and no Go error ("Muse was not
 	// asked: context deadline exceeded", muse/ask.go): the search's time ran out, a timeout by the closed codes,
-	// whatever the pool's outcome (review of #1292, round 3).
+	// whatever the pool's outcome (review of #1292, round 3). A quota the pool confirmed stays limit_reached, resting
+	// until 00:00 UTC, even when its Usage read after it met the deadline (round 4).
 	if failed != nil && (res.Outcome == muse.OutcomeError || res.Outcome == muse.OutcomeUnknown) &&
-		(ctx.Err() != nil || lane.askLeft(r.now()) <= 0) {
+		AsFailure(failed).Code != CodeLimitReached && (ctx.Err() != nil || lane.askLeft(r.now()) <= 0) {
 		return res, Fail(CodeTimeout, "Muse's time for this search ran out: %s", oneLine(res.Note))
 	}
 
