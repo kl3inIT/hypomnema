@@ -587,6 +587,9 @@ func (s *Service) session(source string) *Session {
 	return &Session{s: s, source: source, signed: p.Signed}
 }
 
+// verifying says the session is a sign-in's candidate being verified, whose read only shows that it reads.
+func (se *Session) verifying() bool { return se.candidate != nil }
+
 // Site is the site the account is signed in to.
 func (se *Session) Site() signin.Site { return se.signed.Site }
 

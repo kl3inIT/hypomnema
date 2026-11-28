@@ -5249,6 +5249,24 @@ writes no prose (last30days SKILL.md LAW 7).
   `{label?}`, `PUT …/account` `{cookies, label?}`, `DELETE …/account`. The Social listening card shows the consent
   card, then Sign in (the owner's tab shown in the dialog) or Paste cookies, then the account's state with Sign in
   again and Sign out. The Chinese platforms behind an account (Zhihu, Weibo, Douyin, Xiaohongshu) are not read yet.
+- TikTok (issue #1294; `listening/tiktok.go`): `tiktok`, a signed-in source as above, its login cookies `sessionid`
+  (or `sessionid_ss`) and `msToken`, with three backends. `web_api`: TikTok's own web API asked from the account's
+  tab in the shared browser, TikTok-Api's mechanism (MIT, `third_party/tiktok-api`) without its Python or its
+  Playwright: the tab is opened on `https://www.tiktok.com/` and kept, waited for up to 20 s until TikTok's web
+  client (`window.byted_acrawler`) loads, and each request is a `fetch` from it with TikTok-Api's session parameters
+  and no `msToken`, `X-Bogus` or `X-Gnarly`, which TikTok's client adds itself (TikTok-Api's open pull request
+  #1310). One page of `/api/search/item/full/` a subquery, then, outside a sign-in's check, `/api/comment/list/` of
+  the three most watched videos in the window, five top-level comments each, the video's author's left out, each
+  comment's address the video's with `?comment_id=`. One request at a time, 12 s apart and 30 s more after every five
+  (trend-opportunity-radar's TikTok pace). An empty body `refused` (TikTok taking the session for a bot), 401 or a
+  landing on `/login` `need_login`, 403 `refused`, 429 a rate limit until its Retry-After, an answer that is not JSON,
+  has a non-zero `status_code` or no `item_list` `broken`; a failure of a comment list after the videos keeps them as
+  a part read. `yt_dlp`, while the account cannot be read: `site:tiktok.com <query>` through the web search, the
+  videos it names (at most 12, none whose id dates it more than a day outside the window) each read by one yt-dlp
+  run, from the control plane's PATH as YouTube's, at TikTok's host in turn; it is stopped apart from the account
+  (host `yt-dlp:tiktok.com`), so an account's refusal still leaves it asked. `site_search`: the same web search's
+  cards, a video's address only, dated by its id's high 32 bits. Videos are scored on last30days' TikTok weights
+  (views 0.45, likes 0.27, comments 0.18, the view scale), comments on its 10.3 vote reference.
 - The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
   - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
     and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the
@@ -5445,7 +5463,7 @@ writes no prose (last30days SKILL.md LAW 7).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
-  search page has (owner, 2026-11-27: no paid services). No source is read with a key; only X and LinkedIn are read with an account, the owner's own (issue #1291). `go test
+  search page has (owner, 2026-11-27: no paid services). No source is read with a key; only X, LinkedIn and TikTok are read with an account, the owner's own (issues #1291, #1294). `go test
   ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources, and runs the
   Social listening page's live test of every source.
 - Settings → Gateway → Social listening (issue #1290; `listening/settings.go`, `health.go`, `fix.go`,

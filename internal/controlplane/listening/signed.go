@@ -15,9 +15,10 @@ import (
 // The signed-in sources (issue #1291): X and LinkedIn, each read first as the owner's account and then, while the
 // account cannot be read (none signed in, signed out, refused, stopped), by the web search's results on its site,
 // which need no account: the next free backend (research note §2, the free routes in order: X's cookies first and
-// `site:x.com` web search last, LinkedIn's signed-in account then `site:linkedin.com/posts` web search). Both are off
-// until the owner agrees to their consent cards (last30days references/reddit-session.md; research note §5b, "Off until
-// the owner signs in").
+// `site:x.com` web search last, LinkedIn's signed-in account then `site:linkedin.com/posts` web search). TikTok
+// (issue #1294, tiktok.go) is read as the account, then with yt-dlp, then by its web search's cards (research note §2).
+// Each is off until the owner agrees to its consent card (last30days references/reddit-session.md; research note
+// §5b, "Off until the owner signs in").
 
 // The signed-in sources' and their backends' names.
 const (
@@ -45,13 +46,28 @@ const (
 		"LinkedIn shows, one page at a time, 10 seconds apart. Only LinkedIn's cookies are kept, in the vault: they " +
 		"are never shown or logged and go only to linkedin.com. After a security check it stops until you sign in " +
 		"again; after a rate-limit page, for 24 hours."
+	// tiktokConsent names, besides the terms, the failure TikTok-Api's users report (README.md:110, its issues #1116,
+	// #1242 and #1311: empty answers once TikTok takes the reader for a bot).
+	tiktokConsent = "TikTok's terms forbid automated access, so reading it as your account may bring a security " +
+		"check (a CAPTCHA), a limit or a ban of the account; users of TikTok-Api, which reads TikTok the same way, " +
+		"report TikTok answering empty pages once it takes the reader for a bot. Sign in a secondary account made " +
+		"for this, never your own. Hypomnema then opens TikTok as that account in its own tab of the shared browser " +
+		"and asks TikTok's web API from there for a search's videos and the top comments of a few of them, one " +
+		"request at a time, 12 seconds apart. Only TikTok's cookies are kept, in the vault: they are never shown or " +
+		"logged and go only to tiktok.com. If TikTok refuses the account or answers empty, Hypomnema stops reading " +
+		"it until you sign in again; it never solves a CAPTCHA."
 )
 
-// SignedSources are X and LinkedIn; client reads X's search. Inferred, no reference names them: each one's live query,
+// SignedSources are X, LinkedIn and TikTok; client reads X's search, e.YtDlp TikTok's videos the web search finds (nil:
+// the yt-dlp on the control plane's PATH, as YouTube's). Inferred, no reference names them: each one's live query,
 // which a sign-in's verification searches too, is a topic the owner researches (VETC, the web's and Reddit's live
-// query, sources.go), and the LinkedIn card's "a secondary account" extends to LinkedIn what the owner asks of X in
-// issue #1291.
-func SignedSources(_ Endpoints, client *http.Client) []Platform {
+// query, sources.go), and the LinkedIn and TikTok cards' "a secondary account" extends to them what the owner asks of
+// X in issue #1291.
+func SignedSources(e Endpoints, client *http.Client) []Platform {
+	if e.YtDlp == nil {
+		e.YtDlp = runYtDlp
+	}
+
 	return []Platform{
 		{
 			Name: SourceX, LiveQuery: "VETC",
@@ -68,6 +84,16 @@ func SignedSources(_ Endpoints, client *http.Client) []Platform {
 			},
 			Adds: "LinkedIn posts from its Posts search, read as your account; without one, LinkedIn posts the web " +
 				"search finds.",
+		},
+		{
+			Name: SourceTikTok, LiveQuery: "VETC",
+			Backends: []Backend{
+				tiktokBackend(), tiktokYtDlpBackend(e.YtDlp), siteSearchBackend("tiktok.com", tiktokPost),
+			},
+			Signed: &Signed{Site: tiktokSite, Consent: tiktokConsent, Backend: BackendWebAPI},
+			Adds: "TikTok videos with their author, date, views, likes, comments and shares, and the top comments of " +
+				"the most watched, searched as your account; without one, the TikTok videos the web search finds, " +
+				"read with yt-dlp.",
 		},
 	}
 }

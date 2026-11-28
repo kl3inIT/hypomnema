@@ -1692,7 +1692,7 @@ export const testListeningSource = <ThrowOnError extends boolean = true>(options
 /**
  * Agree to a signed-in social listening source's consent card, and switch it on; only the owner
  *
- * A source read as one of the owner's accounts (X, LinkedIn; issue #1291) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+ * A source read as one of the owner's accounts (X, LinkedIn, TikTok; issues #1291 and #1294) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
  */
 export const consentListeningSource = <ThrowOnError extends boolean = true>(options: Options<ConsentListeningSourceData, ThrowOnError>): RequestResult<ConsentListeningSourceResponses, ConsentListeningSourceErrors, ThrowOnError> => (options.client ?? client).post<ConsentListeningSourceResponses, ConsentListeningSourceErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -1740,7 +1740,7 @@ export const signOutListeningAccount = <ThrowOnError extends boolean = true>(opt
 /**
  * Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
  *
- * The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+ * The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, TikTok's sessionid or sessionid_ss and msToken), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
  */
 export const pasteListeningCookies = <ThrowOnError extends boolean = true>(options: Options<PasteListeningCookiesData, ThrowOnError>): RequestResult<PasteListeningCookiesResponses, PasteListeningCookiesErrors, ThrowOnError> => (options.client ?? client).put<PasteListeningCookiesResponses, PasteListeningCookiesErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

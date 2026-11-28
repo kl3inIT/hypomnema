@@ -66,6 +66,8 @@ const backends: Record<string, string> = {
   web_arctic: "Web search + Arctic Shift archive",
   graphql: "X's search, as your account",
   rendered_page: "LinkedIn's Posts search, as your account",
+  web_api: "TikTok's web API, as your account",
+  yt_dlp: "yt-dlp, keyless",
   site_search: "Web search on its site, keyless",
 }
 
