@@ -37,8 +37,10 @@ func TestLiveRedditAndWeb(t *testing.T) {
 		WindowDays: 90,
 	}
 
-	a, err := s.Search(t.Context(), plan, func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
-		return web.Search(ctx, query, limit, "")
+	a, err := s.Search(t.Context(), plan, listening.Caller{
+		Web: func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+			return web.Search(ctx, query, limit, "")
+		},
 	})
 	require.NoError(t, err)
 
