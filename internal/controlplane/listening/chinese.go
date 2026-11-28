@@ -101,15 +101,20 @@ func toutiaoBackend(e Endpoints, client *http.Client) Backend {
 	host, hotHost := hostOf(e.ToutiaoURL), hostOf(e.ToutiaoHotURL)
 
 	return Backend{
-		Name: BackendToutiao, Host: host,
+		// Off by default (opt-in): Toutiao's robots.txt allows only "/" and its user agreement limits automated
+		// collection and commercial reuse without written leave; the owner decides (review round 1 of PR #1321).
+		Name: BackendToutiao, Host: host, OptIn: true,
 		Search: func(ctx context.Context, r Request) (Result, error) {
 			var (
-				items []Item
-				notes []string
+				items  []Item
+				notes  []string
+				failed *SourceError
 			)
 
 			pages := min(toutiaoPages, max(1, (r.Limit+techmemePage-1)/techmemePage))
 
+			// The search's pages; a failure is kept, and the hot board is read whatever it was, as
+			// last30days-skill-cn reads the board after a failed search (toutiao.py:54-80).
 			for page := range pages {
 				v := url.Values{"keyword": {r.Query}, "pd": {"information"}, "dvpf": {"pc"}, "source": {"input"}}
 				if page > 0 {
@@ -117,22 +122,19 @@ func toutiaoBackend(e Endpoints, client *http.Client) Backend {
 				}
 
 				cards, read, err := toutiaoPage(ctx, client, r, host, e.ToutiaoURL+"/search?"+v.Encode())
-				if err != nil {
-					if page == 0 {
-						return Result{}, err
-					}
+				if err == nil && !read && page == 0 {
+					err = Fail(CodeBroken, "so.toutiao.com answered its page shell, without results, %d times", toutiaoTries)
+				}
 
-					notes = append(notes, fmt.Sprintf("page %d not read: %s", page+1, AsFailure(err).Error()))
+				if err != nil {
+					f := AsFailure(err)
+					failed = &SourceError{Code: f.Code, Detail: fmt.Sprintf("search page %d: %s", page+1, f.Detail),
+						Until: f.Until}
 
 					break
 				}
 
 				if !read {
-					if page == 0 {
-						return Result{}, Fail(CodeBroken, "so.toutiao.com answered its page shell, without results, %d "+
-							"times", toutiaoTries)
-					}
-
 					break
 				}
 
@@ -145,11 +147,20 @@ func toutiaoBackend(e Endpoints, client *http.Client) Backend {
 			hot, err := toutiaoHot(ctx, client, r, hotHost, e.ToutiaoHotURL)
 			if err != nil {
 				notes = append(notes, "hot board not read: "+AsFailure(err).Error())
+
+				if failed == nil {
+					failed = AsFailure(err)
+				}
 			}
 
 			items = append(items, hot...)
+			if len(items) == 0 && failed != nil {
+				return Result{}, &SourceError{
+					Code: failed.Code, Detail: joinDetail(failed.Detail, strings.Join(notes, "; ")), Until: failed.Until,
+				}
+			}
 
-			return Result{Items: items, Detail: strings.Join(notes, "; ")}, nil
+			return Result{Items: items, Detail: strings.Join(notes, "; "), Failed: failed}, nil
 		},
 	}
 }
@@ -169,8 +180,12 @@ func toutiaoPage(ctx context.Context, client *http.Client, r Request, host, addr
 		body := string(a.body)
 		head := body[:min(len(body), 4000)]
 
-		if strings.Contains(a.url, "verify") ||
-			strings.Contains(head, "captcha") && !strings.Contains(body, "druid-card-data") {
+		// The verify page is where Toutiao sent the request, its address's path or host, never a keyword that holds
+		// the word (last30days-skill-cn toutiao.py:127 looks at the whole address, query included).
+		landed, _ := url.Parse(a.url)
+		verify := landed != nil && (strings.Contains(landed.Path, "verify") || strings.Contains(landed.Host, "verify"))
+
+		if verify || strings.Contains(head, "captcha") && !strings.Contains(body, "druid-card-data") {
 			return nil, false, Fail(CodeRefused, "Toutiao answered its verify page")
 		}
 
@@ -492,6 +507,10 @@ func bilibiliBackend(e Endpoints, client *http.Client) Backend {
 				items  []Item
 				notes  []string
 				legacy bool
+				// risk is the risk answer that sent the search to the legacy one: kept, so a legacy search that
+				// finds nothing is still that refusal (last30days-skill-cn bilibili.py:204-213, 236-237: no items
+				// and errors raise).
+				risk *SourceError
 			)
 
 			for _, order := range []string{"totalrank", "click"} {
@@ -506,32 +525,37 @@ func bilibiliBackend(e Endpoints, client *http.Client) Backend {
 					// Fresh visitor cookies and the legacy search, as last30days-skill-cn does on a risk answer.
 					visitor.forget()
 
-					legacy = true
+					risk, legacy = f, true
 					notes = append(notes, "the WBI search met Bilibili's risk control ("+f.Detail+"); the legacy search "+
 						"was asked")
 					found, err = biliSearch(ctx, client, r, e.BilibiliURL, host, visitor, params, legacy)
 				}
 
 				if err != nil {
+					f := AsFailure(err)
 					if len(items) == 0 {
-						f := AsFailure(err)
-						if len(notes) > 0 {
-							f = &SourceError{Code: f.Code, Detail: strings.Join(append(notes, f.Detail), "; "),
-								Until: f.Until}
+						return Result{}, &SourceError{
+							Code: f.Code, Detail: strings.Join(append(notes, f.Detail), "; "), Until: f.Until,
 						}
-
-						return Result{}, f
 					}
 
-					notes = append(notes, "order "+order+" not read: "+AsFailure(err).Error())
-
-					break
+					// Read in part: the order that failed keeps its code beside the items read.
+					return Result{Items: items, Detail: strings.Join(notes, "; "), Failed: &SourceError{
+						Code: f.Code, Detail: "order " + order + ": " + f.Detail, Until: f.Until,
+					}}, nil
 				}
 
 				for _, it := range found {
 					if !slices.ContainsFunc(items, func(o Item) bool { return o.NativeID == it.NativeID }) {
 						items = append(items, it)
 					}
+				}
+			}
+
+			if len(items) == 0 && risk != nil {
+				return Result{}, &SourceError{
+					Code: CodeRefused, Detail: strings.Join(append(notes, "the legacy search found nothing"), "; "),
+					Until: risk.Until,
 				}
 			}
 

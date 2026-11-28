@@ -70,45 +70,55 @@ func careersBackend(pages *http.Client) Backend {
 				return Result{}, Fail(CodeNotFound, "the web search found no careers page for %q", r.Query)
 			}
 
-			a, err := readPage(ctx, pages, r, page)
+			a, err := readPage(ctx, pages, r, page, nil)
 			if err != nil {
 				return Result{}, err
 			}
 
 			jobs := jobPostings(string(a.body), a.url)
+
+			var failed *SourceError
 			detail := "careers page " + a.url
 
 			if len(jobs) == 0 {
 				links := roleLinks(string(a.body), a.url)
-				failed := 0
+				read := 0
 
 				for _, link := range links[:min(len(links), r.Limit)] {
-					role, err := readPage(ctx, pages, r, link)
+					role, err := readPage(ctx, pages, r, link, nil)
 					if err != nil {
-						failed++
+						// A role page not read makes the read partial, its code kept (last30days doctor.py:128-161);
+						// after a refusal or a rate limit its site rests and the other roles are not asked.
+						f := AsFailure(err)
+						failed = worse(failed, &SourceError{Code: f.Code, Detail: "role page " + link + ": " + f.Detail,
+							Until: f.Until})
 
-						if f := AsFailure(err); stopsHost(f.Code) {
-							detail += "; its site refused: " + f.Error()
-
+						if stopsHost(f.Code) {
 							break
 						}
 
 						continue
 					}
 
+					read++
+
 					if posted := jobPostings(string(role.body), role.url); len(posted) > 0 {
 						jobs = append(jobs, posted[0])
 					}
 				}
 
-				detail += fmt.Sprintf("; %d role pages read", len(links[:min(len(links), r.Limit)])-failed)
+				detail += fmt.Sprintf("; %d role pages read", read)
 			}
 
 			if len(jobs) == 0 {
+				if failed != nil {
+					return Result{}, failed
+				}
+
 				return Result{}, Fail(CodeNotFound, "the careers page %s lists no role with JobPosting data", a.url)
 			}
 
-			return Result{Items: markSignals(jobs), Detail: detail}, nil
+			return Result{Items: markSignals(jobs), Detail: detail, Failed: failed}, nil
 		},
 	}
 }
@@ -123,15 +133,44 @@ func containsAny(s string, words []string) bool {
 	return false
 }
 
-// readPage reads a page of a host a web search named, in its turn at that host, through the page client, which dials
-// public addresses only and whose redirects are followed one by one.
-func readPage(ctx context.Context, client *http.Client, r Request, address string) (answer, error) {
-	host := hostOf(address)
+// errDisallowed is a page its site's robots.txt or content signals do not let this control plane read.
+var errDisallowed = errors.New("its robots.txt or content signals do not allow reading it")
 
-	return call{
-		host: host, address: address, accept: "text/html,application/xhtml+xml", userAgent: pageUserAgent,
-		follow: true,
-	}.do(ctx, client, r)
+// readPage reads a page of a host a web search named, in its turn at that host, through the page client, which dials
+// public addresses only. Its redirects are followed one hop at a time, each checked by allowed first when given (a
+// forum's robots.txt), and each read rests its host's pages after a refusal or a rate limit, so the next search sends
+// nothing there until the rest ends, Retry-After included (the core's rests, rest.go; review round 1 of PR #1321).
+func readPage(ctx context.Context, client *http.Client, r Request, address string,
+	allowed func(u *url.URL) bool,
+) (answer, error) {
+	for hop := 0; hop <= maxRedirects; hop++ {
+		u, err := url.Parse(address)
+		if err != nil {
+			return answer{}, Fail(CodeBroken, "%s", err.Error())
+		}
+
+		if allowed != nil && !allowed(u) {
+			return answer{}, errDisallowed
+		}
+
+		host := hostOf(address)
+
+		a, err := call{
+			host: host, path: host + "/pages", address: address, accept: "text/html,application/xhtml+xml",
+			userAgent: pageUserAgent, redirect: true, siteRests: true,
+		}.do(ctx, client, r)
+		if err != nil {
+			return answer{}, err
+		}
+
+		if a.location == "" {
+			return a, nil
+		}
+
+		address = a.location
+	}
+
+	return answer{}, Fail(CodeBroken, "the page redirected more than %d times", maxRedirects)
 }
 
 // roleLinks are the links of a careers page to pages of roles on its own site, each once, in the page's order; a

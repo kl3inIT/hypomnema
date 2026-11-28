@@ -103,7 +103,7 @@ type hnHit struct {
 }
 
 // hackerNewsBackend reads Algolia's keyless search of Hacker News: stories and comments in the window (obsei
-// sources/hackernews.py:298-299 and harken read both kinds; last30days its stories), by relevance, every query word
+// sources/hackernews.py:52 and harken sources/hackernews.py:34 read both kinds; last30days its stories), by relevance, every query word
 // after the first optional so a long query still matches (last30days hackernews.py:113-124).
 func hackerNewsBackend(e Endpoints, client *http.Client) Backend {
 	host := hostOf(e.AlgoliaURL)

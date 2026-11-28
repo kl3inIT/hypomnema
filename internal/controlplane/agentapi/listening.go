@@ -48,7 +48,8 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 		Name: agenttool.ToolListenSearch,
 		Description: "Find what people say about a topic: posts, threads, comments, reviews and videos from the " +
 			"web, Reddit, YouTube (with what the video says and its top comments), Google Play and App Store " +
-			"reviews, Hacker News, GitHub, arXiv, Techmeme, DEV.to, Bluesky, Toutiao and Bilibili (in Chinese), the " +
+			"reviews, Hacker News, GitHub, arXiv, Techmeme, DEV.to, Bluesky, Bilibili and Toutiao (in Chinese; " +
+			"Toutiao is off unless `backends` pins it), the " +
 			"Vietnamese forums Voz, Tinhte and " +
 			"Otofun, and companies' careers pages, each item with its link, author, date, text and counts. Use it to " +
 			"learn what the public says (complaints, praise, questions, comparisons) rather than what the press or a " +

@@ -52,7 +52,7 @@ var (
 // page after page until the stream's limit, the last page or a review older than the window. Departing from
 // google-play-scraper on what its issues and the research note found wrong: an error on any page fails the stream
 // (reviews.py:113-125 ends the data silently), Play's gateway error is a rate limit that rests rather than a sleep and
-// a retry (utils/request.py:213-217), TLS is verified (request.py:184 turns it off), and `at` is Play's epoch in UTC
+// a retry (utils/request.py:38-42), TLS is verified (utils/request.py:9 turns it off), and `at` is Play's epoch in UTC
 // (element.py:185 makes it naive local time).
 func playBackend(e Endpoints, client *http.Client) Backend {
 	host := hostOf(e.PlayURL)
@@ -248,7 +248,9 @@ func playReviews(body []byte) ([]playReview, string, error) {
 }
 
 // The App Store feed's spellings of its first page: Apple's CDN serves one empty while another has the reviews
-// (obsei sources/appstore.py FIRST_PAGE); later pages have one spelling (NEXT_PAGE). Only the JSON form is read.
+// (obsei sources/appstore.py FIRST_PAGE); later pages have one spelling (NEXT_PAGE). Only the JSON form is read, as
+// marketingskills reads it (reverse-engineer-marketing/scripts/teardown.mjs:1428): obsei asks XML first, then JSON
+// (appstore.py:130), for the same entries; JSON holds every field an item takes, and one form keeps one parser.
 var (
 	appStoreFirst = []string{
 		"page=1/id=%s/sortby=mostrecent", "id=%s/sortby=mostrecent", "id=%s/sortBy=mostRecent", "id=%s",
@@ -339,10 +341,23 @@ func appStoreBackend(e Endpoints, client *http.Client) Backend {
 						} `json:"feed"`
 					}
 
+					// A spelling Apple answers 400 or 404 is passed for the next (obsei appstore._get and _page,
+					// appstore.py:119-140).
+					status := 0
 					address := fmt.Sprintf("%s/%s/rss/customerreviews/%s/json", e.ITunesURL, storeCountry, spelled)
-					if err := callJSON(ctx, client, r, call{
+					err := callJSON(ctx, client, r, call{
 						host: host, gap: appStoreGap, path: host + "/rss/customerreviews", address: address,
-					}, &feed); err != nil {
+						failure: func(s int, h http.Header, now time.Time) *SourceError {
+							status = s
+
+							return HTTPFailure(s, h, now)
+						},
+					}, &feed)
+					if err != nil && (status == http.StatusBadRequest || status == http.StatusNotFound) {
+						continue
+					}
+
+					if err != nil {
 						return Result{}, err
 					}
 
@@ -370,10 +385,19 @@ func appStoreBackend(e Endpoints, client *http.Client) Backend {
 						older = true
 					}
 
+					// The feed links every review to its app's page; the review's id makes its address its own,
+					// as obsei keys a review by its id (appstore.py:149-165), so two reviews never fold into one.
 					link := en.Link.Attributes.Href
 					if link == "" {
 						link = "https://apps.apple.com/" + storeCountry + "/app/id" + app
 					}
+
+					sep := "?"
+					if strings.Contains(link, "?") {
+						sep = "&"
+					}
+
+					link += sep + url.Values{"reviewId": {en.ID.Label}}.Encode()
 
 					items = append(items, Item{
 						NativeID: en.ID.Label, URL: link, Title: en.Title.Label, Text: en.Content.Label,

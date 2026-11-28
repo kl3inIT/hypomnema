@@ -49,9 +49,14 @@ type call struct {
 	slowDown bool
 	// failure reads a status that is not 200 as the source means it; nil: HTTPFailure.
 	failure func(status int, header http.Header, now time.Time) *SourceError
-	// follow follows redirects by hand, for a client that does not (a page client, websearch.PageClient), each hop
-	// dialed through the client's address check.
+	// follow follows redirects by hand, each hop dialed through the client's address check (websearch.PageClient).
 	follow bool
+	// redirect gives a redirect back to the caller (answer.location) for it to check the next hop first, as a
+	// page whose robots.txt is read at every hop (readPage).
+	redirect bool
+	// siteRests: only a refusal, a rate limit, a spent quota or a sign-in wall rests the path, not one page's own
+	// failure (a page's 500 or timeout is that page's), as the core stops a host only for those (stopsHost).
+	siteRests bool
 }
 
 // answer is what a call read.
@@ -60,6 +65,8 @@ type answer struct {
 	header http.Header
 	// url is where the answer came from, after redirects.
 	url string
+	// location is where a redirect sends, when the call gives redirects back (call.redirect).
+	location string
 }
 
 // do makes the call in its turn: a failure that rests rests its path, so another search queued behind this one is
@@ -81,7 +88,7 @@ func (c call) do(ctx context.Context, client *http.Client, r Request) (answer, e
 	}
 
 	a, err := c.once(ctx, client, r)
-	if err != nil && r.Rest != nil && c.path != "" {
+	if err != nil && r.Rest != nil && c.path != "" && (!c.siteRests || stopsHost(AsFailure(err).Code)) {
 		f := AsFailure(err)
 		if until := r.Rest(c.path, f); !until.IsZero() {
 			f.Until = until
@@ -100,14 +107,21 @@ func (c call) once(ctx context.Context, client *http.Client, r Request) (answer,
 
 	address := c.address
 
+	if c.follow || c.redirect {
+		// Each hop is this call's to see: the client follows none.
+		own := *client
+		own.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &own
+	}
+
 	for hop := 0; ; hop++ {
 		resp, err := c.send(ctx, client, address)
 		if err != nil {
 			return answer{}, err
 		}
 
-		if location := resp.Header.Get("Location"); c.follow && resp.StatusCode >= 300 && resp.StatusCode < 400 &&
-			location != "" {
+		if location := resp.Header.Get("Location"); (c.follow || c.redirect) && resp.StatusCode >= 300 &&
+			resp.StatusCode < 400 && location != "" {
 			_ = resp.Body.Close()
 
 			next, err := url.Parse(address)
@@ -118,6 +132,10 @@ func (c call) once(ctx context.Context, client *http.Client, r Request) (answer,
 			to, err := next.Parse(location)
 			if err != nil || (to.Scheme != "http" && to.Scheme != "https") || hop+1 > maxRedirects {
 				return answer{}, Fail(CodeBroken, "the source redirected where it cannot be followed")
+			}
+
+			if c.redirect {
+				return answer{url: address, location: to.String()}, nil
 			}
 
 			address = to.String()

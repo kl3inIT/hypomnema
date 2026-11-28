@@ -177,6 +177,8 @@ func youtubeBackend(run Command) Backend {
 
 			inWindow := youtubeInWindow(videos, r)
 
+			var recentFailed *SourceError
+
 			// Few videos in the window: relevance has filled the results with old ones, so the results page is
 			// asked again for recent uploads only, and what it adds is read (last30days search_youtube's retry,
 			// _search_recent_uploads, "fewer than 3 in window").
@@ -185,10 +187,24 @@ func youtubeBackend(run Command) Backend {
 
 				recent, err := ytRun(ctx, run, r, youtubeSearchTimeout, append(slices.Clone(ytBase), "--flat-playlist",
 					"--dump-json", "--playlist-end", strconv.Itoa(youtubeVideos), page)...)
+
+				var more []Item
 				if err == nil {
-					more, err := youtubeRead(ctx, run, r, recent, asked)
-					if err == nil {
-						inWindow = append(inWindow, youtubeInWindow(more, r)...)
+					more, err = youtubeRead(ctx, run, r, recent, asked)
+				}
+
+				inWindow = append(inWindow, youtubeInWindow(more, r)...)
+
+				// Its failure is kept: nothing usable left is that failure, never a clean zero, and beside videos
+				// it makes the read partial (last30days youtube_yt.py:935-973 returns the retry's error, and
+				// search_youtube keeps it when no item is left, :1092-1105).
+				if err != nil {
+					f := AsFailure(err)
+					recentFailed = &SourceError{Code: f.Code, Detail: "the recent-uploads search: " + f.Detail,
+						Until: f.Until}
+
+					if len(inWindow) == 0 {
+						return Result{}, recentFailed
 					}
 				}
 			}
@@ -235,7 +251,7 @@ func youtubeBackend(run Command) Backend {
 				}
 			}
 
-			return Result{Items: items, Detail: strings.Join(notes, "; ")}, nil
+			return Result{Items: items, Detail: strings.Join(notes, "; "), Failed: recentFailed}, nil
 		},
 	}
 }

@@ -87,6 +87,13 @@ func TestLiveEverySource(t *testing.T) {
 				Subqueries: []listening.Subquery{{Query: p.LiveQuery}},
 			}
 
+			// An opt-in source (Toutiao, off until the owner decides on its terms) is pinned to be read.
+			for _, b := range p.Backends {
+				if b.OptIn {
+					plan.Backends = map[string]string{p.Name: b.Name}
+				}
+			}
+
 			a, err := s.Search(t.Context(), plan, search)
 			require.NoError(t, err)
 

@@ -30,6 +30,9 @@
 //     lib/cluster.py:61-346, with the topic's own words removed before comparing, last30days-cn lib/dedupe.py
 //     strip_query_terms and harken analyze/insights.py (cluster.go).
 //
+// The parts adapted from MIT and Apache-2.0 code carry those projects' notices in third_party/: last30days-skill
+// (and last30days-skill-cn), google-play-scraper, agent-reach, harken and obsei.
+//
 // It stores nothing: what a backend rests for is kept in memory, the control plane being one process that lives
 // across calls (last30days, a process per run, writes it to a file).
 package listening

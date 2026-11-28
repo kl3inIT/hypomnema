@@ -109,7 +109,7 @@ func TestGooglePlayReadsTheNewestVietnameseReviews(t *testing.T) {
 
 // Design row "Google Play": an app id in the query is read without a search; an error on a later page fails the
 // stream, never the end of the reviews (google-play-scraper features/reviews.py:113-125 swallows it); Play's gateway
-// error is a rate limit, rested, not retried in place (utils/request.py:213-217 sleeps and retries).
+// error is a rate limit, rested, not retried in place (utils/request.py:38-42 sleeps and retries).
 func TestGooglePlayFailuresAreFailures(t *testing.T) {
 	t.Parallel()
 

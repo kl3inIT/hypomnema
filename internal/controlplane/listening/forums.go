@@ -73,10 +73,7 @@ func forumBackend(f forum, at string, pages *http.Client, rb *robots) Backend {
 				return Result{}, webFailure(err)
 			}
 
-			var (
-				threads []Item
-				paths   []string
-			)
+			var threads []Item
 
 			seen := map[string]bool{}
 
@@ -101,7 +98,6 @@ func forumBackend(f forum, at string, pages *http.Client, rb *robots) Backend {
 					NativeID: link, URL: link, Title: res.Title, Text: res.Snippet, Container: f.site,
 					PublishedAt: parseDate(res.PublishedAt),
 				})
-				paths = append(paths, m[1]+"/")
 			}
 
 			detail := "web search " + answeredBy(found)
@@ -110,41 +106,43 @@ func forumBackend(f forum, at string, pages *http.Client, rb *robots) Backend {
 			}
 
 			threads = threads[:min(len(threads), r.Limit)]
-			read, excerpts, failed := 0, 0, 0
+			read, excerpts := 0, 0
+
+			var failed *SourceError
+
+			// Every hop of a thread's read is checked against its site's robots.txt and content signals, the
+			// thread's first address and each redirect's (RFC 9309 §2.2: the rules are the URI's own).
+			allowed := func(u *url.URL) bool {
+				return rb.of(ctx, r, u.Scheme+"://"+u.Host).readable(u.EscapedPath())
+			}
 
 			for i := range threads {
-				u, _ := url.Parse(threads[i].URL)
+				if failed != nil && stopsHost(failed.Code) {
+					// The forum refused or asked to slow down: its other threads keep their excerpts.
+					break
+				}
 
-				if !rb.of(ctx, r, u.Scheme+"://"+u.Host).readable(paths[i]) {
+				a, err := readPage(ctx, pages, r, threads[i].URL, allowed)
+
+				switch {
+				case errors.Is(err, errDisallowed):
 					excerpts++
-
-					continue
+				case err != nil:
+					// A thread not read keeps its excerpt, and the read is partial with its code, so coverage and
+					// health show it (last30days doctor.py:128-161).
+					f := AsFailure(err)
+					failed = worse(failed, &SourceError{Code: f.Code, Detail: "thread " + threads[i].URL + ": " + f.Detail,
+						Until: f.Until})
+				default:
+					threads[i] = readThread(threads[i], string(a.body))
+					read++
 				}
-
-				a, err := readPage(ctx, pages, r, threads[i].URL)
-				if err != nil {
-					failed++
-
-					if f := AsFailure(err); stopsHost(f.Code) {
-						detail += "; the forum refused: " + f.Error()
-
-						break
-					}
-
-					continue
-				}
-
-				threads[i] = readThread(threads[i], string(a.body))
-				read++
 			}
 
 			detail += fmt.Sprintf("; %d threads read, %d as the search's excerpt (robots.txt or content signals)",
 				read, excerpts)
-			if failed > 0 {
-				detail += fmt.Sprintf(", %d could not be read", failed)
-			}
 
-			return Result{Items: threads, Detail: detail}, nil
+			return Result{Items: threads, Detail: detail, Failed: failed}, nil
 		},
 	}
 }

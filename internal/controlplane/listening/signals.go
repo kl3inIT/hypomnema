@@ -3,6 +3,9 @@ package listening
 import (
 	"regexp"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // A role out of character for its company (issue #1289): last30days flags such roles on structure alone and leaves
@@ -40,11 +43,24 @@ var (
 	})
 )
 
-// placeKey is the city a location starts with (last30days place_key).
+// placeKey is the city a location starts with (last30days place_key), folded so one place counts once however a
+// board spells it, "Hà Nội", "Ha Noi" and "Hanoi" alike: last30days' intent (hiring_signals.py:383-394, "a place
+// counts once however the board spells it"), its accents and spaces dropped for Vietnamese spellings (inferred).
 func placeKey(location string) string {
 	head, _, _ := strings.Cut(location, ",")
 
-	return strings.ToLower(strings.TrimSpace(head))
+	var b strings.Builder
+
+	for _, r := range norm.NFD.String(strings.ToLower(strings.TrimSpace(head))) {
+		switch {
+		case r == 'đ':
+			b.WriteRune('d')
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+		}
+	}
+
+	return b.String()
 }
 
 // markSignals gives each role its flags, in last30days' order (title flags, then a new place).

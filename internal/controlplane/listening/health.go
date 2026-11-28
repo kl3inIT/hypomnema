@@ -80,13 +80,20 @@ func (s *Service) record(coverage []Coverage, at time.Time) {
 	}
 }
 
-// failureDetail is what the first backend that failed said, for the source's most actionable code.
+// failureDetail is what the first backend that failed said, for the source's most actionable code; for a stream
+// read in part, what its serving backend said.
 func failureDetail(c Coverage) string {
 	for _, st := range c.Streams {
 		for _, a := range st.Tried {
 			if a.Result == string(c.Code) && a.Detail != "" {
 				return a.Detail
 			}
+		}
+	}
+
+	for _, st := range c.Streams {
+		if st.Code == c.Code && st.ServedBy != "" && len(st.Tried) > 0 {
+			return st.Tried[len(st.Tried)-1].Detail
 		}
 	}
 
