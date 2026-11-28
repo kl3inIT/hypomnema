@@ -36,6 +36,9 @@ type Cluster struct {
 	Score float64 `json:"score"`
 	// Uncertainty is "single-source", "thin-evidence" or empty.
 	Uncertainty string `json:"uncertainty,omitempty"`
+	// Audit is the code's check of a cluster the model reviewed (clusterplan.go); absent for the code's own
+	// clusters.
+	Audit *Audit `json:"audit,omitempty"`
 }
 
 // The uncertainty tags (last30days schema.Cluster.uncertainty).
@@ -44,20 +47,25 @@ const (
 	ThinEvidence = "thin-evidence"
 )
 
-// clusterItems groups items, ordered best first, and marks each with its cluster.
-func clusterItems(items []Item, topic string) []Cluster {
+// alikeIn is how alike two of the items are, with the topic's words taken out.
+func alikeIn(items []Item, topic string) func(i, j int) float64 {
 	texts := make([]string, len(items))
 	for i, it := range items {
 		texts[i] = withoutTopic(it.Title+" "+it.Text, topic)
 	}
 
-	alike := func(i, j int) float64 {
+	return func(i, j int) float64 {
 		if len(words(texts[i])) < 2 || len(words(texts[j])) < 2 {
 			return 0
 		}
 
 		return prepare(texts[i]).similarity(prepare(texts[j]))
 	}
+}
+
+// clusterItems groups items, ordered best first, and marks each with its cluster.
+func clusterItems(items []Item, topic string) []Cluster {
+	alike := alikeIn(items, topic)
 
 	var groups [][]int
 
@@ -81,36 +89,50 @@ func clusterItems(items []Item, topic string) []Cluster {
 	out := make([]Cluster, 0, len(groups))
 
 	for n, group := range groups {
-		c := Cluster{ID: fmt.Sprintf("c%d", n+1), Title: items[group[0]].Title, Score: items[group[0]].Score}
+		c := makeCluster(fmt.Sprintf("c%d", n+1), group, items, alike)
+		c.Title = items[group[0]].Title
 		if c.Title == "" {
 			c.Title = clip(items[group[0]].Text, 120)
-		}
-
-		for _, i := range group {
-			items[i].Cluster = c.ID
-			c.Items = append(c.Items, items[i].ID)
-
-			for _, src := range append([]string{items[i].Source}, items[i].SeenIn...) {
-				if !slices.Contains(c.Sources, src) {
-					c.Sources = append(c.Sources, src)
-				}
-			}
-		}
-
-		slices.Sort(c.Sources)
-		c.Representatives = mmr(group, items, alike)
-
-		switch {
-		case len(c.Sources) == 1:
-			c.Uncertainty = SingleSource
-		case c.Score < thinEvidence:
-			c.Uncertainty = ThinEvidence
 		}
 
 		out = append(out, c)
 	}
 
 	return out
+}
+
+// makeCluster makes a group of items, ordered best first, a cluster, and marks each item with it.
+func makeCluster(id string, group []int, items []Item, alike func(i, j int) float64) Cluster {
+	c := Cluster{ID: id, Score: items[group[0]].Score}
+
+	for _, i := range group {
+		items[i].Cluster = c.ID
+		c.Items = append(c.Items, items[i].ID)
+
+		for _, src := range append([]string{items[i].Source}, items[i].SeenIn...) {
+			if !slices.Contains(c.Sources, src) {
+				c.Sources = append(c.Sources, src)
+			}
+		}
+	}
+
+	slices.Sort(c.Sources)
+	c.Representatives = mmr(group, items, alike)
+	c.tag()
+
+	return c
+}
+
+// tag sets the cluster's uncertainty from its sources and score.
+func (c *Cluster) tag() {
+	switch {
+	case len(c.Sources) == 1:
+		c.Uncertainty = SingleSource
+	case c.Score < thinEvidence:
+		c.Uncertainty = ThinEvidence
+	default:
+		c.Uncertainty = ""
+	}
 }
 
 // mmr picks a cluster's representatives: its best item, then each time the one whose score least repeats what is

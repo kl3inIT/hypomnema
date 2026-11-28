@@ -88,7 +88,7 @@ func TestRoundThreeOtofunRobotsRedirectSharesTheRateLimit(t *testing.T) {
 				}}, nil
 			}
 
-			a, err := s.Search(t.Context(), plan([]string{listening.SourceOtofun}, "VETC"), web)
+			a, err := s.Search(t.Context(), plan([]string{listening.SourceOtofun}, "VETC"), listening.Caller{Web: web})
 			require.NoError(t, err)
 			assert.Equal(t, listening.CodeRateLimited, coverageOf(t, a, listening.SourceOtofun).Code, host)
 
@@ -131,14 +131,14 @@ func TestRoundThreeRobotsLongRetryAfter(t *testing.T) {
 		})
 		p := plan([]string{listening.SourceOtofun}, "VETC")
 
-		a, err := s.Search(t.Context(), p, web)
+		a, err := s.Search(t.Context(), p, listening.Caller{Web: web})
 		require.NoError(t, err)
 		assert.Equal(t, start.AddDate(0, 0, 7).UTC().Format(time.RFC3339),
 			coverageOf(t, a, listening.SourceOtofun).Streams[0].Tried[0].Until, after)
 
 		c.Advance(90 * time.Minute)
 
-		_, err = s.Search(t.Context(), p, web)
+		_, err = s.Search(t.Context(), p, listening.Caller{Web: web})
 		require.NoError(t, err)
 		assert.Equal(t, 1, requestsTo(forum, "/robots.txt"), after)
 	}

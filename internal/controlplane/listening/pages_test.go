@@ -249,7 +249,7 @@ func TestCareersReadsTheCompanysOwnPage(t *testing.T) {
 
 	s := keyless(newClock(), listening.Endpoints{})
 	p := plan([]string{listening.SourceCareers}, "VETC")
-	a, err := s.Search(t.Context(), p, web)
+	a, err := s.Search(t.Context(), p, listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"VETC careers jobs"}, asked)
@@ -329,7 +329,7 @@ func TestForumsReadOnlyTheThreadsTheyAllow(t *testing.T) {
 		listening.SourceVoz: vozURL, listening.SourceTinhte: tinhteURL, listening.SourceOtofun: otofunURL,
 	}})
 	a, err := s.Search(t.Context(), plan([]string{listening.SourceVoz, listening.SourceTinhte, listening.SourceOtofun},
-		"VETC"), web)
+		"VETC"), listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	paths := func(s *site) []string {

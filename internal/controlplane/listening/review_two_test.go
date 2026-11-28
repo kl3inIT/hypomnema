@@ -91,7 +91,7 @@ func TestReviewTwoARobotsRateLimitRestsTheForum(t *testing.T) {
 	p := plan([]string{listening.SourceOtofun}, "VETC")
 
 	for range 2 {
-		a, err := s.Search(t.Context(), p, web)
+		a, err := s.Search(t.Context(), p, listening.Caller{Web: web})
 		require.NoError(t, err)
 
 		cov := coverageOf(t, a, listening.SourceOtofun)
@@ -120,7 +120,7 @@ func TestReviewTwoRetryAfterAsADateIsKept(t *testing.T) {
 	})
 	p := plan([]string{listening.SourceOtofun}, "VETC")
 
-	a, err := s.Search(t.Context(), p, web)
+	a, err := s.Search(t.Context(), p, listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	tried := coverageOf(t, a, listening.SourceOtofun).Streams[0].Tried[0]
@@ -128,7 +128,7 @@ func TestReviewTwoRetryAfterAsADateIsKept(t *testing.T) {
 
 	c.Advance(90 * time.Minute)
 
-	_, err = s.Search(t.Context(), p, web)
+	_, err = s.Search(t.Context(), p, listening.Caller{Web: web})
 	require.NoError(t, err)
 	assert.Equal(t, 1, requestsTo(forum, "/threads/"), "still resting 90 minutes on")
 }

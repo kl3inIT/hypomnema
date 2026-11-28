@@ -199,7 +199,7 @@ func TestReviewOneAThreadsRateLimitRestsAndShowsPartial(t *testing.T) {
 	p := plan([]string{listening.SourceOtofun}, "VETC")
 
 	for range 2 {
-		a, err := s.Search(t.Context(), p, web)
+		a, err := s.Search(t.Context(), p, listening.Caller{Web: web})
 		require.NoError(t, err)
 
 		cov := coverageOf(t, a, listening.SourceOtofun)
@@ -234,7 +234,7 @@ func TestReviewOneRobotsAreCheckedAtEveryRedirect(t *testing.T) {
 		})
 
 	s := keyless(newClock(), listening.Endpoints{ForumURLs: map[string]string{listening.SourceOtofun: base}})
-	a, err := s.Search(t.Context(), plan([]string{listening.SourceOtofun}, "VETC"), web)
+	a, err := s.Search(t.Context(), plan([]string{listening.SourceOtofun}, "VETC"), listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	assert.Zero(t, requestsTo(forum, "/attachments/"), "the disallowed target is never asked")
@@ -267,7 +267,7 @@ func TestReviewOneCareersRestsAfterARateLimit(t *testing.T) {
 	s := keyless(newClock(), listening.Endpoints{})
 	p := plan([]string{listening.SourceCareers}, "VETC")
 
-	a, err := s.Search(t.Context(), p, web)
+	a, err := s.Search(t.Context(), p, listening.Caller{Web: web})
 	require.NoError(t, err)
 
 	cov := coverageOf(t, a, listening.SourceCareers)
@@ -275,7 +275,7 @@ func TestReviewOneCareersRestsAfterARateLimit(t *testing.T) {
 	assert.Equal(t, listening.CodeRateLimited, cov.Code)
 
 	before := len(site.Requests())
-	_, err = s.Search(t.Context(), p, web)
+	_, err = s.Search(t.Context(), p, listening.Caller{Web: web})
 	require.NoError(t, err)
 	assert.Len(t, site.Requests(), before, "the site rests: nothing is sent")
 }
@@ -366,7 +366,7 @@ func TestReviewOneCareersCountsOnePlaceOnce(t *testing.T) {
 	}
 
 	a, err := keyless(newClock(), listening.Endpoints{}).Search(t.Context(),
-		plan([]string{listening.SourceCareers}, "Cốc Cốc"), web)
+		plan([]string{listening.SourceCareers}, "Cốc Cốc"), listening.Caller{Web: web})
 	require.NoError(t, err)
 	require.Len(t, a.Items, 4)
 

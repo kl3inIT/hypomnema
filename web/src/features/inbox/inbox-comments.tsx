@@ -440,7 +440,7 @@ export function CommentComposer({
   const write = writeOf(todo, mainBot, botName)
   // An item given back can still point at its former Bot's chat. Check
   // which Bot owns it before deciding where to upload the Hand's files.
-  const checkChat = !!todo.chat_id && todo.assignee.kind !== "bot"
+  const checkChat = !todo.reply_to_coordinator && !!todo.chat_id && todo.assignee.kind !== "bot"
   const previous = useQuery({
     ...getChatOptions({ path: { chat_id: todo.chat_id ?? "" } }),
     enabled: checkChat,
@@ -463,7 +463,8 @@ export function CommentComposer({
   const chat = existing ?? reservation.id
   const bot = write.bot || undefined
   const checking = checkChat && previous.isPending
-  const canAttach = !!(existing || bot) && (!checkChat || previous.isSuccess)
+  const canAttach =
+    !todo.reply_to_coordinator && !!(existing || bot) && (!checkChat || previous.isSuccess)
   // A pass can arrive while Send is in flight. Its attachments still belong
   // to the outgoing message until the server answers.
   const attachments = useAttachments(chat, bot, undefined, sending || !canAttach)

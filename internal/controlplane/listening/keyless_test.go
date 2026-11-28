@@ -27,7 +27,7 @@ func one(t *testing.T, s *listening.Service, source, query string) listening.Ans
 	p := plan([]string{source}, query)
 	p.Topic = strings.Fields(query)[0]
 
-	a, err := s.Search(t.Context(), p, nil)
+	a, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 
 	return a
@@ -41,7 +41,7 @@ func pinned(t *testing.T, s *listening.Service, source, backend, query string) l
 	p.Topic = strings.Fields(query)[0]
 	p.Backends = map[string]string{source: backend}
 
-	a, err := s.Search(t.Context(), p, nil)
+	a, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 
 	return a
@@ -368,7 +368,7 @@ func TestEveryKeylessSourceIsOnAndWorkingOnlyAfterARealRun(t *testing.T) {
 		assert.Equal(t, listening.HealthUnverified, h.State, h.Source)
 	}
 
-	_, err := s.Search(t.Context(), plan([]string{"good", "bad"}, "VETC"), nil)
+	_, err := s.Search(t.Context(), plan([]string{"good", "bad"}, "VETC"), listening.Caller{})
 	require.NoError(t, err)
 
 	health := map[string]listening.Health{}

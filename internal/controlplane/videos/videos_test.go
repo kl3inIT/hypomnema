@@ -499,47 +499,94 @@ func TestAMakeNeedsAnAvailableTakeWithSteps(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
-// A revision being made when the control plane stopped is failed as interrupted at the next start, at the stage
-// it was in, and its files are removed; one still queued stays queued.
-func TestARestartInterruptsEachStage(t *testing.T) {
+// A stop is counted at startup. Two stops leave the revision queued; the third preserves the failed stage.
+func TestARestartCountsAnInterruptionAtEachStage(t *testing.T) {
 	t.Parallel()
 
 	r := newRig(t)
 	q := store.New(r.svc.db)
+	v, rev := r.make(t, "")
 	now := time.Now().UnixMilli()
 
-	for _, stage := range []string{Voicing, Composing, Captioning} {
-		v, rev := r.make(t, "")
-
+	for i, stage := range []string{Voicing, Composing, Captioning} {
 		n, err := q.ClaimRevision(t.Context(), store.ClaimRevisionParams{VideoID: v.ID, Rev: int64(rev.Rev), Now: now})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), n)
-
 		if stage != Voicing {
 			require.NoError(t, r.svc.advance(t.Context(), v.ID, rev.Rev, Voicing, stage))
 		}
 
 		require.NoError(t, os.MkdirAll(r.svc.revDir(v.ID, rev.Rev, workDir), 0o700))
-	}
-
-	v, _ := r.make(t, "")
-
-	r.svc.interrupt(t.Context())
-
-	got, err := r.svc.Get(t.Context(), v.ID)
-	require.NoError(t, err)
-	require.Len(t, got.Revisions, 4)
-
-	for k, stage := range []string{Voicing, Composing, Captioning} {
-		rev := got.Revisions[k]
-		assert.Equal(t, Failed, rev.State)
-		assert.Equal(t, stage, rev.FailedStage)
-		assert.Equal(t, "interrupted", rev.FailedCause)
+		r.svc.interrupt(t.Context())
+		got := r.revision(t, v.ID, rev.Rev)
+		if i < 2 {
+			require.Equal(t, Queued, got.State)
+			assert.Empty(t, got.FailedCause)
+		} else {
+			assert.Equal(t, Failed, got.State)
+			assert.Equal(t, stage, got.FailedStage)
+			assert.Equal(t, "interrupted", got.FailedCause)
+		}
+		assert.Equal(t, i+1, r.attempts(t, v.ID, rev.Rev))
 		r.noFiles(t, v.ID, rev.Rev)
 	}
 
-	assert.Equal(t, Queued, got.Revisions[3].State)
-	assert.Empty(t, r.speech.spoken, "no paid speech is asked again on its own")
+	r.runAll(t)
+	assert.Empty(t, r.maker.inputs)
+	assert.Empty(t, r.speech.spoken)
+}
+
+func (r *rig) attempts(t *testing.T, id string, rev int) int {
+	t.Helper()
+
+	var count int
+	err := r.svc.db.QueryRowContext(t.Context(), "SELECT attempts FROM video_revisions WHERE video_id = ? AND rev = ?",
+		id, rev).Scan(&count)
+	require.NoError(t, err)
+
+	return count
+}
+
+// A graceful stop during Compose leaves the revision active. Startup retries from voicing and uses the prior voice
+// clips, even if the owner's voice setting changed while the service was down.
+func TestAStoppedRenderStartsAgainWithItsCachedSpeech(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	r.voices = map[string]string{speech.ProviderSoniox: "Linh"}
+	v, rev := r.make(t, "")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	assert.Zero(t, r.svc.Renders(), "queued work does not count")
+	r.maker.during = func() {
+		assert.Equal(t, 1, r.svc.Renders())
+		cancel()
+	}
+	r.maker.block = true
+	r.svc.Run(ctx)
+
+	assert.Zero(t, r.svc.Renders(), "stopped work does not count")
+	assert.Equal(t, Composing, r.revision(t, v.ID, rev.Rev).State)
+	require.Len(t, r.speech.spoken, 2)
+
+	r.voices[speech.ProviderSoniox] = "Mai"
+	r.maker.during = nil
+	r.maker.block = false
+	r.svc.interrupt(t.Context())
+	require.Equal(t, Queued, r.revision(t, v.ID, rev.Rev).State)
+	assert.Equal(t, 1, r.attempts(t, v.ID, rev.Rev))
+
+	r.runAll(t)
+
+	got := r.revision(t, v.ID, rev.Rev)
+	assert.Equal(t, Review, got.State)
+	assert.Equal(t, "Linh", got.UsedVoice)
+	assert.Equal(t, 1, r.speech.count(speech.ProviderSoniox, "Mở ứng dụng"))
+	assert.Equal(t, 1, r.speech.count(speech.ProviderSoniox, "Chạm vào Đăng nhập"))
+	assert.Equal(t, 1, r.attempts(t, v.ID, rev.Rev))
+	_, err := r.svc.File(t.Context(), v.ID, rev.Rev)
+	require.NoError(t, err)
 }
 
 // Each failure fails the revision at its stage and leaves no MP4.
@@ -581,6 +628,9 @@ func TestAFailureLeavesNoMP4(t *testing.T) {
 				assert.Equal(t, Failed, got.State)
 				assert.Equal(t, c.stage, got.FailedStage)
 				assert.Contains(t, got.FailedCause, c.cause)
+				r.svc.interrupt(t.Context())
+				assert.Equal(t, Failed, r.revision(t, v.ID, 1).State)
+				assert.Zero(t, r.attempts(t, v.ID, 1))
 				r.noFiles(t, v.ID, 1)
 
 				_, err := r.svc.File(t.Context(), v.ID, 1)

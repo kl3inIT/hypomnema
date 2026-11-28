@@ -137,6 +137,7 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND EXISTS (SELECT 1 FROM review_stall_todos s WHERE s.todo_id = t.id))
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?13 AS INTEGER)))))
   AND (CAST(?17 AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
         WHERE e.todo_id = t.id AND e.actor_kind = CAST(?17 AS TEXT) AND e.at >= CAST(?18 AS INTEGER)))
@@ -824,7 +825,11 @@ func (q *Queries) ListTodoEventsBy(ctx context.Context, arg ListTodoEventsByPara
 }
 
 const listTodos = `-- name: ListTodos :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id FROM todos t
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id, CAST(COALESCE(s.long_report, '') AS TEXT) AS long_report,
+       CAST((t.state = 'open' AND t.assignee_kind = 'me' AND c.id IS NOT NULL) AS INTEGER) AS reply_to_coordinator
+FROM todos t LEFT JOIN review_stall_todos s ON s.todo_id = t.id
+LEFT JOIN runs r ON r.id = s.run_id AND r.status = 'open'
+LEFT JOIN chats c ON c.id = r.chat_id
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
   AND (CAST(?3 AS TEXT) = '' OR (t.assignee_kind = ?3 AND t.assignee = ?4))
   AND (CAST(?5 AS TEXT) = '' OR t.source_kind = ?5)
@@ -844,6 +849,7 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND EXISTS (SELECT 1 FROM review_stall_todos s WHERE s.todo_id = t.id))
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?13 AS INTEGER)))))
   AND (CAST(?17 AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
         WHERE e.todo_id = t.id AND e.actor_kind = CAST(?17 AS TEXT) AND e.at >= CAST(?18 AS INTEGER)))
@@ -881,6 +887,12 @@ type ListTodosParams struct {
 	Lim          int64
 }
 
+type ListTodosRow struct {
+	Todo               Todo
+	LongReport         string
+	ReplyToCoordinator int64
+}
+
 // One page of the items that match, by due (those without one last), then created, then id, after the cursor of
 // the previous page when one is given. The filter is the same as CountTodos's. With project_kind none, only the items
 // without a project; one, only those of project (issue #1157). A proposal nobody touched since
@@ -888,7 +900,7 @@ type ListTodosParams struct {
 // any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
 // changed_by, only the items an actor of that kind changed at or after changed_since: the owner (issue #1119) or a
 // Bot (issue #1204).
-func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, error) {
+func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]ListTodosRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTodos,
 		arg.AnyState,
 		arg.States,
@@ -918,57 +930,59 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Todo{}
+	items := []ListTodosRow{}
 	for rows.Next() {
-		var i Todo
+		var i ListTodosRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Revision,
-			&i.Title,
-			&i.Notes,
-			&i.DoneWhen,
-			&i.Draft,
-			&i.DueKind,
-			&i.DueDate,
-			&i.DueZone,
-			&i.DueAt,
-			&i.OverdueAt,
-			&i.AssigneeKind,
-			&i.Assignee,
-			&i.State,
-			&i.SnoozedUntil,
-			&i.SourceKind,
-			&i.SourceID,
-			&i.SourceAccount,
-			&i.SourceQuote,
-			&i.SourceRef,
-			&i.CreatedByKind,
-			&i.CreatedBy,
-			&i.WorkAttempt,
-			&i.WorkKind,
-			&i.WorkID,
-			&i.WorkBot,
-			&i.WorkStartedAt,
-			&i.ApprovalID,
-			&i.DoneByKind,
-			&i.DoneBy,
-			&i.RecordedByKind,
-			&i.RecordedBy,
-			&i.ClosedHow,
-			&i.CloseReason,
-			&i.Evidence,
-			&i.ClosedAt,
-			&i.DuplicateOf,
-			&i.IdempotencyKey,
-			&i.IdempotencyHash,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.WhyOpen,
-			&i.ChatID,
-			&i.PassedBy,
-			&i.Priority,
-			&i.PriorityReason,
-			&i.ProjectID,
+			&i.Todo.ID,
+			&i.Todo.Revision,
+			&i.Todo.Title,
+			&i.Todo.Notes,
+			&i.Todo.DoneWhen,
+			&i.Todo.Draft,
+			&i.Todo.DueKind,
+			&i.Todo.DueDate,
+			&i.Todo.DueZone,
+			&i.Todo.DueAt,
+			&i.Todo.OverdueAt,
+			&i.Todo.AssigneeKind,
+			&i.Todo.Assignee,
+			&i.Todo.State,
+			&i.Todo.SnoozedUntil,
+			&i.Todo.SourceKind,
+			&i.Todo.SourceID,
+			&i.Todo.SourceAccount,
+			&i.Todo.SourceQuote,
+			&i.Todo.SourceRef,
+			&i.Todo.CreatedByKind,
+			&i.Todo.CreatedBy,
+			&i.Todo.WorkAttempt,
+			&i.Todo.WorkKind,
+			&i.Todo.WorkID,
+			&i.Todo.WorkBot,
+			&i.Todo.WorkStartedAt,
+			&i.Todo.ApprovalID,
+			&i.Todo.DoneByKind,
+			&i.Todo.DoneBy,
+			&i.Todo.RecordedByKind,
+			&i.Todo.RecordedBy,
+			&i.Todo.ClosedHow,
+			&i.Todo.CloseReason,
+			&i.Todo.Evidence,
+			&i.Todo.ClosedAt,
+			&i.Todo.DuplicateOf,
+			&i.Todo.IdempotencyKey,
+			&i.Todo.IdempotencyHash,
+			&i.Todo.CreatedAt,
+			&i.Todo.UpdatedAt,
+			&i.Todo.WhyOpen,
+			&i.Todo.ChatID,
+			&i.Todo.PassedBy,
+			&i.Todo.Priority,
+			&i.Todo.PriorityReason,
+			&i.Todo.ProjectID,
+			&i.LongReport,
+			&i.ReplyToCoordinator,
 		); err != nil {
 			return nil, err
 		}

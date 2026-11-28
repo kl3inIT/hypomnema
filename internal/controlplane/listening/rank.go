@@ -163,12 +163,17 @@ func localRank(it Item) float64 {
 	return 0.65*it.relevance + 0.25*float64(it.freshness)/100 + 0.10*float64(eng)/100
 }
 
-// finalScore is a fused item's score: last30days rerank._final_score with the local score in place of a model's
-// (rerank._fallback_tuple: relevance 0.7, quality 0.1), the fused rank, freshness and quality, plus engagement at
-// 0.15 (rerank.ENGAGEMENT_FINAL_WEIGHT).
+// finalScore is a fused item's score: last30days rerank._final_score, the model's score or, where it gave none, the
+// local score (rerank._fallback_tuple: relevance 0.7, quality 0.1), the fused rank, freshness and quality, plus
+// engagement at 0.15 (rerank.ENGAGEMENT_FINAL_WEIGHT); an item the model scored under rerankCliff is cut to 0.3.
 func finalScore(it Item) float64 {
 	q := quality(it.Source)
 	rerank := math.Max(0, math.Min(100, it.relevance*100*0.7+q*100*0.1))
+
+	if it.Provenance == ProvenanceLLM {
+		rerank = it.rerank
+	}
+
 	rrf := math.Max(0, math.Min(100, it.rrf/rrfCeiling*100))
 	known := 0.60*rerank + 0.20*rrf + 0.10*float64(it.freshness) + 0.05*q*100
 
@@ -177,7 +182,18 @@ func finalScore(it Item) float64 {
 		eng = float64(*it.EngagementScore)
 	}
 
-	return known + 0.15*eng
+	base := known + 0.15*eng
+	if it.Provenance == ProvenanceLLM && it.rerank < rerankCliff {
+		base *= cliffMultiple
+	}
+
+	// An item dated outside the window keeps 0.35 of its score, after the cliff (last30days _final_score,
+	// lib/rerank.py:1271-1273), whichever scored it.
+	if it.outside {
+		base *= outOfWindowMultiplier
+	}
+
+	return base
 }
 
 // rank scores, fuses, deduplicates and orders the streams' items, the best first.
@@ -256,24 +272,26 @@ func rank(plan Plan, streams []stream, to time.Time) []Item {
 	from := to.AddDate(0, 0, -plan.WindowDays)
 	out := make([]Item, 0, len(fused))
 	for _, c := range fused {
-		score := finalScore(c.item)
-		if !inDays(c.item.PublishedAt, from, to) {
-			score *= outOfWindowMultiplier
-		}
-
-		c.item.Score = math.Round(score*10) / 10
+		c.item.Provenance = ProvenanceFallback
+		c.item.outside = !inDays(c.item.PublishedAt, from, to)
+		c.item.Score = math.Round(finalScore(c.item)*10) / 10
 		out = append(out, c.item)
 	}
 
-	slices.SortStableFunc(out, func(a, b Item) int {
+	byScore(out)
+
+	return capAuthors(Dedupe(out))
+}
+
+// byScore orders items by score, the best first, then by engagement.
+func byScore(items []Item) {
+	slices.SortStableFunc(items, func(a, b Item) int {
 		if c := cmp.Compare(b.Score, a.Score); c != 0 {
 			return c
 		}
 
 		return cmp.Compare(engagementOf(b), engagementOf(a))
 	})
-
-	return capAuthors(Dedupe(out))
 }
 
 func engagementOf(it Item) int {
