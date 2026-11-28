@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
+
+	"github.com/kl3inIT/hypomnema/internal/node/memlimit"
 )
 
 // File names inside a shim's directory.
@@ -64,6 +66,9 @@ type Spec struct {
 	// (bubblewrap.c, propagate_exit_status, as bash reports it); the shim
 	// reports that signal, as it would for a worker it ran itself.
 	Bwrap bool `json:"bwrap,omitempty"`
+	// MemoryScope says the shim runs in a systemd scope of its own (internal/node/memlimit, issue #1313): it then
+	// says in its exit how many of its worker's processes the kernel killed for memory meanwhile.
+	MemoryScope bool `json:"memory_scope,omitempty"`
 }
 
 // Exit is how the worker ended.
@@ -72,6 +77,9 @@ type Exit struct {
 	Signal      string `json:"signal,omitempty"`
 	Error       string `json:"error,omitempty"`
 	Unconfirmed bool   `json:"unconfirmed,omitempty"`
+	// OOMKills is how many processes of the worker the kernel killed for memory while it ran, from its scope's
+	// memory.events (issue #1313); 0 outside a scope.
+	OOMKills int64 `json:"oom_kills,omitempty"`
 }
 
 // WriteSpec writes the spec a shim will run into dir, private to the owner.
@@ -177,6 +185,7 @@ func Main(ctx context.Context, socketDir string) error {
 	}
 	stopReaping := reapOrphans(cmd.Process.Pid)
 	defer stopReaping()
+	oom := countOOM(spec.MemoryScope)
 
 	in := &input{w: stdin}
 	stopping := make(chan string, 1)
@@ -185,7 +194,7 @@ func Main(ctx context.Context, socketDir string) error {
 	go func() {
 		copyErr := copyLines(stdout, journal)
 		waitErr := cmd.Wait()
-		finished <- exitOf(cmd, spec.Bwrap, errors.Join(copyErr, waitErr))
+		finished <- oom.since(exitOf(cmd, spec.Bwrap, errors.Join(copyErr, waitErr)))
 	}()
 
 	select {
@@ -210,6 +219,41 @@ func Main(ctx context.Context, socketDir string) error {
 		}
 		return writeExit(root, exit)
 	}
+}
+
+// oomCount is the shim's scope's oom_kill count when its worker started, to tell the kills of this worker's run.
+type oomCount struct {
+	on   bool
+	base int64
+}
+
+// countOOM reads the count now, in a scope of the shim's own; outside one, or when it cannot be read, nothing is
+// counted.
+func countOOM(scope bool) oomCount {
+	if !scope {
+		return oomCount{}
+	}
+
+	n, err := memlimit.OwnOOMKills()
+	if err != nil {
+		return oomCount{}
+	}
+
+	return oomCount{on: true, base: n}
+}
+
+// since is e with the kills since the count was taken, read before the shim exits: its scope, and the cgroup that
+// holds the count, go with its last process (containerd internal/cri/server/events.go:211-225).
+func (c oomCount) since(e Exit) Exit {
+	if !c.on {
+		return e
+	}
+
+	if n, err := memlimit.OwnOOMKills(); err == nil && n > c.base {
+		e.OOMKills = n - c.base
+	}
+
+	return e
 }
 
 // input serializes writes to the worker's stdin from every client.
@@ -587,18 +631,35 @@ func realShimDir(dir string) (string, error) {
 }
 
 // Start starts `exe shim --dir dir` detached from the caller, with no stdio,
-// and returns its pid. The spec must already be in dir.
-func Start(exe, dir string) (int, error) {
+// and returns its pid. The spec must already be in dir. A scope, when given,
+// is the command that runs the shim in a systemd scope of its own
+// (internal/node/memlimit, issue #1313): it executes the shim in its own
+// process, so the pid is the shim's, and what it says when it cannot goes to
+// the run directory's stderr log, which a start that failed reports.
+func Start(exe, dir string, scope ...string) (int, error) {
 	devnull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
 		return 0, err
 	}
 	defer devnull.Close() //nolint:errcheck // the child has its own copy
 
+	argv := append(append([]string(nil), scope...), exe, "shim", "--dir", dir)
+
 	//nolint:noctx // the shim must outlive every context of the daemon
-	cmd := exec.Command(exe, "shim", "--dir", dir) //nolint:gosec // the node's own binary
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // the node's own binary, in systemd's scope
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = devnull, devnull, devnull
 	detach(cmd)
+
+	if len(scope) > 0 {
+		if runDir, err := realShimDir(dir); err == nil {
+			const flags = os.O_CREATE | os.O_APPEND | os.O_WRONLY
+			//nolint:gosec // the daemon's own run directory
+			if log, err := os.OpenFile(filepath.Join(runDir, StderrFile), flags, 0o600); err == nil {
+				defer log.Close() //nolint:errcheck // the child has its own copy
+				cmd.Stderr = log
+			}
+		}
+	}
 
 	if err := cmd.Start(); err != nil {
 		return 0, fmt.Errorf("starting the shim: %w", err)

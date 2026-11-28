@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Memory not limited (#1313)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 48rem) {
+      .screens { grid-template-columns: minmax(0, 1fr); }
+      .phone { max-width: 25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Memory not limited (#1313)</h1>
+    <p>
+      Settings &rarr; Machines with three machines: aioffice-app runs its workers in hypomnema-workers.slice under its
+      allocatable memory and says nothing more; gpu-box's user manager does not delegate the memory controller, so its
+      Memory row says "Memory not limited:" with the node's reason (the whole reason is the line's title); old-laptop is
+      of an earlier release, which does not say, and says nothing. Taken by <code>web/tests/machines.spec.ts</code>,
+      "a machine whose workers' memory is not limited says why".
+    </p>
+    <section>
+      <h2>Light</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="machines-memory-light-desktop.png" alt="Three machines; gpu-box says Memory not limited, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="machines-memory-light-phone.png" alt="Machines; gpu-box says Memory not limited, phone, light">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Dark</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="machines-memory-dark-desktop.png" alt="Three machines; gpu-box says Memory not limited, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="machines-memory-dark-phone.png" alt="Machines; gpu-box says Memory not limited, phone, dark">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

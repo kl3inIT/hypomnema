@@ -372,7 +372,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches, disk_alert, disk_alert_until FROM nodes WHERE id = ?1
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches, disk_alert, disk_alert_until, memory_limit, memory_limit_reason FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -428,6 +428,8 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.TaskBranches,
 		&i.DiskAlert,
 		&i.DiskAlertUntil,
+		&i.MemoryLimit,
+		&i.MemoryLimitReason,
 	)
 	return i, err
 }
@@ -733,7 +735,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches, disk_alert, disk_alert_until FROM nodes WHERE status <> 'deleted' ORDER BY name
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches, disk_alert, disk_alert_until, memory_limit, memory_limit_reason FROM nodes WHERE status <> 'deleted' ORDER BY name
 `
 
 // Every node that has not been removed.
@@ -796,6 +798,8 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.TaskBranches,
 			&i.DiskAlert,
 			&i.DiskAlertUntil,
+			&i.MemoryLimit,
+			&i.MemoryLimitReason,
 		); err != nil {
 			return nil, err
 		}
@@ -862,11 +866,12 @@ SET updated_at = ?1, last_seen_at = ?1, worktree_root = ?2, runtimes = ?3,
     disk_bytes = ?9, unavailable_at = NULL, terminal = ?10,
     device = ?11, kvm = ?12, task_branches = ?13,
     temp_isolation = ?14, temp_isolation_reason = ?15,
-    disk_policy = max(disk_policy, ?16), disk_free_bytes = NULL, disk_sample_at = NULL,
+    memory_limit = ?16, memory_limit_reason = ?17,
+    disk_policy = max(disk_policy, ?18), disk_free_bytes = NULL, disk_sample_at = NULL,
     machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
     machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END,
     machine_power = CASE WHEN machine_power = 'starting' THEN NULL ELSE machine_power END
-WHERE id = ?17 AND status <> 'deleted'
+WHERE id = ?19 AND status <> 'deleted'
 `
 
 type NodeHelloParams struct {
@@ -885,6 +890,8 @@ type NodeHelloParams struct {
 	TaskBranches        int64
 	TempIsolation       sql.NullInt64
 	TempIsolationReason string
+	MemoryLimit         sql.NullInt64
+	MemoryLimitReason   string
 	DiskPolicy          interface{}
 	ID                  string
 }
@@ -907,6 +914,8 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (int64, er
 		arg.TaskBranches,
 		arg.TempIsolation,
 		arg.TempIsolationReason,
+		arg.MemoryLimit,
+		arg.MemoryLimitReason,
 		arg.DiskPolicy,
 		arg.ID,
 	)

@@ -550,6 +550,7 @@ export type Node = {
    */
   kvm?: boolean;
   temp_isolation?: NodeTempIsolation;
+  memory_limit?: NodeMemoryLimit;
   /**
    * Its Dispatches that have not settled.
    */
@@ -1395,6 +1396,17 @@ export type MachineProvider = {
 
 export type MachineProviderList = {
   data: Array<MachineProvider>;
+};
+
+/**
+ * Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version does not say.
+ */
+export type NodeMemoryLimit = {
+  on: boolean;
+  /**
+   * Why it is off, in the node's words.
+   */
+  reason?: string;
 };
 
 /**
@@ -4411,6 +4423,10 @@ export type Profile = {
    * What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
    */
   memory_request_bytes?: number;
+  /**
+   * The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
+   */
+  memory_limit_bytes?: number;
   /**
    * The skills its workers get beside those given to everyone.
    */

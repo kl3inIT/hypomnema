@@ -6224,8 +6224,11 @@ type Node struct {
 	Machine *NodeMachine `json:"machine,omitempty"`
 
 	// MaxDispatches The node's optional cap on the Dispatches it runs at once; left out for none, when the requests of its Dispatches against its allocatable decide (issue #731).
-	MaxDispatches *int   `json:"max_dispatches,omitempty"`
-	Name          string `json:"name"`
+	MaxDispatches *int `json:"max_dispatches,omitempty"`
+
+	// MemoryLimit Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version does not say.
+	MemoryLimit *NodeMemoryLimit `json:"memory_limit,omitempty"`
+	Name        string           `json:"name"`
 
 	// Requested An amount of CPU and memory (issue
 	Requested Resources `json:"requested"`
@@ -6325,6 +6328,14 @@ type NodeMachinePower string
 // NodeMachineState provisioning until the node says hello; provision_failed when the provider refused or the node never did; deleting and delete_failed while the machine is destroyed, which is tried again until it is.
 type NodeMachineState string
 
+// NodeMemoryLimit Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version does not say.
+type NodeMemoryLimit struct {
+	On bool `json:"on"`
+
+	// Reason Why it is off, in the node's words.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // NodeStats The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
 type NodeStats struct {
 	At time.Time `json:"at"`
@@ -6418,6 +6429,9 @@ type Profile struct {
 	// Fallbacks The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
 	Fallbacks   []string `json:"fallbacks"`
 	Instruction *string  `json:"instruction,omitempty"`
+
+	// MemoryLimitBytes The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
+	MemoryLimitBytes *int64 `json:"memory_limit_bytes,omitempty"`
 
 	// MemoryRequestBytes What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
 	MemoryRequestBytes *int64  `json:"memory_request_bytes,omitempty"`
