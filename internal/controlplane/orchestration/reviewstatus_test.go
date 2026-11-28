@@ -301,15 +301,17 @@ func TestTheMigrationQueuesEachPullRequestsLatestVerdict(t *testing.T) {
 	ctx := t.Context()
 	world := newWorld(t)
 
+	// The Tasks are made with this release's queries, before the schema goes back: a later migration may add a
+	// column they read.
+	first := world.tasks(NewTask{Ref: "first", Profile: "reviewer", Spec: reviewSpec})[0]
+	later := world.tasks(NewTask{Ref: "later", Profile: "reviewer", Spec: reviewSpec})[0]
+
 	before, own := reviewStatusVersions(t)
 	p, err := provider(world.db)
 	require.NoError(t, err)
 
 	_, err = p.DownTo(ctx, before)
 	require.NoError(t, err)
-
-	first := world.tasks(NewTask{Ref: "first", Profile: "reviewer", Spec: reviewSpec})[0]
-	later := world.tasks(NewTask{Ref: "later", Profile: "reviewer", Spec: reviewSpec})[0]
 
 	for _, v := range []struct{ task, head, verdict string }{
 		{first.ID, statusHead, "incorrect"}, {later.ID, statusNewHead, "correct"},
