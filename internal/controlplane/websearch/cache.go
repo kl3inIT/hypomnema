@@ -28,9 +28,9 @@ func normalizeQuery(query string) string {
 	return strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(query))), " ")
 }
 
-func cacheKey(query, provider string, limit int, set Settings, scope Scope) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%q %q %d %q %q %q %q %t", normalizeQuery(query), provider, limit,
-		slices.Sorted(slices.Values(set.Off)), set.order(), scope.Order, scope.Accounts, scope.Keyless))
+func cacheKey(query, provider string, limit int, set Settings, scope Scope, w window) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%q %q %d %q %q %q %q %t %q %q", normalizeQuery(query), provider, limit,
+		slices.Sorted(slices.Values(set.Off)), set.order(), scope.Order, scope.Accounts, scope.Keyless, w.from, w.to))
 
 	return hex.EncodeToString(sum[:])
 }
