@@ -681,15 +681,18 @@ sequenceDiagram
     back as it is.
     A control plane that cannot be reached leaves the worker `ask` and `finish`. The tab is not closed when the Dispatch settles: the idle
     rules close it.
-  - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
-    agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
-    browser: every agent's call is then answered, as a tool's result, that the browser is paused, a read included,
-    and nothing reaches agent-browser. Taking control holds at once and lets an agent's running call end for up
-    to 15 seconds; that call is answered as refused too. Control goes back to the agents at once when the owner
-    hands it back (`releaseControl`), 2 minutes after the owner's last view went, however it went (the page
-    closing it, as switching to another tab of the pane does, or a socket that dropped; a view opened meanwhile
-    carries the hold on; issue #603, after OpenMausBot's phone, `server/routes/phone-screen.ts`), and 5 minutes
-    after the owner's last input (OpenMausBot's limits).
+  - Who drives each tab (issues #219, #1113; `control.go`, after T3 Code's per-tab
+    `apps/server/src/preview/SessionControl.ts`): its agent, or the owner who took control of it. Taking control
+    holds only the tab taken: that tab's agent's calls (and a take's film, still and box of it, and
+    `EvaluateOwnerTab` for the owner's own tab) are then answered, as a tool's result, that its tab is paused, a
+    read included, and nothing reaches agent-browser; the other agents go on in their own tabs, and the owner may
+    hold several tabs. Taking control holds at once and lets the tab's agent's running call end for up to 15
+    seconds; that call is answered as refused too. A tab goes back to its agent at once when the owner hands it
+    back (`releaseControl`), 2 minutes after the owner's last view of it went, however it went (the page closing
+    it, as switching to another tab of the pane does, or a socket that dropped; a view opened meanwhile carries
+    the hold on; issue #603, after OpenMausBot's phone, `server/routes/phone-screen.ts`), and 5 minutes after the
+    owner's last input in it (OpenMausBot's limits). Until issue #1113 one hold covered the whole browser, as
+    OpenMausBot's `ProfileControl`; it paused a Bot in its own tab while the owner signed in in his.
   - The owner watches a tab (issue #219; `view.go`, `clientapi/browser.go`): an agent's, or the owner's own tab
     `owner`, which is made when it is first watched and is where a sign-in is made. `POST
     /api/v1/browser/tabs/{tab}/views` gives a ticket (owner only, once, 30 seconds), which opens the WebSocket
@@ -706,11 +709,23 @@ sequenceDiagram
     change wins, and a tab nobody watches goes back to agent-browser's 1280×720. Mouse, wheel and keys go to the stream as agent-browser's
     `input_mouse` and `input_keyboard`, navigation runs as the session's own command, and all of them need
     control: without it they are dropped and the page is told again who controls. At most 4 views are open; a
-    tab that is watched is not closed as idle. Each view and each take-over is logged
+    tab that is watched is not closed as idle. Every tab is in one window of Chrome, which paints only the tab in
+    front (`front.go`): a view brings its tab there as it opens (`Target.activateTarget`, as agent-browser's tab
+    switch brings a tab to the front), so the tab watched last streams, and when that view closes the view opened
+    before it brings its own tab back; before issue #1113 a Bot's tab behind the owner's sent no frame. Moving the
+    focus is the owner's action queued behind the agents' calls running in the browser, as OpenMausBot's viewer
+    brings a tab to the front through its control (`server/browser/viewers/core.ts:845`): it waits for them, at
+    most 15 seconds, and a call asked for meanwhile waits for it, since a page may fail a call that needs the
+    focus when it moves mid-way. Moves asked for while one waits replace it and share its wait, and only the
+    newest view's tab is brought forward. Views are ordered when requested. Making the owner's tab the first
+    time it is watched shares the focus deadline with moves requested while it is being made, since a new tab
+    comes in front by itself. A call's tab hold is entered after that wait and checked
+    again as the call is about to run, so a tab the owner took meanwhile runs nothing of its agent's. Each view and each take-over is logged
     (`clientapi.browser_view_opened`, `_closed`, `browser.taken`, `browser.released`) with who, which tab, from
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
-    say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
+    say whether it is installed and running, whether the owner holds any tab, and list the tabs: whether the owner
+    holds each (`held`), whose each is (a worker's with its Dispatch, Task and
     Run), the chat it belongs to (`chat_id`, issue #557), its address and title as Chrome's own DevTools port lists them,
     and its page's icon (`favicon`, issue #703): a `data:` address of an image of 64 KiB at most, which the
     engine has the page read in a world of the engine's own beside the page's (`browser/favicon.go`, OpenClaw's
@@ -723,15 +738,14 @@ sequenceDiagram
     `disposeOnDetach: false`, as www222fff/muse2api's driver), sets its cookies (`Storage.setCookies`) and a tab
     in it (`Target.createTarget` with the context, attached flat on a DevTools connection of the engine's own), and
     gives its steps: navigate, evaluate (awaiting a promise, by value), insert text, click, Enter, and the
-    context's cookies. Every step enters and leaves the owner's hold as an agent's call does: while he holds the
-    browser none runs, and one running when he takes it answers `ErrHeld`, its result dropped. A tab that went
+    context's cookies. Such a tab is no tab the owner takes, and no hold pauses its steps (issue #1113). A tab that went
     away is made again in its context; a Chrome started again has none of the contexts, and the next `Page` makes
     a new one from the cookies given (`ErrPageGone` meanwhile). `DisposeContext` closes one. The owner's own path
-    runs while he holds the browser, as his input does: `OpenOwnerTab` loads an address in his tab,
+    runs while he holds his tab, as his input does: `OpenOwnerTab` loads an address in his tab,
     `ProfileCookies` reads the shared profile's cookies of a domain and `ClearProfileCookies` removes them (set
     again expired). `EvaluateOwnerTab` runs a script in the owner's tab, in the page's own world, attached to it
     on a DevTools connection of its own (issue #798): it is the control plane's step there, refused with `ErrHeld`
-    under the hold as a context's are, and `ErrNoSuchTab` with no owner's tab. The Muse pool is their one caller;
+    while the owner holds his tab, and `ErrNoSuchTab` with no owner's tab. The Muse pool is their one caller;
     no agent reaches a context, and none is listed as a tab.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
@@ -751,8 +765,9 @@ sequenceDiagram
     tabs its strip lists (`chat`), so that the owner's tab shown in place of a Bot's still lists the chat's. Panes
     of the grid that open a tab beside them in one update each build on the grid as kept now (`latestBench`), so
     that one does not undo the other's. The tab is shown as `BrowserView`, one piece that holds the address
-    row, the control button and the picture. While the owner holds the browser the sidebar says so on every
-    page, since every agent's browser tools wait meanwhile. It
+    row, the control button and the picture. While the owner holds a tab the sidebar names the tabs he holds on
+    every page, and whether their agents wait; the view of a tab he does not hold names the ones he does and says
+    its agent goes on (issue #1113). It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
     paints on a canvas the size of the frame, fitted with `object-contain`, one decode at a time; and maps the
     pointer through the letterbox to the tab's own pixels. Moves and wheel steps are merged, one message a
@@ -761,7 +776,7 @@ sequenceDiagram
     Control is taken only with the button; without it the page takes no input and the address row is off. A
     dropped view is tried again after half a second, doubled each time up to ten; a tab that is gone, and a
     control plane with no browser, say so. The stream stops while the page is hidden, unless the owner holds the
-    browser. Adapted from T3 Code and OpenMausBot (`web/THIRD_PARTY_NOTICES.md`). On a phone a tap is a click and
+    tab. Adapted from T3 Code and OpenMausBot (`web/THIRD_PARTY_NOTICES.md`). On a phone a tap is a click and
     a drag scrolls; typing there is not done yet.
   - Others on the control plane's machine: agent-browser serves each session's stream, and a route that runs
     commands in it, on `127.0.0.1` with no key, and Chrome's DevTools port is on `127.0.0.1` too, as in T3 Code
@@ -1177,15 +1192,18 @@ sequenceDiagram
     update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
     failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
     10 revisions wait; one has 20 minutes and does not start with less than 400 MB free. Voicing goes through
-    `speech.Service` in Vietnamese (`vi`), one clip per scene: the first text-to-speech provider of the owner's
+    `speech.Service` in Vietnamese (`vi`), one clip per scene, at the revision's speed (`speed`, 0.7-1.3 or 0 for the
+    provider's own, chosen in the make dialog or `hypomnema videos make --speed`, which refuses one out of range, and
+    kept by a look change, a retry and a revision of changed lines; issue #1285, the owner 2026-11-27): the first
+    text-to-speech provider of the owner's
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the model is the
-    owner's choice for that provider (ElevenLabs's speech model, issue #1283). Each line is asked with its words'
-    times: ElevenLabs answers its alignment (`/with-timestamps`), and the words built from it are kept beside the
-    clip (`<clip>.words.json`) as they are, each with its own times, so its captions need no transcription; a provider without one (Soniox, or an
-    ElevenLabs answer without alignment) has its clip transcribed at captioning, as before. The word times are
+    model, voice, language and speed (none at the provider's own) (aidemo's voiceHash, ported) and reused by any later
+    revision; the model is the owner's choice for that provider (issues #1283, #1285). Each line is asked with its
+    words' times: ElevenLabs answers its alignment (`/with-timestamps`), Soniox its WebSocket's timestamps (issue
+    #1285), and the words built from them are kept beside the clip (`<clip>.words.json`), so its captions need no
+    transcription; an answer without them has its clip transcribed at captioning, as before. The word times are
     removed before the clip is spoken again. A revision made from another (a look change, a retry) is **pinned**
     (`pin_provider`, `pin_voice`, `pin_model`, migration of #1283): only that provider is asked, with exactly that
     voice, even an empty one, and that model (empty, as for a pin made before: the model the revision was spoken
@@ -4024,8 +4042,8 @@ capabilities do not exist yet.
     growing wait, but at most 60 s (issue #1159; OmniRoute clamps a Codex capacity refusal to 5-60 s, CLIProxyAPI's
     transient cooldown is 60 s), though the backend names about six minutes. While the model rests on every account
     the client gets the 429 of a cooling model with the first time one is free, so at most a minute away. A rate limit, a usage limit or a refused token still
-    cools the whole account, and its cooldown's reason is the refusal's code (else its type, else `HTTP <status>`),
-    not `usage limit`. When every account refuses, the usage row keeps the refusal's code, message
+    cools the whole account, with its code (below) and the backend's message as its reason (issue #1305); a model's
+    rest is `overloaded`. When every account refuses, the usage row keeps the refusal's code, message
     and the prompt's moderation flags from the `response.metadata` frame (paths and values, not the prompt), and
     counts the input as estimated with no output; a stream that ended before any output counts no output.
   - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
@@ -4319,6 +4337,33 @@ capabilities do not exist yet.
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
     401, 402 or 403; 30 seconds after another 5xx.
+  - Why an account rests is one closed set for every adapter (issue #1305, `modelgateway/cooling_code.go`):
+    `usage_limit` (a plan's window or allowance used up), `rate_limit`, `billing` (credits, a balance or a budget
+    spent), `auth` (the key or sign-in refused), `overloaded`, `unknown`. One classifier reads every refusal, the
+    structured code first, then the status, then the words, with opencode's code sets and words
+    (`provider-error.ts`): a 402 is always `billing`; a billing code (Zen's quota codes, Google's
+    `INSUFFICIENT_G1_CREDITS_BALANCE`), a usage code (`GoUsageLimitError`, `FreeUsageLimitError`, Codex's
+    `usage_limit_reached`, Google's `QUOTA_EXHAUSTED`), an auth code, or a server code on no 4xx decides; then
+    401/403, a 429 (its words say a spent balance or a used-up plan, else a rate limit), a generic throttle code
+    (`rate_limit_error`, read after a 429's words since Anthropic-shaped endpoints put it on every 429), a 5xx;
+    then the words alone. A Claude 429 is `usage_limit` only with `anthropic-ratelimit-unified-status: rejected`
+    (OmniRoute `isClaudeUsageWall`); an Antigravity model that waits on a used-up quota is `usage_limit`, one that
+    waits on a throttle `rate_limit`, either `billing` when Google says the credits balance is spent; a suspended
+    account or one to verify is `auth`. The waits are unchanged, a Go 402 `GoUsageLimitError` keeping the used-up
+    allowance's hour. The reset a refusal names is read from its headers first
+    (`retry-after-ms`, `Retry-After` as seconds or a date, `x-ratelimit-reset-ms`, `x-ratelimit-reset`,
+    `x-ratelimit-reset-after`), else from its words, the pairs after "resets in" summed ("2hr 15min", "3 days";
+    omp `extractRetryHint`); Claude's unified reset still comes before both. The account's cooldown keeps the code
+    (`account_cooldowns.code`, checked against the set; a node Dispatch's rate limit is `rate_limit`) beside the
+    provider's own message (`reason`); the accounts API gives `cooling_code` and `cooling_reason`, `accounts list`
+    prints both, and the Models page's account card says the code in words ("Usage limit, resets 12:42 AM", "Key
+    refused until …", "Credits spent until …", "Rate limited until …", "Provider overloaded until …", "Resting until
+    …" for `unknown`) with the message as its title. The Images page says the code and the message of the account
+    free first (`ImageProviderLink.cooling_code`, `cooling_reason`); the Web search page's subscription link that
+    rests because its accounts do says theirs (`WebSearchLink.cooling_code`, `cooling_reason`, from
+    `websearch.AccountRefused`), and so does one whose own search was refused: Antigravity's search answer carries
+    the code it read from Google's ErrorInfo reason (`cooling_code` in its error body: credits spent is `billing`,
+    `QUOTA_EXHAUSTED` `usage_limit`), any other the shared classifier's.
   - A request for an Antigravity or Codex model (chat on `/chat/completions`, `/responses` and `/messages`, and
     Antigravity's images) goes only to the accounts whose own list (read as the gateway's models are) has it, as
     CLIProxyAPI routes a model only to the auths that registered it (`sdk/cliproxy/auth/conductor_selection.go`
@@ -4501,10 +4546,10 @@ capabilities do not exist yet.
     Messages), `User-Agent: hypomnema/<version>` and `x-opencode-session`, a hash of the gateway's session: the
     client's `prompt_cache_key` or session header, else its gateway key. The session also picks the key, as for
     every built-in provider.
-  - A 429 whose body says "Monthly usage limit reached" with "Resets in N days|hours|minutes|seconds", or any
-    refusal naming `GoUsageLimitError`, rests that key until the reset Go named, with no cap (an hour when it named
-    none), and the request moves to the next key at once (omniroute `opencode-monthly-quota-resets-in`, opencode
-    `QUOTA_CODES`). Any other refusal rests the key as every built-in provider's account rests (above).
+  - A usage limit (above: a 429 whose words say "usage limit", 5-hour, weekly or monthly, or any refusal naming
+    `GoUsageLimitError`) rests that key until the reset Go names (its headers, else "Resets in 2hr 15min"), with no
+    cap (an hour when it names none), and the request moves to the next key at once (opencode `QUOTA_TEXT` and
+    `QUOTA_CODES`, issue #1305). Any other refusal rests the key as every built-in provider's account rests (above).
   - Not built: the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
     Go model), moving the `ocg/*` models off 9Router on zm (#670).
 - `opencode-zen` (kind `opencode_zen`, issue #965, seeded by its migration unless the owner already named a provider
@@ -4531,7 +4576,9 @@ capabilities do not exist yet.
     usage, recording the `usage.cost` Zen answers, a Zen price in the price book (a Claude or GPT model is priced by
     its maker's row; another Zen model is unpriced), Gemini, `interactions`, image models.
 - When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
-  `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
+  `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free, and why that
+  account rests: `cooling_code`, also in its message ("… for now (usage limit)", issue #1305; LiteLLM's
+  `RouterRateLimitError` names its cause the same way). It writes
   `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
   account cooldowns. A rate-limited role Task tries its next usable entry in the same worktree or waits for that
   reset and shows the model and reset time as the wait reason. A Codex `response.failed` usage limit also cools
@@ -4964,35 +5011,54 @@ writes no prose (last30days SKILL.md LAW 7).
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
-[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
+[research](docs/research/2026-11-17-meetings-and-gateway-audio.md); Soniox's update, issue #1285,
+[research](docs/research/2026-11-27-soniox-v6-and-tts-timestamps.md)): speech to text and text to speech with the
 owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
 (`hypomnema audio`, see the client API).
-- Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with one model a kind: Soniox `stt-async-v5`
-  and `tts-rt-v2`, ElevenLabs `scribe_v2` and, for speech, the model the owner chose from ElevenLabs's `GET
-  /v1/models`, `eleven_v4` by default (issue #1283, [research](docs/research/2026-11-27-elevenlabs-integration.md);
-  `speech.Settings.Model`). Speech to text and text to speech each ask
+- Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with the model the owner chose for a kind,
+  else its default (`speech.Settings.Model`): Soniox's transcription and speech models, chosen from its `GET
+  /v1/models` (async ones) and `GET /v1/tts-models`, `stt-async-v6` and `tts-rt-v2` by default (issue #1285); ElevenLabs
+  `scribe_v2` and, for speech, the model the owner chose from ElevenLabs's `GET /v1/models`, `eleven_v4` by default
+  (issue #1283, [research](docs/research/2026-11-27-elevenlabs-integration.md)). `PUT
+  /gateway/audio/providers/{provider}/model` `{model, kind?}` sets one (tts when no kind); `GET /gateway/audio/models`
+  lists both providers' models with their kind. A row's kind is told by its model (`speech.KindOf`: Soniox's
+  `stt-…`, ElevenLabs's Scribe), so the Audio page's tally keeps across a model upgrade. Speech to text and text to speech each ask
   the providers that are on in the owner's order for that kind; the first that answers wins and the answer says why
   those before it did not.
 - Keys: each provider takes several, vault secrets `speech-<provider>` and `speech-<provider>-<n>` (the lowest free
   number), read at each call, asked least recently used first; a key that is rate limited (429: its `Retry-After`,
   else 2 s doubling to 5 minutes), out of credits (402 or the words, 5 minutes doubling to an hour) or refused
   (401, 403: 2 minutes) rests on its own and the provider's next key is asked, as web search's keys; any other
-  failure goes to the next provider. In memory. Every key resting is 429; no provider on with a key, 503.
+  failure goes to the next provider. In memory. Every key resting is 429; no provider on with a key, 503. Soniox's
+  402 reads "Soniox balance is empty".
 - Soniox (MemoryOS `voice/SonioxApi.java`, `SonioxAsync.java`; LiteLLM `llms/soniox/`), bearer key, base
   `https://api.soniox.com/v1`: `POST /files` (the recording, multipart `file`, streamed), `POST /transcriptions`
   `{model, file_id, enable_speaker_diarization?, language_hints + language_hints_strict, or
-  enable_language_identification}`, `GET /transcriptions/{id}` each second until `completed` (or `error`) up to 30
-  minutes, `GET /transcriptions/{id}/transcript` (`{text, tokens: [{text, start_ms, end_ms, speaker, language,
+  enable_language_identification}`, `GET /transcriptions/{id}` every 5 s (soniox-python's `wait`) until `completed`
+  (or `error`) up to 30 minutes, `GET /transcriptions/{id}/transcript` (`{text, tokens: [{text, start_ms, end_ms, speaker, language,
   is_audio_event}]}`), then `DELETE` the transcription and the file, best effort, even after the caller left. The
   length is `audio_duration_ms`. Its speech is OmniRoute's: `POST https://tts-rt.soniox.com/tts` `{text, model,
-  language (en), voice (Adrian, also for OpenAI's voice names), audio_format (pcm as pcm_s16le)}`; its one voice
-  listed is Adrian, OmniRoute's default (no reference lists more).
+  language (en), voice (Adrian, also for OpenAI's voice names), audio_format (pcm as pcm_s16le), speed? (0.7-1.3,
+  else 400 when Soniox is named), reduce_silence? (only for a model whose `/v1/tts-models` entry has
+  `supports_silence_reduction`), client_reference_id (the request's `Reference`, else a new `hypomnema-<hex>`)}`; a
+  line over 5,000 characters is refused before the call. A line asked with `Timings` (Studio's) goes over
+  `wss://tts-rt.soniox.com/tts-websocket` instead, as pipecat speaks it: the key as a bearer header, one stream with
+  the same config and `return_timestamps: true`, the line with `text_end`, the base64 audio and the `timestamps`
+  arrays appended until `terminated`, an `error_code` read as that status's refusal (a model the catalog says gives
+  no timestamps goes over REST). Its words are the shared splitter's (`alignmentWords`, below) matched back to the
+  line's own words (`speech.AlignedWords`: a longest common subsequence of their letters and digits, NFC; a run
+  between two matches, such as "59%" spoken as words, shares their time), so a caption shows the line's spelling.
+  Speech, either way, is asked again like ElevenLabs's (`speech/retry.go`, 408 too), each attempt waiting for a
+  place of its key's limiter, at most 3 at once and 100 a minute (`speech/limit.go`, Soniox's REST limits). Its
+  voices are the built-in voices of its speech model (`GET /v1/shared-voices?model=`, each page) and the account's
+  cloned voices `ready` for it (`GET /v1/voices`), kept a day a key and model.
 - ElevenLabs (9router-go `internal/handlers/media/elevenlabs_stt.go`, `voices.go`; Bifrost
   `core/providers/elevenlabs/`; LiteLLM `llms/elevenlabs/text_to_speech/`), `xi-api-key`, base
   `https://api.elevenlabs.io`: `POST /v1/speech-to-text` multipart `{model_id, file, timestamps_granularity word,
   language_code?, diarize?}`, its words' `speaker_id` the speakers, a spacing no word, an audio event no speech, the
   length the last word's end; `POST /v1/text-to-speech/{voice_id}?output_format=` (LiteLLM's mp3_44100_128,
-  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, language_code?, voice_settings: {speed}?}`, OpenAI's voice
+  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, language_code?, voice_settings: {speed}?}` (the speed moved
+  into ElevenLabs's 0.7-1.2, and none for `eleven_v4`, which does not apply it; issue #1285), OpenAI's voice
   names mapped to LiteLLM's voices, none Rachel; `language_code` is the caller's language (a video's `vi`,
   `audio_speak`'s `language`), cut to its ISO 639-1 code (`en-US` is `en`), when the model's languages in `GET
   /v1/models` cover it, else left out with a warning (pipecat's guard); a model older than v2.5
@@ -5000,7 +5066,7 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   or does not name the model, it is sent. A video's line
   goes to `/with-timestamps` (`{audio_base64, alignment}`): `alignment` (not `normalized_alignment`) is split into
   words on whitespace, each from its first character's start to its last's end, a bracketed audio tag (`[laughs]`)
-  no word (`speech.Speech.Words`). A 429 or 5xx (not one out of credits) is asked again twice, after its
+  no word (`speech.Speech.Words`). A 408, 429 or 5xx (not one out of credits) is asked again twice, after its
   `Retry-After` (at most 60 s) or 1 s doubling, before the key rests (the SDK's retry; `speech/retry.go`, for
   speech and the lists, not Scribe); each attempt has its own 2-minute budget and the waits are apart from it, as
   the SDK's timeout is a request's. `GET /v1/voices` (the account's own and saved library voices) and `GET
@@ -5017,7 +5083,8 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   provider again when both are present. A clip voiced before its word times were cached is transcribed on its
   first use with captions.
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
-  `tts_position`, then `voice` (00126) and `tts_model` (issue #1283); read and written only by the gateway): one
+  `tts_position`, then `voice` (00126), `tts_model` (issue #1283) and `stt_model` (issue #1285); read and written
+  only by the gateway): one
   switch a provider for both kinds, each kind's order, a provider's voice for videos and ElevenLabs's speech model.
   A usage row's kind is told by its model (`speech.KindOf`: the provider's one transcription model, else speech),
   and a kind's count sums every model it was asked with.
@@ -5098,7 +5165,7 @@ gateway chat model writes its summary, decisions and actions.
   WebSocket `/api/v1/meetings/{id}/stream/{ticket}?track=&offset=` (outside the contract, as a terminal's, both
   server deadlines lifted): PCM16 24 kHz mono frames of at most 64 KiB and one `{"type":"end"}` in; `ready`,
   `preview`, `line` (kept), `finished`, `error {code}` out; a ping every 20 s; a track with no audio for 60 s
-  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v5`, the key as a
+  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v6`, the key as a
   bearer header, endpoint detection, diarization except an online microphone, which is the owner, shown "You" and
   not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
   frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
@@ -5948,7 +6015,9 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 - Served at `/api/v1`. The spec is written by hand; oapi-codegen generates the types, a strict server, a Go client and
   the embedded spec into `clientapi/openapi`.
 - Every request is checked against the spec first (`validation_failed`), and bodies are limited to 1 MiB. Errors are
-  `{code, message}`.
+  `{code, message}`; an `internal_error` is logged (`clientapi.internal_error`) without its details shown. A
+  request the page abandoned (its context canceled) is answered with nothing and not logged, as the model gateway
+  leaves a client that left (issue #1113).
 - Every request carries a web session's cookie or a client token (`Authorization: Bearer`); the cookie is looked
   at first, and without a valid one of the two the answer is 401. Signing in is the one operation that needs neither.
 - `POST /session` takes a user's name and password and sets the session as a cookie: HttpOnly, `SameSite=Lax`,

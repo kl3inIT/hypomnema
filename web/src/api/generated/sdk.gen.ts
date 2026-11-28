@@ -1775,9 +1775,9 @@ export const setAudioVoice = <ThrowOnError extends boolean = true>(options: Opti
 });
 
 /**
- * Set the model a provider speaks with; only the owner
+ * Set the model a provider is asked with for a kind; only the owner
  *
- * One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+ * One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
  */
 export const setAudioModel = <ThrowOnError extends boolean = true>(options: Options<SetAudioModelData, ThrowOnError>): RequestResult<SetAudioModelResponses, SetAudioModelErrors, ThrowOnError> => (options.client ?? client).put<SetAudioModelResponses, SetAudioModelErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -1790,9 +1790,9 @@ export const setAudioModel = <ThrowOnError extends boolean = true>(options: Opti
 });
 
 /**
- * The text-to-speech models the owner may choose from, with the languages each covers
+ * The models the owner may choose from, each with its kind and the languages it covers
  *
- * ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+ * ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
  */
 export const listAudioModels = <ThrowOnError extends boolean = true>(options?: Options<ListAudioModelsData, ThrowOnError>): RequestResult<ListAudioModelsResponses, ListAudioModelsErrors, ThrowOnError> => (options?.client ?? client).get<ListAudioModelsResponses, ListAudioModelsErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -1803,7 +1803,7 @@ export const listAudioModels = <ThrowOnError extends boolean = true>(options?: O
 /**
  * The voices of the text-to-speech providers that are on and have a key, by name and id
  *
- * ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+ * ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
  */
 export const listAudioVoices = <ThrowOnError extends boolean = true>(options?: Options<ListAudioVoicesData, ThrowOnError>): RequestResult<ListAudioVoicesResponses, ListAudioVoicesErrors, ThrowOnError> => (options?.client ?? client).get<ListAudioVoicesResponses, ListAudioVoicesErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

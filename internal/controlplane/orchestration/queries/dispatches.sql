@@ -233,10 +233,10 @@ WHERE t.run_id = @run_id AND e.kind = 'git_push' AND e.phase = 'done' AND e.payl
 ORDER BY branch, sha;
 
 -- name: UpsertCooldown :exec
-INSERT INTO account_cooldowns (runtime, account_ref, until, reason)
-VALUES (@runtime, @account_ref, @until, @reason)
+INSERT INTO account_cooldowns (runtime, account_ref, until, code, reason)
+VALUES (@runtime, @account_ref, @until, @code, @reason)
 ON CONFLICT (runtime, account_ref) DO UPDATE
-SET until = max(account_cooldowns.until, excluded.until), reason = excluded.reason;
+SET until = max(account_cooldowns.until, excluded.until), code = excluded.code, reason = excluded.reason;
 
 -- name: DeleteExpiredCooldowns :execrows
 DELETE FROM account_cooldowns WHERE until <= @now;

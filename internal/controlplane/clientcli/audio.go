@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func audioSpeakFlags(fs *flag.FlagSet) {
 	fs.String("o", "", "the same as --out")
 	fs.String("voice", "", "a voice of the provider, or one of OpenAI's names (default: the provider's)")
 	fs.String("format", "", "mp3, wav, pcm or opus (default: mp3)")
-	fs.Float64("speed", 0, "ElevenLabs's voice speed, 0.25 to 4 (default: its own)")
+	fs.Float64("speed", 0, "the voice's speed: Soniox 0.7 to 1.3, ElevenLabs its own range (default: the provider's)")
 	fs.String("language", "", "the text's language for Soniox (default: en)")
 	fs.String("provider", "", "ask only this provider: soniox or elevenlabs (default: the first that answers)")
 	jsonFlag(fs)
@@ -151,10 +152,12 @@ func audioSpeak(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 	}
 
-	if speed, _ := strconv.ParseFloat(str(fs, "speed"), 64); speed > 0 {
-		s := float32(speed)
-		body.Speed = &s
+	speed, err := flagSpeed(fs, 0.25, 4)
+	if err != nil {
+		return err
 	}
+
+	body.Speed = speed
 
 	if p := str(fs, "provider"); p != "" {
 		provider := openapi.AudioProvider(p)
@@ -342,4 +345,28 @@ func audioKeysRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, resp.JSON200, func() { e.printf("%s was removed from the vault\n", name) })
+}
+
+// flagSpeed is the --speed flag: none when it is left out, the provider's own; refused, rather than dropped, when it
+// is given and is not a number within from and to, 0 included (review of #1302: a video made at the provider's speed
+// for a speed typed wrong).
+func flagSpeed(fs *flag.FlagSet, from, to float64) (*float64, error) {
+	given := false
+
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "speed" })
+
+	if !given {
+		return nil, nil //nolint:nilnil // No speed asked.
+	}
+
+	speed, err := strconv.ParseFloat(str(fs, "speed"), 64)
+
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("--speed is a number from %g to %g", from, to)
+	case math.IsNaN(speed) || speed < from || speed > to:
+		return nil, fmt.Errorf("--speed is a number from %g to %g, not %s", from, to, str(fs, "speed"))
+	}
+
+	return &speed, nil
 }

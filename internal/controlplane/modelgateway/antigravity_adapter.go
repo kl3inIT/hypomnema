@@ -66,13 +66,13 @@ type antigravityState struct {
 	identity *cloudcode.Identity
 
 	mu       sync.Mutex
-	waiting  map[string]time.Time // account and model to when it is free
-	inFlight map[string]int       // account to requests running
+	waiting  map[string]Rest // account and model to when it is free, and why it waits
+	inFlight map[string]int  // account to requests running
 }
 
 func newAntigravityState(manifestURL string, now func() time.Time) *antigravityState {
 	return &antigravityState{
-		identity: cloudcode.NewIdentity(manifestURL, now), waiting: map[string]time.Time{}, inFlight: map[string]int{},
+		identity: cloudcode.NewIdentity(manifestURL, now), waiting: map[string]Rest{}, inFlight: map[string]int{},
 	}
 }
 
@@ -83,7 +83,7 @@ func (a *antigravityState) enter(account, model string, now time.Time) (until ti
 	defer a.mu.Unlock()
 
 	key := account + "\x00" + model
-	if until = a.waiting[key]; until.After(now) {
+	if until = a.waiting[key].Until; until.After(now) {
 		return until, false
 	}
 
@@ -107,16 +107,16 @@ func (a *antigravityState) leave(account string) {
 	}
 }
 
-func (a *antigravityState) wait(account, model string, until time.Time) {
+func (a *antigravityState) wait(account, model string, rest Rest) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if key := account + "\x00" + model; until.After(a.waiting[key]) {
-		a.waiting[key] = until
+	if key := account + "\x00" + model; rest.Until.After(a.waiting[key].Until) {
+		a.waiting[key] = rest
 	}
 }
 
-func (a *antigravityState) modelReset(account, model string) time.Time {
+func (a *antigravityState) modelReset(account, model string) Rest {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.waiting[account+"\x00"+model]
@@ -132,7 +132,7 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 
 	// An account near the end of its quota for this model is used after the others.
 	nearQuota := func(token AccountToken) bool { return s.accountState.nearQuota(token.AccountID, model, now) }
-	modelReset := func(account string) time.Time { return s.antigravity.modelReset(account, model) }
+	modelReset := func(account string) Rest { return s.antigravity.modelReset(account, model) }
 
 	// Antigravity carries no per-account prompt cache through the gateway, so it
 	// round-robins (session empty) and leans on nearQuota ranking instead.
@@ -296,25 +296,30 @@ func (s *Server) antigravityRefused(
 		return antigravityResting()
 	case !usedUp.IsZero():
 		wait = usedUp.Sub(now)
-		s.antigravity.wait(token.AccountID, model, usedUp)
+		s.antigravity.wait(token.AccountID, model, Rest{Until: usedUp, Code: antigravityRestCode(f, CoolingUsageLimit),
+			Reason: f.Message})
 	case f.Reason == antigravity.ReasonNoCapacity:
 		// Nothing of the account's is used up: Google has no room for the model.
 	case f.Status != http.StatusTooManyRequests:
 		// Not a limit of a model: the account cools down as any account
 		// does after such a failure (accounts.go).
-		s.cool(ctx, antigravityRuntime, token, f.Status, false, time.Time{}, f.Code)
+		s.cool(ctx, antigravityRuntime, token, f.Status, false, time.Time{}, antigravityCode(f), f.Message)
 	case f.Reason == antigravity.ReasonQuotaExhausted || wait >= antigravityLongWait:
+		// A quota used up, as omp reads QUOTA_EXHAUSTED and a RATE_LIMIT_EXCEEDED of five minutes or more
+		// (packages/ai/src/error/rate-limit.ts; test rate-limit-utils.test.ts:338-348): a usage limit.
 		if wait <= 0 {
 			wait = antigravityQuotaWait
 		}
 
-		s.antigravity.wait(token.AccountID, model, now.Add(wait))
+		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait),
+			Code: antigravityRestCode(f, CoolingUsageLimit), Reason: f.Message})
 	default:
 		if wait <= 0 {
 			wait = antigravityRateWait
 		}
 
-		s.antigravity.wait(token.AccountID, model, now.Add(wait))
+		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait),
+			Code: antigravityRestCode(f, CoolingRateLimit), Reason: f.Message})
 	}
 
 	kind := typeServer
@@ -325,6 +330,40 @@ func (s *Server) antigravityRefused(
 	}
 
 	return openAIError(f.Status, kind, f.Code, f.Message, wait)
+}
+
+// antigravityCode is why an Antigravity refusal rests the account (classifyFailure): Google's status word and the
+// reason of its details, then the HTTP status and the message.
+func antigravityCode(f *antigravity.Failure) CoolingCode {
+	return classifyFailure(f.Status, []string{f.Code, f.Reason}, f.Message)
+}
+
+// antigravityLimitCode is why an Antigravity refusal rests, read as antigravityRefused labels its waits: on a 429 a
+// used-up quota (QUOTA_EXHAUSTED, or a delay of antigravityLongWait or more, as omp reads a long RATE_LIMIT_EXCEEDED,
+// rate-limit-utils.test.ts:338-348), else a throttle, either billing when the credits balance is spent; any other
+// refusal as classifyFailure reads it.
+func antigravityLimitCode(f *antigravity.Failure, wait time.Duration) CoolingCode {
+	if f.Status != http.StatusTooManyRequests {
+		return antigravityCode(f)
+	}
+
+	if f.Reason == antigravity.ReasonQuotaExhausted || wait >= antigravityLongWait {
+		return antigravityRestCode(f, CoolingUsageLimit)
+	}
+
+	return antigravityRestCode(f, CoolingRateLimit)
+}
+
+// antigravityRestCode is why a model of an Antigravity account waits after a 429: what the wait's own branch says
+// (fallback, a used-up quota or a throttle), unless the shared reading finds the credits balance spent
+// (INSUFFICIENT_G1_CREDITS_BALANCE, omp rate-limit-utils.test.ts:357-363), which is billing whatever the wait. The
+// wait itself is the branch's, as before #1305 (row 8).
+func antigravityRestCode(f *antigravity.Failure, fallback CoolingCode) CoolingCode {
+	if code := antigravityCode(f); code == CoolingBilling {
+		return code
+	}
+
+	return fallback
 }
 
 // groupQuota is what the accounts can tell of Antigravity's groups (issue #576): until when a window of a model's
@@ -404,11 +443,15 @@ func (s *Server) antigravityPark(
 		reason += ": " + f.URL
 	}
 
+	// Suspended, or to be verified: Google refuses the account itself (403), a refused sign-in as classifyFailure
+	// reads a 403.
+
 	s.logger.ErrorContext(ctx, "an Antigravity account was taken out of use",
 		slog.String("event", "modelgateway.antigravity_account_parked"), slog.String("account_id", token.AccountID),
 		slog.String("reason", f.Reason), slog.Time("until", until))
 
-	err := s.accounts.CoolDown(context.WithoutCancel(ctx), antigravityRuntime, token.AccountID, until, reason)
+	err := s.accounts.CoolDown(context.WithoutCancel(ctx), antigravityRuntime, token.AccountID, until, CoolingAuth,
+		reason)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "parking an Antigravity account",
 			slog.String("event", "modelgateway.antigravity_park_failed"), slog.String("account_id", token.AccountID),

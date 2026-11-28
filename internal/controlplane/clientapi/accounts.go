@@ -385,6 +385,16 @@ func toAccount(a subscription.Account) openapi.Account {
 		Position: a.Position, CoolingUntil: a.CoolingUntil, TokenExpiresAt: a.AccessTokenExpiresAt,
 	}
 
+	if a.CoolingUntil != nil {
+		// Why it rests, in one closed set (issue #1305); unknown for a cooldown that names none.
+		code := openapi.CoolingCode(a.CoolingCode)
+		if !code.Valid() {
+			code = openapi.CoolingUnknown
+		}
+
+		out.CoolingCode = &code
+	}
+
 	if a.CoolingUntil != nil && a.CoolingReason != "" {
 		out.CoolingReason = &a.CoolingReason
 	}

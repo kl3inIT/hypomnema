@@ -103,7 +103,7 @@ func videoOf(v videos.Video) openapi.Video {
 			CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 			Parent: nonZero(r.Parent), Voice: nonZero(r.Voice), Provider: nonZero(r.Provider),
 			Model: nonZero(r.Model), UsedVoice: nonZero(r.UsedVoice), FailedStage: nonZero(r.FailedStage),
-			FailedCause: nonZero(r.FailedCause), Note: nonZero(r.Note), Look: lookOf(r.Look),
+			FailedCause: nonZero(r.FailedCause), Note: nonZero(r.Note), Look: lookOf(r.Look), Speed: nonZero(r.Speed),
 		}
 		if r.Progress != nil {
 			rev.Progress = &openapi.VideoProgress{ScenesDone: r.Progress.ScenesDone, ScenesTotal: r.Progress.ScenesTotal}
@@ -259,7 +259,7 @@ func (s *Server) MakeVideo(ctx context.Context, req openapi.MakeVideoRequestObje
 	in := videos.MakeRequest{
 		Take: b.Take, Title: val(b.Title), Captions: b.Captions, Voice: val(b.Voice), By: videos.Owner,
 		ByName: videos.Owner, RequestID: val(req.Params.IdempotencyKey), Look: lookInput(b.Look),
-		Template: val(b.Template),
+		Template: val(b.Template), Speed: val(b.Speed),
 	}
 
 	if b.Aspect != nil {

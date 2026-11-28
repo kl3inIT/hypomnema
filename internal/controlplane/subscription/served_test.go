@@ -379,7 +379,8 @@ func TestAnAccountChangedDuringAPickIsNotGiven(t *testing.T) {
 
 	changes := map[string]func(w *antigravityWorld, id string) error{
 		"cools": func(w *antigravityWorld, id string) error {
-			return w.subs.CoolDown(context.Background(), "antigravity", id, w.clock.Now().Add(time.Hour), "rate_limited")
+			return w.subs.CoolDown(context.Background(), "antigravity", id, w.clock.Now().Add(time.Hour), "rate_limit",
+				"rate_limited")
 		},
 		"is disabled": func(w *antigravityWorld, id string) error {
 			return w.orch.DisableAccount(context.Background(), id)

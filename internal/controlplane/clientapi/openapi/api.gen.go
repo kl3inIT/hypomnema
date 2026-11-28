@@ -612,6 +612,36 @@ func (e ConnectionRequestState) Valid() bool {
 	}
 }
 
+// Defines values for CoolingCode.
+const (
+	CoolingAuth       CoolingCode = "auth"
+	CoolingBilling    CoolingCode = "billing"
+	CoolingOverloaded CoolingCode = "overloaded"
+	CoolingRateLimit  CoolingCode = "rate_limit"
+	CoolingUnknown    CoolingCode = "unknown"
+	CoolingUsageLimit CoolingCode = "usage_limit"
+)
+
+// Valid indicates whether the value is a known member of the CoolingCode enum.
+func (e CoolingCode) Valid() bool {
+	switch e {
+	case CoolingAuth:
+		return true
+	case CoolingBilling:
+		return true
+	case CoolingOverloaded:
+		return true
+	case CoolingRateLimit:
+		return true
+	case CoolingUnknown:
+		return true
+	case CoolingUsageLimit:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceNodeDevice.
 const (
 	DeviceNodeDeviceAndroid DeviceNodeDevice = "android"
@@ -3056,7 +3086,10 @@ func (e ListStudioItemsParamsState) Valid() bool {
 
 // Account defines model for Account.
 type Account struct {
-	// CoolingReason Why it rests, a rate limit or what the gateway recorded.
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason The provider's own words for why it rests, while it rests; rate_limited for an account a node's run cooled after a limit.
 	CoolingReason *string    `json:"cooling_reason,omitempty"`
 	CoolingUntil  *time.Time `json:"cooling_until,omitempty"`
 	Email         *string    `json:"email,omitempty"`
@@ -3427,7 +3460,7 @@ type AudioKind string
 
 // AudioKindLink defines model for AudioKindLink.
 type AudioKindLink struct {
-	// Model The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice of ElevenLabs's speech model, else the default.
+	// Model The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else the default.
 	Model string `json:"model"`
 
 	// On The owner's switch for the provider.
@@ -3440,12 +3473,17 @@ type AudioKindLink struct {
 
 // AudioModelChoice defines model for AudioModelChoice.
 type AudioModelChoice struct {
-	Model string `json:"model"`
+	// Kind stt is speech-to-text, tts text-to-speech.
+	Kind  *AudioKind `json:"kind,omitempty"`
+	Model string     `json:"model"`
 }
 
 // AudioModelInfo defines model for AudioModelInfo.
 type AudioModelInfo struct {
 	Id string `json:"id"`
+
+	// Kind stt is speech-to-text, tts text-to-speech.
+	Kind AudioKind `json:"kind"`
 
 	// Languages The language codes it covers, as the provider lists them, such as vi.
 	Languages []string      `json:"languages"`
@@ -3723,7 +3761,7 @@ type Browser struct {
 	// Chrome The browser the control plane runs, by name and pinned version.
 	Chrome string `json:"chrome"`
 
-	// Held Whether the owner holds the browser; agents' calls are refused meanwhile.
+	// Held Whether the owner holds any tab. Each tab says whether it is held: taking control holds only the tab taken, and only that tab's agent's calls are refused meanwhile.
 	Held bool `json:"held"`
 
 	// Installed Whether the browser's programs were fetched; they are at the first use.
@@ -3745,7 +3783,10 @@ type BrowserTab struct {
 
 	// Favicon Its page's icon, as a data: address of an image, once the control plane has read it from the page. Absent until then, and for a page that names none it can give.
 	Favicon *string `json:"favicon,omitempty"`
-	Id      string  `json:"id"`
+
+	// Held Whether the owner holds this tab; its agent's browser calls are refused meanwhile.
+	Held bool   `json:"held"`
+	Id   string `json:"id"`
 
 	// Kind Whose tab it is: a worker's (a Dispatch), the coordinator's, one opened with the owner's own token, or the owner's own tab in the web client.
 	Kind   BrowserTabKind `json:"kind"`
@@ -4142,6 +4183,9 @@ type ConnectionUse struct {
 	// Proxy The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
 	Proxy *string `json:"proxy,omitempty"`
 }
+
+// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+type CoolingCode string
 
 // CreatedGatewayKey defines model for CreatedGatewayKey.
 type CreatedGatewayKey struct {
@@ -4889,6 +4933,12 @@ type ImageProviderChange struct {
 type ImageProviderLink struct {
 	// Accounts Its accounts that can make images, now or after their rest.
 	Accounts int `json:"accounts"`
+
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason The provider's own words for why the account free first rests, while the provider rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
 
 	// Model The one model it makes images with, as usage rows name it (image/<model>).
 	Model string `json:"model"`
@@ -7169,8 +7219,11 @@ type SpeakRequest struct {
 	Language *string        `json:"language,omitempty"`
 	Provider *AudioProvider `json:"provider,omitempty"`
 
-	// Speed ElevenLabs's voice speed.
-	Speed *float32 `json:"speed,omitempty"`
+	// ReduceSilence Shorten the pauses between words; sent to Soniox only for a model that supports it.
+	ReduceSilence *bool `json:"reduce_silence,omitempty"`
+
+	// Speed The voice's speed: Soniox takes 0.7 to 1.3; ElevenLabs is sent it within 0.7 to 1.2, and none for a model that does not apply it, such as eleven_v4.
+	Speed *float64 `json:"speed,omitempty"`
 
 	// Voice A voice of the provider (the gateway's GET /v1/audio/voices) or one of OpenAI's names; left out, each provider's default.
 	Voice *string `json:"voice,omitempty"`
@@ -8162,7 +8215,10 @@ type VideoMake struct {
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
-	Take string          `json:"take"`
+
+	// Speed The speed every line is spoken at, Soniox's range; absent: the provider's own. ElevenLabs is sent it within its 0.7 to 1.2, and none for a model that does not apply it. A revision made from this one keeps it.
+	Speed *float64 `json:"speed,omitempty"`
+	Take  string   `json:"take"`
 
 	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
 	Template *string `json:"template,omitempty"`
@@ -8298,8 +8354,11 @@ type VideoRevision struct {
 	Progress *VideoProgress `json:"progress,omitempty"`
 
 	// Provider The provider that spoke every scene.
-	Provider  *string            `json:"provider,omitempty"`
-	Rev       int                `json:"rev"`
+	Provider *string `json:"provider,omitempty"`
+	Rev      int     `json:"rev"`
+
+	// Speed The speed its voice was asked at; absent, the provider's own.
+	Speed     *float64           `json:"speed,omitempty"`
 	State     VideoRevisionState `json:"state"`
 	UpdatedAt time.Time          `json:"updated_at"`
 
@@ -8462,6 +8521,12 @@ type WebSearchKeyedProvider string
 
 // WebSearchLink defines model for WebSearchLink.
 type WebSearchLink struct {
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason For a subscription that rests, the provider's own words for why its account rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
+
 	// Keys A keyed provider's keys, in the order a search asks them now.
 	Keys *[]WebSearchKey `json:"keys,omitempty"`
 
@@ -10999,9 +11064,9 @@ type ClientInterface interface {
 	// Corresponds with GET /gateway/audio (the `GetAudio` operationId).
 	GetAudio(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 	//
-	// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
 	ListAudioModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -11063,18 +11128,18 @@ type ClientInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKey(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetAudioModelWithBody Set the model a provider speaks with; only the owner
+	// SetAudioModelWithBody Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
 	SetAudioModelWithBody(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetAudioModel Set the model a provider speaks with; only the owner
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -11101,7 +11166,7 @@ type ClientInterface interface {
 
 	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
 	//
-	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
 	ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -15397,9 +15462,9 @@ func (c *Client) GetAudio(ctx context.Context, reqEditors ...RequestEditorFn) (*
 	return c.Client.Do(req)
 }
 
-// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 //
-// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Corresponds with GET /gateway/audio/models (the `ListAudioModels` operationId).
 func (c *Client) ListAudioModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -15541,9 +15606,9 @@ func (c *Client) RemoveAudioKey(ctx context.Context, provider AudioProvider, nam
 	return c.Client.Do(req)
 }
 
-// SetAudioModelWithBody Set the model a provider speaks with; only the owner
+// SetAudioModelWithBody Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes any type of body and a specified content type.
 //
@@ -15560,9 +15625,9 @@ func (c *Client) SetAudioModelWithBody(ctx context.Context, provider AudioProvid
 	return c.Client.Do(req)
 }
 
-// SetAudioModel Set the model a provider speaks with; only the owner
+// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -15619,7 +15684,7 @@ func (c *Client) SetAudioVoice(ctx context.Context, provider AudioProvider, body
 
 // ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name and id
 //
-// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
 func (c *Client) ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -36138,9 +36203,9 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/audio (the `GetAudio` operationId).
 	GetAudioWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetAudioResponse, error)
 
-	// ListAudioModelsWithResponse The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModelsWithResponse The models the owner may choose from, each with its kind and the languages it covers
 	//
-	// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -36206,18 +36271,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKeyWithResponse(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*RemoveAudioKeyResponse, error)
 
-	// SetAudioModelWithBodyWithResponse Set the model a provider speaks with; only the owner
+	// SetAudioModelWithBodyWithResponse Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/model (the `SetAudioModel` operationId).
 	SetAudioModelWithBodyWithResponse(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error)
 
-	// SetAudioModelWithResponse Set the model a provider speaks with; only the owner
+	// SetAudioModelWithResponse Set the model a provider is asked with for a kind; only the owner
 	//
-	// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+	// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -36244,7 +36309,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name and id
 	//
-	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+	// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -55060,9 +55125,9 @@ func (c *ClientWithResponses) GetAudioWithResponse(ctx context.Context, reqEdito
 	return ParseGetAudioResponse(rsp)
 }
 
-// ListAudioModelsWithResponse The text-to-speech models the owner may choose from, with the languages each covers
+// ListAudioModelsWithResponse The models the owner may choose from, each with its kind and the languages it covers
 //
-// ElevenLabs's models that speak text (its GET /v1/models), when it is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -55176,9 +55241,9 @@ func (c *ClientWithResponses) RemoveAudioKeyWithResponse(ctx context.Context, pr
 	return ParseRemoveAudioKeyResponse(rsp)
 }
 
-// SetAudioModelWithBodyWithResponse Set the model a provider speaks with; only the owner
+// SetAudioModelWithBodyWithResponse Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -55191,9 +55256,9 @@ func (c *ClientWithResponses) SetAudioModelWithBodyWithResponse(ctx context.Cont
 	return ParseSetAudioModelResponse(rsp)
 }
 
-// SetAudioModelWithResponse Set the model a provider speaks with; only the owner
+// SetAudioModelWithResponse Set the model a provider is asked with for a kind; only the owner
 //
-// One of the provider's models (GET /gateway/audio/models); empty sets it back to its default, eleven_v4 for ElevenLabs. Only ElevenLabs has a choice: Soniox speaks with one model. It counts from the next request.
+// One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -55238,7 +55303,7 @@ func (c *ClientWithResponses) SetAudioVoiceWithResponse(ctx context.Context, pro
 
 // ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name and id
 //
-// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved, kept a day; Soniox's is its one voice. A list that cannot be read is left out, and why is in errors.
+// ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -69751,7 +69816,7 @@ type ServerInterface interface {
 	// GetAudio The audio providers with their switches, keys and state, and the order speech-to-text and text-to-speech each ask them in, with each one's model and usage
 	// (GET /gateway/audio)
 	GetAudio(w http.ResponseWriter, r *http.Request)
-	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 	// (GET /gateway/audio/models)
 	ListAudioModels(w http.ResponseWriter, r *http.Request)
 	// SetAudioOrder Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
@@ -69766,7 +69831,7 @@ type ServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(w http.ResponseWriter, r *http.Request, provider AudioProvider, name string)
-	// SetAudioModel Set the model a provider speaks with; only the owner
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 	// (PUT /gateway/audio/providers/{provider}/model)
 	SetAudioModel(w http.ResponseWriter, r *http.Request, provider AudioProvider)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
@@ -93338,7 +93403,7 @@ type StrictServerInterface interface {
 	// GetAudio The audio providers with their switches, keys and state, and the order speech-to-text and text-to-speech each ask them in, with each one's model and usage
 	// (GET /gateway/audio)
 	GetAudio(ctx context.Context, request GetAudioRequestObject) (GetAudioResponseObject, error)
-	// ListAudioModels The text-to-speech models the owner may choose from, with the languages each covers
+	// ListAudioModels The models the owner may choose from, each with its kind and the languages it covers
 	// (GET /gateway/audio/models)
 	ListAudioModels(ctx context.Context, request ListAudioModelsRequestObject) (ListAudioModelsResponseObject, error)
 	// SetAudioOrder Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
@@ -93353,7 +93418,7 @@ type StrictServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(ctx context.Context, request RemoveAudioKeyRequestObject) (RemoveAudioKeyResponseObject, error)
-	// SetAudioModel Set the model a provider speaks with; only the owner
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
 	// (PUT /gateway/audio/providers/{provider}/model)
 	SetAudioModel(ctx context.Context, request SetAudioModelRequestObject) (SetAudioModelResponseObject, error)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner

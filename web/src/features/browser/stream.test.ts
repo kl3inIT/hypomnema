@@ -22,6 +22,7 @@ const tab = (over: Partial<BrowserTab>): BrowserTab => ({
   url: "",
   title: "",
   views: 0,
+  held: false,
   ...over,
 })
 

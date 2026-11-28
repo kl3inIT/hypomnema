@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/internal/store"
@@ -17,7 +18,9 @@ import (
 // modelCooling is what the targets of one model said when none answered: the first moment an account of one is free
 // again, that no account's list has the model (notServed, issue #814), and whether a target failed otherwise.
 type modelCooling struct {
-	first     time.Time
+	first time.Time
+	// code is why the account free first rests (issue #1305).
+	code      CoolingCode
 	notServed bool
 	other     bool
 }
@@ -27,7 +30,7 @@ func (c *modelCooling) add(err error) bool {
 	switch {
 	case errors.As(err, &cooling):
 		if c.first.IsZero() || cooling.Until.Before(c.first) {
-			c.first = cooling.Until
+			c.first, c.code = cooling.Until, cooling.Code
 		}
 		return true
 	case errors.Is(err, ErrNoAccount):
@@ -69,7 +72,7 @@ func (s *Server) coolingResponse(ctx context.Context, route string, c modelCooli
 	record.Status, record.Outcome = http.StatusTooManyRequests, OutcomeNoAccount
 	record.Error = accountsCoolingMessage
 
-	return accountCoolingResponse(route, c.first, now)
+	return accountCoolingResponse(route, c.first, c.code, now)
 }
 
 // recordModelCooling writes when a model is free again on a route, which the scheduler reads to hold back work on it
@@ -91,7 +94,11 @@ func (s *Server) recordModelCooling(ctx context.Context, route, model string, un
 	}
 }
 
-func accountCoolingResponse(route string, until, now time.Time) *http.Response {
+// accountCoolingResponse is the gateway's 429 when no account can serve, in the route's shape: until when (resets_at,
+// Retry-After) and why the first account free again rests (cooling_code, issue #1305), said in its message too, so a
+// client's log says it, as LiteLLM's RouterRateLimitError names its cause in its type and message
+// (litellm/types/router.py:1273-1303).
+func accountCoolingResponse(route string, until time.Time, code CoolingCode, now time.Time) *http.Response {
 	kind, envelope := "rate_limit_error", ""
 	if route == "/v1/messages" || route == "/v1/messages/count_tokens" {
 		envelope = "error"
@@ -101,14 +108,16 @@ func accountCoolingResponse(route string, until, now time.Time) *http.Response {
 	var body struct {
 		Type  string `json:"type,omitempty"`
 		Error struct {
-			Message  string `json:"message"`
-			Type     string `json:"type"`
-			Code     string `json:"code"`
-			ResetsAt int64  `json:"resets_at"`
+			Message     string      `json:"message"`
+			Type        string      `json:"type"`
+			Code        string      `json:"code"`
+			ResetsAt    int64       `json:"resets_at"`
+			CoolingCode CoolingCode `json:"cooling_code,omitempty"`
 		} `json:"error"`
 	}
 	body.Type = envelope
-	body.Error.Message, body.Error.Type, body.Error.Code = accountsCoolingMessage, kind, "account_unavailable"
+	body.Error.Message, body.Error.Type, body.Error.Code = coolingMessage(code), kind, "account_unavailable"
+	body.Error.CoolingCode = code
 	body.Error.ResetsAt = until.Add(time.Second - time.Nanosecond).Unix()
 	encoded, _ := json.Marshal(body) //nolint:errchkjson // Strings and a number always encode.
 	wait := max(0, (until.Sub(now)+time.Second-time.Nanosecond)/time.Second)
@@ -141,4 +150,35 @@ func relayCooling(w http.ResponseWriter, resp *http.Response) {
 		w.Header().Set("Retry-After", retry)
 	}
 	copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes)
+}
+
+// accountsCooling is the gateway's 429 in OpenAI's shape when every account of a provider rests: the wait, and why
+// the first account free again rests (issue #1305).
+func accountsCooling(wait time.Duration, code CoolingCode) *http.Response {
+	var body errorBody
+
+	body.Error.Message, body.Error.Type, body.Error.Code = coolingMessage(code), "rate_limit_error", "account_unavailable"
+	body.Error.CoolingCode = code
+
+	encoded, _ := json.Marshal(body) //nolint:errchkjson // A struct of strings always encodes.
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: io.NopCloser(bytes.NewReader(encoded)),
+	}
+
+	if wait > 0 {
+		// As openAIError says the wait.
+		resp.Header.Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	}
+
+	return resp
+}
+
+// coolingMessage is the gateway's words when no account can serve, with why the first one free again rests.
+func coolingMessage(code CoolingCode) string {
+	if code == "" || code == CoolingUnknown {
+		return accountsCoolingMessage
+	}
+
+	return accountsCoolingMessage + " (" + strings.ReplaceAll(string(code), "_", " ") + ")"
 }

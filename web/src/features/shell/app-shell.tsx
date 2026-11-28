@@ -20,7 +20,7 @@ import { signOut } from "@/features/auth/session"
 import { useInboxCount } from "@/features/inbox/use-inbox"
 import { useLiveUpdates, useWork } from "@/features/work/use-work"
 import { needsYou } from "@/features/work/work-state"
-import { useBrowser } from "@/features/browser/browser-state"
+import { heldLine, useBrowser } from "@/features/browser/browser-state"
 import { useDevice } from "@/features/device/device-state"
 import { gridPanes } from "@/features/workbench/grid-layout"
 import { paneChats } from "@/features/workbench/pane"
@@ -227,16 +227,17 @@ function SignOut() {
   )
 }
 
-// BrowserHeld says that the owner holds the shared browser, wherever the owner is: every agent's browser tools
-// are paused meanwhile, and the tab where control was taken may not be on screen (issue #235; the owner saw it in
-// the prototype, 2026-11-12).
+// BrowserHeld says which tabs of the shared browser the owner holds, wherever the owner is: only their agents'
+// browser tools are paused meanwhile, and a tab where control was taken may not be on screen (issue #235; the owner
+// saw it in the prototype, 2026-11-12; one tab a hold since issue #1113).
 function BrowserHeld() {
   const browser = useBrowser()
-  if (!browser.data?.held) return null
+  const line = heldLine(browser.data?.tabs, browser.data?.held ?? false)
+  if (line === null) return null
 
   return (
     <output className="mx-0.5 rounded-md border border-primary/50 bg-primary/10 px-2.5 py-2 text-xs text-foreground">
-      You hold the browser. Every agent's browser tools are paused until you hand it back.
+      {line}
     </output>
   )
 }

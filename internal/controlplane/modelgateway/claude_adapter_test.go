@@ -230,7 +230,8 @@ func TestAClaudeRefusedTokenIsRefreshed(t *testing.T) {
 	assert.Equal(t, "Bearer access-1", got.headers[1].Get("Authorization"), "the refreshed token")
 }
 
-// Scenario: a usage limit (429) cools the account down.
+// Scenario: a 429 cools the account down; without Anthropic's word that a
+// window is used up it is a rate limit (issue #1305).
 func TestAClaudeUsageLimitCoolsTheAccount(t *testing.T) {
 	t.Parallel()
 
@@ -246,7 +247,7 @@ func TestAClaudeUsageLimitCoolsTheAccount(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, status)
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.False(t, acc.cooledUntil().IsZero(), "the account was cooled down")
-	assert.Equal(t, "usage limit", acc.reason)
+	assert.Equal(t, modelgateway.CoolingRateLimit, acc.lastCode())
 }
 
 // Scenario: Anthropic says on every answer how much of the account's 5-hour

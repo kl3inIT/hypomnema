@@ -2,7 +2,9 @@ package clientapi
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -31,4 +33,28 @@ func TestAnInternalErrorOnAShareLinkLogsNoToken(t *testing.T) {
 	}
 
 	assert.Equal(t, BasePath+"/runs/run_1", loggedPath(BasePath+"/runs/run_1"), "another path is logged as it is")
+}
+
+// A request the page abandoned (issue #1113: "reading run review stall: context canceled" on /tasks and /runs) is
+// not the server's error: the client left, nobody reads the answer, and nothing is logged, as the model gateway's
+// handlers leave it (modelgateway/web.go, webFailed).
+func TestARequestThePageAbandonedIsNoInternalError(t *testing.T) {
+	t.Parallel()
+
+	var logged bytes.Buffer
+
+	s := &Server{logger: slog.New(slog.NewTextHandler(&logged, nil))}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	r := httptest.NewRequestWithContext(ctx, http.MethodGet, BasePath+"/runs", nil)
+	s.writeError(httptest.NewRecorder(), r, fmt.Errorf("reading run review stall: %w", context.Canceled))
+
+	assert.Empty(t, logged.String())
+
+	r = httptest.NewRequestWithContext(t.Context(), http.MethodGet, BasePath+"/runs", nil)
+	s.writeError(httptest.NewRecorder(), r, fmt.Errorf("reading run review stall: %w", context.Canceled))
+	assert.Contains(t, logged.String(), "clientapi.internal_error",
+		"a canceled step of a request still open is the server's own")
 }

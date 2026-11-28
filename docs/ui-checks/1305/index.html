@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Why an account rests, in words (#1305)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 48rem) {
+      .screens { grid-template-columns: minmax(0, 1fr); }
+      .phone { max-width: 25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Why an account rests, in words (#1305)</h1>
+    <p>
+      Settings &rarr; Models, the OpenCode Go card with six keys, one for each code: usage_limit ("Usage limit, resets
+      &hellip;"), auth ("Key refused"), billing ("Credits spent"), rate_limit ("Rate limited"), overloaded ("Provider
+      overloaded") and unknown ("Resting until &hellip;", a cooldown made before this change). The provider's own words
+      are each badge's title. Taken by <code>web/tests/models.spec.ts</code>, "a resting account says why it rests"; on the
+      phone the sixth, unknown, is below the fold and has its own picture.
+    </p>
+    <section>
+      <h2>Light</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="models-resting-light-desktop.png" alt="Six resting OpenCode Go keys, each with why it rests, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="models-resting-light-phone.png" alt="Resting OpenCode Go keys, each with why it rests, phone, light">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Dark</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="models-resting-dark-desktop.png" alt="Six resting OpenCode Go keys, each with why it rests, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="models-resting-dark-phone.png" alt="Resting OpenCode Go keys, each with why it rests, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Phone, the last key (unknown)</h2>
+      <div class="screens">
+        <figure class="phone">
+          <figcaption>Light</figcaption>
+          <img src="models-resting-unknown-light-phone.png" alt="The last resting key, Resting until, phone, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Dark</figcaption>
+          <img src="models-resting-unknown-dark-phone.png" alt="The last resting key, Resting until, phone, dark">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

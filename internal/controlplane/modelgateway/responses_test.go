@@ -200,7 +200,8 @@ func TestAPassedThroughRequestMovesToTheNextAccount(t *testing.T) {
 	status, headers, body := alone.respond(t, alone.key, codexAsks)
 	assert.Equal(t, http.StatusTooManyRequests, status)
 	assert.JSONEq(t, `{"error":{"type":"usage_limit_reached","code":"account_unavailable",`+
-		`"message":"no account of this provider can be used for now","resets_at":`+jsonInt(resets)+`}}`, body)
+		`"message":"no account of this provider can be used for now (usage limit)","resets_at":`+jsonInt(resets)+
+		`,"cooling_code":"usage_limit"}}`, body)
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, modelgateway.OutcomeNoAccount, alone.lastUsage(t).Outcome)
 }
@@ -226,7 +227,8 @@ func TestAWorkerWhoseAccountsAllCoolGetsAUsageLimit(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, status)
 	assert.Equal(t, 1, got.calls(), "a cooling account is not sent to the backend")
 	assert.JSONEq(t, `{"error":{"type":"usage_limit_reached","code":"account_unavailable",`+
-		`"message":"no account of this provider can be used for now","resets_at":`+jsonInt(resets.Unix())+`}}`, body)
+		`"message":"no account of this provider can be used for now (usage limit)","resets_at":`+jsonInt(resets.Unix())+
+		`,"cooling_code":"usage_limit"}}`, body)
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 
 	// A wait of a minute or less is the client's to sit out: a plain 429 the CLI retries after Retry-After.

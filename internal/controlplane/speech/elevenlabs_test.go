@@ -306,10 +306,30 @@ func TestElevenLabsModelsAreListedWithTheirLanguages(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 	assert.Equal(t, []speech.ModelInfo{
-		{ID: "eleven_v4", Name: "Eleven v4", Provider: "elevenlabs", Languages: []string{"en", "vi"}},
+		{ID: "eleven_v4", Name: "Eleven v4", Provider: "elevenlabs", Kind: "tts", Languages: []string{"en", "vi"}},
 		{
 			ID: "eleven_multilingual_v2", Name: "Eleven Multilingual v2", Provider: "elevenlabs",
-			Languages: []string{"en", "pt"},
+			Kind: "tts", Languages: []string{"en", "pt"},
 		},
 	}, models)
+}
+
+// A video's speed is Soniox's 0.7-1.3 (issue #1285, row 3); ElevenLabs takes 0.7-1.2 and Eleven v4 applies none
+// (ElevenLabs's "Control speaking speed"; review of #1302): a model that applies it is sent the speed moved into its
+// range, Eleven v4 is sent none.
+func TestElevenLabsIsSentASpeedItApplies(t *testing.T) {
+	t.Parallel()
+
+	for model, want := range map[string]any{"eleven_multilingual_v2": 1.2, "eleven_v4": nil} {
+		f := &elevenLabs{}
+		var waits []time.Duration
+		svc := elevenLabsOnly(t, f, model, &waits)
+
+		_, err := svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi", Speed: 1.3})
+		require.NoError(t, err, model)
+		require.Len(t, f.bodies, 1, model)
+
+		settings, _ := f.bodies[0]["voice_settings"].(map[string]any)
+		assert.Equal(t, want, settings["speed"], model)
+	}
 }

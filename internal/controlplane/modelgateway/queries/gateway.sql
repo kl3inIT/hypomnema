@@ -368,6 +368,11 @@ ON CONFLICT (provider) DO UPDATE SET voice = excluded.voice, updated_at = exclud
 INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (@provider, @model, @now)
 ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at;
 
+-- The transcription model a provider hears with (issue #1285, row 1); empty: its newest.
+-- name: SetGatewayAudioSTTModel :exec
+INSERT INTO gateway_audio_providers (provider, stt_model, updated_at) VALUES (@provider, @model, @now)
+ON CONFLICT (provider) DO UPDATE SET stt_model = excluded.stt_model, updated_at = excluded.updated_at;
+
 -- name: SetGatewayAudioSTTPosition :exec
 INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (@provider, @position, @now)
 ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updated_at = excluded.updated_at;

@@ -12,6 +12,7 @@ const tab = (id: string, chat?: string): BrowserTab => ({
   url: "https://example.com/",
   title: "Example",
   views: 0,
+  held: false,
 })
 
 const owner = tab("owner")

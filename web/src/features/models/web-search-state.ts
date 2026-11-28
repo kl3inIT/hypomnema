@@ -6,7 +6,7 @@ import type {
   WebSearchUsage,
 } from "@/api/generated/types.gen"
 
-import { type Tone, until } from "./models-state"
+import { restLabel, restTone, type Tone, until } from "./models-state"
 
 // What the Web search page shows of each way a search is asked (issues #354, #393), worked out from the chain the
 // server lists in order. The words are the references': a keyless provider is "Public, no key" (OpenClaw's "No
@@ -100,6 +100,15 @@ export function linkState(link: WebSearchLink, now = Date.now()): LinkState {
         why: "Switched off: a search neither tries it nor may name it.",
       }
     case "resting":
+      // A subscription whose account rests says why, as its account's card does (issue #1305), with the
+      // provider's words when pointed at.
+      if (link.cooling_code && link.resting_until) {
+        return {
+          label: restLabel(link.cooling_code, link.resting_until, now),
+          tone: restTone(link.cooling_code),
+          why: link.cooling_reason ?? rests[link.rest ?? "rate_limit"].why,
+        }
+      }
       return restState(link.rest, link.resting_until, now)
     case "not_set_up":
       return missing(link)

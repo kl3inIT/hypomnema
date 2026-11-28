@@ -44,7 +44,9 @@ func (a *roleGatewayAccounts) Token(
 
 func (*roleGatewayAccounts) NoteAnswer(string, string, http.Header) {}
 
-func (a *roleGatewayAccounts) CoolDown(_ context.Context, runtime, id string, until time.Time, _ string) error {
+func (a *roleGatewayAccounts) CoolDown(
+	_ context.Context, runtime, id string, until time.Time, _ modelgateway.CoolingCode, _ string,
+) error {
 	if runtime != "codex" || id != "account" {
 		return fmt.Errorf("unexpected account %s/%s", runtime, id)
 	}
@@ -53,12 +55,12 @@ func (a *roleGatewayAccounts) CoolDown(_ context.Context, runtime, id string, un
 }
 
 func (a *roleGatewayAccounts) FirstFree(
-	_ context.Context, runtime string, _ func(string) time.Time,
-) (time.Time, error) {
+	_ context.Context, runtime string, _ func(string) modelgateway.Rest,
+) (modelgateway.Rest, error) {
 	if runtime == "codex" && a.reset.After(a.clock.Now()) {
-		return a.reset, nil
+		return modelgateway.Rest{Until: a.reset, Code: modelgateway.CoolingUsageLimit}, nil
 	}
-	return time.Time{}, nil
+	return modelgateway.Rest{}, nil
 }
 
 func (w *world) roleGateway(reset time.Time, backend *httptest.Server) (*modelgateway.Service, *http.ServeMux) {
