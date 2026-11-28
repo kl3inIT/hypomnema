@@ -44,10 +44,12 @@ func larkChatsAnswer(t *testing.T) *httptest.Server {
 		assert.Equal(t, "/open-apis/im/v1/chats", r.URL.Path)
 		assert.Equal(t, "Bearer lark-me-token", r.Header.Get("Authorization"))
 
-		page := `{"code":0,"data":{"items":[{"chat_id":"oc_aaa","name":"Newsletter Editor","chat_mode":"p2p","p2p_target_type":"user"},` +
+		page := `{"code":0,"data":{"items":[` +
+			`{"chat_id":"oc_aaa","name":"Newsletter Editor","chat_mode":"p2p","p2p_target_type":"user"},` +
 			`{"chat_id":"oc_bbb","name":"Design review","chat_mode":"group"}],"has_more":true,"page_token":"p2"}}`
 		if r.URL.Query().Get("page_token") == "p2" {
-			page = `{"code":0,"data":{"items":[{"chat_id":"oc_ccc","name":"File Desk","chat_mode":"p2p","p2p_target_type":"app"},` +
+			page = `{"code":0,"data":{"items":[` +
+				`{"chat_id":"oc_ccc","name":"File Desk","chat_mode":"p2p","p2p_target_type":"app"},` +
 				`{"chat_id":"oc_ddd","name":"Paper Trail","chat_mode":"bot"}],` +
 				`"has_more":false}}`
 		}

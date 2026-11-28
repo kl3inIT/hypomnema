@@ -70,7 +70,7 @@ export function ChatsReadScreen() {
             </p>
           ) : (
             <Tabs value={current} onValueChange={(v) => setTab(String(v))}>
-              <div className="max-w-full overflow-x-auto">
+              <div className="max-w-full overflow-x-auto overflow-y-hidden">
                 <TabsList>
                   {all.map((s) => (
                     <TabsTrigger key={sourceKey(s)} value={sourceKey(s)}>

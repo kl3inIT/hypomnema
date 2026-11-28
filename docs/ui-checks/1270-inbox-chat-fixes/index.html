@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inbox source tabs before and after</title>
+  <style>
+    :root { color-scheme: light dark; font: 1rem/1.5 system-ui, sans-serif; }
+    body { max-width: 100rem; margin: auto; padding: clamp(1rem, 3vw, 2.5rem); }
+    .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .phone { max-width: 50rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 42rem) { .comparison { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Inbox source tabs before and after</h1>
+    <p>On desktop, the stray vertical scrollbar was at the far right of the row with Zalo, WhatsApp and Lark.
+      The phone images show the Lark tab selected. All screenshots use made-up chats. Select an image for full size.</p>
+    <section>
+      <h2>Desktop at 1490px, light</h2>
+      <div class="comparison desktop">
+        <figure>
+          <figcaption>Before</figcaption>
+          <a href="before-desktop-light.png"><img src="before-desktop-light.png" alt="Desktop Inbox source tabs in light mode, before the fix"></a>
+        </figure>
+        <figure>
+          <figcaption>After</figcaption>
+          <a href="after-desktop-light.png"><img src="after-desktop-light.png" alt="Desktop Inbox source tabs in light mode, after the fix"></a>
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Desktop at 1490px, dark</h2>
+      <div class="comparison desktop">
+        <figure>
+          <figcaption>Before</figcaption>
+          <a href="before-desktop-dark.png"><img src="before-desktop-dark.png" alt="Desktop Inbox source tabs in dark mode, before the fix"></a>
+        </figure>
+        <figure>
+          <figcaption>After</figcaption>
+          <a href="after-desktop-dark.png"><img src="after-desktop-dark.png" alt="Desktop Inbox source tabs in dark mode, after the fix"></a>
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Phone at 412px, light</h2>
+      <div class="comparison phone">
+        <figure>
+          <figcaption>Before</figcaption>
+          <a href="before-phone-light.png"><img src="before-phone-light.png" alt="Phone Inbox source tabs in light mode, before the fix"></a>
+        </figure>
+        <figure>
+          <figcaption>After</figcaption>
+          <a href="after-phone-light.png"><img src="after-phone-light.png" alt="Phone Inbox source tabs in light mode, after the fix"></a>
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Phone at 412px, dark</h2>
+      <div class="comparison phone">
+        <figure>
+          <figcaption>Before</figcaption>
+          <a href="before-phone-dark.png"><img src="before-phone-dark.png" alt="Phone Inbox source tabs in dark mode, before the fix"></a>
+        </figure>
+        <figure>
+          <figcaption>After</figcaption>
+          <a href="after-phone-dark.png"><img src="after-phone-dark.png" alt="Phone Inbox source tabs in dark mode, after the fix"></a>
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

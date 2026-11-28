@@ -39,7 +39,7 @@ export const defaults = {
   // Gmail: at most this many new mails are looked at in one run; past it the source keeps its time.
   perSource: 200,
   // Lark: at most this many chats and messages are read in one run, the most active chats first; past them the
-  // source keeps its time. A message an app (a bot) sent is left out.
+  // source keeps its time. Outside a bot chat, a message an app (a bot) sent is left out.
   larkChats: 300,
   larkMessages: 3000,
   dropLarkApps: true,
@@ -85,7 +85,7 @@ export function sources(tools) {
   const list = (pattern) =>
     (read?.description?.match(pattern)?.[1] ?? "").split(",").map((a) => a.trim()).filter(Boolean);
   // Only the Lark accounts that sign in as the owner are his chats; the others are other Bots' apps, which cannot
-  // read them (issue #1127), as a message an app sent is left out (dropLarkApps). The control plane names them.
+  // read them (issue #1127). The control plane names the owner's accounts.
   const owners = list(/Lark accounts that sign in as the owner \(([^)]*)\)/);
   for (const account of list(/account name \(([^)]*)\)/)) {
     const [integration, label] = account.split(":");
@@ -118,10 +118,10 @@ export const noReply = (config, ...sender) => matchesAny(config.noReply, ...send
 
 // skipped says whether the check leaves a chat of an account (integration:label) out: the owner's choice for it when
 // he made one (issue #1270), else whether it is a bot's, an official account's, an ad's or a newsletter's.
-export function skipped(config, account, id, name) {
+export function skipped(config, account, id, name, bot = false) {
   const chosen = config.chosen?.get(`${account}\u0000${id}`);
   if (chosen !== undefined) return !chosen;
-  return matchesAny(config.dropChats, name, id) && !config.botsRead;
+  return !config.botsRead && (bot || (!account.startsWith("lark:") && matchesAny(config.dropChats, name, id)));
 }
 
 // choicesOf reads the owner's choices of which chats the secretary reads (inbox_chats, issue #1270): each chat he
@@ -288,8 +288,12 @@ async function pages(get, path) {
   }
 }
 
+// lark-cli im +chat-list exposes p2p_target_type as the peer's type.
+const larkBotChat = (chat) => chat.chat_mode === "bot" ||
+  (chat.chat_mode === "p2p" && (chat.p2p_target_type === "app" || chat.p2p_target_type === "bot"));
+
 // readLark counts the owner's new Lark messages in his chats, direct ones too (types=p2p,group; larksuite/cli
-// shortcuts/im/im_chat_list.go:283-302), his own apart (issue #1182): not a deleted one, nor an app's. For each span
+// shortcuts/im/im_chat_list.go:283-302), his own apart (issue #1182). For each span
 // it lists every page of his chats, the most active first, and reads each one's messages in the span (start_time,
 // end_time), the latest first, a page at a time. In the new span, larkIdleStop chats in a row with nothing new end it: the rest were active before. Past
 // larkChats chats or larkMessages messages, checked at each page (issue #1071), it keeps the rest of the span: the
@@ -343,6 +347,7 @@ async function readLark(call, source, st, now, config) {
     }
     const chats = await pages(get, "/open-apis/im/v1/chats?types=p2p,group&sort_type=ByActiveTimeDesc&page_size=100");
     const chatOf = (id) => chats.find((c) => c.chat_id === id) ?? { chat_id: id };
+    const skipChat = (chat) => skipped(config, source.account, chat.chat_id, chat.name, larkBotChat(chat));
     const since = Date.parse(span.after);
     let part;
 
@@ -351,6 +356,7 @@ async function readLark(call, source, st, now, config) {
     // without a time range: its pages are read down to the span's start.
     const readIn = async (chat, thread) => {
       const id = thread ?? chat.chat_id;
+      const bot = larkBotChat(chat);
       // A chat or thread an earlier run stopped in is read on below the last message it read there.
       const resumed = span.part?.chat === id ? span.part : undefined;
       const until = resumed ? resumed.before : Date.parse(span.before);
@@ -383,11 +389,11 @@ async function readLark(call, source, st, now, config) {
           // A thread's root is its chat's message, counted there; a root of the span names its thread.
           if (thread && !m.root_id) continue;
           if (!thread && m.thread_id && !threads.has(m.thread_id)) threads.set(m.thread_id, chat.chat_id);
-          if (m.deleted || (config.dropLarkApps && m.sender?.sender_type === "app")) continue;
+          if (m.deleted || (config.dropLarkApps && !bot && m.sender?.sender_type === "app")) continue;
           const entry = out.get(id) ?? {
             where: `${source.account} chat "${chat.name || chat.chat_id}"${thread ? ` thread ${thread}` : ""} ` +
               `(id ${chat.chat_id})`,
-            account: source.account, chat: chat.chat_id, name: chat.name || chat.chat_id,
+            account: source.account, chat: chat.chat_id, name: chat.name || chat.chat_id, bot,
             count: 0, mine: 0, from: new Set(), latest: 0, rank: chat.chat_mode === "p2p" ? ranks.direct : ranks.group,
           };
           if (m.sender?.id === me) {
@@ -448,7 +454,7 @@ async function readLark(call, source, st, now, config) {
     let stopped = false;
     let idle = 0;
     for (const chat of chats) {
-      if (done.has(chat.chat_id) || skipped(config, source.account, chat.chat_id, chat.name)) continue;
+      if (done.has(chat.chat_id) || skipChat(chat)) continue;
       if (span.fresh && idle >= config.larkIdleStop) break;
       if (capped()) {
         stopped = true;
@@ -477,7 +483,7 @@ async function readLark(call, source, st, now, config) {
       for (const hit of tagged) {
         if (hit.thread_id || !hit.chat_id || done.has(hit.chat_id)) continue;
         const chat = chatOf(hit.chat_id);
-        if (skipped(config, source.account, chat.chat_id, chat.name)) continue;
+        if (skipChat(chat)) continue;
         if (capped()) {
           stopped = true;
           break;
@@ -494,7 +500,7 @@ async function readLark(call, source, st, now, config) {
     if (!stopped) {
       for (const [thread, id] of threads) {
         const chat = chatOf(id);
-        if (done.has(thread) || skipped(config, source.account, chat.chat_id, chat.name)) continue;
+        if (done.has(thread) || skipChat(chat)) continue;
         if (capped()) {
           stopped = true;
           break;
@@ -688,7 +694,7 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
   for (const f of state.carry ?? []) {
     const c = carriedOf(f);
     if (!c || (c.kind === "chat" && unchosen)) held.push(f);
-    else if (c.kind !== "chat" || !skipped(config, c.account, c.chat, c.name)) found.push({ ...f });
+    else if (c.kind !== "chat" || !skipped(config, c.account, c.chat, c.name, f.bot)) found.push({ ...f });
   }
   for (const source of sources(tools)) {
     const key = keyOf(source);

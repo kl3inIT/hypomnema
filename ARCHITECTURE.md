@@ -5626,8 +5626,11 @@ its client API, its CLI and the Bots' tools.
     Zalo, WhatsApp and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
     is the owner's choice, with when he made it; inbox-zero's per-account exclude items). A chat without a row takes
     its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
-    official account's is not, a bot being a WhatsApp broadcast list or a chat whose name or id matches
-    `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
+    official account's is not. For Zalo and WhatsApp, that means a broadcast list or a chat whose name or id
+    matches `inboxstore.BotPatterns` (the check's former `dropChats` defaults). Lark uses the chat list's bot mode
+    or a P2P peer type of app or bot. The list recomputes the kind and default on each read, then applies the
+    owner's stored choice. The triage check uses the same Lark metadata before reading a chat's history.
+    `internal/controlplane/inbox` (`Chats`)
     lists a Connection's chats with their state: Zalo's and WhatsApp's kept chats (up to `messaging.MaxChats`,
     20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
     100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
