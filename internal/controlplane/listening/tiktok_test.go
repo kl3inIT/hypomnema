@@ -56,6 +56,13 @@ func (p *tiktokTab) Navigate(_ context.Context, address string) error {
 
 func (p *tiktokTab) Responses(context.Context) ([]browser.Response, error) { return nil, nil }
 
+// Body, Hover and Click are the tab's (listening.Page, issue #1362); TikTok's read uses none.
+func (p *tiktokTab) Body(context.Context, browser.Response) ([]byte, error) { return nil, nil }
+
+func (p *tiktokTab) Hover(context.Context, float64, float64) error { return nil }
+
+func (p *tiktokTab) Click(context.Context, float64, float64) error { return nil }
+
 func (p *tiktokTab) Evaluate(_ context.Context, expression string, result any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

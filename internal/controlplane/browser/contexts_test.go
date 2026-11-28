@@ -36,6 +36,8 @@ func contextChrome() *fakeChrome {
 			return `{"sessionId":"S1"}`, nil
 		case "Runtime.evaluate":
 			return `{"result":{"type":"object","value":{"path":"/thread/new"}}}`, nil
+		case "Network.getResponseBody":
+			return `{"body":"eyJvayI6MX0=","base64Encoded":true}`, nil
 		case "Storage.getCookies":
 			return `{"cookies":[{"name":"hatch_sess","value":"v2","domain":".muse.ai"},` +
 				`{"name":"c_user","value":"1","domain":".facebook.com"}]}`, nil
@@ -122,9 +124,19 @@ func TestATabKeepsTheStatusesOfItsOwnRequestsSinceItsNavigation(t *testing.T) {
 	got, err := p.Responses(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, []Response{
-		{URL: "https://www.linkedin.com/search", Status: 200},
-		{URL: "https://www.linkedin.com/rsc", Status: 999, RetryAfter: "60"},
+		{URL: "https://www.linkedin.com/search", Status: 200, RequestID: "doc"},
+		{URL: "https://www.linkedin.com/rsc", Status: 999, RetryAfter: "60", RequestID: "xhr"},
 	}, got)
+
+	// A response's body is read by its request's id on the tab's session, decoded (issue #1362: the page's own
+	// search XHR).
+	body, err := p.Body(t.Context(), got[0])
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"ok":1}`, string(body))
+	assert.Contains(t, strings.Join(chrome.sent(), "\n"), `Network.getResponseBody {"requestId":"doc"}`)
+
+	_, err = p.Body(t.Context(), Response{URL: "https://a"})
+	require.Error(t, err, "a response with no request id has no body to read")
 
 	require.NoError(t, p.Navigate(t.Context(), "https://www.linkedin.com/search/results/content/?keywords=b"))
 	got, err = p.Responses(t.Context())

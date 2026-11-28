@@ -276,6 +276,7 @@ func New(cfg Config) *Service {
 	if cfg.Platforms == nil {
 		cfg.Platforms = append(Sources(Endpoints{}, http.DefaultClient), MuseSources(cfg.Muse, http.DefaultClient)...)
 		cfg.Platforms = append(cfg.Platforms, SignedSources(Endpoints{}, http.DefaultClient)...)
+		cfg.Platforms = append(cfg.Platforms, SignedChineseSources(Endpoints{}, http.DefaultClient)...)
 	}
 
 	if cfg.SecretName == nil {
@@ -297,7 +298,7 @@ func New(cfg Config) *Service {
 		resting: map[string]*SourceError{}, pathOwner: map[string]string{}, health: map[string]*Health{},
 		acc: accounts{
 			browser: cfg.Browser, secrets: cfg.Secrets, secretName: cfg.SecretName,
-			checking: map[string]bool{}, checked: map[string]verification{},
+			checking: map[string]bool{}, checked: map[string]verification{}, tabs: map[string]chan struct{}{},
 		},
 	}
 }

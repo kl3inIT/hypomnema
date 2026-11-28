@@ -353,6 +353,100 @@ test("LinkedIn's consent card says its own risks", async ({ page }) => {
   await shot(page, "listening-consent-linkedin")
 })
 
+// The cards' words of two of the Chinese sources, as the server sends them (listening/chinasigned.go, issue #1362).
+const zhihuConsent =
+  "Reading Zhihu as your account may break Zhihu's terms: automated use of a signed-in account can bring a " +
+  "verification, a restriction or a ban of the account. Sign in a secondary account made for this, never your own. " +
+  "Hypomnema then searches Zhihu as that account, one search at a time, 10 seconds apart and 30 seconds more after " +
+  "every five: through Zhihu's search API with the account's cookies, else through Zhihu's own search page in a " +
+  "browser of its own. Only Zhihu's cookies are kept, in the vault: they are never shown or logged and go only to " +
+  "zhihu.com. If Zhihu asks the account to sign in again or shows a check, Hypomnema stops reading it until you sign " +
+  "in again, and never answers a check; after a rate limit, it stops for 24 hours."
+const xiaohongshuConsent =
+  "Xiaohongshu restricts accounts more than any other site here, some after reading only: users of " +
+  "xiaohongshu-mcp, which reads it the same way, report a security page at the first search after three " +
+  "read-only calls (2026-11-27), account-security blocks (code 300011) and IP-risk blocks (code 300012). Turn it on yourself only " +
+  "with a secondary account made for this, never your own, and do not sign that account in on another web browser " +
+  "meanwhile: Xiaohongshu keeps one web session an account, so a sign-in elsewhere signs Hypomnema out. Hypomnema " +
+  "then opens Xiaohongshu's search page as that account in a browser of its own, one search at a time, 15 seconds " +
+  "apart and 45 seconds more after every five. Only Xiaohongshu's cookies are kept, in the vault: they are never " +
+  "shown or logged and go only to xiaohongshu.com. If Xiaohongshu shows its captcha or security check, Hypomnema " +
+  "stops reading the account until you sign in again, and never answers it; after a rate limit, it stops for 24 hours."
+
+// Scenario: Zhihu read as its account, its backends named in order; Xiaohongshu off, its consent card naming its ban
+// reports and its one web session an account (issue #1362).
+test("the Chinese sources' cards name their backends and Xiaohongshu's risks", async ({ page }) => {
+  const { world } = await fakeServer(page)
+  world.sources = [
+    {
+      name: "zhihu",
+      label: "Zhihu",
+      adds: "Zhihu's questions, answers and articles with their votes and comments, searched as your account.",
+      on: true,
+      group: "working",
+      regressed: false,
+      checked_at: iso(now - hour),
+      last_success_at: iso(now - hour),
+      items_this_week: 14,
+      signed: {
+        consent: zhihuConsent,
+        consented_at: iso(now - 24 * hour),
+        sign_in_url: "https://www.zhihu.com/signin",
+        account: {
+          label: "research",
+          state: "signed_in",
+          cause: "",
+          signed_in_at: iso(now - 24 * hour),
+          checked_at: iso(now - hour),
+        },
+      },
+      backends: [
+        { name: "zhihu_api", opt_in: false, state: "ready", last_ok_at: iso(now - hour) },
+        { name: "zhihu_page", opt_in: false, state: "ready" },
+        { name: "site_search", opt_in: false, state: "ready" },
+      ],
+    },
+    {
+      name: "xiaohongshu",
+      label: "Xiaohongshu",
+      adds: "Xiaohongshu notes with their author, likes, collects and comments, read as your account.",
+      on: false,
+      group: "could_be_on",
+      regressed: false,
+      items_this_week: 0,
+      signed: { consent: xiaohongshuConsent, sign_in_url: "https://www.xiaohongshu.com/explore" },
+      backends: [
+        { name: "xiaohongshu_page", opt_in: false, state: "ready" },
+        { name: "site_search", opt_in: false, state: "ready" },
+      ],
+    },
+  ]
+  count(world)
+  await page.goto("/settings/social-listening")
+
+  const backends = card(page, "Zhihu").getByRole("list", { name: "Zhihu's backends" })
+  await expect(backends.getByRole("listitem")).toHaveText([
+    /Zhihu's search API, as your account/,
+    /Zhihu's search page, as your account/,
+    /Web search on its site, keyless/,
+  ])
+  expect(await fits(page)).toBe(true)
+  await shot(page, "listening-chinese-sources")
+  // The page scrolls in its own frame: on a phone, a picture of each card's rest.
+  await backends.getByRole("listitem").last().scrollIntoViewIfNeeded()
+  await shot(page, "listening-chinese-backends")
+  await card(page, "Xiaohongshu").scrollIntoViewIfNeeded()
+  await shot(page, "listening-chinese-xiaohongshu")
+
+  await card(page, "Xiaohongshu")
+    .getByRole("button", { name: "Read the risks and turn on" })
+    .click()
+  const dialog = page.getByRole("dialog", { name: "Read Xiaohongshu as your account?" })
+  await expect(dialog).toContainText("code 300011")
+  await expect(dialog).toContainText("signs Hypomnema out")
+  await shot(page, "listening-consent-xiaohongshu")
+})
+
 // Scenario: TikTok before its consent: its card names its three backends, its consent card its own risks (the
 // CAPTCHA it never solves, its 12-second pace); once agreed, a pasted header without msToken is refused for it.
 test("TikTok's consent card says its own risks and its sign-in needs msToken", async ({ page }) => {

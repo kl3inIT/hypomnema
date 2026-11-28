@@ -5249,7 +5249,31 @@ writes no prose (last30days SKILL.md LAW 7).
   the owner's: `POST /gateway/listening/sources/{source}/consent`, `POST …/sign-in`, `POST …/sign-in/check`
   `{label?}`, `PUT …/account` `{cookies, label?}`, `DELETE …/account`. The Social listening card shows the consent
   card, then Sign in (the owner's tab shown in the dialog) or Paste cookies, then the account's state with Sign in
-  again and Sign out. The Chinese platforms behind an account (Zhihu, Weibo, Douyin, Xiaohongshu) are not read yet.
+  again and Sign out. For a site whose visitors have its login cookie too (Weibo's `SUB`, Xiaohongshu's
+  `web_session`; `Signed.VisitorCookie`), the sign-in memo keys on the login cookie only, so the site's other cookies
+  changing send no new search; for the others it keys on the whole jar.
+- Chinese signed-in sources (issue #1362; `listening/chinasigned.go`, `zhihu.go`, `weibo.go`, `douyin.go`,
+  `xiaohongshu.go`), the same mechanism, each off until its own consent card, each last read by `site_search`
+  (`site:zhihu.com`, `weibo.com`, `douyin.com`, `xiaohongshu.com`; only post addresses kept): `zhihu` (`zhihu_api`,
+  `search_v3` with the account's cookie, 401 or 403 `need_login`; then `zhihu_page`, Zhihu's search page in the
+  account's context, its own `search_v3` XHR bodies read through `browser.Page.Body`), `weibo` (`weibo_api`,
+  m.weibo.cn's `getIndex` with the cookie, two pages, each its own turn, ok -100 or the passport `need_login`, a
+  sign-in kept only once `/api/config` says `login`; then `weibo_page`, the same calls made by m.weibo.cn's page),
+  `douyin` (`douyin_page` only: the video search page, the window as `publish_time` 1, 7 or 180, the page's
+  `/aweme/v1/web/search/item` XHR bodies read, 验证 in the page `refused`) and `xiaohongshu` (`xiaohongshu_page`, as
+  xiaohongshu-mcp, Apache-2.0, `third_party/xiaohongshu-mcp`: the search page's state read until ready, the window as
+  the 发布时间 filter chosen by hovering and clicking in its panel, notes only, undated; `/website-login/captcha`,
+  HTTP 461/471 and codes 300011/300012 `refused`, `/website-login` or a page that says no one is signed in
+  `need_login`). Login cookies: `z_c0`, `SUB`, `sessionid`/`sessionid_ss`, `web_session`. Pace: Xiaohongshu 15 s
+  apart and 45 s more after every five, the others 10 s and 30 s; a 429 stops a site for 24 hours. Every request a
+  read makes the site answer (a page's search, each scroll, the filter's search, each fetch m.weibo.cn's page asks)
+  takes its account's turn and counts as a read, reads the stop again inside it, and keeps what it met before the
+  turn ends (`Request.turn`, `pageStep`), the tab's log read again once the turn came and before the request is sent;
+  the first stop ends the read, the items read before it kept. A page read holds its account's tab for the whole read
+  (`Session.Hold`), so a second search waits and never navigates the tab under the first. A sign-in's verification asks
+  the API, then the account's page when the API failed without a stop (`Signed.Also`); a stop it meets, even after
+  posts, refuses the cookies. On Xiaohongshu a sign-in landing beside a search answered 200 whose body has not loaded
+  is looked at again, up to five looks, before it is trusted.
 - TikTok (issue #1294; `listening/tiktok.go`): `tiktok`, a signed-in source as above, its login cookies `sessionid`
   (or `sid_tt` or `uid_tt`) and `msToken`, with three backends. `web_api`: TikTok's own web API asked from the account's
   tab in the shared browser, TikTok-Api's mechanism (MIT, `third_party/tiktok-api`) without its Python or its

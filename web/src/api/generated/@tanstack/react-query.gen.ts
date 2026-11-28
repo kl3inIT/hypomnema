@@ -2945,7 +2945,7 @@ export const testListeningSourceMutation = (options?: Partial<Options<TestListen
 /**
  * Agree to a signed-in social listening source's consent card, and switch it on; only the owner
  *
- * A source read as one of the owner's accounts (X, LinkedIn, TikTok; issues #1291 and #1294) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
+ * A source read as one of the owner's accounts (X, LinkedIn, TikTok, Zhihu, Weibo, Douyin, Xiaohongshu; issues #1291, #1294 and #1362) is off until its card's fixed wording is agreed to, separately for each source. Agreeing switches it on; its account is then signed in.
  */
 export const consentListeningSourceMutation = (options?: Partial<Options<ConsentListeningSourceData>>): UseMutationOptions<ConsentListeningSourceResponse, ConsentListeningSourceError, Options<ConsentListeningSourceData>> => {
   const mutationOptions: UseMutationOptions<ConsentListeningSourceResponse, ConsentListeningSourceError, Options<ConsentListeningSourceData>> = {
@@ -3021,7 +3021,7 @@ export const signOutListeningAccountMutation = (options?: Partial<Options<SignOu
 /**
  * Sign a source's account in with a cookie header copied from a signed-in browser; only the owner
  *
- * The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, TikTok's sessionid, sid_tt or uid_tt and msToken), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
+ * The header must hold the site's login cookies (X's auth_token and ct0, LinkedIn's li_at, TikTok's sessionid, sid_tt or uid_tt and msToken, Zhihu's z_c0, Weibo's SUB, Douyin's sessionid or sessionid_ss, Xiaohongshu's web_session), and one real search with them must read; then they are kept in the vault as the source's account. An error names what is missing, never a value, and the cookies are never logged.
  */
 export const pasteListeningCookiesMutation = (options?: Partial<Options<PasteListeningCookiesData>>): UseMutationOptions<PasteListeningCookiesResponse, PasteListeningCookiesError, Options<PasteListeningCookiesData>> => {
   const mutationOptions: UseMutationOptions<PasteListeningCookiesResponse, PasteListeningCookiesError, Options<PasteListeningCookiesData>> = {

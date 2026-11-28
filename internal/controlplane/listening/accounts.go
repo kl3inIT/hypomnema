@@ -66,6 +66,15 @@ type Signed struct {
 	Consent string
 	// Backend is the backend that reads as the account; the source's others read without one.
 	Backend string
+	// Also are the account's other backends, which a verification asks in order when the one before failed without a
+	// sign that the account must stop: Zhihu's and Weibo's pages after their APIs (issue #1362, review round 1 of PR
+	// #1364), as last30days-skill-cn tries its browser route when the cookie route read nothing (zhihu.py:58-72,
+	// weibo.py:73-95).
+	Also []string
+	// VisitorCookie: a visitor has the site's login cookie too (last30days-skill-cn crawler_bridge.py:73-76,
+	// anonymous_cookie_ambiguous; Weibo's SUB, Xiaohongshu's web_session), so a sign-in is told by that cookie changing,
+	// and a verification's memo keys on it alone (loginKey); else on the whole jar.
+	VisitorCookie bool
 	// Throttle is how long a throttling page (a rate limit) stops the account, kept across restarts; zero: the
 	// backend rests in memory as any other does.
 	Throttle time.Duration
@@ -108,6 +117,12 @@ type Page interface {
 	// Responses are the statuses of the requests the tab sent since its last navigation, the page's own fetches
 	// among them (browser.Page.Responses).
 	Responses(ctx context.Context) ([]browser.Response, error)
+	// Body is the body of one of those responses once it loaded (browser.Page.Body): a page's own search XHR, read as
+	// last30days-skill-cn intercepts it (crawler_bridge.py:961-962, 1093-1095).
+	Body(ctx context.Context, r browser.Response) ([]byte, error)
+	// Hover and Click move the mouse to a point of the page and press it there (browser.Page).
+	Hover(ctx context.Context, x, y float64) error
+	Click(ctx context.Context, x, y float64) error
 }
 
 // AccountBrowser is the shared browser as the signed-in sources use it: the owner's tab to sign in through, and a
@@ -139,6 +154,9 @@ type accounts struct {
 	// cookies.
 	checking map[string]bool
 	checked  map[string]verification
+
+	// tabs are the accounts' tabs' holds, by browser context: one read at a time in a tab (Session.Hold).
+	tabs map[string]chan struct{}
 }
 
 type verification struct {
@@ -331,6 +349,10 @@ func (s *Service) signIn(ctx context.Context, p Platform, jar []browser.Cookie, 
 	}
 
 	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))
+	if p.Signed.VisitorCookie {
+		sum = loginKey(p.Signed.Site, jar)
+	}
+
 	name := p.Signed.Site.Name
 
 	s.acc.mu.Lock()
@@ -375,6 +397,26 @@ func (s *Service) signIn(ctx context.Context, p Platform, jar []browser.Cookie, 
 	return "", nil
 }
 
+// loginKey names a jar by its login cookies only, so the memo of a failed verification holds while only a site's other
+// cookies change: Xiaohongshu's and Weibo's visitors have a web_session or a SUB too, and a sign-in is told by the login
+// cookie changing from the one the visitor had (last30days-skill-cn crawler_bridge.py:73-76 and 537-547, the
+// baseline's web_session); the site's other cookies (a WAF's, rotated on each page) never send another search.
+func loginKey(site signin.Site, jar []browser.Cookie) string {
+	var names []string
+
+	for _, group := range site.Login {
+		names = append(names, group...)
+	}
+
+	h := sha256.New()
+
+	for _, name := range names {
+		_, _ = fmt.Fprintf(h, "%s=%s\x00", name, signin.Value(jar, name))
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
 // waitingFor is what a sign-in waits for after its verification failed.
 func waitingFor(site string, f *SourceError) string {
 	switch f.Code {
@@ -397,20 +439,9 @@ func waitingFor(site string, f *SourceError) string {
 
 // verify runs the source's signed-in backend once with the jar, the source's live query and no window, as the
 // account would be read: nil when it read, items or a clean zero (Agent-Reach sessions.md:29, "redo the original
-// action to verify").
+// action to verify"). When it fails without a sign that the account must stop (a sign-in asked, a refusal, a rate
+// limit), the account's other backends are asked in turn (Signed.Also).
 func (s *Service) verify(ctx context.Context, p Platform, jar []browser.Cookie) *SourceError {
-	var b *Backend
-
-	for i := range p.Backends {
-		if p.Backends[i].Name == p.Signed.Backend {
-			b = &p.Backends[i]
-		}
-	}
-
-	if b == nil {
-		return Fail(CodeBroken, "%s has no backend %s", p.Name, p.Signed.Backend)
-	}
-
 	query := p.LiveQuery
 	if query == "" {
 		query = testQuery
@@ -429,12 +460,40 @@ func (s *Service) verify(ctx context.Context, p Platform, jar []browser.Cookie) 
 		defer s.acc.browser.DisposeContext(context.WithoutCancel(ctx), contextKey(p.Name, true))
 	}
 
-	_, err := b.Search(ctx, req)
-	if err != nil {
-		return AsFailure(err)
+	var last *SourceError
+
+	for _, name := range append([]string{p.Signed.Backend}, p.Signed.Also...) {
+		var b *Backend
+
+		for i := range p.Backends {
+			if p.Backends[i].Name == name {
+				b = &p.Backends[i]
+			}
+		}
+
+		if b == nil {
+			return Fail(CodeBroken, "%s has no backend %s", p.Name, name)
+		}
+
+		res, err := b.Search(ctx, req)
+
+		switch {
+		case err != nil:
+			last = AsFailure(err)
+		case res.Failed != nil && (len(res.Items) == 0 || stops(res.Failed)):
+			// A stop met after some posts (a session's end, a refusal, a rate limit) is the check's answer: the session
+			// is not kept, whatever was read before it (review round 2 of PR #1364).
+			last = res.Failed
+		default:
+			return nil
+		}
+
+		if stopsHost(last.Code) || last.resting || ctx.Err() != nil {
+			return last
+		}
 	}
 
-	return nil
+	return last
 }
 
 // keep seals a verified jar in the vault as the source's account, replacing any before it, and closes the context made
@@ -595,6 +654,37 @@ func (se *Session) verifying() bool { return se.candidate != nil }
 
 // Site is the site the account is signed in to.
 func (se *Session) Site() signin.Site { return se.signed.Site }
+
+// Hold takes the account's tab for one whole read, and gives the function that lets it go: a read in the tab
+// navigates it and reads the answers it receives, so a second read waits for the first to end and never navigates
+// the tab between two of its requests, each still paced in its own turn (trend-opportunity-radar
+// collection-pacing-contract.md:5, "at most one browser read at a time for a research run and browser profile";
+// review round 2 of PR #1364). A candidate's tab, in a context of its own, has a hold of its own.
+func (se *Session) Hold(ctx context.Context) (func(), error) {
+	key := contextKey(se.source, se.candidate != nil)
+
+	se.s.acc.mu.Lock()
+	if se.s.acc.tabs == nil {
+		se.s.acc.tabs = map[string]chan struct{}{}
+	}
+
+	hold, ok := se.s.acc.tabs[key]
+	if !ok {
+		hold = make(chan struct{}, 1)
+		se.s.acc.tabs[key] = hold
+	}
+	se.s.acc.mu.Unlock()
+
+	select {
+	case hold <- struct{}{}:
+		return func() { <-hold }, nil
+	case <-ctx.Done():
+		return nil, AsFailure(ctx.Err())
+	}
+}
+
+// Verifying says the session is a sign-in's candidate jar being verified, not the kept account.
+func (se *Session) Verifying() bool { return se.candidate != nil }
 
 // Ready says, without a call, why the account cannot be read now; nil when it can. A stop after a throttling page is
 // the site's and holds for a candidate being verified too (review round 1 of PR #1359).
@@ -782,6 +872,33 @@ func (se *Session) stop(ctx context.Context, f *SourceError) {
 		se.s.logger.ErrorContext(ctx, "a listening account's stop was not kept", slog.String("event",
 			"listening.account_unkept"), slog.String("source", se.source), slog.String("error", err.Error()))
 	}
+}
+
+// turn waits for the account's turn at its site at its cadence and reads its state again once the turn came; end keeps
+// what the read met on the account (met) and then ends the turn, so a read or a sign-in's check queued behind it reads
+// the stop, the expiry or the refusal once its turn comes: one read at a time, stopped on any captcha, rate limit or
+// login expiry (trend-opportunity-radar collection-pacing-contract.md:5 and 12), as linkedInSearch keeps its stop
+// before its turn ends (review round 2 of PR #1359). A session that is not ready answers a skip, not a new failure.
+func (r Request) turn(ctx context.Context, host string, c Cadence) (end func(*SourceError), err error) {
+	done := func() {}
+
+	if r.Read != nil {
+		if done, err = r.Read(ctx, host, c); err != nil {
+			return nil, AsFailure(err)
+		}
+	}
+
+	if f := r.Session.Ready(ctx); f != nil {
+		done()
+
+		// Not asked: skipped, and no new stop is made of the old one.
+		return nil, &SourceError{Code: f.Code, Detail: f.Detail, Until: f.Until, resting: true, transient: f.transient}
+	}
+
+	return func(f *SourceError) {
+		r.Session.met(ctx, f)
+		done()
+	}, nil
 }
 
 // worked notes that a real call read with the account.

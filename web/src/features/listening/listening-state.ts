@@ -68,6 +68,12 @@ const backends: Record<string, string> = {
   rendered_page: "LinkedIn's Posts search, as your account",
   web_api: "TikTok's web API, as your account",
   yt_dlp: "yt-dlp, keyless",
+  zhihu_api: "Zhihu's search API, as your account",
+  zhihu_page: "Zhihu's search page, as your account",
+  weibo_api: "Weibo's mobile search, as your account",
+  weibo_page: "m.weibo.cn's own page, as your account",
+  douyin_page: "Douyin's search page, as your account",
+  xiaohongshu_page: "Xiaohongshu's search page, as your account",
   site_search: "Web search on its site, keyless",
 }
 

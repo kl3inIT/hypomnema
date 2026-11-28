@@ -51,11 +51,10 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"web, Reddit, YouTube (with what the video says and its top comments), Google Play and App Store " +
 			"reviews, Hacker News, GitHub, arXiv, Techmeme, DEV.to, Bluesky, Bilibili and Toutiao (in Chinese; " +
 			"Toutiao is off unless `backends` pins it), the Vietnamese forums Voz, Tinhte and Otofun, companies' " +
-			"careers pages, Facebook, Instagram and Threads (through Muse), and X, LinkedIn and TikTok (as the " +
-			"owner's signed-in account when he turned them on, else their posts the web search finds; TikTok with " +
-			"each video's views and top comments), each item with its " +
-			"link, author, " +
-			"date, text and counts. Use it to learn what the public " +
+			"careers pages, Facebook, Instagram and Threads (through Muse), and X, LinkedIn, TikTok, Zhihu, Weibo, " +
+			"Douyin and Xiaohongshu (as the owner's signed-in account when he turned them on, else their posts the web " +
+			"search finds; TikTok with each video's views and top comments), each item with its link, author, date, " +
+			"text and counts. Use it to learn what the public " +
 			"says (complaints, praise, questions, comparisons) rather than what the press or a company says; for a " +
 			"fact or one page, use web_search and web_fetch instead. You write the plan: up to " +
 			strconv.Itoa(listening.MaxSubqueries) + " subqueries, each a short search in the words people use (in " +

@@ -21,6 +21,7 @@ package browser
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,12 +61,18 @@ type Cookie struct {
 }
 
 // Response is the answer to one request a context's tab sent since its last navigation: its address, status and
-// numeric Retry-After, none of its body (linkedin-mcp-server core/throttle.py:46-53, ThrottleHit).
+// numeric Retry-After (linkedin-mcp-server core/throttle.py:46-53, ThrottleHit), and the request's id, by which its body
+// is read once it has loaded (Page.Body).
 type Response struct {
 	URL        string
 	Status     int
 	RetryAfter string
+	RequestID  string
 }
+
+// maxBodyBytes bounds a response body read from a tab: a search's JSON is far less. Inferred, no reference bounds it:
+// xiaohongshu-mcp reads the whole body (xiaohongshu/search_ready.go:71-83).
+const maxBodyBytes = 8 << 20
 
 // maxResponses bounds the ordinary responses a tab keeps between two navigations; a refusal (a status of 400 or more)
 // is kept past it, so a throttle is never dropped. Inferred, no reference bounds its record: linkedin-mcp-server keeps
@@ -136,7 +143,7 @@ func (iso *isolated) event(ev cdpEvent) {
 	}
 
 	iso.responses = append(iso.responses, Response{URL: got.Response.URL, Status: got.Response.Status,
-		RetryAfter: retry})
+		RetryAfter: retry, RequestID: got.RequestID})
 }
 
 // contexts are the engine's own browser contexts by key, with a lock of
@@ -379,6 +386,35 @@ func (p *Page) Responses(context.Context) ([]Response, error) {
 	return slices.Clone(p.iso.responses), nil
 }
 
+// Body is the body of a response the tab received, once it has loaded, as xiaohongshu-mcp reads its search's answer
+// (xiaohongshu/search_ready.go:61-83, Network.getResponseBody after loadingFinished) and last30days-skill-cn the page's
+// own search XHR (crawler_bridge.py:961-962 and 1093-1095, a response's json()): one not loaded yet, or gone from
+// Chrome's buffer, is an error.
+func (p *Page) Body(ctx context.Context, r Response) ([]byte, error) {
+	var got struct {
+		Body          string `json:"body"`
+		Base64Encoded bool   `json:"base64Encoded"`
+	}
+
+	if r.RequestID == "" {
+		return nil, errors.New("the response has no request id")
+	}
+
+	if err := p.step(ctx, "Network.getResponseBody", map[string]any{"requestId": r.RequestID}, &got); err != nil {
+		return nil, err
+	}
+
+	if len(got.Body) > maxBodyBytes {
+		return nil, fmt.Errorf("the response's body is over %d bytes", maxBodyBytes)
+	}
+
+	if !got.Base64Encoded {
+		return []byte(got.Body), nil
+	}
+
+	return base64.StdEncoding.DecodeString(got.Body)
+}
+
 // Evaluate runs a script in the page, awaiting a promise it returns, and
 // decodes its value into result when that is not nil.
 func (p *Page) Evaluate(ctx context.Context, expression string, result any) error {
@@ -445,6 +481,12 @@ func (p *Page) Click(ctx context.Context, x, y float64) error {
 	}
 
 	return nil
+}
+
+// Hover moves the mouse to a point of the page, as a pointer resting there, so that an element shown on hover opens
+// (xiaohongshu-mcp hovers its search's filter button, xiaohongshu/search.go:136-144).
+func (p *Page) Hover(ctx context.Context, x, y float64) error {
+	return p.step(ctx, "Input.dispatchMouseEvent", map[string]any{"type": "mouseMoved", "x": x, "y": y}, nil)
 }
 
 // KeyEnter presses Enter in the focused element.

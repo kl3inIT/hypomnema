@@ -1,0 +1,15 @@
+xiaohongshu-mcp (xpzouying/xiaohongshu-mcp)
+Copyright xpzouying and the xiaohongshu-mcp contributors
+
+Used under the Apache License, Version 2.0, whose text is in LICENSE beside this file. Source:
+https://github.com/xpzouying/xiaohongshu-mcp at d138fb15245d0d9cfc5c8f8ac4b77aa9785130f5.
+
+What is adapted from it here, rewritten (internal/controlplane/listening/xiaohongshu.go, issue #1362): the search
+page's address (xiaohongshu/search.go makeSearchURL), the 发布时间 filter's options and the way an option is found in
+the filter panel by its group's and its own text, hovered then clicked, then waited for until the feeds change
+(search.go filterGroups, findFilterOption, waitFeedsChanged), the script that reads the search's state from
+window.__INITIAL_STATE__ and the feeds it holds, notes only (search.go, search_ready.go searchReadinessJS, types.go
+onlyNotes), an empty search taken as read only beside an answer that says there is no more (search_ready.go
+parseSearchResponse), and the block read from the landing path, /website-login/captcha a verification and any other
+/website-login a sign-in (xiaohongshu/page_check.go). Changed: no humanized pointer path or random delay; the page's
+search answers are read from the browser context's record of its tab's responses (internal/controlplane/browser).

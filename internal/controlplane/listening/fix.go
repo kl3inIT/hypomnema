@@ -1,6 +1,7 @@
 package listening
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -21,7 +22,9 @@ func Fix(source string, code Code, until time.Time) string {
 		at = " at " + until.UTC().Format("15:04 UTC, Jan 2")
 	}
 
-	signed := source == SourceX || source == SourceLinkedIn || source == SourceTikTok
+	signed := slices.Contains([]string{
+		SourceX, SourceLinkedIn, SourceTikTok, SourceZhihu, SourceWeibo, SourceDouyin, SourceXiaohongshu,
+	}, source)
 
 	switch {
 	case signed && code == CodeNeedLogin:
