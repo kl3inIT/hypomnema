@@ -65,8 +65,10 @@ func TestABotsToolsAreReadAtEachCall(t *testing.T) {
 	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Preset: agenttool.PresetReport,
-		Tools: []string{"agent_browser_open"}})
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Preset: agenttool.PresetReport, Tools: []string{"agent_browser_open"}},
+	})
 	require.NoError(t, err)
 
 	chat, err := w.svc.CreateChat(ctx, bot.ID, "")

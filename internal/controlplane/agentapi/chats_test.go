@@ -59,7 +59,10 @@ func TestABotSearchesItsOwnEarlierChats(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about VMAP."},
+	})
 	require.NoError(t, err)
 
 	main, err := w.svc.CreateChat(ctx, vmap.ID, "")

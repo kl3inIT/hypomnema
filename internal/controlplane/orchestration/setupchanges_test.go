@@ -25,7 +25,10 @@ func TestTheCoordinatorsNewBotCanBeUndone(t *testing.T) {
 	chat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	researcher, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher", Persona: "You find sources."})
+	researcher, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{
+		Name:      "researcher",
+		AgentSpec: AgentSpec{Instructions: "You find sources."},
+	})
 	require.NoError(t, err)
 
 	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
@@ -57,7 +60,7 @@ func TestAnUndoOfAChangedBotIsRefusedOnceChangedOrUsed(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", AgentSpec: AgentSpec{Instructions: "You answer about VMAP."}})
 	require.NoError(t, err)
 
 	_, err = w.s.ChangeBotMemory(ctx, vmapBot.ID, MemoryOp{Kind: MemoryAdd, Text: "Linh leads the maps team."})
@@ -73,7 +76,10 @@ func TestAnUndoOfAChangedBotIsRefusedOnceChangedOrUsed(t *testing.T) {
 		w.clock.now = w.clock.now.Add(time.Minute)
 
 		_, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{
-			ID: vmapBot.ID, Name: "vmap", Persona: persona, Workers: AllowList{Limited: true, Names: []string{"reviewer"}},
+			ID:        vmapBot.ID,
+			Name:      "vmap",
+			Workers:   AllowList{Limited: true, Names: []string{"reviewer"}},
+			AgentSpec: AgentSpec{Instructions: persona},
 		})
 		require.NoError(t, err)
 
@@ -95,7 +101,7 @@ func TestAnUndoOfAChangedBotIsRefusedOnceChangedOrUsed(t *testing.T) {
 
 	vmap, err := w.s.GetBot(ctx, vmapBot.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "You answer about VMAP.", vmap.Persona)
+	assert.Equal(t, "You answer about VMAP.", vmap.Instructions)
 	assert.False(t, vmap.Workers.Limited, "the list it had: none")
 	assert.Equal(t, "Linh leads the maps team.", vmap.Memory)
 
@@ -109,7 +115,7 @@ func TestAnUndoOfAChangedBotIsRefusedOnceChangedOrUsed(t *testing.T) {
 
 	changed := change("You answer about roads.")
 
-	_, err = w.s.PutBot(ctx, Bot{ID: vmapBot.ID, Name: "vmap", Persona: "The owner's words."})
+	_, err = w.s.PutBot(ctx, Bot{ID: vmapBot.ID, Name: "vmap", AgentSpec: AgentSpec{Instructions: "The owner's words."}})
 	require.NoError(t, err)
 
 	listed, err := w.s.GetSetupChange(ctx, changed.ID)
@@ -129,7 +135,10 @@ func TestARemovedBotComesBackAndTheCoordinatorStays(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP.", Skills: nil})
+	vmapBot, err := w.s.PutBot(ctx, Bot{
+		Name:      "vmap",
+		AgentSpec: AgentSpec{Instructions: "You answer about VMAP.", Skills: nil},
+	})
 	require.NoError(t, err)
 
 	chat, err := w.s.CreateChat(ctx, "", "")
@@ -293,9 +302,9 @@ func TestABotsListsNarrowWhatItMayUse(t *testing.T) {
 	assert.Equal(t, []string{"google:work"}, run.Uses)
 }
 
-// Scenario: a profile's undo is refused, and its card says so, when another
-// profile names it as a backup, when a worker ran the version the change made
-// for a Task given before it, and when what it was names a backup gone since.
+// Scenario: a profile's undo is refused, and its card says so, when a worker ran the version the change made for a
+// Task given before it. A profile's fallbacks are models, not profiles (issue #1336), so no profile relies on another
+// as its backup.
 func TestAProfilesUndoIsRefusedOnceItIsReliedOn(t *testing.T) {
 	t.Parallel()
 
@@ -312,44 +321,17 @@ func TestAProfilesUndoIsRefusedOnceItIsReliedOn(t *testing.T) {
 		return changes[len(changes)-1]
 	}
 
-	// Made, then named as a backup by the owner: not undone, and the card says why.
-	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "", checkerSource)
-	require.NoError(t, err)
-	madeChecker := last()
-
-	_, _, err = w.s.Profiles().ApplyProfile(ctx, "",
-		"name: writer\ndescription: d\nruntime: claude\nfallbacks: [checker]\n")
-	require.NoError(t, err)
-
-	shown, err := w.s.GetSetupChange(ctx, madeChecker.ID)
-	require.NoError(t, err)
-	assert.False(t, shown.CanUndo)
-	assert.Contains(t, shown.Problem, "as a backup")
-
-	// The coordinator takes the backup away; the checker can then be undone, and the writer's change cannot,
-	// since what it was names the checker, gone.
-	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "", "name: writer\ndescription: d\nruntime: claude\n")
-	require.NoError(t, err)
-	changedWriter := last()
-
-	_, err = w.s.UndoSetupChange(ctx, madeChecker.ID)
-	require.NoError(t, err)
-
-	_, err = w.s.UndoSetupChange(ctx, changedWriter.ID)
-	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorContains(t, err, "which is gone")
-
 	// A Task given before a change runs under the version it made: the change was used.
 	w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})
 	w.clock.now = w.clock.now.Add(time.Minute)
 
 	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "",
 		"name: implementer\ndescription: Writes code.\nruntime: claude\nmodel: {provider: model-gateway}\n"+
-			"instruction: Run the tests.\n")
+			"instructions: Run the tests.\n")
 	require.NoError(t, err)
 	changedImplementer := last()
 
-	shown, err = w.s.GetSetupChange(ctx, changedImplementer.ID)
+	shown, err := w.s.GetSetupChange(ctx, changedImplementer.ID)
 	require.NoError(t, err)
 	require.True(t, shown.CanUndo, "the Task was given before the change: not yet a use")
 
@@ -405,14 +387,18 @@ func TestChangesInOneMillisecondKeepTheOrderTheyWereMade(t *testing.T) {
 		return fmt.Sprintf("%s_%04d", prefix, n)
 	}
 
-	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", AgentSpec: AgentSpec{Instructions: "You answer about VMAP."}})
 	require.NoError(t, err)
 
 	chat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
 	for _, persona := range []string{"You answer about maps.", "You answer about roads."} {
-		_, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{ID: vmapBot.ID, Name: "vmap", Persona: persona})
+		_, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{
+			ID:        vmapBot.ID,
+			Name:      "vmap",
+			AgentSpec: AgentSpec{Instructions: persona},
+		})
 		require.NoError(t, err)
 	}
 
@@ -428,7 +414,7 @@ func TestChangesInOneMillisecondKeepTheOrderTheyWereMade(t *testing.T) {
 
 	vmap, err := w.s.GetBot(ctx, vmapBot.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "You answer about maps.", vmap.Persona, "the later change is undone")
+	assert.Equal(t, "You answer about maps.", vmap.Instructions, "the later change is undone")
 }
 
 // Scenario: a profile that asks for its own CPU and memory is changed from a

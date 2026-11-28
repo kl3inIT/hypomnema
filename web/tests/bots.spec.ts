@@ -20,7 +20,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   name,
   position: 0,
   main: name === "coordinator",
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   fallbacks: [],
@@ -43,7 +43,7 @@ const coordinator = bot("coordinator", {
   tool_access: fullToolAccess,
   provider: "gateway",
   model: "gpt-luna",
-  persona: "Plan the work, give it to workers and report what they did, briefly.",
+  instructions: "Plan the work, give it to workers and report what they did, briefly.",
   memory:
     "The owner writes in Vietnamese and wants short answers.\nDeploys go out on Fridays.\nThe staging server is zm.",
 })
@@ -135,7 +135,7 @@ const profiles = [
 
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString()
 
-// The fake keeps the Bots as the control plane does: a PUT makes one or replaces its model, effort and persona
+// The fake keeps the Bots as the control plane does: a PUT makes one or replaces its model, effort and instructions
 // and keeps its memory; a DELETE is refused for the first Bot and for one with a memory. A chat is made with the
 // Bot it names, or the first. A chat given here is there from the start, with its messages and the setup changes
 // made in it; an undo marks a change undone.
@@ -241,7 +241,12 @@ async function fakeServer(
         return json({ code: "invalid", message: "pi cannot use the model gpt-sol" }, 422)
       }
 
-      const made = { ...bot(name), ...settings, id: `bot_${name}`, persona: settings.persona ?? "" }
+      const made = {
+        ...bot(name),
+        ...settings,
+        id: `bot_${name}`,
+        instructions: settings.instructions ?? "",
+      }
       bots = [...bots, made]
 
       return json(made, 201)
@@ -275,7 +280,7 @@ async function fakeServer(
       }
 
       const { provider: _provider, model: _model, effort: _effort, ...kept } = found ?? bot(one[1]!)
-      const stored = { ...kept, ...set, persona: set.persona ?? "", updated_at: hours(0) }
+      const stored = { ...kept, ...set, instructions: set.instructions ?? "", updated_at: hours(0) }
       bots = [...bots.filter((b) => b.id !== one[1]), stored]
 
       return json(stored)
@@ -418,7 +423,7 @@ test("the Bots show as cards and as a table, each with its model and its memory"
 
 // Scenario: the owner makes a Bot. A name a Bot has keeps Create off; a model pi cannot use is refused in the server's
 // words; with a model it can use the Bot is made under an id of its own and its page opens, its memory empty.
-test("a new Bot is made with a name, a model and a persona", async ({ page }) => {
+test("a new Bot is made with a name, a model and instructions", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/bots")
   await page.getByRole("link", { name: "New bot" }).click()
@@ -430,7 +435,7 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
   await page.getByLabel("Name").fill("Researcher")
   await page.getByLabel("Model", { exact: true }).click()
   await page.getByRole("option", { name: "gpt-sol" }).click()
-  await page.getByLabel("Persona").fill("You are the team's researcher. Answer with sources.")
+  await page.getByLabel("Instructions").fill("You are the team's researcher. Answer with sources.")
   await page.getByRole("button", { name: "Create Bot" }).click()
   await expect(page.getByText("pi cannot use the model gpt-sol")).toBeVisible()
   await shot(page, "bot-new-refused")
@@ -455,7 +460,7 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
         provider: "claude-subscription",
         model: "claude-opus-5-5",
         effort: "high",
-        persona: "You are the team's researcher. Answer with sources.",
+        instructions: "You are the team's researcher. Answer with sources.",
         skills: [],
         skills_off: [],
         preset: "full",
@@ -533,7 +538,7 @@ test("a Bot's skills and tool preset are chosen in its form", async ({ page }) =
     body: {
       provider: "gateway",
       model: "gpt-luna",
-      persona: "Plan the work, give it to workers and report what they did, briefly.",
+      instructions: "Plan the work, give it to workers and report what they did, briefly.",
       skills: ["review-go"],
       skills_off: ["pdf"],
       preset: "report",
@@ -601,9 +606,11 @@ test("a Bot's notes are listed, opened, written and removed", async ({ page }) =
   expect(calls[0]!.body).toEqual({ text: "DAU counts guests.\nTotal users: 3,600.\n" })
 })
 
-// Scenario: the owner opens the first Bot, reads what it keeps, and rewrites its persona. The save carries the
-// model with the persona. Removing it is refused, and the question stays open with the server's reason.
-test("a Bot shows its memory, takes a new persona and refuses to be removed", async ({ page }) => {
+// Scenario: the owner opens the first Bot, reads what it keeps, and rewrites its instructions. The save carries the
+// model with the instructions. Removing it is refused, and the question stays open with the server's reason.
+test("a Bot shows its memory, takes new instructions and refuses to be removed", async ({
+  page,
+}) => {
   const calls = await fakeServer(page)
   await page.goto("/bots")
   await page.getByRole("link", { name: "Settings of coordinator" }).click()
@@ -633,10 +640,12 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
   )
   await expect(memory.getByRole("button", { name: "Save memory" })).toHaveCount(0)
 
-  await page.getByLabel("Persona").fill("Plan the work and report in Vietnamese.")
+  await page.getByLabel("Instructions").fill("Plan the work and report in Vietnamese.")
   await page.getByRole("button", { name: "Save", exact: true }).click()
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
-  await expect(page.getByLabel("Persona")).toHaveValue("Plan the work and report in Vietnamese.")
+  await expect(page.getByLabel("Instructions")).toHaveValue(
+    "Plan the work and report in Vietnamese.",
+  )
 
   await page.getByRole("button", { name: "Remove Bot" }).click()
   const dialog = page.getByRole("alertdialog")
@@ -660,7 +669,7 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
       body: {
         provider: "gateway",
         model: "gpt-luna",
-        persona: "Plan the work and report in Vietnamese.",
+        instructions: "Plan the work and report in Vietnamese.",
         skills: [],
         skills_off: [],
         preset: "full",
@@ -762,9 +771,9 @@ test("with one Bot the start screen offers no choice", async ({ page }) => {
 // Scenario: the owner limits what a Bot may use (issue #169). Without a list it may use every account switched
 // on for chats and every worker; "Limit Connections" starts with none, and each account switched on for chats is
 // a switch; the account not used in chats is not offered. "Limit workers" is the same card. Each switch saves at
-// once with the Bot's model and persona, so nothing else changes.
+// once with the Bot's model and instructions, so nothing else changes.
 test("a Bot's Connections and workers are limited on its page", async ({ page }) => {
-  const researcher = bot("researcher", { persona: "You find sources and say where they are." })
+  const researcher = bot("researcher", { instructions: "You find sources and say where they are." })
   const calls = await fakeServer(page, [coordinator, researcher])
   await page.goto("/bots/researcher")
 
@@ -793,14 +802,14 @@ test("a Bot's Connections and workers are limited on its page", async ({ page })
     {
       call: "PUT /bots/researcher",
       body: {
-        persona: "You find sources and say where they are.",
+        instructions: "You find sources and say where they are.",
         workers: { limited: true, names: [] },
       },
     },
     {
       call: "PUT /bots/researcher",
       body: {
-        persona: "You find sources and say where they are.",
+        instructions: "You find sources and say where they are.",
         workers: { limited: true, names: ["reviewer"] },
       },
     },
@@ -824,7 +833,7 @@ const dashboards = [
 // saved at once as the Bot's scopes. A Superset account the Bot may not use has no card, and taking the limit
 // away sends no scope for it.
 test("a Bot is limited to some dashboards of a Superset account", async ({ page }) => {
-  const community = bot("community", { persona: "You answer the community group." })
+  const community = bot("community", { instructions: "You answer the community group." })
   const calls = await fakeServer(page, [coordinator, community], {
     integrations: [
       ...integrations,
@@ -864,20 +873,20 @@ test("a Bot is limited to some dashboards of a Superset account", async ({ page 
     {
       call: "PUT /bots/community",
       body: {
-        persona: "You answer the community group.",
+        instructions: "You answer the community group.",
         scopes: { "superset:prod": { dashboards: [] } },
       },
     },
     {
       call: "PUT /bots/community",
       body: {
-        persona: "You answer the community group.",
+        instructions: "You answer the community group.",
         scopes: { "superset:prod": { dashboards: [8] } },
       },
     },
     {
       call: "PUT /bots/community",
-      body: { persona: "You answer the community group.", scopes: {} },
+      body: { instructions: "You answer the community group.", scopes: {} },
     },
   ])
 })
@@ -910,10 +919,10 @@ test("a Bot page shows and saves its ordered fallback models", async ({ page }) 
 })
 
 // Scenario: a Bot others use must not show its bash runs (issue #441). Its page says what its chats show of its
-// tool calls, on by default, with a line for each level; choosing off saves at once with the Bot's model and persona,
+// tool calls, on by default, with a line for each level; choosing off saves at once with the Bot's model and instructions,
 // so nothing else changes.
 test("a Bot's tool calls are shown off, on or full as its page sets", async ({ page }) => {
-  const reporter = bot("reporter", { persona: "You send the Superset report." })
+  const reporter = bot("reporter", { instructions: "You send the Superset report." })
   const calls = await fakeServer(page, [coordinator, reporter])
   await page.goto("/bots/reporter")
 
@@ -930,7 +939,7 @@ test("a Bot's tool calls are shown off, on or full as its page sets", async ({ p
   await expect(tools.getByRole("radio", { name: /^Off/ })).toBeChecked()
   expect(calls.at(-1)).toEqual({
     call: "PUT /bots/reporter",
-    body: { persona: "You send the Superset report.", tool_display: "off" },
+    body: { instructions: "You send the Superset report.", tool_display: "off" },
   })
   await shot(page, "bot-tool-display-off")
 })

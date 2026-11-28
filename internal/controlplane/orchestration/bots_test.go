@@ -28,7 +28,7 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 	assert.Equal(t, DefaultBotID, bots[0].ID)
 	assert.Equal(t, "coordinator", bots[0].Name, "the main Bot keeps the name it had")
 	assert.True(t, bots[0].Main())
-	assert.Contains(t, bots[0].Persona, "coordinator", "the main Bot says it gives work to workers")
+	assert.Contains(t, bots[0].Instructions, "coordinator", "the main Bot says it gives work to workers")
 
 	_, err = w.s.Profiles().ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\n"+
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet]\n")
@@ -41,23 +41,24 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 		{Bot{Name: "  "}, "1 to 64 characters"},
 		{Bot{Name: strings.Repeat("b", 65)}, "1 to 64 characters"},
 		{Bot{Name: "coordinator"}, "another bot is named"},
-		{Bot{Name: "x", Model: "opus"}, "no provider"},
-		{Bot{Name: "x", Model: "sonnet", Effort: "huge"}, "unknown effort"},
-		{Bot{Name: "x", Persona: strings.Repeat("a", 2e4)}, "at most"},
+		{Bot{Name: "x", AgentSpec: AgentSpec{Model: "opus"}}, "no provider"},
+		{Bot{Name: "x", AgentSpec: AgentSpec{Model: "sonnet", Effort: "huge"}}, "unknown effort"},
+		{Bot{Name: "x", AgentSpec: AgentSpec{Instructions: strings.Repeat("a", 2e4)}}, "at most"},
 	} {
 		_, err := w.s.PutBot(ctx, c.bot)
 		require.ErrorContains(t, err, c.want, c.bot.Name)
 	}
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet"})
+	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", AgentSpec: AgentSpec{Model: "sonnet"}})
 	require.ErrorContains(t, err, "named without its provider", "a Bot's model names its provider (issue #1002)")
 
 	vmap, err := w.s.PutBot(ctx, Bot{
-		Name: "vmap", Provider: "router", Model: "sonnet", Persona: "  You answer about VMAP.\n",
+		Name:      "vmap",
+		AgentSpec: AgentSpec{Provider: "router", Model: "sonnet", Instructions: "  You answer about VMAP.\n"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "router", vmap.Provider)
-	assert.Equal(t, "You answer about VMAP.", vmap.Persona)
+	assert.Equal(t, "You answer about VMAP.", vmap.Instructions)
 
 	_, err = w.s.CreateChat(ctx, "nobody", "")
 	require.ErrorIs(t, err, ErrNotFound)
@@ -69,7 +70,11 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 	_, err = w.s.ChangeBotMemory(ctx, vmap.ID, MemoryOp{Kind: MemoryAdd, Text: "Linh leads the maps team."})
 	require.NoError(t, err)
 
-	vmap, err = w.s.PutBot(ctx, Bot{ID: vmap.ID, Name: "vmap", Persona: "You answer about VMAP and Tasco."})
+	vmap, err = w.s.PutBot(ctx, Bot{
+		ID:        vmap.ID,
+		Name:      "vmap",
+		AgentSpec: AgentSpec{Instructions: "You answer about VMAP and Tasco."},
+	})
 	require.NoError(t, err)
 	assert.Empty(t, vmap.Model, "the model is what was put")
 	assert.Equal(t, "Linh leads the maps team.", vmap.Memory, "a change of the Bot keeps its memory")
@@ -90,7 +95,7 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 	require.ErrorIs(t, w.s.DeleteBot(ctx, spareBot.ID), ErrNotFound)
 	require.ErrorIs(t, w.s.DeleteBot(ctx, DefaultBotID), ErrConflict, "the main Bot is always there")
 
-	_, err = w.s.PutBot(ctx, Bot{ID: "bot_nobodyaaaaaaaaaaaaaaaaaaaa", Persona: "x"})
+	_, err = w.s.PutBot(ctx, Bot{ID: "bot_nobodyaaaaaaaaaaaaaaaaaaaa", AgentSpec: AgentSpec{Instructions: "x"}})
 	require.ErrorIs(t, err, ErrNotFound, "a change names a Bot that is there")
 }
 
@@ -103,8 +108,14 @@ func TestBotFallbacksBelongOnlyToChatsInheritingTheModel(t *testing.T) {
 		"name: gateway\nkind: model_gateway\nmodels: [primary, second, nested/third]\n")
 	require.NoError(t, err)
 
-	bot, err := w.s.PutBot(ctx, Bot{Name: "researcher", Provider: "gateway", Model: "primary",
-		Fallbacks: []string{"gateway/second", "gateway/nested/third"}})
+	bot, err := w.s.PutBot(ctx, Bot{
+		Name: "researcher",
+		AgentSpec: AgentSpec{
+			Provider:  "gateway",
+			Model:     "primary",
+			Fallbacks: []string{"gateway/second", "gateway/nested/third"},
+		},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"gateway/second", "gateway/nested/third"}, bot.Fallbacks)
 
@@ -374,7 +385,7 @@ func TestABotKeepsWhatItsChatsShowOfItsTools(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	reporter, err := w.s.PutBot(ctx, Bot{Name: "reporter", Persona: "You send the report."})
+	reporter, err := w.s.PutBot(ctx, Bot{Name: "reporter", AgentSpec: AgentSpec{Instructions: "You send the report."}})
 	require.NoError(t, err)
 	assert.Equal(t, ToolsOn, reporter.ToolDisplay)
 
@@ -388,7 +399,12 @@ func TestABotKeepsWhatItsChatsShowOfItsTools(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = w.s.PutBotFromChat(ctx, coordinatorChat.ID,
-		Bot{ID: reporter.ID, Name: "reporter", Persona: "You send the report.", ToolDisplay: ToolsOff})
+		Bot{
+			ID:          reporter.ID,
+			Name:        "reporter",
+			ToolDisplay: ToolsOff,
+			AgentSpec:   AgentSpec{Instructions: "You send the report."},
+		})
 	require.NoError(t, err)
 
 	shown, err := w.s.ChatToolDisplay(ctx, chat.ID)
@@ -432,7 +448,7 @@ func TestOnlyTheOwnerChangesWhatABotDoesWithHisAccounts(t *testing.T) {
 	require.ErrorIs(t, err, ErrForbidden, "the main Bot never lets a Bot act as the owner")
 
 	persona := secretary
-	persona.Persona = "You keep the owner's Inbox."
+	persona.Instructions = "You keep the owner's Inbox."
 	_, err = w.s.PutBotFromChat(ctx, chat.ID, persona)
 	require.NoError(t, err)
 

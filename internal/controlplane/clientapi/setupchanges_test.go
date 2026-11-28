@@ -145,7 +145,7 @@ func TestOnlyTheMainBotManagesBotsAndProfiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, back.StatusCode())
 	assert.Equal(t, "vmap", back.JSON200.Name, "the undone rename gives the Bot its name back")
-	assert.Equal(t, vmapPersona, back.JSON200.Persona, "and keeps what the change before it set")
+	assert.Equal(t, vmapPersona, back.JSON200.Instructions, "and keeps what the change before it set")
 
 	again, err := owner.UndoSetupChangeWithResponse(ctx, listed.JSON200.Data[0].Id)
 	require.NoError(t, err)

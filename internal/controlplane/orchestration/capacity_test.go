@@ -607,7 +607,7 @@ func TestABotsGuaranteeIsASetting(t *testing.T) {
 	solo, err := w.s.PutBot(ctx, Bot{Name: "solo", GuaranteedDispatches: 1})
 	require.NoError(t, err)
 
-	solo.Persona = "One at a time."
+	solo.Instructions = "One at a time."
 	solo, err = w.s.PutBot(ctx, solo)
 	require.NoError(t, err)
 	assert.Equal(t, 1, solo.Guarantee(), "kept across another change")

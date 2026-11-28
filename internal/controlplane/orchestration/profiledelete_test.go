@@ -44,7 +44,7 @@ func TestANeverUsedProfileIsDeletedWithItsVersions(t *testing.T) {
 
 // Scenario: the owner deletes a profile a Task ran under. It is marked
 // deleted, as Coder marks a template: hidden from the list, read as deleted,
-// refused for a new Task, as a backup and on a Bot's workers list, while the
+// refused for a new Task and on a Bot's workers list, while the
 // Dispatch that ran it still reads its version. Applying the same source
 // brings it back as a new version, as Onyx's mark_persona_as_not_deleted.
 func TestAUsedProfileIsHiddenAndComesBackWhenApplied(t *testing.T) {
@@ -73,10 +73,6 @@ func TestAUsedProfileIsHiddenAndComesBackWhenApplied(t *testing.T) {
 	_, err = w.s.CreateTasks(ctx, w.run.ID, []NewTask{{Ref: "b", Profile: "scout", Spec: "b"}})
 	require.ErrorContains(t, err, "was deleted", "no new task names it")
 
-	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
-		"model: {provider: model-gateway}\nfallbacks: [scout]\n")
-	require.ErrorIs(t, err, ErrNotFound, "nor a backup")
-
 	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"scout"}}})
 	require.ErrorIs(t, err, ErrNotFound, "nor a bot's worker")
 
@@ -94,8 +90,8 @@ func TestAUsedProfileIsHiddenAndComesBackWhenApplied(t *testing.T) {
 
 // Scenario: a deletion that would leave something naming the profile is
 // refused, saying what to change first: the starting implementer, a Task
-// not yet ended (a failed one of an open Run may be reopened), another
-// profile's backup, a Bot's workers list.
+// not yet ended (a failed one of an open Run may be reopened), a Bot's
+// workers list. A profile's fallbacks are models, not profiles (issue #1336).
 func TestAProfileStillNamedIsNotDeleted(t *testing.T) {
 	t.Parallel()
 
@@ -120,18 +116,6 @@ func TestAProfileStillNamedIsNotDeleted(t *testing.T) {
 	require.ErrorContains(t, w.s.Profiles().DeleteProfile(ctx, "scout"), "unfinished", "the owner may reopen it")
 
 	require.NoError(t, w.s.CancelRun(ctx, w.run.ID))
-
-	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
-		"model: {provider: model-gateway}\nfallbacks: [scout]\n")
-	require.NoError(t, err)
-
-	err = w.s.Profiles().DeleteProfile(ctx, "scout")
-	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorContains(t, err, "as a backup")
-
-	_, _, err = w.s.Profiles().ApplyProfile(ctx, "", "name: helper\ndescription: d\nruntime: claude\n"+
-		"model: {provider: model-gateway}\n")
-	require.NoError(t, err)
 
 	vmap, err := w.s.PutBot(ctx, Bot{
 		Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer", "scout"}},

@@ -217,10 +217,13 @@ func TestABotGetsItsSkills(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", Skills: []string{"nowhere"}})
+	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", AgentSpec: AgentSpec{Skills: []string{"nowhere"}}})
 	require.ErrorIs(t, err, ErrNotFound)
 
-	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Skills: []string{"lark-docs"}, SkillsOff: []string{"pdf"}})
+	vmapBot, err := w.s.PutBot(ctx, Bot{
+		Name:      "vmap",
+		AgentSpec: AgentSpec{Skills: []string{"lark-docs"}, SkillsOff: []string{"pdf"}},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"lark-docs"}, vmapBot.Skills)
 	assert.Equal(t, []string{"pdf"}, vmapBot.SkillsOff)
