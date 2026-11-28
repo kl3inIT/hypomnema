@@ -2683,9 +2683,12 @@ flowchart LR
       delivery's id, and gets no answer. The request is the caller's words after the first mention on that line
       only, a line ending at LF, CR LF or a lone CR as GitHub's Markdown ends one (`githubapp.Request`;
       claude-code-action `docs/security.md:5`). `Inbox().Call` gives it, in one write, to the item of that issue or pull request that
-      is not closed (`LatestTodoOfSource`, source `github`), else to a new open item given to the main Bot, created
-      by the system (`github`); an item the owner holds is given to the main Bot again, one a Bot holds stays with
-      it; a closed item is never reopened (only the owner reopens one), so a call after it makes a new item. The
+      has (`LatestTodoOfSource`, source `github`), else to a new open item given to the main Bot, created by the
+      system (`github`); an item the owner holds is given to the main Bot again, one a Bot holds stays with it; a
+      closed item is reopened by the call (`reopenTx`, its close cleared as `Reopen` clears it, a `state` event by
+      the caller, the owner or the system as `github:<login>`, with `after.github` the login and the call's address),
+      the owner's one exception to "only the owner reopens" (owner, 2026-11-28; design row 4, Omnara
+      `github.mdx:298`), which `allowed` grants a system actor `github:<login>` only. The
       words go into the thread as a `commented` event with `after.github` (login, address, kind), by the owner for
       his own account (the login that registered the App, `Credential.Owner`, and its id `OwnerUserID`
       when known, #1312), else by the system as `github:<login>`, which the web shows as "<login> on

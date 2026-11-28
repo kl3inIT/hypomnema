@@ -56,6 +56,12 @@ var transitions = map[move][]string{
 // allowed says whether actor may move a to-do from one state to another: a conflict when the move is not one of the
 // transitions, forbidden when it is but not for this actor.
 func allowed(from, to string, actor Actor) error {
+	// A call of the owner's GitHub App reopens its closed item (owner, 2026-11-28, issue #1232): by the system as the
+	// caller, github:<login>, which only the App's call path writes (reopenTx); the owner's own call is his.
+	if Closed(from) && to == Open && actor.Kind == System && strings.HasPrefix(actor.ID, "github:") {
+		return nil
+	}
+
 	who, ok := transitions[move{from, to}]
 	if !ok {
 		return fmt.Errorf("%w: a %s to-do cannot become %s", storeerr.ErrConflict, from, to)

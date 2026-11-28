@@ -104,8 +104,8 @@ func checkCall(c GitHubCall) error {
 // Call takes a call of the GitHub App (issue #1232): the issue's or pull request's item that is not closed gets it,
 // or a new one, open and given to the main Bot, is made. An item the owner holds is given to the main Bot again; one
 // a Bot holds stays with it. The caller's words go into the item's thread and wake that Bot in the item's own chat.
-// It returns the item and false when the delivery was taken before. An item closed is never reopened: only the
-// owner reopens one (transitions), so a call after it makes a new item.
+// It returns the item and false when the delivery was taken before. A closed item is reopened by the call (reopenTx),
+// the owner's one exception to "only the owner reopens" (2026-11-28).
 func (s *Store) Call(ctx context.Context, c GitHubCall) (Todo, bool, error) {
 	c.Request = strings.TrimSpace(c.Request)
 	if r := []rune(c.Request); len(r) > MaxComment {
@@ -199,6 +199,8 @@ func (s *Store) callItemTx(ctx context.Context, q *store.Queries, now int64, c G
 	row, err := q.LatestTodoOfSource(ctx, store.LatestTodoOfSourceParams{SourceKind: FromGitHub, SourceID: c.Source()})
 
 	switch {
+	case err == nil && Closed(row.State):
+		return row.ID, s.reopenTx(ctx, q, now, c, row)
 	case err == nil && !Closed(row.State) && row.AssigneeKind == ABot:
 		return row.ID, nil
 	case err == nil && !Closed(row.State):
@@ -299,6 +301,40 @@ func (s *Store) ReviewAttempt(ctx context.Context, repository string, number int
 func onIt(row store.Todo, bot string, work Work) bool {
 	return (row.State == Doing || row.State == Review) && row.WorkBot.String == bot &&
 		row.WorkKind.String == work.Kind && row.WorkID.String == work.ID
+}
+
+// reopenTx reopens the closed item of a call's issue or pull request (owner, 2026-11-28, on #1232's design row 4:
+// later mentions land in the same item, as they reach the same agent in Omnara, docs/integrations/github.mdx:298):
+// the one exception to "only the owner reopens", for a call that passed every check of the App's. The reopen is an
+// event of who called (the owner, or the system as github:<login>) with the call's address, as Reopen clears the
+// close; an item no Bot holds goes to the main Bot.
+func (s *Store) reopenTx(ctx context.Context, q *store.Queries, now int64, c GitHubCall, row store.Todo) error {
+	main := Assignee{Kind: ABot, Name: s.mainBot}
+
+	_, err := s.changeTx(ctx, q, now, Change{Actor: c.Actor(), ID: row.ID, Revision: int(row.Revision)}, EventState,
+		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
+			if err := retake(ctx, q, cur); err != nil {
+				return nil, err
+			}
+
+			next.State = Open
+			next.DoneByKind.Valid, next.DoneBy.Valid = false, false
+			next.RecordedByKind.Valid, next.RecordedBy.Valid = false, false
+			next.ClosedHow.Valid, next.ClosedAt.Valid, next.DuplicateOf.Valid = false, false, false
+			next.CloseReason, next.Evidence = "", "[]"
+
+			if cur.AssigneeKind != ABot {
+				if err := checkAssignee(ctx, q, main); err != nil {
+					return nil, err
+				}
+
+				give(cur, next, main)
+			}
+
+			return map[string]any{"github": map[string]any{"login": c.Login, "url": c.URL, "kind": c.Kind}}, nil
+		})
+
+	return err
 }
 
 // RecordReview records on a pull request's item the review the GitHub App made on it, by the id GitHub gave it in

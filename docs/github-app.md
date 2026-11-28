@@ -76,8 +76,9 @@ GitHub with one comment, in the review thread that called it (on the thread's fi
 replies to) or, when that is refused or the call was not in a thread, in the conversation, naming the callers,
 saying how it ended, quoting Hypo's reason as plain text (its handles are not mentions, hidden comments are dropped)
 and linking the review or the pull request. A reply GitHub refuses is tried again a minute later without holding
-back other items' replies. A call after the item closed opens a new item (this awaits the owner's decision on PR
-#1323).
+back other items' replies. A valid call after the item closed reopens that same item (the owner's exception to "only
+the owner reopens", 2026-11-28): its history shows who called and when, the new line is the request, and a
+teammate's call is still not your turn. A call by a reader or a bot reopens nothing.
 
 **What Hypo is told.** The item's chat gets this wake-up (here a teammate's call on a pull request; the owner's
 says "The owner (<login> on GitHub)" and "This call is the owner's own, as his words in the Inbox are."; an issue's
