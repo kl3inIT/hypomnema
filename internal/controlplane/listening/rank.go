@@ -36,7 +36,9 @@ var engagementWeights = map[string]struct {
 	reference float64
 	floor     float64
 }{
-	SourceReddit: {fields: []weighted{{"score", 0.50}, {"num_comments", 0.35}, {"upvote_ratio_x10", 0.05}}, reference: 7.6},
+	SourceReddit: {
+		fields: []weighted{{"score", 0.50}, {"num_comments", 0.35}, {"upvote_ratio_x10", 0.05}}, reference: 7.6,
+	},
 	SourceYouTube: {
 		fields: []weighted{{"views", 0.45}, {"likes", 0.32}, {"comments", 0.13}}, reference: 11.5, floor: 2.1,
 	},

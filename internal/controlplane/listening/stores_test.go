@@ -32,8 +32,8 @@ func playAnswer(reviews [][]any, token string) string {
 		tail = []any{nil, token}
 	}
 
-	inner, _ := json.Marshal([]any{reviews, tail, []any{[]any{nil}}})
-	outer, _ := json.Marshal([]any{[]any{"wrb.fr", "oCPfdb", string(inner), nil, nil, nil, "generic"}})
+	inner := mustJSON([]any{reviews, tail, []any{[]any{nil}}})
+	outer := mustJSON([]any{[]any{"wrb.fr", "oCPfdb", string(inner), nil, nil, nil, "generic"}})
 
 	return ")]}'\n\n" + string(outer)
 }
@@ -136,7 +136,8 @@ func TestGooglePlayFailuresAreFailures(t *testing.T) {
 	assert.Empty(t, a.Items)
 
 	_, gateway := play(t, func(string) (int, string) {
-		return http.StatusOK, `)]}'` + "\n\n" + `[["er",null,null,null,null,"com.google.play.gateway.proto.PlayGatewayError"]]`
+		return http.StatusOK, `)]}'` + "\n\n" +
+			`[["er",null,null,null,null,"com.google.play.gateway.proto.PlayGatewayError"]]`
 	})
 
 	a = one(t, keyless(newClock(), listening.Endpoints{PlayURL: gateway}), listening.SourceGooglePlay,

@@ -65,7 +65,7 @@ func runYtDlp(ctx context.Context, args ...string) ([]byte, string, error) {
 
 	var stdout, stderr bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := exec.CommandContext(ctx, path, args...) //nolint:gosec // yt-dlp from PATH, with arguments this package builds.
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()
 
@@ -441,6 +441,7 @@ func youtubeSaid(ctx context.Context, run Command, r Request, id, topic string) 
 // pickCaptions is the caption file of the first language asked that was written.
 func pickCaptions(dir, id string) string {
 	for code := range strings.SplitSeq(youtubeLangs, ",") {
+		//nolint:gosec // A file in this search's own temporary directory, named by a checked video id.
 		if body, err := os.ReadFile(filepath.Join(dir, id+"."+code+".vtt")); err == nil {
 			return string(body)
 		}

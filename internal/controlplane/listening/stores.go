@@ -138,16 +138,23 @@ func playBackend(e Endpoints, client *http.Client) Backend {
 func playBody(app string, count int, token string) []byte {
 	page := strconv.Itoa(count)
 	if token != "" {
-		quoted, _ := json.Marshal(token)
-		page += ",null," + string(quoted)
+		page += ",null," + jsonString(token)
 	}
 
-	quotedApp, _ := json.Marshal(app)
 	inner := fmt.Sprintf(`[null,[2,%d,[%s],null,[null,null,null,null,null,null,null,null,null]],[%s,7]]`, playNewest,
-		page, quotedApp)
-	quotedInner, _ := json.Marshal(inner)
+		page, jsonString(app))
 
-	return []byte(url.Values{"f.req": {`[[["oCPfdb",` + string(quotedInner) + `,null,"generic"]]]`}}.Encode())
+	return []byte(url.Values{"f.req": {`[[["oCPfdb",` + jsonString(inner) + `,null,"generic"]]]`}}.Encode())
+}
+
+// jsonString is a string as a JSON string.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+
+	return string(b)
 }
 
 // playReview is a review as Play lays it out (google-play-scraper constants/element.py:177-189).

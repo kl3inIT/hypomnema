@@ -187,7 +187,7 @@ func hackerNewsBackend(e Endpoints, client *http.Client) Backend {
 }
 
 // githubQualifier is a GitHub search qualifier a planner may write into a query; the backend adds its own window
-// and scope, and GitHub honours the first of two `created:` (last30days github.QUALIFIER_KEYS and
+// and scope, and GitHub honors the first of two `created:` (last30days github.QUALIFIER_KEYS and
 // strip_search_qualifiers, github.py:205-320, here by whole word).
 var githubQualifier = regexp.MustCompile(`^[-+]?(answered|archived|assignee|author|base|category|closed|comments|` +
 	`commenter|created|draft|fork|forks|head|in|interactions|involves|is|label|language|license|linked|mentions|` +
@@ -289,7 +289,7 @@ func gitHubBackend(e Endpoints, client *http.Client) Backend {
 // GitHub's reset, an epoch time; another 403 is GitHub's refusal of this request (Agent-Reach channels/github.py
 // _api_get).
 func gitHubFailure(status int, header http.Header, now time.Time) *SourceError {
-	limited := header.Get("X-RateLimit-Remaining") == "0" || header.Get("Retry-After") != ""
+	limited := header.Get("X-Ratelimit-Remaining") == "0" || header.Get("Retry-After") != ""
 	if (status != http.StatusForbidden && status != http.StatusTooManyRequests) || !limited {
 		return HTTPFailure(status, http.Header{}, now)
 	}
@@ -298,7 +298,7 @@ func gitHubFailure(status int, header http.Header, now time.Time) *SourceError {
 
 	if wait, ok := retryAfter(http.Header{"Retry-After": header.Values("Retry-After")}); ok {
 		f.Until = now.Add(wait)
-	} else if reset, err := strconv.ParseInt(header.Get("X-RateLimit-Reset"), 10, 64); err == nil && reset > 0 {
+	} else if reset, err := strconv.ParseInt(header.Get("X-Ratelimit-Reset"), 10, 64); err == nil && reset > 0 {
 		f.Until = time.Unix(reset, 0).UTC()
 	}
 

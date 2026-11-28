@@ -48,7 +48,17 @@ func byNative(items []listening.Item) map[string]listening.Item {
 
 func jsonAnswer(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(mustJSON(v))
+}
+
+// mustJSON is a fixture as JSON.
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+
+	return b
 }
 
 // Design row "HN": Algolia's keyless search, stories and comments in the window (obsei and harken read both; last30days
@@ -134,8 +144,8 @@ func TestGitHubSearchesPublicIssuesByTitle(t *testing.T) {
 
 	reset := start.Add(40 * time.Second)
 	_, limited := startSite(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-RateLimit-Remaining", "0")
-		w.Header().Set("X-RateLimit-Reset", fmt.Sprint(reset.Unix()))
+		w.Header().Set("X-Ratelimit-Remaining", "0")
+		w.Header().Set("X-Ratelimit-Reset", fmt.Sprint(reset.Unix()))
 		w.WriteHeader(http.StatusForbidden)
 	})
 

@@ -544,7 +544,8 @@ func parseDate(s string) *time.Time {
 	s = strings.TrimSpace(s)
 
 	for _, layout := range []string{
-		time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05", "2006-01-02 15:04:05", time.DateOnly, time.RFC1123,
+		time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05", "2006-01-02 15:04:05",
+		time.DateOnly, time.RFC1123,
 		time.RFC1123Z, "January 2, 2006", "Jan 2, 2006",
 	} {
 		if t, err := time.Parse(layout, s); err == nil {

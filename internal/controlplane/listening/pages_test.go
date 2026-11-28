@@ -2,7 +2,6 @@ package listening_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,7 +39,7 @@ func (y *ytdlp) run(_ context.Context, args ...string) ([]byte, string, error) {
 	switch {
 	case slices.Contains(args, "--write-comments"):
 		id := strings.TrimPrefix(args[len(args)-1], "https://www.youtube.com/watch?v=")
-		out, _ := json.Marshal(map[string]any{"id": id, "channel_id": "UCvetc", "comments": []map[string]any{
+		out := mustJSON(map[string]any{"id": id, "channel_id": "UCvetc", "comments": []map[string]any{
 			{"id": "c-" + id, "text": "VETC trừ tiền hai lần ở " + id, "author": "@minh", "like_count": 40,
 				"timestamp": start.AddDate(0, 0, -1).Unix(), "parent": "root", "author_is_uploader": false},
 			{"id": "u-" + id, "text": "Cảm ơn bạn đã xem", "author": "@VETC", "like_count": 3,
@@ -82,7 +81,7 @@ func (y *ytdlp) Runs(flag string) [][]string {
 }
 
 func video(id, title string, daysAgo int, views, likes, comments int) string {
-	line, _ := json.Marshal(map[string]any{
+	line := mustJSON(map[string]any{
 		"id": id, "title": title, "channel": "Kênh " + id, "upload_date": start.AddDate(0, 0, -daysAgo).Format("20060102"),
 		"view_count": views, "like_count": likes, "comment_count": comments, "description": "Mô tả " + id,
 	})
@@ -187,7 +186,7 @@ func TestYouTubeFailuresHaveTheirCodes(t *testing.T) {
 }
 
 func jobPage(title, location, posted, about string) string {
-	ld, _ := json.Marshal(map[string]any{
+	ld := mustJSON(map[string]any{
 		"@context": "https://schema.org", "@type": "JobPosting", "title": title, "datePosted": posted,
 		"description":        "<p>" + about + "</p>",
 		"hiringOrganization": map[string]any{"@type": "Organization", "name": "VETC"},
