@@ -130,7 +130,10 @@ func TestBotsAndWorkersKeepMemoriesWithOneTool(t *testing.T) {
 	assert.Contains(t, text, "Successfully deleted /memories/maps")
 
 	// A Lark group's chat has no memory tool: its prompt leaves the memory out (issue #246).
-	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about VMAP."},
+	})
 	require.NoError(t, err)
 	_, err = w.svc.Channels().SetChannel(ctx, channelstore.Channel{
 		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: vmap.ID,

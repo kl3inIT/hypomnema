@@ -62,7 +62,7 @@ func TestTheOwnerSortsHisBotsIntoDepartments(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pilot.ID, moved.Department)
 
-	changed, err := w.s.PutBot(ctx, Bot{ID: vmap.ID, Persona: "You keep the maps."})
+	changed, err := w.s.PutBot(ctx, Bot{ID: vmap.ID, AgentSpec: AgentSpec{Instructions: "You keep the maps."}})
 	require.NoError(t, err)
 	assert.Equal(t, pilot.ID, changed.Department, "a change of its settings keeps its department")
 

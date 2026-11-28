@@ -34,7 +34,7 @@ func newRepoWorld(t *testing.T) repoWorld {
 	main, _, err := w.s.OpenMainChat(ctx, "", "", "", ChatModel{})
 	require.NoError(t, err)
 
-	atlas, err := w.s.PutBot(ctx, Bot{Name: "Atlas", Persona: "The Atlas project."})
+	atlas, err := w.s.PutBot(ctx, Bot{Name: "Atlas", AgentSpec: AgentSpec{Instructions: "The Atlas project."}})
 	require.NoError(t, err)
 
 	atlas, err = w.s.SetBotRepos(ctx, atlas.ID, []string{"acme/atlas"})

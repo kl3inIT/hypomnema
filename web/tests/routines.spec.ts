@@ -166,7 +166,7 @@ const coordinator = {
   name: "coordinator",
   provider: "gateway",
   model: "gpt-luna",
-  persona: "Plan the work, give it to workers and report what they did, briefly.",
+  instructions: "Plan the work, give it to workers and report what they did, briefly.",
   memory: "The owner writes in Vietnamese and wants short answers.",
   memory_limit: 2200,
   skills: [],

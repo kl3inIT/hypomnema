@@ -285,7 +285,7 @@ async function serve(page: Page, kind: "log" | "split") {
               id: "bot_main",
               name: "Hypo",
               main: true,
-              persona: "",
+              instructions: "",
               memory: "",
               memory_limit: 2200,
               skills: [],

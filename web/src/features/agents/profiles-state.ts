@@ -118,8 +118,9 @@ export type Draft = {
   runtime: string
   model: string
   effort: string
-  instruction: string
-  // fallbacks names, in order, the agents that take this one's Tasks while it is out of quota (issue #171).
+  instructions: string
+  // fallbacks are models, "provider/name" in order, a worker of the agent runs while its own model cannot be served
+  // (issue #1336; they named other agents until 2026-11-28, issue #171).
   fallbacks: string[]
   // skills and skillsOff are the skills the agent adds and the ones for everyone it turns off (issue #21).
   skills: string[]
@@ -152,7 +153,8 @@ export function memoryText(bytes: number | undefined) {
   return String(bytes)
 }
 
-// As many backups as OpenMausBot keeps for one bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
+// As many backups as OpenMausBot keeps for one bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS), for a Bot's
+// fallbacks and an Agent's.
 export const maxFallbacks = 5
 
 export const emptyDraft: Draft = {
@@ -161,7 +163,7 @@ export const emptyDraft: Draft = {
   runtime: "claude",
   model: "",
   effort: "",
-  instruction: "",
+  instructions: "",
   fallbacks: [],
   skills: [],
   skillsOff: [],
@@ -180,7 +182,7 @@ export function draftOf(profile: Profile): Draft {
     runtime: profile.runtime,
     model: modelKey(profile.provider ?? "", profile.model ?? ""),
     effort: profile.effort ?? "",
-    instruction: (profile.instruction ?? "").replace(/\s+$/, ""),
+    instructions: profile.instructions.replace(/\s+$/, ""),
     fallbacks: profile.fallbacks,
     skills: profile.skills,
     skillsOff: profile.skills_off,
@@ -228,7 +230,7 @@ export function sameDraft(a: Draft, b: Draft) {
     a.runtime === b.runtime &&
     a.model === b.model &&
     a.effort === b.effort &&
-    a.instruction === b.instruction &&
+    a.instructions === b.instructions &&
     a.fallbacks.join() === b.fallbacks.join() &&
     a.skills.join() === b.skills.join() &&
     a.skillsOff.join() === b.skillsOff.join() &&
@@ -283,7 +285,7 @@ function text(key: string, value: string, fold: boolean) {
 }
 
 // toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model,
-// instruction, list of fallbacks and skills, and the optional requests and limits).
+// instructions, list of fallbacks and skills, and the optional requests and limits).
 export function toYaml(draft: Draft, models: Model[]) {
   let out = `name: ${scalar(draft.name.trim())}\n`
   out += text("description", draft.description.trim(), draft.description.trim().length > 80)
@@ -297,8 +299,8 @@ export function toYaml(draft: Draft, models: Model[]) {
     if (draft.effort) out += `  effort: ${scalar(draft.effort)}\n`
   }
 
-  const instruction = draft.instruction.replace(/\s+$/, "")
-  if (instruction) out += text("instruction", instruction, false)
+  const instructions = draft.instructions.replace(/\s+$/, "")
+  if (instructions) out += text("instructions", instructions, false)
   if (draft.runtime && draft.fallbacks.length > 0) {
     out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
   }

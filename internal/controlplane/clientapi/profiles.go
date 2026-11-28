@@ -172,7 +172,9 @@ func toProfile(p profilestore.Profile) openapi.Profile {
 	out := openapi.Profile{
 		Name: p.Name, Description: p.Description, VersionId: p.VersionID, Version: p.Version, Runtime: p.Runtime,
 		Provider: ptr(p.Provider),
-		Model:    ptr(p.Model), Effort: ptr(p.Effort), Instruction: ptr(p.Instruction), Source: p.Source,
+		Model:    ptr(p.Model), Effort: ptr(p.Effort), Source: p.Source,
+		// instruction is the instructions under their name until 2026-11-28, given for one release (issue #1336).
+		Instructions: p.Instructions, Instruction: ptr(p.Instructions),
 		Fallbacks: append([]string{}, p.Fallbacks...), Skills: append([]string{}, p.Skills...),
 		SkillsOff: append([]string{}, p.SkillsOff...), Tools: append([]string{}, p.Tools...),
 		Preset: openapi.ToolPreset(p.Preset), ToolsOff: append([]string{}, p.ToolsOff...), CreatedAt: p.CreatedAt,

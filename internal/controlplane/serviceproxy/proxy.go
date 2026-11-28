@@ -120,7 +120,10 @@ type Config struct {
 	// RepoToken gives the owner's GitHub App's token for a request to GitHub that names a repository the App is
 	// installed on, in place of the Connection's (issue #1262); nil: never.
 	RepoToken RepoToken
-	Logger    *slog.Logger
+	// AppReviews ties each review the App's token makes on a pull request to its Inbox attempt (issue #1232); nil:
+	// nobody.
+	AppReviews AppReviews
+	Logger     *slog.Logger
 	// Upstream sends a request on to the service; nil is a plain transport.
 	Upstream http.RoundTripper
 	// Hold is how long a request waits for the owner; zero is DefaultHold.
@@ -989,12 +992,16 @@ func (p *Proxy) upstream(ctx context.Context, req *http.Request, body []byte, ac
 	upstream.Header.Del("Connection")
 	upstream.ContentLength = int64(len(body))
 
+	asApp := false
+
 	if s.catalog.Signed {
 		if refused := p.signAgain(ctx, req, upstream, body, s); refused != "" {
 			return nil, http.StatusForbidden, refused
 		}
 	} else if token, ok := p.appToken(ctx, req, body, s); !action.Plumbing && ok {
 		upstream.Header.Set("Authorization", "Bearer "+token)
+
+		asApp = true
 	} else if !action.Plumbing {
 		token, err := p.cfg.Token(ctx, s.integration, s.label)
 		if err != nil {
@@ -1018,6 +1025,12 @@ func (p *Proxy) upstream(ctx context.Context, req *http.Request, body []byte, ac
 		return nil, http.StatusBadGateway, "the request could not be sent on: " + err.Error()
 	}
 
+	// A review the App makes is its attempt's work: the attempt is read before the review is made.
+	review, reviews := AppReview{}, false
+	if asApp {
+		review, reviews = p.reviewAttempt(ctx, req, s)
+	}
+
 	resp, err := way.RoundTrip(upstream)
 	if err != nil {
 		if proxy != "" {
@@ -1038,6 +1051,10 @@ func (p *Proxy) upstream(ctx context.Context, req *http.Request, body []byte, ac
 	}
 
 	p.noticed(ctx, s, action, resp.StatusCode, head)
+
+	if reviews {
+		p.appReviewed(ctx, resp, review)
+	}
 
 	return resp, resp.StatusCode, ""
 }

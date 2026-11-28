@@ -322,7 +322,7 @@ function DashboardsCard({
 // its list; what the form above holds unsaved stays in the form.
 export function BotAccess({ bot }: { bot: Bot }) {
   const put = usePutBot()
-  // Any save of this Bot, the form's too: a switch sends the stored model and persona, which the form may be
+  // Any save of this Bot, the form's too: a switch sends the stored model and instructions, which the form may be
   // replacing at that moment.
   const saving = useIsMutating({ mutationKey: putBotKey }) > 0
   const services = useServices()

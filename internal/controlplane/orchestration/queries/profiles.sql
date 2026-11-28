@@ -44,9 +44,9 @@ UPDATE profiles SET updated_at = @now, deleted_at = @now WHERE name = @name;
 
 -- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
-                              instruction, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis,
+                              instructions, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis,
                               memory_request_bytes, memory_limit_bytes, preset, created_at)
-VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @provider, @model, @effort, @instruction,
+VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @provider, @model, @effort, @instructions,
         @fallbacks, @skills, @skills_off, @tools, @tools_off, @cpu_request_millis, @memory_request_bytes,
         @memory_limit_bytes, @preset, @now);
 
@@ -70,11 +70,6 @@ SELECT name FROM providers WHERE api_key_ref = @api_key_ref ORDER BY name;
 
 -- name: CountTasksOfProfileSince :one
 SELECT count(*) FROM tasks WHERE profile = @profile AND created_at >= @since;
-
--- name: CountFallbacksNaming :one
--- The profiles, not deleted, whose current version names a profile among its backups.
-SELECT count(*) FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
-WHERE p.name <> @profile AND p.deleted_at IS NULL AND (',' || v.fallbacks || ',') LIKE ('%,' || @profile || ',%');
 
 -- name: DeleteProfileVersions :exec
 DELETE FROM profile_versions WHERE profile = @profile;

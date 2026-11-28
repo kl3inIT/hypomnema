@@ -331,7 +331,7 @@ export type Dispatch = {
    */
   runtime?: string;
   /**
-   * The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+   * The profile the Task asked for, when this Dispatch ran with one of its fallbacks, a later entry of its chain, because every account of the first waited for a limit to reset. Dispatches from before 2026-11-28 (issue #1336) may have run under a backup profile, whose version `profile_version_id` then names.
    */
   fallback_for?: string;
   /**
@@ -3524,6 +3524,7 @@ export type GatewayRequest = {
    * The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
    */
   error?: string;
+  cooling_code?: CoolingCode;
   prompt_tokens: number;
   cached_tokens: number;
   completion_tokens: number;
@@ -3971,7 +3972,47 @@ export type ToolNames = {
   data: Array<string>;
 };
 
-export type Bot = {
+/**
+ * What a Bot and a Profile have in common (issue #1336): what the agent is told, the model it runs, the models it falls back to, its skills and its tool switches. Each embeds it, as OpenClaw has one agent entry for the main agent and its sub-agents (src/config/zod-schema.agent-entry-base.ts) and Paperclip one agents table.
+ */
+export type AgentSpec = {
+  /**
+   * What the agent is and how it works, written by the owner; it follows the runtime's built-in instructions. A Bot's was its persona and a Profile's its instruction until 2026-11-28.
+   */
+  instructions: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
+  /**
+   * Ordered models, each provider/model, tried in turn when the agent's own model cannot be served now, as OpenClaw's model fallbacks (src/config/zod-schema.agent-model.ts). A Bot's are served by the gateway, tried when the inherited model's last target refuses with a cooling code that moves on (usage_limit, rate_limit, billing, auth, overloaded) or its accounts all rest; a Profile's run on its own runtime.
+   */
+  fallbacks: Array<string>;
+  /**
+   * The skills the agent gets beside those given to everyone.
+   */
+  skills: Array<string>;
+  /**
+   * The skills given to everyone that the agent does not get.
+   */
+  skills_off: Array<string>;
+  preset: ToolPreset;
+  tool_access?: ToolAccess;
+  /**
+   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
+   */
+  tools: Array<string>;
+  /**
+   * The Hypomnema tools the agent never gets, each a name or a family; it wins over tools.
+   */
+  tools_off: Array<string>;
+};
+
+export type Bot = AgentSpec & BotOwn;
+
+/**
+ * What a Bot has that a Profile does not.
+ */
+export type BotOwn = {
   /**
    * The Bot's id, which never changes; every record that names the Bot names this.
    */
@@ -3996,17 +4037,12 @@ export type Bot = {
    * The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
    */
   main_chat?: string;
-  provider?: string;
-  model?: string;
   /**
-   * Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+   * The Bot's instructions under their name until 2026-11-28 (issue
+   *
+   * @deprecated
    */
-  fallbacks: Array<string>;
-  effort?: string;
-  /**
-   * What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
-   */
-  persona: string;
+  persona?: string;
   /**
    * What the Bot keeps across chats, one entry per line.
    */
@@ -4015,24 +4051,6 @@ export type Bot = {
    * The most characters the memory holds.
    */
   memory_limit: number;
-  /**
-   * The skills the Bot gets beside those given to everyone.
-   */
-  skills: Array<string>;
-  /**
-   * The skills given to everyone that the Bot does not get.
-   */
-  skills_off: Array<string>;
-  preset: ToolPreset;
-  tool_access?: ToolAccess;
-  /**
-   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
-   */
-  tools: Array<string>;
-  /**
-   * The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
-   */
-  tools_off: Array<string>;
   connections: AllowList;
   workers: AllowList;
   /**
@@ -4060,6 +4078,33 @@ export type BotRepos = {
    * The repositories, each as NewRun.repo takes it; empty for none.
    */
   repos: Array<string>;
+};
+
+export type BotVersion = {
+  id: string;
+  version: number;
+  settings: BotSettings;
+  /**
+   * How it was saved: a save of the settings, a restore of another version, the undo of a setup change, or what a Bot had when its first save after versions began kept it.
+   */
+  source: 'save' | 'restore' | 'undo' | 'before_versions';
+  /**
+   * Who saved it; absent for before_versions.
+   */
+  saved_by?: 'owner' | 'main_bot';
+  /**
+   * With main_bot, the chat it was saved from.
+   */
+  chat_id?: string;
+  /**
+   * With restore, the id of the version it brought back.
+   */
+  restored_from?: string;
+  created_at: string;
+};
+
+export type BotVersionList = {
+  data: Array<BotVersion>;
 };
 
 /**
@@ -4416,6 +4461,15 @@ export type BotSettings = {
    */
   fallbacks?: Array<string>;
   effort?: string;
+  /**
+   * What the Bot is and how it behaves; left out, with persona left out too, it is cleared.
+   */
+  instructions?: string;
+  /**
+   * The instructions under their name until 2026-11-28 (issue #1336), read for one release when instructions is left out.
+   *
+   * @deprecated
+   */
   persona?: string;
   /**
    * The skills the Bot adds; left out, the Bot keeps those it has.
@@ -4450,9 +4504,22 @@ export type BotSettings = {
   owner_accounts?: OwnerAccounts;
 };
 
+/**
+ * A memory, one shape for a Bot's, a profile's and the one about the owner (issue #1336): a Bot's is kept on the Bot, a profile's in the notes store, beside the notes each has.
+ */
 export type Memory = {
   /**
-   * The agent whose memory it is; left out for the memory about the owner.
+   * The id of the Bot whose memory it is.
+   */
+  bot?: string;
+  /**
+   * The profile whose memory it is.
+   */
+  profile?: string;
+  /**
+   * The profile under its name until 2026-11-28 (issue
+   *
+   * @deprecated
    */
   agent?: string;
   /**
@@ -4520,7 +4587,12 @@ export type MemoryChange = {
   match?: string;
 };
 
-export type Profile = {
+export type Profile = AgentSpec & ProfileOwn;
+
+/**
+ * What a Profile has that a Bot does not.
+ */
+export type ProfileOwn = {
   name: string;
   /**
    * What the profile is for; empty for versions applied before descriptions.
@@ -4529,9 +4601,11 @@ export type Profile = {
   version_id: string;
   version: number;
   runtime: string;
-  provider?: string;
-  model?: string;
-  effort?: string;
+  /**
+   * The profile's instructions under their name until 2026-11-28 (issue
+   *
+   * @deprecated
+   */
   instruction?: string;
   /**
    * What a worker of the profile asks of a node's CPU, in thousandths of a core, from its YAML's requests.cpu (issue #731); left out, the default for building work, 1000.
@@ -4545,28 +4619,6 @@ export type Profile = {
    * The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
    */
   memory_limit_bytes?: number;
-  /**
-   * The skills its workers get beside those given to everyone.
-   */
-  skills: Array<string>;
-  /**
-   * The skills given to everyone that its workers do not get.
-   */
-  skills_off: Array<string>;
-  preset: ToolPreset;
-  tool_access?: ToolAccess;
-  /**
-   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
-   */
-  tools: Array<string>;
-  /**
-   * The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
-   */
-  tools_off: Array<string>;
-  /**
-   * The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
-   */
-  fallbacks: Array<string>;
   source: string;
   created_at: string;
   /**
@@ -5741,14 +5793,14 @@ export type TodoLink = {
 };
 
 /**
- * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+ * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
  */
-export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp' | 'gmail' | 'meeting';
+export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp' | 'gmail' | 'meeting' | 'github';
 
 export type TodoSource = {
   kind: TodoSourceKind;
   /**
-   * The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting.
+   * The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, the meeting, or a GitHub issue's or pull request's owner/name#number.
    */
   id?: string;
   /**
@@ -6371,12 +6423,19 @@ export type BotId = string;
 export type DepartmentId = string;
 
 /**
- * A Bot's memory, by its id; give this or agent.
+ * A Bot's memory, by its id; give this or profile.
  */
 export type MemoryOfBot = string;
 
 /**
- * An agent's memory, by its Profile's name; give this or bot.
+ * A profile's memory, by its name; give this or bot.
+ */
+export type MemoryOfProfile = string;
+
+/**
+ * The profile under its name until 2026-11-28 (issue
+ *
+ * @deprecated
  */
 export type MemoryOfAgent = string;
 
@@ -11456,6 +11515,36 @@ export type SetBotReposResponses = {
 
 export type SetBotReposResponse = SetBotReposResponses[keyof SetBotReposResponses];
 
+export type GetBotMemoryData = {
+  body?: never;
+  path: {
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
+  };
+  query?: never;
+  url: '/bots/{bot_id}/memory';
+};
+
+export type GetBotMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetBotMemoryError = GetBotMemoryErrors[keyof GetBotMemoryErrors];
+
+export type GetBotMemoryResponses = {
+  /**
+   * The memory.
+   */
+  200: Memory;
+};
+
+export type GetBotMemoryResponse = GetBotMemoryResponses[keyof GetBotMemoryResponses];
+
 export type ChangeBotMemoryData = {
   body: MemoryChange;
   path: {
@@ -11479,9 +11568,9 @@ export type ChangeBotMemoryError = ChangeBotMemoryErrors[keyof ChangeBotMemoryEr
 
 export type ChangeBotMemoryResponses = {
   /**
-   * The Bot, with its memory after the change.
+   * The memory after the change; it was the whole Bot until 2026-11-28 (issue
    */
-  200: Bot;
+  200: Memory;
 };
 
 export type ChangeBotMemoryResponse = ChangeBotMemoryResponses[keyof ChangeBotMemoryResponses];
@@ -11509,12 +11598,73 @@ export type SetBotMemoryError = SetBotMemoryErrors[keyof SetBotMemoryErrors];
 
 export type SetBotMemoryResponses = {
   /**
-   * The Bot, with its memory as kept.
+   * The memory as kept; it was the whole Bot until 2026-11-28 (issue
+   */
+  200: Memory;
+};
+
+export type SetBotMemoryResponse = SetBotMemoryResponses[keyof SetBotMemoryResponses];
+
+export type ListBotVersionsData = {
+  body?: never;
+  path: {
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
+  };
+  query?: never;
+  url: '/bots/{bot_id}/versions';
+};
+
+export type ListBotVersionsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBotVersionsError = ListBotVersionsErrors[keyof ListBotVersionsErrors];
+
+export type ListBotVersionsResponses = {
+  /**
+   * The versions.
+   */
+  200: BotVersionList;
+};
+
+export type ListBotVersionsResponse = ListBotVersionsResponses[keyof ListBotVersionsResponses];
+
+export type RestoreBotVersionData = {
+  body?: never;
+  path: {
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
+    version_id: string;
+  };
+  query?: never;
+  url: '/bots/{bot_id}/versions/{version_id}/restore';
+};
+
+export type RestoreBotVersionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RestoreBotVersionError = RestoreBotVersionErrors[keyof RestoreBotVersionErrors];
+
+export type RestoreBotVersionResponses = {
+  /**
+   * The Bot as restored.
    */
   200: Bot;
 };
 
-export type SetBotMemoryResponse = SetBotMemoryResponses[keyof SetBotMemoryResponses];
+export type RestoreBotVersionResponse = RestoreBotVersionResponses[keyof RestoreBotVersionResponses];
 
 export type ListArtifactsData = {
   body?: never;
@@ -12857,7 +13007,7 @@ export type RestoreProfileVersionResponses = {
 
 export type RestoreProfileVersionResponse = RestoreProfileVersionResponses[keyof RestoreProfileVersionResponses];
 
-export type GetAgentMemoryData = {
+export type GetProfileMemoryData = {
   body?: never;
   path: {
     name: string;
@@ -12866,25 +13016,25 @@ export type GetAgentMemoryData = {
   url: '/profiles/{name}/memory';
 };
 
-export type GetAgentMemoryErrors = {
+export type GetProfileMemoryErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type GetAgentMemoryError = GetAgentMemoryErrors[keyof GetAgentMemoryErrors];
+export type GetProfileMemoryError = GetProfileMemoryErrors[keyof GetProfileMemoryErrors];
 
-export type GetAgentMemoryResponses = {
+export type GetProfileMemoryResponses = {
   /**
    * The memory.
    */
   200: Memory;
 };
 
-export type GetAgentMemoryResponse = GetAgentMemoryResponses[keyof GetAgentMemoryResponses];
+export type GetProfileMemoryResponse = GetProfileMemoryResponses[keyof GetProfileMemoryResponses];
 
-export type ChangeAgentMemoryData = {
+export type ChangeProfileMemoryData = {
   body: MemoryChange;
   path: {
     name: string;
@@ -12893,25 +13043,25 @@ export type ChangeAgentMemoryData = {
   url: '/profiles/{name}/memory';
 };
 
-export type ChangeAgentMemoryErrors = {
+export type ChangeProfileMemoryErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type ChangeAgentMemoryError = ChangeAgentMemoryErrors[keyof ChangeAgentMemoryErrors];
+export type ChangeProfileMemoryError = ChangeProfileMemoryErrors[keyof ChangeProfileMemoryErrors];
 
-export type ChangeAgentMemoryResponses = {
+export type ChangeProfileMemoryResponses = {
   /**
    * The memory after the change.
    */
   200: Memory;
 };
 
-export type ChangeAgentMemoryResponse = ChangeAgentMemoryResponses[keyof ChangeAgentMemoryResponses];
+export type ChangeProfileMemoryResponse = ChangeProfileMemoryResponses[keyof ChangeProfileMemoryResponses];
 
-export type SetAgentMemoryData = {
+export type SetProfileMemoryData = {
   body: MemoryText;
   path: {
     name: string;
@@ -12920,34 +13070,40 @@ export type SetAgentMemoryData = {
   url: '/profiles/{name}/memory';
 };
 
-export type SetAgentMemoryErrors = {
+export type SetProfileMemoryErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type SetAgentMemoryError = SetAgentMemoryErrors[keyof SetAgentMemoryErrors];
+export type SetProfileMemoryError = SetProfileMemoryErrors[keyof SetProfileMemoryErrors];
 
-export type SetAgentMemoryResponses = {
+export type SetProfileMemoryResponses = {
   /**
    * The memory as kept.
    */
   200: Memory;
 };
 
-export type SetAgentMemoryResponse = SetAgentMemoryResponses[keyof SetAgentMemoryResponses];
+export type SetProfileMemoryResponse = SetProfileMemoryResponses[keyof SetProfileMemoryResponses];
 
 export type ListMemoryNotesData = {
   body?: never;
   path?: never;
   query?: {
     /**
-     * A Bot's memory, by its id; give this or agent.
+     * A Bot's memory, by its id; give this or profile.
      */
     bot?: string;
     /**
-     * An agent's memory, by its Profile's name; give this or bot.
+     * A profile's memory, by its name; give this or bot.
+     */
+    profile?: string;
+    /**
+     * The profile under its name until 2026-11-28 (issue
+     *
+     * @deprecated
      */
     agent?: string;
   };
@@ -12977,11 +13133,17 @@ export type DeleteMemoryNoteData = {
   path?: never;
   query: {
     /**
-     * A Bot's memory, by its id; give this or agent.
+     * A Bot's memory, by its id; give this or profile.
      */
     bot?: string;
     /**
-     * An agent's memory, by its Profile's name; give this or bot.
+     * A profile's memory, by its name; give this or bot.
+     */
+    profile?: string;
+    /**
+     * The profile under its name until 2026-11-28 (issue
+     *
+     * @deprecated
      */
     agent?: string;
     /**
@@ -13015,11 +13177,17 @@ export type GetMemoryNoteData = {
   path?: never;
   query: {
     /**
-     * A Bot's memory, by its id; give this or agent.
+     * A Bot's memory, by its id; give this or profile.
      */
     bot?: string;
     /**
-     * An agent's memory, by its Profile's name; give this or bot.
+     * A profile's memory, by its name; give this or bot.
+     */
+    profile?: string;
+    /**
+     * The profile under its name until 2026-11-28 (issue
+     *
+     * @deprecated
      */
     agent?: string;
     /**
@@ -13053,11 +13221,17 @@ export type PutMemoryNoteData = {
   path?: never;
   query: {
     /**
-     * A Bot's memory, by its id; give this or agent.
+     * A Bot's memory, by its id; give this or profile.
      */
     bot?: string;
     /**
-     * An agent's memory, by its Profile's name; give this or bot.
+     * A profile's memory, by its name; give this or bot.
+     */
+    profile?: string;
+    /**
+     * The profile under its name until 2026-11-28 (issue
+     *
+     * @deprecated
      */
     agent?: string;
     /**

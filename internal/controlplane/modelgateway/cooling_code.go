@@ -94,6 +94,27 @@ var (
 		`provider returned (?:an )?error|resource[-_\s]?exhausted|upstream (?:connect|connection|request))\b`)
 )
 
+// A refusal of the request's content, which ends the turn (the owner chose that over a fallback, 2026-11-22; issue
+// #1335 "Left out"): the codes and words LiteLLM maps to its ContentPolicyViolationError
+// (litellm/litellm_core_utils/exception_mapping_utils.py:150-167 is_azure_content_policy_violation_error, :541-544,
+// :807 Anthropic's "content filtering policy"), and OpenRouter's moderation 403, whose error.metadata carries
+// flagged_input and whose message says the input was flagged (openrouter.ai/docs/api_reference/errors-and-debugging,
+// "Moderation errors"). It reads unknown, so it neither moves on nor says "Sign in again" (review of PR #1342).
+var (
+	contentCodes = map[string]bool{
+		"content_policy_violation": true, "content_filter": true, "content_filter_policy": true,
+		"responsibleaipolicyviolation": true,
+		// OpenRouter's typed refusal, a safety policy block: error_type "refusal" (in error.metadata, or in
+		// error.error_type on its Messages skin) with the provider's code, OpenAI's bio_policy or cyber_policy, in
+		// error.metadata.provider_code (openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/gpt-6,
+		// "Safety Policy Blocks"; review round 2 of PR #1342).
+		"refusal": true, "bio_policy": true, "cyber_policy": true,
+	}
+	contentText = regexp.MustCompile(`(?i)content[-_\s]?polic(?:y|ies)[-_\s]?violation|responsibleaipolicyviolation|` +
+		`content[-_\s]?filter|content (?:management|filtering) policy|result of (?:our|the) safety system|` +
+		`violating our usage polic|input was flagged|"flagged_input"`)
+)
+
 // hasCode reports whether any of codes, lowercased, is in set.
 func hasCode(codes []string, set map[string]bool) bool {
 	for _, c := range codes {
@@ -159,6 +180,8 @@ func classifyFailure(status int, codes []string, text string) CoolingCode {
 	throttleCode := contains("rate_limit") || has(map[string]bool{"too_many_requests": true, "throttlingexception": true})
 
 	switch {
+	case has(contentCodes) || contentText.MatchString(text):
+		return CoolingUnknown
 	case status == http.StatusPaymentRequired:
 		return CoolingBilling
 	// The provider's structured code.
@@ -192,7 +215,9 @@ func classifyFailure(status int, codes []string, text string) CoolingCode {
 }
 
 // providerCodes are the codes an error body carries where opencode reads them (utils/provider-codes.ts
-// providerCodes: code, error_type, error.code, error.type, error.error_type, error.status), and the `[code]` label
+// providerCodes: code, error_type, error.code, error.type, error.error_type, error.status), OpenRouter's typed
+// error_type and the provider's code in error.metadata (openrouter.ai/docs/api_reference/errors-and-debugging,
+// "Provider errors": "error_type is the field to rely on"; review round 2 of PR #1342), and the `[code]` label
 // OpenCode keeps at the start of a message whose upstream code it rewrote (provider-error.ts GATEWAY_CODE_LABEL).
 func providerCodes(body []byte) []string {
 	var codes []string
@@ -236,6 +261,11 @@ func providerCodes(body []byte) []string {
 		str(inner["error_type"])
 		str(inner["status"])
 		label(inner["message"])
+
+		if metadata, ok := inner["metadata"].(map[string]any); ok {
+			str(metadata["error_type"])
+			str(metadata["provider_code"])
+		}
 	}
 
 	return codes

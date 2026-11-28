@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +50,9 @@ const (
 type command struct {
 	// name is the words that select it, such as "runs wait".
 	name string
+	// aliases are names it had before, which still select it for one release, as a renamed command keeps its old
+	// spelling (issue #1336: profiles routing is roles routing). Usage lists the name only.
+	aliases []string
 	// args names the positional arguments, for the usage line.
 	args string
 	// min and max bound the positional arguments; max -1 is no bound.
@@ -148,7 +152,7 @@ func find(args []string) (*command, []string) {
 		name := strings.Join(args[:n], " ")
 
 		for i := range commands {
-			if commands[i].name == name {
+			if commands[i].name == name || slices.Contains(commands[i].aliases, name) {
 				return &commands[i], args[n:]
 			}
 		}

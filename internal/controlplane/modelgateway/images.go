@@ -406,9 +406,10 @@ func (r *imageRests) resting(key string, now time.Time) (time.Time, bool) {
 
 // rest keeps an image model of an account out of use after a refusal, for as
 // long as accounts.go's cool would keep the account: the vendor's reset (at
-// most two hours), an hour for a quota used up, a wait doubling from 2 s to
-// 5 minutes after a rate limit or an overload, 2 minutes after a refusal of
-// the account. Another failure rests nothing. It keeps why (code) and the
+// most two hours), an hour for a quota used up, a refused key or spent credits
+// (issue #1335), a wait doubling from 2 s to 5 minutes after a rate limit or an
+// overload, 2 minutes after another refusal of the account. Another failure
+// rests nothing. It keeps why (code) and the
 // provider's words (reason; issue #1305) and returns the wait.
 func (r *imageRests) rest(
 	key string, now time.Time, status int, quotaUsedUp bool, reset time.Time, code CoolingCode, reason string,
@@ -419,6 +420,10 @@ func (r *imageRests) rest(
 	var wait time.Duration
 
 	switch {
+	case ownersToFix(code):
+		// A refused key or spent credits rest for the usage wait, whatever shorter wait a 429 names, as an account
+		// does (cool; issue #1335, row 4; review of PR #1342).
+		wait = ownersWait(now, reset)
 	case reset.After(now):
 		wait = min(reset.Sub(now), maxProviderReset)
 	case quotaUsedUp:

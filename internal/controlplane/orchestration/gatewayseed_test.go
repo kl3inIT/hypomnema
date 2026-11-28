@@ -119,7 +119,7 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 	assert.Equal(t, []string{"claude-subscription", "claude-opus-5-5"}, []string{reviewer.Provider, reviewer.Model})
 	assert.Contains(t, reviewer.Source, "  provider: claude-subscription\n", "its YAML says so too")
 	assert.Equal(t, "high", reviewer.Effort, "the reviewer keeps its effort")
-	assert.Contains(t, reviewer.Instruction, "Verdict: `correct` or `incorrect`", "and its instruction")
+	assert.Contains(t, reviewer.Instructions, "Verdict: `correct` or `incorrect`", "and its instruction")
 	assert.Equal(t, &profilestore.Availability{Reason: ReasonNoAccount}, reviewer.Availability,
 		"no Claude account is logged in on the control plane yet")
 

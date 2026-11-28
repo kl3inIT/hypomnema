@@ -22,7 +22,10 @@ func recallWorld(t *testing.T) (*orchestration.Service, orchestration.Bot, orche
 	svc, _ := newStore(t)
 	ctx := t.Context()
 
-	vmap, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmap, err := svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about VMAP."},
+	})
 	require.NoError(t, err)
 
 	main, err := svc.CreateChat(ctx, vmap.ID, "")

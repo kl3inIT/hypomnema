@@ -146,7 +146,7 @@ type Bot struct {
 	Provider             sql.NullString
 	Model                sql.NullString
 	Effort               sql.NullString
-	Persona              string
+	Instructions         string
 	Memory               string
 	CreatedAt            int64
 	UpdatedAt            int64
@@ -173,6 +173,18 @@ type BotRepo struct {
 	Path      string
 	BotID     string
 	CreatedAt int64
+}
+
+type BotVersion struct {
+	ID           string
+	BotID        string
+	Version      int64
+	Settings     string
+	Source       string
+	SavedBy      sql.NullString
+	ChatID       sql.NullString
+	RestoredFrom sql.NullString
+	CreatedAt    int64
 }
 
 type Channel struct {
@@ -570,6 +582,7 @@ type GatewayUsage struct {
 	TtftMs             sql.NullInt64
 	VideoID            string
 	VideoRev           int64
+	CoolingCode        string
 }
 
 type GatewayUsageDaily struct {
@@ -643,6 +656,11 @@ type IntegrationClient struct {
 	Secret      string
 	CreatedAt   int64
 	UpdatedAt   int64
+}
+
+type LegacyProfileFallback struct {
+	VersionID string
+	Fallbacks string
 }
 
 type ListeningBackend struct {
@@ -886,7 +904,7 @@ type ProfileVersion struct {
 	Provider           sql.NullString
 	Model              sql.NullString
 	Effort             sql.NullString
-	Instruction        sql.NullString
+	Instructions       sql.NullString
 	CreatedAt          int64
 	Description        string
 	Fallbacks          string
@@ -1292,6 +1310,25 @@ type TodoEvent struct {
 	Kind      string
 	Before    string
 	After     string
+}
+
+type TodoGithubCall struct {
+	Delivery       string
+	TodoID         string
+	Repository     string
+	Number         int64
+	Kind           string
+	CommentID      int64
+	ReplyTo        int64
+	Login          string
+	Url            string
+	RepliedAt      sql.NullInt64
+	ReplyUrl       string
+	CreatedAt      int64
+	ClosedRevision sql.NullInt64
+	ClosedState    sql.NullString
+	ClosedReason   sql.NullString
+	ClosedEvidence sql.NullString
 }
 
 type User struct {

@@ -983,7 +983,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 		require.NotNil(t, p.Available, p.Name)
 		assert.False(t, *p.Available, p.Name)
 		require.NotNil(t, p.UnavailableReason, p.Name)
-		assert.Equal(t, openapi.NoNode, *p.UnavailableReason, p.Name)
+		assert.Equal(t, openapi.ProfileUnavailableReasonNoNode, *p.UnavailableReason, p.Name)
 	}
 
 	models, err := laptop.ListModelsWithResponse(ctx)
@@ -992,7 +992,8 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	assert.NotEmpty(t, models.JSON200.Data)
 
 	body := openapi.Source{Source: "name: reviewer\ndescription: d\nruntime: claude\n" +
-		"model: {provider: claude-subscription, name: claude-opus-5-5, effort: max}\nfallbacks: [explorer]\n"}
+		"model: {provider: claude-subscription, name: claude-opus-5-5, effort: max}\n" +
+		"fallbacks: [claude-subscription/claude-sonnet-5-5]\ninstruction: Review the change.\n"}
 
 	refused, err := laptop.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)
@@ -1002,7 +1003,10 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
 	assert.Equal(t, 8, created.JSON201.Version)
-	assert.Equal(t, []string{"explorer"}, created.JSON201.Fallbacks)
+	assert.Equal(t, []string{"claude-subscription/claude-sonnet-5-5"}, created.JSON201.Fallbacks,
+		"a profile's fallbacks are models, as a Bot's (issue #1336)")
+	assert.Equal(t, "Review the change.", created.JSON201.Instructions, "instruction, its name until 2026-11-28, is read")
+	assert.Equal(t, "Review the change.", val(created.JSON201.Instruction), "and given for one release")
 
 	same, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)
@@ -1013,14 +1017,10 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.InvalidRequest, errorCode(t, wrong.Body, wrong.StatusCode(), http.StatusBadRequest))
 
-	// Only the owner deletes a profile (issue #485), and not one another profile names as a backup.
+	// Only the owner deletes a profile (issue #485).
 	notOwner, err := laptop.DeleteProfileWithResponse(ctx, "explorer")
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Forbidden, errorCode(t, notOwner.Body, notOwner.StatusCode(), http.StatusForbidden))
-
-	named, err := owner.DeleteProfileWithResponse(ctx, "explorer")
-	require.NoError(t, err)
-	assert.Equal(t, openapi.Conflict, errorCode(t, named.Body, named.StatusCode(), http.StatusConflict))
 
 	deleted, err := owner.DeleteProfileWithResponse(ctx, "reviewer")
 	require.NoError(t, err)
@@ -1339,7 +1339,10 @@ func TestAChatIsMadeUnderTheIDItsPageChose(t *testing.T) {
 	owner, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()
 
-	made, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	made, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about VMAP."},
+	})
 	require.NoError(t, err)
 
 	id := "cht_k3xq2m7ab4cdefghijklmnopqr"
@@ -1445,7 +1448,10 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	_, shared := w.token("pi-coordinator", bearertoken.Coordinator)
 	ctx := t.Context()
 
-	made, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	made, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about VMAP."},
+	})
 	require.NoError(t, err)
 
 	mine, err := w.svc.CreateChat(ctx, "", "")
@@ -1509,7 +1515,7 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	vmapBot, err := pi.GetBotWithResponse(ctx, made.ID)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, vmapBot.StatusCode())
-	assert.Equal(t, "You answer about VMAP.", vmapBot.JSON200.Persona)
+	assert.Equal(t, "You answer about VMAP.", vmapBot.JSON200.Instructions)
 	assert.Equal(t, "Linh leads the maps team.", vmapBot.JSON200.Memory)
 
 	skills, err := pi.ListBotSkillsWithResponse(ctx, made.ID)

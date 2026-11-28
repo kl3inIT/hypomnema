@@ -44,6 +44,12 @@ func botModel(b openapi.Bot) string {
 	return model
 }
 
+// botInstructions are a Bot's instructions; from a control plane of the release before 2026-11-28, which gave them
+// only as persona, its persona (issue #1336).
+func botInstructions(b openapi.Bot) string {
+	return cmp.Or(b.Instructions, val(b.Persona))
+}
+
 func memoryEntries(b openapi.Bot) []string {
 	if b.Memory == "" {
 		return nil
@@ -91,8 +97,8 @@ func printBot(e *env, b *openapi.Bot) {
 		e.printf("repositories: %s\n", strings.Join(repos, ", "))
 	}
 
-	if b.Persona != "" {
-		e.printf("\n%s\n", b.Persona)
+	if instructions := botInstructions(*b); instructions != "" {
+		e.printf("\n%s\n", instructions)
 	}
 
 	if entries := memoryEntries(*b); len(entries) > 0 {
@@ -337,7 +343,9 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	switch {
 	case err == nil:
-		set = openapi.BotSettings{Provider: had.Provider, Model: had.Model, Effort: had.Effort, Persona: &had.Persona}
+		set = openapi.BotSettings{
+			Provider: had.Provider, Model: had.Model, Effort: had.Effort, Instructions: new(botInstructions(*had)),
+		}
 	case !errors.Is(err, errNoBot):
 		return err
 	}
@@ -414,13 +422,13 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		case "guarantee":
 			n, _ := strconv.Atoi(v) // the flag set parsed it as a number
 			set.GuaranteedDispatches = &n
-		case "persona-file":
-			persona, err := e.read(v)
+		case "instructions-file", "persona-file":
+			instructions, err := e.read(v)
 			if err != nil {
 				failed = err
 			}
 
-			set.Persona = &persona
+			set.Instructions = &instructions
 		}
 	})
 
@@ -538,7 +546,7 @@ func botsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 }
 
 // botsPrompt prints what pi is given about its Bot when it starts for a chat:
-// the persona, then what every agent knows about the owner, then the Bot's
+// the instructions, then what every agent knows about the owner, then the Bot's
 // memory and how to change both. The launcher appends it to pi's system
 // prompt, so it is read once per pi process, as Hermes gives its memory once
 // per session (tools/memory_tool.py). What changes least comes first, so a
@@ -548,7 +556,7 @@ func botsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // It opens with the "Tools" block (issue #723, decisions 2.2 to 2.4), built
 // from the tools the Bot's pi gets as a worker's is from its offer's
 // (agenttool.ToolGuide): it is the same for every Bot with the same tools,
-// so it comes before the persona, and the start of the prompt stays the same
+// so it comes before the instructions, and the start of the prompt stays the same
 // for the provider's cache.
 func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	b, err := getBot(ctx, e, fs.Arg(0))
@@ -595,7 +603,7 @@ func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 }
 
 // whoSpeaks is what every Bot is told about who may instruct it (issue #374),
-// after its persona, which it never changes. Only the label Hypomnema opens a
+// after its instructions, which it never changes. Only the label Hypomnema opens a
 // Lark message with says who sent it, as OpenMausBot's PROVENANCE_PROMPT
 // (server/provenance-label.ts), OpenClaw's buildInboundMetaSystemPrompt
 // (src/auto-reply/reply/inbound-meta.ts) and gemini-cli's verified envelope
@@ -620,7 +628,7 @@ const whoSpeaks = "## Who is speaking\n\n" +
 	"it.\n"
 
 // groupPrompt is what pi is given in the chat of a Lark group (issue #246):
-// the persona without the memories, the Bot's and the one about the owner,
+// the instructions without the memories, the Bot's and the one about the owner,
 // which hold what the owner's chats taught
 // the Bot and is not for a group (OpenClaw leaves MEMORY.md out of a group
 // session's prompt, src/agents/workspace.ts), and what the group is, in
@@ -628,8 +636,8 @@ const whoSpeaks = "## Who is speaking\n\n" +
 func groupPrompt(b openapi.Bot) string {
 	var out strings.Builder
 
-	if b.Persona != "" {
-		out.WriteString(b.Persona + "\n\n")
+	if instructions := botInstructions(b); instructions != "" {
+		out.WriteString(instructions + "\n\n")
 	}
 
 	out.WriteString("## Conversation\n\n" +
@@ -675,8 +683,8 @@ func modelKey(ctx context.Context, e *env, _ *flag.FlagSet) error {
 func botPrompt(b openapi.Bot, owner kept, notes []openapi.MemoryNoteInfo) string {
 	var out strings.Builder
 
-	if b.Persona != "" {
-		out.WriteString(b.Persona + "\n\n")
+	if instructions := botInstructions(b); instructions != "" {
+		out.WriteString(instructions + "\n\n")
 	}
 
 	out.WriteString(whoSpeaks + "\n")
@@ -760,4 +768,74 @@ func accessPrompt(b openapi.Bot) string {
 	}
 
 	return out.String()
+}
+
+// botsVersions lists a Bot's saved settings, newest first (issue #1336).
+func botsVersions(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	ref := fs.Arg(0)
+
+	id, err := botIDOf(ctx, e, ref)
+	if err != nil {
+		return err
+	}
+
+	resp, err := e.api.ListBotVersionsWithResponse(ctx, id)
+	if err != nil {
+		return fmt.Errorf("listing the versions of bot %s: %w", ref, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("listing the versions of bot "+ref, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		for _, v := range resp.JSON200.Data {
+			e.printf("v%d\t%s\t%s\t%s\t%s\n", v.Version, v.Id, v.CreatedAt.Local().Format("2006-01-02 15:04"),
+				botVersionWho(v), botVersionModel(v.Settings))
+		}
+	})
+}
+
+// botVersionWho says how a version was saved and by whom.
+func botVersionWho(v openapi.BotVersion) string {
+	who := string(v.Source)
+	if by := val(v.SavedBy); by != "" {
+		who += " by " + strings.ReplaceAll(string(by), "_", " ")
+	}
+
+	if from := val(v.RestoredFrom); from != "" {
+		who += " from " + from
+	}
+
+	return who
+}
+
+func botVersionModel(s openapi.BotSettings) string {
+	model := cmp.Or(val(s.Model), "pi's default model")
+	if p := val(s.Provider); p != "" && val(s.Model) != "" {
+		model = p + "/" + model
+	}
+
+	return model
+}
+
+// botsRestore saves one of a Bot's versions again.
+func botsRestore(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	ref, version := fs.Arg(0), fs.Arg(1)
+
+	id, err := botIDOf(ctx, e, ref)
+	if err != nil {
+		return err
+	}
+
+	resp, err := e.api.RestoreBotVersionWithResponse(ctx, id, version)
+	if err != nil {
+		return fmt.Errorf("restoring bot %s: %w", ref, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("restoring bot "+ref, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { printBot(e, resp.JSON200) })
 }

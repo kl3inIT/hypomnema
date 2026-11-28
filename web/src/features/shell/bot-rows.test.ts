@@ -22,7 +22,7 @@ const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
   name: id,
   main: id === "coordinator",
   position,
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   fallbacks: [],

@@ -108,7 +108,7 @@ const vmap = {
   provider: "gateway",
   model: "gpt-sol",
   effort: "high",
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   fallbacks: [],

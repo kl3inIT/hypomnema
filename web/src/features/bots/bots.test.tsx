@@ -15,6 +15,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import type {
   Bot,
   BotSettings,
+  BotVersion,
   GitHost,
   Integration,
   Model,
@@ -50,7 +51,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   name,
   position: 0,
   main: name === "coordinator",
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   fallbacks: [],
@@ -103,12 +104,15 @@ function server(
     profiles?: Profile[]
     // hold keeps a PUT unanswered until it resolves.
     hold?: Promise<void>
+    // versions are each Bot's saved settings, newest first (issue #1336).
+    versions?: Record<string, BotVersion[]>
   } = {},
 ) {
   let bots = start
   const put: { name: string; settings: BotSettings }[] = []
   const removed: string[] = []
   const renamed: { id: string; name: string }[] = []
+  const restored: { id: string; versionId: string }[] = []
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const request = input as Request
@@ -121,6 +125,25 @@ function server(
       return json({ data: opts.integrations ?? [] })
     if (request.method === "GET" && path === "/profiles") return json({ data: opts.profiles ?? [] })
     if (request.method === "GET" && path === "/hosts") return json({ data: opts.hosts ?? [] })
+
+    const versionsOf = /^\/bots\/([^/]+)\/versions$/.exec(path)
+    if (request.method === "GET" && versionsOf) {
+      return json({ data: opts.versions?.[versionsOf[1]!] ?? [] })
+    }
+
+    const restore = /^\/bots\/([^/]+)\/versions\/([^/]+)\/restore$/.exec(path)
+    if (request.method === "POST" && restore) {
+      const [, id, versionId] = restore as unknown as [string, string, string]
+      const version = opts.versions?.[id]?.find((v) => v.id === versionId)
+      const had = bots.find((b) => b.id === id)
+      if (!version || !had) return json({ code: "not_found", message: "no such version" }, 404)
+
+      restored.push({ id, versionId })
+      const stored: Bot = { ...had, instructions: version.settings.instructions ?? "" }
+      bots = bots.map((b) => (b.id === id ? stored : b))
+
+      return json(stored)
+    }
 
     const one = /^\/bots\/([^/]+)$/.exec(path)
     const found = one && bots.find((b) => b.id === one[1])
@@ -147,7 +170,7 @@ function server(
       await opts.hold
 
       const { provider: _provider, model: _model, effort: _effort, ...kept } = found ?? bot(one[1]!)
-      const stored: Bot = { ...kept, ...settings, persona: settings.persona ?? "" }
+      const stored: Bot = { ...kept, ...settings, instructions: settings.instructions ?? "" }
       bots = [...bots.filter((b) => b.id !== one[1]), stored]
 
       return json(stored)
@@ -178,7 +201,7 @@ function server(
     return json({ code: "not_found", message: "not found" }, 404)
   })
 
-  return { put, removed, renamed }
+  return { put, removed, renamed, restored }
 }
 
 function open(path: string) {
@@ -229,11 +252,13 @@ test("the memory is read as one entry a line, without the empty ones", () => {
   ])
 })
 
-// A save replaces the model, the effort and the persona together, so what is empty is left out, not sent empty.
+// A save replaces the model, the effort and the instructions together, so what is empty is left out, not sent empty.
 // The skills are always sent: an empty list takes the Bot's skills away (issue #21).
 test("a draft is sent as the settings the server replaces", () => {
-  expect(settingsOf({ ...emptyDraft, name: "helper", persona: "  Be brief.\n" }, models)).toEqual({
-    persona: "Be brief.",
+  expect(
+    settingsOf({ ...emptyDraft, name: "helper", instructions: "  Be brief.\n" }, models),
+  ).toEqual({
+    instructions: "Be brief.",
     skills: [],
     skills_off: [],
     preset: "full",
@@ -247,7 +272,7 @@ test("a draft is sent as the settings the server replaces", () => {
         model: "gateway/gpt-luna",
         fallbacks: [],
         effort: "high",
-        persona: "Be brief.",
+        instructions: "Be brief.",
         skills: ["review-go"],
         skillsOff: ["pdf"],
         preset: "report",
@@ -260,7 +285,7 @@ test("a draft is sent as the settings the server replaces", () => {
     provider: "gateway",
     model: "gpt-luna",
     effort: "high",
-    persona: "Be brief.",
+    instructions: "Be brief.",
     skills: ["review-go"],
     skills_off: ["pdf"],
     preset: "report",
@@ -313,13 +338,13 @@ test("a card says the Bot's model and how much memory it uses", async () => {
       provider: "gateway",
       model: "gpt-luna",
       effort: "high",
-      persona: "You are the team's researcher.",
+      instructions: "You are the team's researcher.",
     }),
   ])
   open("/bots")
 
   const first = await screen.findByRole("article", { name: "coordinator" })
-  expect(first).toHaveTextContent("No persona.")
+  expect(first).toHaveTextContent("No instructions.")
   expect(first).toHaveTextContent("Model:Default (Claude Opus 5.5)")
   expect(first).toHaveTextContent("Memory:58 of 2,200 characters")
 
@@ -422,15 +447,15 @@ test("the list says so when it cannot be read", async () => {
   expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument()
 })
 
-// Scenario: the owner opens a Bot, reads what it keeps, and rewrites its persona. The save sends the model with
-// the persona, since the server replaces them together; the memory is not sent and stays.
-test("a Bot's persona is saved with its model, and its memory is read only", async () => {
+// Scenario: the owner opens a Bot, reads what it keeps, and rewrites its instructions. The save sends the model with
+// the instructions, since the server replaces them together; the memory is not sent and stays.
+test("a Bot's instructions are saved with its model, and its memory is read only", async () => {
   const { put } = server([
     bot("researcher", {
       provider: "gateway",
       model: "gpt-luna",
       effort: "high",
-      persona: "You are the team's researcher.",
+      instructions: "You are the team's researcher.",
       memory: "The owner writes in Vietnamese.\nDeploys go out on Fridays.",
     }),
   ])
@@ -451,9 +476,9 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
   )
   expect(within(memory).queryByRole("button", { name: "Save memory" })).not.toBeInTheDocument()
 
-  const persona = screen.getByLabelText("Persona")
-  await user.clear(persona)
-  await user.type(persona, "Answer briefly, with sources.")
+  const instructions = screen.getByLabelText("Instructions")
+  await user.clear(instructions)
+  await user.type(instructions, "Answer briefly, with sources.")
   await user.click(screen.getByRole("button", { name: "Save" }))
 
   await vi.waitFor(() =>
@@ -464,7 +489,7 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
           provider: "gateway",
           model: "gpt-luna",
           effort: "high",
-          persona: "Answer briefly, with sources.",
+          instructions: "Answer briefly, with sources.",
           skills: [],
           skills_off: [],
           preset: "full",
@@ -475,7 +500,7 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
     ]),
   )
   await vi.waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled())
-  expect(screen.getByLabelText("Persona")).toHaveValue("Answer briefly, with sources.")
+  expect(screen.getByLabelText("Instructions")).toHaveValue("Answer briefly, with sources.")
 })
 
 // Scenario: a skill for everyone, one the Bot adds and one it could add (issue #21). The owner turns the first
@@ -507,14 +532,14 @@ test("a Bot's skills are turned off, removed and added in its form", async () =>
 
 // Scenario: the owner changes a Bot and thinks again; the form goes back to what the server holds.
 test("discarding returns the form to the stored Bot", async () => {
-  server([bot("researcher", { persona: "You are the team's researcher." })])
+  server([bot("researcher", { instructions: "You are the team's researcher." })])
   open("/bots/researcher")
   const user = userEvent.setup()
 
-  await user.type(await screen.findByLabelText("Persona"), " Be brief.")
+  await user.type(await screen.findByLabelText("Instructions"), " Be brief.")
   await user.click(screen.getByRole("button", { name: "Discard changes" }))
 
-  expect(screen.getByLabelText("Persona")).toHaveValue("You are the team's researcher.")
+  expect(screen.getByLabelText("Instructions")).toHaveValue("You are the team's researcher.")
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
 })
 
@@ -577,6 +602,7 @@ const reviewer = {
   version_id: "pfv_1",
   version: 1,
   runtime: "claude",
+  instructions: "",
   fallbacks: [],
   skills: [],
   skills_off: [],
@@ -588,11 +614,17 @@ const reviewer = {
 } as Profile
 
 // Scenario: the owner limits what a Bot may use (issue #169). Limiting starts with none; the Connections offered
-// are those switched on for chats; each switch saves at once with the Bot's stored model and persona, so nothing
+// are those switched on for chats; each switch saves at once with the Bot's stored model and instructions, so nothing
 // else changes. The workers' card is the same, its profiles each a switch.
 test("a Bot's Connections and workers are limited by switches that save at once", async () => {
   const { put } = server(
-    [bot("vmap", { provider: "gateway", model: "gpt-luna", persona: "You answer about VMAP." })],
+    [
+      bot("vmap", {
+        provider: "gateway",
+        model: "gpt-luna",
+        instructions: "You answer about VMAP.",
+      }),
+    ],
     { integrations: [google], profiles: [reviewer] },
   )
   open("/bots/vmap")
@@ -607,7 +639,7 @@ test("a Bot's Connections and workers are limited by switches that save at once"
     settings: {
       provider: "gateway",
       model: "gpt-luna",
-      persona: "You answer about VMAP.",
+      instructions: "You answer about VMAP.",
       connections: { limited: true, names: [] },
     },
   })
@@ -632,9 +664,9 @@ test("a Bot's Connections and workers are limited by switches that save at once"
 })
 
 // Scenario: the owner sets a Bot's guaranteed share of the room (issue #731; its limit before). The card starts from
-// the Bot's number and cannot send it unchanged; a new number is saved with the Bot's stored model and persona.
+// the Bot's number and cannot send it unchanged; a new number is saved with the Bot's stored model and instructions.
 test("a Bot's guaranteed workers are saved from its card", async () => {
-  const { put } = server([bot("vmap", { persona: "You answer about VMAP." })])
+  const { put } = server([bot("vmap", { instructions: "You answer about VMAP." })])
   open("/bots/vmap")
   const user = userEvent.setup()
 
@@ -648,24 +680,27 @@ test("a Bot's guaranteed workers are saved from its card", async () => {
   await user.click(within(card).getByRole("button", { name: "Save guaranteed workers" }))
   expect(put.at(-1)).toEqual({
     name: "vmap",
-    settings: { persona: "You answer about VMAP.", guaranteed_dispatches: 2 },
+    settings: { instructions: "You answer about VMAP.", guaranteed_dispatches: 2 },
   })
 })
 
-// Each save carries the Bot's whole settings: while the form saves a new persona, the switches wait, so that one
-// sending the persona as it was cannot land after it and put it back.
+// Each save carries the Bot's whole settings: while the form saves new instructions, the switches wait, so that one
+// sending the instructions as it was cannot land after it and put it back.
 test("a Bot's switches wait while its form saves", async () => {
   let release = () => {}
   const hold = new Promise<void>((resolve) => {
     release = resolve
   })
-  server([bot("vmap", { persona: "You answer about VMAP." })], { integrations: [google], hold })
+  server([bot("vmap", { instructions: "You answer about VMAP." })], {
+    integrations: [google],
+    hold,
+  })
   open("/bots/vmap")
   const user = userEvent.setup()
 
   const limit = await screen.findByRole("switch", { name: "Limit Connections" })
-  await user.clear(screen.getByLabelText("Persona"))
-  await user.type(screen.getByLabelText("Persona"), "You answer about maps.")
+  await user.clear(screen.getByLabelText("Instructions"))
+  await user.type(screen.getByLabelText("Instructions"), "You answer about maps.")
   await user.click(screen.getByRole("button", { name: "Save" }))
 
   expect(limit).toHaveAttribute("aria-disabled", "true")
@@ -711,4 +746,47 @@ test("the main Bot's page says it owns no repository", async () => {
   const repos = await screen.findByRole("region", { name: "Repositories" })
   expect(repos).toHaveTextContent("The main Bot owns no repository")
   expect(within(repos).queryByRole("textbox")).not.toBeInTheDocument()
+})
+
+// Scenario (issue #1336): the owner opens a Bot's versions, each with who saved it, and restores the first: the
+// form then shows its instructions again. The newest is the current one and offers no restore.
+test("a Bot's versions say who saved them, and an older one is restored", async () => {
+  const at = new Date(Date.now() - 3_600_000).toISOString()
+  const version = (n: number, instructions: string, m: Partial<BotVersion> = {}): BotVersion => ({
+    id: `bov_${n}`,
+    version: n,
+    settings: { instructions, model: "gpt-luna", provider: "gateway", effort: "high" },
+    source: "save",
+    saved_by: "owner",
+    created_at: at,
+    ...m,
+  })
+  const { restored } = server([bot("researcher", { instructions: "You answer about roads." })], {
+    versions: {
+      researcher: [
+        version(2, "You answer about roads.", { saved_by: "main_bot", chat_id: "cht_1" }),
+        version(1, "You answer about maps."),
+      ],
+    },
+  })
+  open("/bots/researcher")
+  const user = userEvent.setup()
+
+  const list = await screen.findByRole("list", { name: "Versions" })
+  const rows = within(list).getAllByRole("listitem")
+  expect(rows).toHaveLength(2)
+  expect(rows[0]).toHaveTextContent("Version 2")
+  expect(rows[0]).toHaveTextContent("Saved by the main Bot")
+  expect(rows[0]).toHaveTextContent("Current")
+  expect(rows[1]).toHaveTextContent("Saved by you")
+
+  await user.click(within(rows[1]!).getByText("Version 1"))
+  expect(within(rows[1]!).getByText("gateway/gpt-luna (high)")).toBeInTheDocument()
+  await user.click(within(rows[1]!).getByRole("button", { name: "Restore this version" }))
+  await user.click(await screen.findByRole("button", { name: "Restore" }))
+
+  await vi.waitFor(() => expect(restored).toEqual([{ id: "researcher", versionId: "bov_1" }]))
+  await vi.waitFor(() =>
+    expect(screen.getByLabelText("Instructions")).toHaveValue("You answer about maps."),
+  )
 })

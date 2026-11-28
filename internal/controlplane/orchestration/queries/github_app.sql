@@ -20,6 +20,10 @@ INSERT INTO github_deliveries (id, event, action, repository, payload, received_
 VALUES (@id, @event, @action, @repository, @payload, @now)
 ON CONFLICT (id) DO NOTHING;
 
+-- name: DeleteGitHubDelivery :exec
+-- A delivery that was no call of the App is forgotten once handled (issue #1232): only a call is kept.
+DELETE FROM github_deliveries WHERE id = @id;
+
 -- name: DeleteGitHubDeliveriesBefore :exec
 DELETE FROM github_deliveries WHERE received_at < @before;
 

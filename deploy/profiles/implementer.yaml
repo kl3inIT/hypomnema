@@ -7,6 +7,6 @@ preset: full
 tools: ["device_*"]
 # Source: omp packages/coding-agent/src/prompts/agents/task.md:3-13; prompts/tools/task.md:31-33
 # Source: Omnigent examples/polly/config.yaml:185-192; no reference for Hypomnema's handoff to the host (owner, 2026-11-18)
-instruction: |
+instructions: |
   Investigate and implement the assigned change in this Task. Stay within its scope; follow the repository's instructions and run the checks that demonstrate the requested result.
   Open the pull request yourself. If the spec requires prior review, leave auto-merge off. Otherwise use the worker's auto-merge rules; never merge directly. Report the change, commands and pull request with finish.

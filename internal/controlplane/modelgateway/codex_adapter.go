@@ -316,7 +316,7 @@ func (s *Server) codexCool(ctx context.Context, token AccountToken, model string
 		return
 	}
 
-	until, ok := s.coolingUntil(token, failure.Status, false, failure.ResetsAt)
+	until, ok := s.coolingUntil(token, failure.Status, false, failure.ResetsAt, codexCode(failure))
 	if !ok {
 		return
 	}

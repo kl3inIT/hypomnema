@@ -148,6 +148,18 @@ func (s *Store) RecordDelivery(ctx context.Context, d Delivery) (bool, error) {
 	return recorded, nil
 }
 
+// ForgetDelivery drops a delivery's record once it was handled and was no call of the App (issue #1232): what a
+// refused sender wrote leaves no trace, not even its id. GitHub sends it again only when asked, which handles it
+// again the same way.
+func (s *Store) ForgetDelivery(ctx context.Context, id string) error {
+	err := s.write(ctx, func(q *store.Queries, _ int64) error { return q.DeleteGitHubDelivery(ctx, id) })
+	if err != nil {
+		return fmt.Errorf("forgetting GitHub's delivery %s: %w", id, err)
+	}
+
+	return nil
+}
+
 // LatestDelivery is the last delivery received, and false before any.
 func (s *Store) LatestDelivery(ctx context.Context) (Delivery, bool, error) {
 	r, err := s.read().LatestGitHubDelivery(ctx)

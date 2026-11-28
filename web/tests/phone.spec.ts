@@ -24,7 +24,7 @@ const bot = (id: string, position: number, mainChat: string) => ({
   name: id,
   position,
   main_chat: mainChat,
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   fallbacks: [],

@@ -96,7 +96,7 @@ flowchart TB
     SUP["supervisor: one pi per chat,<br/>stopped after 30 min idle (coordinator)"]
     subgraph BOX["bubblewrap box, user coordinator (hypomnema-pi)"]
         PI["pi --mode rpc"]
-        RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
+        RO["read-only: prompt.md (instructions, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
         MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>listen_search,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn,<br/>chat_search over its own chats"]
     end
@@ -1637,8 +1637,34 @@ sequenceDiagram
     shows less when it has less room). That is decided once for a Run; then the strip stays as the owner left it.
   - A wake-up's Run chip pins its Run to the dock, open, even when it has ended, until the chat is left.
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
-  Bot is a row with an id, a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona
+  Bot is a row with an id, a name, a model (provider, name, effort, checked as a profile's is, for pi), instructions
   and a memory. It is apart from the workers' profiles (owner, 2026-11-11).
+  - **One agent spec** (issue #1336, after OpenClaw's one agent entry, `src/config/zod-schema.agent-entry-base.ts`,
+    and Paperclip's one `agents` table): what a Bot and a profile have in common is `profilestore.AgentSpec`,
+    embedded in `orchestration.Bot` and `profilestore.Profile`, and the API's `AgentSpec` schema, which `Bot` and
+    `Profile` take with `allOf`: `instructions`, `provider`, `model`, `effort`, `fallbacks`, `skills`, `skills_off`
+    and the tool switches. A Bot's `instructions` were its `persona`, a profile's its `instruction` (migration
+    `agent_spec` renames `bots.persona` and `profile_versions.instruction` to `instructions`); for one release the
+    API still gives `persona` and `instruction` beside them and reads them when `instructions` is left out
+    (`BotSettings.persona`, a profile YAML's `instruction:`, both refused together), and the CLI's
+    `--persona-file` is `--instructions-file`. `fallbacks` is one thing on both, an ordered `provider/model` list
+    checked by `profilestore.CheckFallbacksTx` (at most five, each served on the agent's runtime, none repeated nor
+    the agent's own model, only after a model of its own); a Bot's must also be gateway models. The editor of a
+    profile whose stored source still says `instruction:` or names backup profiles shows it with `instructions:`
+    and the converted list, and applying that text unchanged makes no new version.
+  - **Versions** (issue #1336, after the profiles' versions and Paperclip's `agent_config_revisions` with
+    `createdByUserId`, `createdByAgentId`, `source` and `rolledBackFromRevisionId`): each save that changes a Bot's
+    settings keeps a row of `bot_versions` (`id`, `bot_id`, `version`, the settings as the setup changes keep them
+    but with the instructions under `instructions`, where the setup changes keep `persona` for their undo's hash,
+    `source` `save`, `restore` or `undo`, `saved_by` `owner` or `main_bot` with its `chat_id`, `restored_from`,
+    `created_at`): `PUT`/`POST /bots`, the undo of a setup change and the owner's grant of a Connection a Bot asked
+    for. A Bot saved before versions keeps what it had as a `before_versions` version at its next save. Its name
+    and memory are not part of a version, as a profile's memory is not part of its versions. `GET
+    /bots/{bot_id}/versions` (`hypomnema bots versions`) lists them newest first to the tokens that read the Bot;
+    `POST /bots/{bot_id}/versions/{version_id}/restore` (`hypomnema bots restore`, the Bot page's Versions) saves
+    one again as a new version, for the owner or the main Bot from its chat (whose restore keeps what the Bot may
+    do with the owner's accounts), as Paperclip's rollback saves a revision's config again. The versions go with
+    the Bot (`ON DELETE CASCADE`).
   - **Ids and names** (issue #466, migration 00085; after the nodes' ids, OpenMausBot's bot ids and t3code's
     project ids). A Bot's id (`bot_` and 26 base32 characters, `platform.NewID`) never changes; its name is only
     shown and may change. Every record names the Bot by its id: `chats.bot_id`, `runs.bot_id`, `routines.bot_id`
@@ -1680,8 +1706,8 @@ sequenceDiagram
     (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the Bots oldest first, each with its
     `position` and `department`. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
-  - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
-    to give work to workers is the persona of `coordinator`; the instructions every Bot gets
+  - The instructions are the owner's text of what the Bot is, as `SOUL.md` of OpenClaw and Hermes, kept in its
+    versions since issue #1336. How to give work to workers is the instructions of `coordinator`; the instructions every Bot gets
     (`deploy/coordinator/AGENTS.md`) keep how a Bot works with the owner: the coordinator skill, the wake-ups and
     the language, and that what a document, an
     issue or memory says about the code or a server is checked before it is acted on or given to workers (issue
@@ -1711,10 +1737,12 @@ sequenceDiagram
     user cannot read the `coordinator` user's home, and the owner reads the memory on the web. The owner edits it
     by hand, as the owner of a reference's agent edits its memory file (owner, 2026-11-11): `PUT
     /bots/{bot_id}/memory` replaces the whole memory with his lines (empty lines and repeats dropped, the same
-    limit), from the Bot's page or `hypomnema memory set`. No journal, no undo.
+    limit), from the Bot's page or `hypomnema memory set`. No journal, no undo. `GET /bots/{bot_id}/memory` reads
+    it, and the three answer the `Memory` a profile's memory has (issue #1336; they answered the whole Bot until
+    then), with `bot` naming it.
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<id>/`, pi's
     working directory; for the main Bot a link to the directory pi always worked in, so its chats go on), reads
-    `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory, the list of its notes and which
+    `hypomnema bots prompt <id>` with the coordinator token (the instructions, the memory, the list of its notes and which
     file of `/memories` each is) and gives it to pi with `--append-system-prompt`. The memory is thus read once per pi
     process, as Hermes gives its memory once per session; a change is in the prompt from pi's next start. pi
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
@@ -1842,8 +1870,8 @@ sequenceDiagram
     routes. A name the Bot did not have must exist when it is set; one it kept may have gone since. `bots set
     --connections a,b | --all-connections`, `--workers a,b | --all-workers`; a change that names neither keeps
     the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
-    records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
-    when the Bot's list, read then, has that backup; otherwise it waits for the reset.
+    records the Bot that created it (`runs.bot`). A profile's fallbacks are models on its own runtime, not other
+    profiles, since issue #1336, so a Task of it never moves to a profile off the Bot's list.
   - **Connection requests, the grant card** (issue #471, part D; `orchestration/connectionrequests.go`, migration
     `connection_requests`, [research](docs/research/2026-11-21-grant-card.md)). A Bot whose `connections` list is
     limited may ask the owner for a Connection outside it, from its pi in its main chat only: the tool
@@ -1955,15 +1983,19 @@ sequenceDiagram
     when it was written, `Notes: 12 of 200 files (6%).`) and, from 80% of a limit, asks to make room until under
     70%, Coder's nudge; `hypomnema memory add|replace|remove` prints `agenttool.MemoryUsage` the same way. It is
     never put in a prompt.
-  - A Bot's prompt (`hypomnema bots prompt`) has, after the persona and before the Bot's own `MEMORY.md`, the
+  - A Bot's prompt (`hypomnema bots prompt`) has, after the instructions and before the Bot's own `MEMORY.md`, the
     memory about the owner (`/memories/USER.md`), then the Bot's notes with their sizes, read with the tool when
     their subject comes up (OpenMausBot's topic index); what changes least comes first. A Lark group's chat gets
     neither memory nor the notes.
-  - The client API: `GET /profiles/{name}/memory`, `GET /owner-memory` for every token; `POST /owner-memory` (one
-    change) for every token; `PUT` of either and `POST /profiles/{name}/memory` for the owner. A memory's notes:
-    `GET /memory-notes?bot=|agent=` and `GET /memory-notes/note?…&path=` for every token, a Bot's token only its
-    own Bot's; `PUT` and `DELETE /memory-notes/note` for the owner. `hypomnema memory show|set|add|replace|remove`
-    takes `--agent <name>` or `--owner` beside `--bot`; `hypomnema memory ls|cat|put|rm` the notes. Removing a Bot
+  - The client API: `GET /profiles/{name}/memory` (`GetProfileMemory`), `GET /owner-memory` for every token;
+    `POST /owner-memory` (one change) for every token; `PUT` of either and `POST /profiles/{name}/memory`
+    (`SetProfileMemory`, `ChangeProfileMemory`) for the owner. The operations were `GetAgentMemory`,
+    `SetAgentMemory` and `ChangeAgentMemory` until 2026-11-28 (issue #1336), and the `Memory` they answer names the
+    profile as `profile`, and for one release as `agent` too. A memory's notes: `GET /memory-notes?bot=|profile=`
+    and `GET /memory-notes/note?…&path=` for every token (`agent=` still names the profile for one release), a
+    Bot's token only its own Bot's; `PUT` and `DELETE /memory-notes/note` for the owner. `hypomnema memory
+    show|set|add|replace|remove` takes `--profile <name>` (`--agent`, its name until 2026-11-28, for one release)
+    or `--owner` beside `--bot`; `hypomnema memory ls|cat|put|rm` the notes. Removing a Bot
     with its chats removes its notes; a Bot with notes is not removed plainly.
   - On the web (`web/src/features/memory/`): an agent's page has Memory beside Configuration and Versions, and
     Settings has "About you" beside Notifications under Preferences, as OpenClaw's Profile (issue #1296).
@@ -2390,7 +2422,8 @@ flowchart LR
 - Legacy profiles (the domain store `orchestration/profilestore` keeps profiles, their versions, the role routing and
   the providers and models they name, reached through `Service.Profiles()`, issue #1241; issue #42, after Omnara's
   agent configs): a profile is a YAML document
-  (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
+  (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instructions`,
+  `instruction` until 2026-11-28 and read for one release, issue #1336). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
   API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or
@@ -2402,11 +2435,11 @@ flowchart LR
   section at the bottom of an agent's page, as the Bot page's Removal). One no Task named and no Dispatch ran goes
   with its versions, as Omnigent removes an agent no session uses; one used before is marked deleted
   (`profiles.deleted_at`, migration 00084), as Coder marks a template and Onyx a persona: it is left out of the
-  lists, reads as not found ("was deleted"), and no new Task, backup or Bot's workers list may name it, while its
+  lists, reads as not found ("was deleted"), and no new Task or Bot's workers list may name it, while its
   versions stay for the Dispatches that ran them. Applying its name again brings it back as a new version, even
   from the same source (Onyx's `mark_persona_as_not_deleted`). `implementer` is never deleted, and a profile is
-  not while a Task that names it has not ended (a failed one of an open Run counts, being reopenable), another
-  profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
+  not while a Task that names it has not ended (a failed one of an open Run counts, being reopenable) or a Bot's
+  workers list names it. Its agent memory is kept either way and
   belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. A subscription (`claude_subscription`, `codex_subscription`,
@@ -2442,9 +2475,17 @@ flowchart LR
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
-  A profile may name up to five `fallbacks`, other workers' profiles in the owner's order (issue #171, after
-  OpenMausBot's backups of a bot and OpenClaw's fallbacks of an agent;
-  [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); they are kept in the version.
+  A profile may name up to five `fallbacks`, models as `provider/model` in the owner's order, as a Bot's (issue
+  #1336, after OpenClaw's model fallbacks, `src/config/zod-schema.agent-model.ts`); they are kept in the version.
+  Until 2026-11-28 they named other workers' profiles (issue #171,
+  [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); migration `agent_spec` gave each version
+  that named backups each backup's current model, in order, that the API accepts and the version's runtime can run
+  (`CheckFallbacksTx`: the provider's kind among the runtime's, as `runtimeProviders` was on 2026-11-28, and the
+  model in the catalog), dropping a model the runtime cannot run (a Claude subscription's for a Codex profile), a
+  role, a backup with no model of its own, a name no profile has, a repeat and the version's own model, and every
+  backup of a version with no model of its own, since fallbacks follow a primary; it kept what they named in
+  `legacy_profile_fallbacks`. Its Down puts those lists back and writes the YAML of a version applied since in the
+  names the release before reads: `instructions:` as `instruction:`, and its `fallbacks`, models, left out.
   The starting set: `implementer`, `reviewer` and `explorer` on Claude Code through the provider `model-gateway`
   (issue #462, migration 00081), the implementer and the reviewer on `claude-opus-5-5`, the explorer on
   `claude-sonnet-5-5`; providers `claude-subscription` and `model-gateway` (the gateway, below). The migration
@@ -2564,23 +2605,27 @@ flowchart LR
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
   Requests only place work; the node makes its allocatable memory the ceiling of all its workers together
   ([Workers' memory ceiling](#workers-memory-ceiling-issue-1313)).
-  A new Task with a legacy profile whose runtime has only accounts that cool down is placed under the first
-  of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
-  current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
-  only one that names no runtime or model of its own; a backup's own `fallbacks` are not followed; with none that
-  can run, the Task waits as before. The Dispatch records `fallback_for`, the Task's own profile, and
+  A Task of a profile with `fallbacks` runs down a chain of its own (issue #1336; `profileChain`), as a role's
+  chain is run (role routing, above): the profile's model first, then each fallback, on the profile's runtime,
+  with the profile's effort and version. Such a Task is the profile's, not a role's: its offer is not
+  `role_routed` (`roleRouted`, which says where the chain came from, kept apart from the Dispatch's
+  `chain_entry`), so a writer stays a writer and may publish on every model of it, and a role's chain, a role
+  profile's Task or a `review_of`, takes the role's effort. While the gateway cools the model, or every account of its runtime cools
+  down, the next entry that can run is placed (`placeRoleBackup`). Only a Task that names no runtime or model of
+  its own has a chain; with no entry that can run, the Task waits as before. Until 2026-11-28 the list named
+  backup profiles, under whose own version a Task ran (issue #171); a Dispatch made then that is still open keeps
+  that version. The Dispatch records `fallback_for`, the Task's own profile, and
   `fallback_until`, when its first account is free; the first such Dispatch of a Run for one `fallback_until` is
   escalated (`fallback`, with `profile`, `fallback` and `until`), so a coordinator hears of one stretch of a limit
-  once. Each pass starts from the Task's own profile, so work returns when the limit has reset. A profile whose
-  model the gateway serves never triggers it: the state of the gateway's accounts is not looked at. The Agents
-  page edits the list, and a Task's card says which profile it stands in for.
+  once. Each pass starts from the chain's first entry, so work returns when the limit has reset. The Agents page
+  edits the list with the Bot page's picker of models, and a Task's card says which profile it stands in for.
   A Task whose worker met the limit under way is handed off (issue #187, after Orca's hand-off of a session to
   another agent and OpenMausBot's resending of a limited turn;
   [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md), section 4): when its Dispatch ends
   `rate_limited` and the Task may be handed off, it is not held until the reset, and the next pass gives it a new
-  Conversation under the first fallback that can run on the Conversation's node, in the same worktree; the old
-  Conversation closes as superseded and no session of the first CLI is resumed. It may be handed off when it names
-  no runtime or model, its profile lists fallbacks, it was not handed off before, and no request to a service was
+  Conversation under the next entry of its chain that can run on the Conversation's node, in the same worktree;
+  the old Conversation closes as superseded and no session of the first CLI is resumed. It may be handed off when
+  it names no runtime or model, it runs down a chain with an entry after its own, and no request to a service was
   approved for it (a write the policy allows without asking leaves no record and is not seen). The Dispatch has
   `handoff`; its offer's spec is the Task's spec, then that another worker began it, the end of the previous
   Dispatch's transcript without reasoning (at most 40 items, 400 characters a line, 12,000 in all) inside
@@ -2680,9 +2725,8 @@ flowchart LR
       Omnara's `webhooks.go:21-120`): a body over 2 MiB, or one whose `X-Hub-Signature-256` is not the HMAC-SHA256
       of the body with the webhook secret (compared in constant time), is refused (401 for a signature) and changes
       nothing. Each delivery is recorded by its `X-GitHub-Delivery` id (`github_deliveries`, kept 30 days): one
-      whose id was recorded is answered 200 and not handled again. The body of `issue_comment`,
-      `pull_request_review` and `pull_request_review_comment` is kept for #1232, which answers them; nothing else is
-      done with them yet. `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
+      whose id was recorded is answered 200 and not handled again; no delivery's body is kept (a call's words go
+      to its Inbox item, below). `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
       for reads its checks once with the repository's token; `pull_request` `synchronize` (a new head) or
       `reopened` resets that wait to pending at the new head, unread, so the next ask reads the new head's checks;
       each change of the row grows its `version`, and a read of GitHub's keeps what it found only when the row is
@@ -2694,6 +2738,64 @@ flowchart LR
       closed never wins so, and a reopen's pending stands;
       `pull_request` `closed` marks it merged or closed and settles a followed pull request (#1053) without reading
       GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
+    - **Its calls** (issue #1232, `githubapp/calls.go`, `inboxstore/github.go`; who may call in
+      [docs/github-app.md](docs/github-app.md)): an `issue_comment` or `pull_request_review_comment` `created`, or a
+      `pull_request_review` `submitted`, whose own body names the App as a word by the slug kept in its credential
+      (`Credential.Slug`, never a fixed word; `@<slug>` or `@<slug>[bot]`, any
+      case, Omnara's `githubMentionsBot`, `github_event.go:363-393`) on a repository it is installed on (the
+      delivery's installation the one kept for it) is a call; an edit, an issue's or pull request's own body and a
+      `pull_request` event never are; a conversation's delivery that is not a call taken is forgotten once
+      handled, its id too, and the migration clears the bodies 00188 kept. The caller is
+      the delivery's `sender`, never the text: a `User` whose id is
+      the comment's author's (Omnara `github_event.go:255-262`, claude-code-action `trigger.ts` `isTextFromActor`),
+      with `admin` or `write` on the repository as `GET /repos/{owner}/{repo}/collaborators/{login}/permission`
+      answers with the installation's token for the same id (claude-code-action `permissions.ts:189-206`, Omnara
+      `permissions.go:12-37`); a bot (the App itself included), a reader or anyone else leaves no trace but the
+      delivery's id, and gets no answer. The request is the caller's words after the first mention on that line
+      only, a line ending at LF, CR LF or a lone CR as GitHub's Markdown ends one (`githubapp.Request`;
+      claude-code-action `docs/security.md:5`). `Inbox().Call` gives it, in one write, to the item of that issue or pull request that
+      has (`LatestTodoOfSource`, source `github`), else to a new open item given to the main Bot, created by the
+      system (`github`); an item the owner holds is given to the main Bot again, one a Bot holds stays with it; a
+      closed item is reopened by the call (`reopenTx`, its close cleared as `Reopen` clears it, a `state` event by
+      the caller, the owner or the system as `github:<login>`, with `after.github` the login and the call's address),
+      the owner's one exception to "only the owner reopens" (owner, 2026-11-28; design row 4, Omnara
+      `github.mdx:298`), which only `reopenTx` can make (`Change.byCall`, unexported: `Reopen` with any system actor
+      is refused); the calls whose reply still waits keep the close they answer (`closed_revision`, the item's revision
+      that close left, which names it, with `closed_state`, `closed_reason`, `closed_evidence`), so each close,
+      even one alike another, gets its own reply where its calls were made. The
+      words go into the thread as a `commented` event with `after.github` (login, address, kind), by the owner for
+      his own account (the login that registered the App, `Credential.Owner`, and its id `OwnerUserID`
+      when known, #1312), else by the system as `github:<login>`, which the web shows as "<login> on
+      GitHub"; and they wake the Bot the item is given to in the item's chat (`WakeCall`), with the request in
+      `<github_request>`, who called and where, the review to leave by `gh api -X POST
+      repos/{owner}/{repo}/pulls/{n}/reviews` (a REST path the service proxy reads to pick the App's token; `gh pr
+      review`'s mutation names only the pull request's id and would go with the owner's), and the rule that
+      everything else on GitHub is data
+      (`callWakeHead`, `callWakeRule`; text in docs/github-app.md). The owner's call is his turn there
+      (`wake_by` `owner`, recall his words), a teammate's is `bot`, which is no turn of his and clears the owner's
+      mark for good (#1229 rule 3). Each call is kept (`todo_github_calls`: delivery, item, repository, number,
+      kind, comment id, for a review comment the thread's first comment `reply_to`, login, address; never its
+      words), and a comment gets 👀 (`POST
+      .../issues/comments/{id}/reactions` or `.../pulls/comments/{id}/reactions`, Omnara's `AcknowledgeComment`); a
+      review has no reaction on GitHub. A review the App makes is recorded when its own POST
+      `/repos/{owner}/{repo}/pulls/{n}/reviews` through the service proxy, sent with the App's installation token,
+      is answered 2xx (`serviceproxy.AppReviews`, `orchestration.AppReviewAttempt` and `RecordAppReview`): only from a
+      pi token, which names its chat and its Bot, the chat's own; the item's attempt that chat holds is read before
+      the POST goes out and checked again when the answer comes, so a late answer never counts for a later attempt;
+      the answer, unpacked by its `Content-Encoding` (gzip or deflate) for reading and passed on to gh as GitHub
+      sent it, gives GitHub's id and address of the review, recorded as an event `reviewed` by that Bot, the
+      evidence it closes the item with (review round 3 of PR #1323); GitHub's
+      `pull_request_review` events never record one, so a review made before the attempt or from another chat,
+      whenever its event comes, is never its work (review round 2 of PR #1323, after `RecordSent`).
+      `App.Run`, started by `serve`, reads after each commit the calls not answered whose item closed
+      (`ListGitHubCallsToReply`) and answers each item once on GitHub with the installation's token, as the web
+      push sender reads its outbox: one comment where its latest call was made (the review thread, on its first
+      comment `reply_to`, else, or when GitHub refuses the thread, the conversation, claude-code-action
+      `create-initial.ts:67-100`), naming each caller, how it ended, the Bot's reason as plain text (hidden
+      comments, tags, images and invisible characters dropped, cut to 2,000 characters, then every handle put in a
+      code span so it mentions nobody) and the web links of its evidence (the review, the pull request); an item whose reply GitHub refused is tried
+      again a minute later without holding back the others, and one GitHub refuses for good (404, 410, 422) or of a
+      repository the App no longer covers is marked answered with no address.
     - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks
       `GET /pull-requests/ci` (client API, for the coordinator) or `GET /agent/v1/ci/wait` (a worker, through its
       `hypomnema` script) again and again, each ask held up to 50 s, under a reverse proxy's minute. The first wait
@@ -3542,7 +3644,7 @@ flowchart LR
       the owner's own: another person's message, a Run's event, a Routine's run and an Approval answered after
       its request each end it (OpenMausBot `outside-lineage.ts`, OpenClaw "a wake is never an owner turn").
       In an Inbox item's chat, his own words typed in the Inbox (his prompt as he hands the item over, his comment)
-      are his turn as his message is, and a wake-up without his words is not (decision 7 of issue #1229); a chat
+      and his own call of the GitHub App (issue #1232) are his turn as his message is, and a wake-up without his words is not (decision 7 of issue #1229); a chat
       that holds **the owner's mark** is his turn while its last input is the hand-off that marked it (the Inbox's
       passing from Bot to Bot, below).
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
@@ -3934,7 +4036,7 @@ flowchart LR
     CB --> K
     CT --> K
     K --> CHAT --> MT
-    MT -- "next target on no answer, 429, 5xx,<br/>while nothing was sent" --> OC
+    MT -- "next target on no answer, or a refusal whose code moves on,<br/>while nothing was sent" --> OC
     MT --> SUB --> ACC
     K -- "/v1/search, /v1/web/fetch, /v1/alpha/search" --> WS
     K -- "/v1/images/generations, /edits" --> IMG
@@ -4057,8 +4159,9 @@ capabilities do not exist yet.
     gateway fallbacks (`bots.fallbacks`, migration 00122, issue #870), set on its page or with `bots set --fallbacks`
     and shown by `bots show`. A chat using that Bot's model uses the `hypomnema-fallback` provider in `models.json`,
     which speaks Chat Completions so the gateway can switch vendors without replaying the turn. It tries the
-    model's own targets and accounts first; when all are resting or refuse access, it tries the Bot's backups in
-    order before sending an answer. The key still only accepts requests for the primary model, and usage records
+    model's own targets and accounts first; when its last target ends on a cooling code that moves on (a used-up
+    window, a throttle, spent credits, a refused key, or an overload, 5xx and 529 included; issue #1335), or all
+    its accounts rest, it tries the Bot's backups in order before sending an answer. The key still only accepts requests for the primary model, and usage records
     the model that served it. A chat that chooses its own model keeps its own wire and does not use the Bot's
     fallbacks. A Bot that names no model runs on Claude Opus 5.5 under the Claude
     subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
@@ -4159,7 +4262,7 @@ capabilities do not exist yet.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
   Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
-  model's targets in order, the next on 429 or 5xx. An `opencode_go` or `opencode_zen` target whose model OpenCode
+  model's targets in order, the next on a refusal whose cooling code moves on (below). An `opencode_go` or `opencode_zen` target whose model OpenCode
   serves on Messages is passed the body as sent but for the model's name, under the provider's keys (issues #854,
   #965), and its answer comes back as Anthropic's does below. A `claude_subscription` target is passed the request:
   - The body is passed on as sent but for the model's name (`modelgateway/claude`, `PassThrough`). A client that is
@@ -4370,8 +4473,20 @@ capabilities do not exist yet.
   usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
   comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
   mark, ends with an error event (`upstream_truncated`) instead of looking whole.
-- The next target is tried when one gives no answer, or answers 429 or 5xx, and only while nothing was sent to the
-  client. Any other answer of a provider reaches the client with its status and body. When no target can be reached
+- The next target is tried when one gives no answer, or refuses with a cooling code that moves on (issue #1335,
+  `modelgateway/chat.go` `codeMovesOn`, the same classifier as an account's rest): `usage_limit`, `rate_limit`,
+  `billing`, `auth` or `overloaded` (5xx and 529 included), and only while nothing was sent to the client; on every
+  chat route (`/chat/completions`, `/responses`, `/messages`, and the control plane's own completions). A failure
+  no code names (`unknown`) does not move on, nor does a refusal of the request itself (a 400, 413 or 422 without
+  a throttle's words), as Bifrost rotates on its failure classes but not on `caller_fault` or `unknown`
+  (`docs/features/retries-and-fallbacks.mdx`). A refusal of the request's content ends the turn: it reads
+  `unknown` whatever its status, a 403 included (OpenRouter's moderation 403 with `flagged_input`, its typed
+  refusal with `error_type: "refusal"` and the provider's `bio_policy` or `cyber_policy` in `error.metadata`, read
+  before the status, and the codes and words LiteLLM maps to `ContentPolicyViolationError`), while a 403 that
+  refuses the key moves on. Such a refusal is not tried on the subscription's next account either, and rests no
+  account: a 4xx that reads `unknown` costs the account nothing. A target that is
+  skipped because none of its accounts exists keeps the code of the move before it in the record. Any other answer
+  of a provider reaches the client with its status and body. When no target can be reached
   the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
   is not declared, or the body is wrong) and 413.
 - A provider is of one of two sorts. An `openai_compatible` one is data the owner declares (a base URL, a key in the
@@ -4409,8 +4524,16 @@ capabilities do not exist yet.
     `RateLimitCooldown` before it runs the Task again.
   - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
-    minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
-    401, 402 or 403; 30 seconds after another 5xx.
+    minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 1 hour, the usage
+    wait, after a refused key or sign-in (`auth`) or spent credits (`billing`), or the provider's reset when later
+    (at most 2 hours), never a shorter `Retry-After`, since nothing changes until the owner signs in again or pays
+    (issue #1335; OpenClaw's billing off-time; the same for an image model's rest and an Antigravity model's wait on
+    a spent credits balance), and the Models page's account card
+    says what to do, "Sign in again" ("Add a new key" for an OpenCode key) or "Add credits"; 2 minutes after
+    another 401, 402 or 403; 30 seconds after another 5xx. A Claude account rests by its code (issue #1335):
+    `usage_limit` (the unified status `rejected`, or a 429 whose words name its 5-hour or weekly limit) until
+    Anthropic's unified reset, or the hour when none is named; `rate_limit` the short doubling
+    wait, or the `Retry-After` it names, never the window's reset that every answer carries.
   - Why an account rests is one closed set for every adapter (issue #1305, `modelgateway/cooling_code.go`):
     `usage_limit` (a plan's window or allowance used up), `rate_limit`, `billing` (credits, a balance or a budget
     spent), `auth` (the key or sign-in refused), `overloaded`, `unknown`. One classifier reads every refusal, the
@@ -4420,14 +4543,15 @@ capabilities do not exist yet.
     `usage_limit_reached`, Google's `QUOTA_EXHAUSTED`), an auth code, or a server code on no 4xx decides; then
     401/403, a 429 (its words say a spent balance or a used-up plan, else a rate limit), a generic throttle code
     (`rate_limit_error`, read after a 429's words since Anthropic-shaped endpoints put it on every 429), a 5xx;
-    then the words alone. A Claude 429 is `usage_limit` only with `anthropic-ratelimit-unified-status: rejected`
-    (OmniRoute `isClaudeUsageWall`); an Antigravity model that waits on a used-up quota is `usage_limit`, one that
+    then the words alone. A Claude 429 is `usage_limit` with `anthropic-ratelimit-unified-status: rejected`
+    (OmniRoute `isClaudeUsageWall`) or when its words name its 5-hour or weekly limit (issue #1335), else
+    `rate_limit`; an Antigravity model that waits on a used-up quota is `usage_limit`, one that
     waits on a throttle `rate_limit`, either `billing` when Google says the credits balance is spent; a suspended
     account or one to verify is `auth`. The waits are unchanged, a Go 402 `GoUsageLimitError` keeping the used-up
-    allowance's hour. The reset a refusal names is read from its headers first
+    allowance's hour (since #1335 the waits follow the code, above). The reset a refusal names is read from its headers first
     (`retry-after-ms`, `Retry-After` as seconds or a date, `x-ratelimit-reset-ms`, `x-ratelimit-reset`,
     `x-ratelimit-reset-after`), else from its words, the pairs after "resets in" summed ("2hr 15min", "3 days";
-    omp `extractRetryHint`); Claude's unified reset still comes before both. The account's cooldown keeps the code
+    omp `extractRetryHint`); Claude's unified reset comes before both for a `usage_limit`. The account's cooldown keeps the code
     (`account_cooldowns.code`, checked against the set; a node Dispatch's rate limit is `rate_limit`) beside the
     provider's own message (`reason`); the accounts API gives `cooling_code` and `cooling_reason`, `accounts list`
     prints both, and the Models page's account card says the code in words ("Usage limit, resets 12:42 AM", "Key
@@ -4666,7 +4790,9 @@ capabilities do not exist yet.
   Since migration 00058 a row also holds the subscription account of the last attempt (`account_id`, empty for an
   API provider; noted on the request's context by the loop over accounts) and, for a request that failed, the
   provider's message (`error`, at most 500 characters: `error.message` of its body, else the body; a set sentence
-  when it said nothing). No prompt or answer is kept.
+  when it said nothing). No prompt or answer is kept. A request that moved on to the model's next target or the
+  Bot's fallback keeps the cooling code it last moved on for (`cooling_code`, issue #1335; empty when it did not),
+  given as `cooling_code` by `GET /gateway/usage/requests`.
   Since migration 00060 it also holds the tokens written to the provider's cache (`cache_write_tokens`, Anthropic's
   `cache_creation_input_tokens`, carried in a chat answer's usage as LiteLLM and 9router-go carry it) and its cost
   at the vendor's API price (`cost_micros`, NULL when unpriced, and `priced_model`; issue #304, after Coder). The
@@ -5531,7 +5657,10 @@ its client API, its CLI and the Bots' tools.
   `routine` with its run, `lark`, `zalo` or `whatsapp` with the chat's id at the service and its message as a
   `lark_message`, `zalo_message` or `whatsapp_message` reference, `gmail` with the thread's id and its mail as a
   `mail` reference (the Gmail message's id), `meeting` with the meeting's id and, when the action has one, its line
-  as a `meeting_line` reference `<meeting>/<line>` (issue #1105); for `zalo`, `whatsapp` and `gmail` the owner's
+  as a `meeting_line` reference `<meeting>/<line>` (issue #1105), `github` with an issue's or pull request's
+  `owner/name#number` in lower case and its first call as a `url` reference, made only by a call of the GitHub App
+  (issue #1232, migration `inbox_github_calls`, which rebuilds `todos` with every column, index and event kept); for
+  `zalo`, `whatsapp` and `gmail` the owner's
   account (its Connection's label) the chat or thread is in (`source_account`, optional for `lark`, never for a
   meeting), as their stores key a message by account, chat and id and a thread opens in its account; a quote ≤ 2,000
   and a typed reference; a named account is checked against the integration's Connection labels on create, source
@@ -5600,9 +5729,11 @@ its client API, its CLI and the Bots' tools.
   `pullrequests.go` leaves it out), its own `comment` in this attempt carrying an Artifact or files the agent API
   read in its folder at the path the comment keeps, every one of them (`Attached.Read`, `FolderPath`,
   `files_checked`, through `agentapi.WithBotFiles`, the Files panel's
-  reader), or a `*_message` naming the account and chat that its send recorded on the item in this attempt
+  reader), a `*_message` naming the account and chat that its send recorded on the item in this attempt
   (`RecordSent`, an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the
-  store cannot tell the Bot's message from the owner's on his account); a close whose evidence holds a link, a mail,
+  store cannot tell the Bot's message from the owner's on his account), or a `url` that is the review the GitHub App
+  made on the item's pull request in this attempt (`RecordReview`, an event `reviewed` written when the App's own
+  POST of it through the service proxy from the attempt's chat is answered, by the review's id, issue #1232); a close whose evidence holds a link, a mail,
   his comment, a message he sent, his message in a chat, a person's message or a meeting's line is refused, even
   beside its own work, so his answer stays his and work he handed to the Bot closes as the Bot's with what it made,
   as GitHub records the person who merged and the pull request; the
@@ -5736,8 +5867,9 @@ its client API, its CLI and the Bots' tools.
   `server/host/cloud-lending-turns.ts`, and OpenClaw's `spawnedBySenderIsOwner`,
   `src/agents/subagents/spawn/spawn-parent-lineage.ts`): each wake-up of an item records who it comes from and the
   item, `chat_messages.wake_by` and `wake_todo` (`owner` for his own words, his prompt as he hands it over or his
-  comment, which are his turn in that chat as his message is, decision 7; `owner_gave` when he gives it without a
-  word, no turn of his; `bot_for_owner` for a Bot's hand-off on his line; `bot` for any other). A Bot's `pass_to`, or
+  comment, or his own call of the GitHub App (issue #1232), which are his turn in that chat as his message is,
+  decision 7; `owner_gave` when he gives it without a word, no turn of his; `bot_for_owner` for a Bot's hand-off on
+  his line; `bot` for any other, a teammate's call of the GitHub App included). A Bot's `pass_to`, or
   its add of an item for another Bot (`inbox_add`, the client API's `POST /inbox`), is on his line when the chat the
   Bot acts in (`Change.Chat`, `NewTodo.Chat`, from its token; none in a Routine's run) has as its last turn input his
   own message or words, or the hand-off that marked it for this same item (`orchestration.whoseTurn`, `lineFor`): a

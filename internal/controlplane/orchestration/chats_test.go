@@ -448,7 +448,10 @@ func TestAChatChoosesItsModelAndEffort(t *testing.T) {
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet, haiku]\n")
 	require.NoError(t, err)
 
-	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Provider: "router", Model: "sonnet", Effort: "high"})
+	vmapBot, err := w.s.PutBot(ctx, Bot{
+		Name:      "vmap",
+		AgentSpec: AgentSpec{Provider: "router", Model: "sonnet", Effort: "high"},
+	})
 	require.NoError(t, err)
 
 	plain, err := w.s.CreateChat(ctx, vmapBot.ID, "")

@@ -36,7 +36,10 @@ func TestAZenModelInUseKeepsOnlyItselfWhenItsListDropsIt(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	_, err = orch.PutBot(ctx, orchestration.Bot{Name: "zen", Provider: "opencode-zen", Model: "glm-5.3"})
+	_, err = orch.PutBot(ctx, orchestration.Bot{
+		Name:      "zen",
+		AgentSpec: orchestration.AgentSpec{Provider: "opencode-zen", Model: "glm-5.3"},
+	})
 	require.NoError(t, err)
 
 	served := &zenReadings{names: []string{"new-paid-model"}, read: readAt}
