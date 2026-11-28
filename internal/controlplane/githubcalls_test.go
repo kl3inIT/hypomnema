@@ -732,3 +732,61 @@ func TestACallAfterTheItemClosedReopensTheSameItem(t *testing.T) {
 	assert.Contains(t, wakes[len(wakes)-1], "<github_request>\ncheck the new commit\n</github_request>")
 	assert.False(t, w.ownerTurn(again.Chat), "a teammate's call is no turn of the owner's")
 }
+
+// Scenario (review of the reopen, PR #1323): an item closed, whose reply waits to go, is reopened by a new call before
+// that reply went, then closed again. Each close is answered: the first with its own outcome, in the review thread its
+// call came from; the second with its own, in the conversation. The reopen never drops the reply still waiting.
+func TestAReopenKeepsTheReplyStillWaitingForTheEarlierClose(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+
+	w.deliverSigned("pull_request_review_comment", githubapptest.ReviewComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1330, ID: 9962, InReplyTo: 9960, Body: mention + " fix this", Path: "a.go", Line: 3,
+	}))
+
+	item := w.itemOf(1330)
+	w.closeByOwner(item.ID, "First outcome.")
+
+	// The reply has not gone yet (nothing sends replies until App.Run starts) when the next call reopens the item.
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1330, PullRequest: true, ID: 9963, Body: mention + " and the docs",
+	}))
+	w.closeByOwner(item.ID, "Second outcome.")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	go w.app.Run(ctx)
+
+	require.Eventually(t, func() bool { return len(w.replies()) == 2 }, 10*time.Second, 10*time.Millisecond,
+		"one reply each close")
+
+	byPath := map[string]string{}
+	for _, r := range w.replies() {
+		body, _ := r.Body["body"].(string)
+		byPath[strings.ToLower(r.Path)] = body
+	}
+
+	assert.Contains(t, byPath["/repos/kl3init/hypomnema/pulls/1330/comments/9960/replies"], "First outcome.")
+	assert.Contains(t, byPath["/repos/kl3init/hypomnema/issues/1330/comments"], "Second outcome.")
+}
+
+// Scenario (review of the reopen, PR #1323): the reopen by a call is its path's own; Reopen, which only the owner
+// makes, refuses the system acting as a caller.
+func TestOnlyTheCallPathReopensAsTheCaller(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1331, PullRequest: true, ID: 9971, Body: mention + " review",
+	}))
+	w.closeByOwner(w.itemOf(1331).ID, "Done.")
+
+	closed := w.itemOf(1331)
+	_, err := w.svc.Inbox().Reopen(t.Context(), inboxstore.Change{
+		Actor: inboxstore.Actor{Kind: inboxstore.System, ID: "github:visitor"}, ID: closed.ID, Revision: closed.Revision,
+	})
+	require.Error(t, err)
+}
