@@ -175,7 +175,14 @@ func inboxChatsSetBulk(ctx context.Context, e *env, fs *flag.FlagSet, integratio
 	}
 
 	return e.print(fs, resp.JSON200, func() {
-		e.printf("Updated %d chats of %s:%s.\n", len(resp.JSON200.Changes), integration, label)
+		count := len(resp.JSON200.Changes)
+		noun := "chats"
+
+		if count == 1 {
+			noun = "chat"
+		}
+
+		e.printf("Updated %d %s of %s:%s.\n", count, noun, integration, label)
 	})
 }
 

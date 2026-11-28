@@ -35,6 +35,7 @@ export function BulkChatActions({
   chats: InboxChat[]
   disabled: boolean
 }) {
+  const [open, setOpen] = useState(false)
   const [choice, setChoice] = useState<Choice | null>(null)
   const set = useSetChatsBulk()
   const undo = useUndoChatsBulk()
@@ -43,6 +44,7 @@ export function BulkChatActions({
 
   function choose(reads: boolean) {
     setChoice({ reads, chat_ids: chats.map((chat) => chat.id) })
+    setOpen(true)
   }
 
   async function confirm(body: Choice) {
@@ -77,7 +79,13 @@ export function BulkChatActions({
 
   const action = choice?.reads ? "Read" : "Skip"
   return (
-    <AlertDialog open={choice !== null} onOpenChange={(open) => !open && setChoice(null)}>
+    <AlertDialog
+      open={open}
+      onOpenChange={setOpen}
+      onOpenChangeComplete={(open) => {
+        if (!open) setChoice(null)
+      }}
+    >
       <div className="flex flex-wrap justify-end gap-2">
         <AlertDialogTrigger
           render={<Button variant="outline" size="sm" />}
@@ -106,7 +114,7 @@ export function BulkChatActions({
           <AlertDialogAction
             onClick={() => {
               if (!choice) return
-              setChoice(null)
+              setOpen(false)
               void confirm(choice)
             }}
           >
