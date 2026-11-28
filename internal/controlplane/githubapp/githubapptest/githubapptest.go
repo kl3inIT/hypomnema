@@ -21,6 +21,8 @@ import (
 // The App the fake registers, and its one installation.
 const (
 	AppID        = 4242
+	BotUserID    = 4343
+	OwnerUserID  = 164090677
 	Slug         = "hypomnema-owner"
 	Installation = 77
 	Head         = "abc1234def5678"
@@ -185,8 +187,10 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 		strings.HasSuffix(path, "/conversions"):
 		return answer(http.StatusCreated, map[string]any{
 			"id": AppID, "slug": Slug, "html_url": "https://github.com/apps/" + Slug,
-			"owner": map[string]any{"login": "kl3inIT"}, "pem": g.PEM, "webhook_secret": g.Secret,
+			"owner": map[string]any{"login": "kl3inIT", "id": OwnerUserID}, "pem": g.PEM, "webhook_secret": g.Secret,
 		})
+	case r.Method == http.MethodGet && path == "/users/"+Slug+"[bot]":
+		return answer(http.StatusOK, map[string]any{"id": BotUserID})
 	case r.Method == http.MethodGet && path == "/app/installations":
 		if !strings.HasPrefix(auth, "Bearer ey") {
 			return answer(http.StatusUnauthorized, map[string]any{"message": "a JWT is required"})

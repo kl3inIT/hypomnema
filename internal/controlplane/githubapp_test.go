@@ -3,6 +3,7 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -201,6 +202,12 @@ func TestTheManifestCallbackKeepsTheCredentialInTheVaultAndShowsNoSecret(t *test
 	cred, err := githubapp.DecodeCredential(opened.Payload[vault.KeyValue])
 	require.NoError(t, err)
 	assert.Equal(t, int64(githubapptest.AppID), cred.AppID)
+
+	var record struct {
+		BotUserID int64 `json:"bot_user_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(opened.Payload[vault.KeyValue]), &record))
+	assert.Equal(t, int64(githubapptest.BotUserID), record.BotUserID, "the bot user ID is kept beside the App ID")
 	assert.Equal(t, w.gh.PEM, cred.PrivateKey)
 	assert.Equal(t, w.gh.Secret, cred.WebhookSecret)
 
