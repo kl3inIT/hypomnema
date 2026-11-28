@@ -192,3 +192,66 @@ func TestRoundThreeYouTubeBlockWithPartialOutput(t *testing.T) {
 
 	assert.Len(t, runs, first, "the backend rests: the next search runs no yt-dlp")
 }
+
+// Review round 4 of PR #1321: a block met after yt-dlp printed something is still the stream's failure and rests the
+// backend when the window leaves no video, or when only a channel was printed: not_read with its rest, and the next
+// search runs no yt-dlp (registry.go's failure path; last30days youtube_yt.py:1049-1054).
+func TestRoundFourYouTubeBlockWithNothingLeftRests(t *testing.T) {
+	t.Parallel()
+
+	for name, printed := range map[string]map[string]string{
+		"an old video": {
+			"list": `{"id": "old1", "ie_key": "Youtube"}` + "\n" + `{"id": "old2", "ie_key": "Youtube"}`,
+			"read": video("old1", "VETC năm ngoái", 60, 500, 10, 2),
+		},
+		"only a channel": {"list": `{"id": "UCvetc", "ie_key": "YoutubeTab", "_type": "url"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				mu   sync.Mutex
+				runs int
+			)
+
+			run := func(_ context.Context, args ...string) ([]byte, string, error) {
+				mu.Lock()
+				runs++
+				mu.Unlock()
+
+				blocked := "ERROR: [youtube] old2: HTTP Error 429: Too Many Requests"
+
+				switch {
+				case slices.Contains(args, "--flat-playlist") && printed["read"] == "":
+					return []byte(printed["list"]), blocked, &exec.ExitError{}
+				case slices.Contains(args, "--flat-playlist"):
+					return []byte(printed["list"]), "", nil
+				case slices.Contains(args, "--no-download"):
+					return []byte(printed["read"]), blocked, &exec.ExitError{}
+				default:
+					return []byte(`{"comments": []}`), "", nil
+				}
+			}
+
+			s := keyless(newClock(), listening.Endpoints{YtDlp: run})
+
+			a := one(t, s, listening.SourceYouTube, "VETC")
+
+			cov := coverageOf(t, a, listening.SourceYouTube)
+			assert.Equal(t, listening.StateNotRead, cov.State)
+			assert.Equal(t, listening.CodeRateLimited, cov.Code)
+			assert.NotEmpty(t, cov.Streams[0].Tried[0].Until, "the backend rests")
+
+			mu.Lock()
+			first := runs
+			mu.Unlock()
+
+			one(t, s, listening.SourceYouTube, "VETC")
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			assert.Equal(t, first, runs, "the next search runs no yt-dlp")
+		})
+	}
+}
