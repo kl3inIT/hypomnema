@@ -39,8 +39,11 @@ func newRequestWorld(t *testing.T) requestWorld {
 		}
 	}
 
-	bot, err := w.s.PutBot(ctx, Bot{Name: "hr", Persona: "people",
-		Connections: AllowList{Limited: true, Names: []string{"google:work"}}})
+	bot, err := w.s.PutBot(ctx, Bot{
+		Name:        "hr",
+		Connections: AllowList{Limited: true, Names: []string{"google:work"}},
+		AgentSpec:   AgentSpec{Instructions: "people"},
+	})
 	require.NoError(t, err)
 
 	main, _, err := w.s.OpenMainChat(ctx, bot.ID, "", "", ChatModel{})
@@ -104,7 +107,7 @@ func TestABotMayAskOnlyForGrantableConnections(t *testing.T) {
 
 	assert.Empty(t, w.requests(t), "a Connection that cannot be granted makes no card")
 
-	every, err := w.s.PutBot(ctx, Bot{Name: "every", Persona: "p"})
+	every, err := w.s.PutBot(ctx, Bot{Name: "every", AgentSpec: AgentSpec{Instructions: "p"}})
 	require.NoError(t, err)
 
 	got, err = w.s.GrantableConnections(ctx, every)

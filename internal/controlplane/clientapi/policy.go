@@ -243,13 +243,18 @@ var policies = map[string]policy{
 	// The order the sidebar lists the Bots in (issue #470) is the owner's.
 	"ReorderBots": {scope: scopeOwner},
 	// Departments, the sidebar's sections of Bots (issue #471), are the owner's too.
-	"ListDepartments":     {},
-	"CreateDepartment":    {scope: scopeOwner},
-	"ReorderDepartments":  {scope: scopeOwner},
-	"RenameDepartment":    {scope: scopeOwner},
-	"DeleteDepartment":    {scope: scopeOwner},
-	"ChangeBotMemory":     {},
-	"SetBotMemory":        {scope: scopeOwner},
+	"ListDepartments":    {},
+	"CreateDepartment":   {scope: scopeOwner},
+	"ReorderDepartments": {scope: scopeOwner},
+	"RenameDepartment":   {scope: scopeOwner},
+	"DeleteDepartment":   {scope: scopeOwner},
+	"GetBotMemory":       {},
+	"ChangeBotMemory":    {},
+	"SetBotMemory":       {scope: scopeOwner},
+	// A Bot's versions (issue #1336) are read as the Bot is; a restore is a save, the owner's or the main Bot's
+	// from its chat, as PutBot.
+	"ListBotVersions":     {},
+	"RestoreBotVersion":   {},
 	"ListProfiles":        {},
 	"GetProfile":          {},
 	"ListProfileVersions": {},
@@ -260,13 +265,13 @@ var policies = map[string]policy{
 	"ListSetupChanges":      {scope: scopeOwner},
 	"UndoSetupChange":       {scope: scopeOwner},
 	// Memories (issue #21): every token reads them; a Bot keeps entries about the owner; only the owner changes
-	// an agent's, whose workers write it through the agent API, and replaces a whole memory.
-	"GetAgentMemory":    {},
-	"SetAgentMemory":    {scope: scopeOwner},
-	"ChangeAgentMemory": {scope: scopeOwner},
-	"GetOwnerMemory":    {},
-	"SetOwnerMemory":    {scope: scopeOwner},
-	"ChangeOwnerMemory": {},
+	// a profile's, whose workers write it through the agent API, and replaces a whole memory.
+	"GetProfileMemory":    {},
+	"SetProfileMemory":    {scope: scopeOwner},
+	"ChangeProfileMemory": {scope: scopeOwner},
+	"GetOwnerMemory":      {},
+	"SetOwnerMemory":      {scope: scopeOwner},
+	"ChangeOwnerMemory":   {},
 	// A memory's notes (issue #589): read as the memory is; only the owner writes or removes one by hand.
 	"ListMemoryNotes":  {},
 	"GetMemoryNote":    {},

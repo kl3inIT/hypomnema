@@ -61,8 +61,13 @@ func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 	assert.Equal(t, toolNames(w.tools(key)), workerTools[:len(toolNames(w.tools(key)))],
 		"what the block is built from starts with what the worker's tools server lists")
 
-	same, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "same", Tools: []string{"phone"},
-		ToolsOff: []string{agenttool.ToolRoutines, agenttool.ToolChatSearch, "inbox_*", "meeting_*"}})
+	same, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "same",
+		AgentSpec: orchestration.AgentSpec{
+			Tools:    []string{"phone"},
+			ToolsOff: []string{agenttool.ToolRoutines, agenttool.ToolChatSearch, "inbox_*", "meeting_*"},
+		},
+	})
 	require.NoError(t, err)
 
 	block := agenttool.ToolGuide(workerTools)
@@ -84,7 +89,10 @@ func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 	assert.Contains(t, agenttool.ToolGuide(api.BotTools(ctx, bot)), "\n- Inbox: Keep the owner's to-dos",
 		"a Bot is told how to keep his Inbox (issue #1206)")
 
-	quiet, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "quiet", ToolsOff: []string{"audio_*"}})
+	quiet, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "quiet",
+		AgentSpec: orchestration.AgentSpec{ToolsOff: []string{"audio_*"}},
+	})
 	require.NoError(t, err)
 
 	botTools := api.BotTools(ctx, quiet)

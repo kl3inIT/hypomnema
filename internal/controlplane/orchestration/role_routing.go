@@ -43,6 +43,15 @@ func taskAuthor(ctx context.Context, q *store.Queries, run store.Run, nt NewTask
 	return vendor, nil
 }
 
+// roleRouted says whether a Task of the profile version runs down its role's chain, the role routing's (issue
+// #1241), rather than its profile's own model and fallbacks (issue #1336): a role profile's Task, and a review_of,
+// whose reviewer must differ from its author's vendor. It is where the chain came from, kept apart from where in it
+// the Task is, so a profile with fallbacks stays a writer on every model of its chain. The version and the Task's
+// author vendor never change, so a later Dispatch of the Task finds the same answer.
+func roleRouted(version store.ProfileVersion, task store.Task) bool {
+	return version.Runtime == profilestore.RoleRuntime || task.AuthorVendor != ""
+}
+
 func chosenRoleChain(ctx context.Context, q *store.Queries, task store.Task) ([]profilestore.RoleEntry, error) {
 	chain, err := profilestore.RoleChainTx(ctx, q, task.Profile, task.Kind)
 	if err != nil {
@@ -79,7 +88,11 @@ func resolveRoleEntry(ctx context.Context, q *store.Queries, version store.Profi
 	chain []profilestore.RoleEntry, index int,
 ) (resolved, error) {
 	entry := chain[index]
-	effort := or(task.Effort.String, profilestore.RoleEffort(task.Profile, task.Kind))
+	// The effort comes from where the chain came from: a role's routing, or a profile's own (issue #1336).
+	effort := or(task.Effort.String, version.Effort.String)
+	if roleRouted(version, task) {
+		effort = or(task.Effort.String, profilestore.RoleEffort(task.Profile, task.Kind))
+	}
 	if err := profilestore.CheckRoleEntryTx(ctx, q, entry, effort); err != nil {
 		return resolved{}, err
 	}

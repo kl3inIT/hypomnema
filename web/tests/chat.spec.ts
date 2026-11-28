@@ -58,7 +58,7 @@ const builder = {
   provider: "gateway",
   model: "gpt-sol",
   effort: "high",
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   skills: [],

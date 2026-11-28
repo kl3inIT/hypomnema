@@ -21,7 +21,7 @@ const bot = (name: string) => ({
   main_chat: `cht_main_${name}`,
   name,
   model: "",
-  persona: "",
+  instructions: "",
   memory: "",
   updated_at: at,
 })

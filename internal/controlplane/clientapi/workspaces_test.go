@@ -365,7 +365,10 @@ func TestFilesAttachedBeforeTheChatGoToThePickedBot(t *testing.T) {
 	}}
 	w.srv.WithWorkspaces(f.node, f)
 
-	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about VMAP."},
+	})
 	require.NoError(t, err)
 
 	id := "cht_abcdefghijklmnopqrstuvwxyz"

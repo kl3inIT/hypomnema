@@ -18,7 +18,7 @@ const main: Bot = {
   name: "Coordinator",
   main: true,
   position: 0,
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   fallbacks: [],

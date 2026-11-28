@@ -855,7 +855,13 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	require.NoError(t, err)
 
 	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{
-		Name: "vmap", Provider: "ninerouter", Model: "cx/gpt-6.1-sol", Effort: "high", Persona: "You answer about VMAP.",
+		Name: "vmap",
+		AgentSpec: orchestration.AgentSpec{
+			Provider:     "ninerouter",
+			Model:        "cx/gpt-6.1-sol",
+			Effort:       "high",
+			Instructions: "You answer about VMAP.",
+		},
 	})
 	require.NoError(t, err)
 
@@ -1291,7 +1297,10 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Provider: "gateway", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Provider: "gateway", Model: "gpt-sol", Effort: "high"},
+	})
 	require.NoError(t, err)
 
 	effortOnly, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Effort: "none"})
@@ -1320,8 +1329,12 @@ func TestBotFallbacksUseChatCompletionsOnlyForTheInheritedModel(t *testing.T) {
 	svc, sup := newSupervisor(t)
 	ctx := t.Context()
 	bot, err := svc.PutBot(ctx, orchestration.Bot{
-		Name: "researcher", Provider: "codex-subscription", Model: "gpt-6.1-sol",
-		Fallbacks: []string{"claude-subscription/claude-opus-5-5"},
+		Name: "researcher",
+		AgentSpec: orchestration.AgentSpec{
+			Provider:  "codex-subscription",
+			Model:     "gpt-6.1-sol",
+			Fallbacks: []string{"claude-subscription/claude-opus-5-5"},
+		},
 	})
 	require.NoError(t, err)
 	for _, candidate := range []struct {
@@ -1354,7 +1367,10 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Provider: "gateway", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Provider: "gateway", Model: "gpt-sol", Effort: "high"},
+	})
 	require.NoError(t, err)
 
 	chat, err := svc.CreateChat(ctx, vmapBot.ID, "")

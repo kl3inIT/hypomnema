@@ -146,7 +146,7 @@ type Bot struct {
 	Provider             sql.NullString
 	Model                sql.NullString
 	Effort               sql.NullString
-	Persona              string
+	Instructions         string
 	Memory               string
 	CreatedAt            int64
 	UpdatedAt            int64
@@ -166,6 +166,18 @@ type Bot struct {
 	MainChat             sql.NullString
 	Department           sql.NullString
 	OwnerAccounts        string
+}
+
+type BotVersion struct {
+	ID           string
+	BotID        string
+	Version      int64
+	Settings     string
+	Source       string
+	SavedBy      sql.NullString
+	ChatID       sql.NullString
+	RestoredFrom sql.NullString
+	CreatedAt    int64
 }
 
 type Channel struct {
@@ -639,6 +651,11 @@ type IntegrationClient struct {
 	UpdatedAt   int64
 }
 
+type LegacyProfileFallback struct {
+	VersionID string
+	Fallbacks string
+}
+
 type ListeningBackend struct {
 	Source      string
 	Backend     string
@@ -880,7 +897,7 @@ type ProfileVersion struct {
 	Provider           sql.NullString
 	Model              sql.NullString
 	Effort             sql.NullString
-	Instruction        sql.NullString
+	Instructions       sql.NullString
 	CreatedAt          int64
 	Description        string
 	Fallbacks          string

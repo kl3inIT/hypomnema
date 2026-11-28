@@ -3,6 +3,7 @@ import type {
   AllowList,
   Bot,
   BotSettings,
+  BotVersion,
   ConnectionScope,
   Model,
   ToolPreset,
@@ -88,7 +89,7 @@ export type Draft = {
   model: string
   fallbacks: string[]
   effort: string
-  persona: string
+  instructions: string
   skills: string[]
   skillsOff: string[]
   preset: ToolPreset
@@ -101,7 +102,7 @@ export const emptyDraft: Draft = {
   model: "",
   fallbacks: [],
   effort: "",
-  persona: "",
+  instructions: "",
   skills: [],
   skillsOff: [],
   preset: "full",
@@ -115,7 +116,7 @@ export function draftOf(bot: Bot): Draft {
     model: modelKey(bot.provider ?? "", bot.model ?? ""),
     fallbacks: bot.fallbacks ?? [],
     effort: bot.effort ?? "",
-    persona: bot.persona,
+    instructions: bot.instructions,
     skills: bot.skills,
     skillsOff: bot.skills_off,
     preset: bot.preset ?? "full",
@@ -130,7 +131,7 @@ export function sameDraft(a: Draft, b: Draft) {
     a.model === b.model &&
     a.fallbacks.join() === b.fallbacks.join() &&
     a.effort === b.effort &&
-    a.persona === b.persona &&
+    a.instructions === b.instructions &&
     a.skills.join() === b.skills.join() &&
     a.skillsOff.join() === b.skillsOff.join() &&
     a.tools.join() === b.tools.join() &&
@@ -149,7 +150,7 @@ export function settingsOf(draft: Draft, models: Model[]): BotSettings {
     ...(model.provider && { provider: model.provider }),
     ...(model.name && { model: model.name }),
     ...(draft.effort && { effort: draft.effort }),
-    persona: draft.persona.trim(),
+    instructions: draft.instructions.trim(),
     skills: draft.skills,
     skills_off: draft.skillsOff,
     preset: draft.preset,
@@ -174,14 +175,14 @@ export function problem(draft: Draft, taken: string[]): string | null {
   return nameProblem(draft.name, taken)
 }
 
-// keptSettings is a Bot's stored model and persona as PUT /bots/{bot_id} takes them, so that a change of one list
+// keptSettings is a Bot's stored model and instructions as PUT /bots/{bot_id} takes them, so that a change of one list
 // replaces nothing else; the skills and the other list are left out and the server keeps them.
 export function keptSettings(bot: Bot): BotSettings {
   return {
     ...(bot.provider && { provider: bot.provider }),
     ...(bot.model && { model: bot.model }),
     ...(bot.effort && { effort: bot.effort }),
-    persona: bot.persona,
+    instructions: bot.instructions,
   }
 }
 
@@ -220,4 +221,44 @@ export function withName(names: string[], name: string, on: boolean): string[] {
   const rest = names.filter((n) => n !== name)
 
   return on ? [...rest, name] : rest
+}
+
+// gatewayModels are the models the gateway serves, the only ones a Bot's fallbacks may name (issue #877).
+export function gatewayModels(models: Model[]) {
+  return models.filter(
+    (model) =>
+      model.kind === "model_gateway" ||
+      model.kind.endsWith("_subscription") ||
+      model.kind === "opencode_go" ||
+      model.kind === "opencode_zen",
+  )
+}
+
+// versionWho says how a Bot's version was saved, and by whom (issue #1336).
+export function versionWho(v: BotVersion) {
+  switch (v.source) {
+    case "before_versions":
+      return "What it had before versions"
+    case "restore":
+      return v.saved_by === "main_bot" ? "Restored by the main Bot" : "Restored by you"
+    case "undo":
+      return "Undone by you"
+    default:
+      return v.saved_by === "main_bot" ? "Saved by the main Bot" : "Saved by you"
+  }
+}
+
+// versionLines are a version's settings as a list of terms: the model, its effort and fallbacks, the skills and the
+// tools. The instructions are shown whole beside them.
+export function versionLines(s: BotSettings): [string, string][] {
+  const model = s.model ? modelKey(s.provider ?? "", s.model) : defaultModelLabel
+  const lines: [string, string][] = [["Model", s.effort ? `${model} (${s.effort})` : model]]
+  if (s.fallbacks?.length) lines.push(["Fallbacks", s.fallbacks.join(", ")])
+  if (s.skills?.length) lines.push(["Skills", s.skills.join(", ")])
+  if (s.skills_off?.length) lines.push(["Skills off", s.skills_off.join(", ")])
+  lines.push(["Tools", s.preset === "report" ? "Report" : "Full"])
+  if (s.tools?.length) lines.push(["Tools added", s.tools.join(", ")])
+  if (s.tools_off?.length) lines.push(["Tools off", s.tools_off.join(", ")])
+
+  return lines
 }

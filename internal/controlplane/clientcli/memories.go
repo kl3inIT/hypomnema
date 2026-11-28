@@ -1,6 +1,7 @@
 package clientcli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -13,7 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// Memories from the terminal: a Bot's (issue #169), an agent's and the one
+// Memories from the terminal: a Bot's (issue #169), a profile's and the one
 // about the owner (issue #21). A Bot's pi writes its own and the one about
 // the owner; the owner reads and edits them all.
 
@@ -30,10 +31,16 @@ func keptBot(b *openapi.Bot) kept {
 	return kept{title: "memory of " + b.Name, text: b.Memory, limit: b.MemoryLimit, value: b}
 }
 
+// keptBotMemory is a Bot's memory as its memory endpoints return it (issue #1336), titled by the name the Bot was
+// named by.
+func keptBotMemory(m *openapi.Memory, label string) kept {
+	return kept{title: "memory of " + cmp.Or(label, val(m.Bot)), text: m.Memory, limit: m.MemoryLimit, value: m}
+}
+
 func keptMemory(m *openapi.Memory) kept {
 	title := "memory about the owner"
-	if a := val(m.Agent); a != "" {
-		title = "memory of agent " + a
+	if p := cmp.Or(val(m.Profile), val(m.Agent)); p != "" {
+		title = "memory of profile " + p
 	}
 
 	return kept{title: title, text: m.Memory, limit: m.MemoryLimit, value: m}
@@ -55,23 +62,41 @@ func (k kept) print(e *env) {
 	}
 }
 
-// memoryOf is whose memory a command is about.
+// memoryOf is whose memory a command is about: a Bot's by its id, with the name it was named by as label, a
+// profile's, or the one about the owner.
 type memoryOf struct {
-	bot   string
-	agent string
-	owner bool
+	bot     string
+	label   string
+	profile string
+	owner   bool
 }
 
 func memoryFlags(fs *flag.FlagSet) {
 	jsonFlag(fs)
 	fs.String("bot", "", "a bot's memory; a bot itself leaves it out")
-	fs.String("agent", "", "an agent's memory, which all its workers share")
+	fs.String("profile", "", "a profile's memory, which all its workers share")
+	fs.String("agent", "", "--profile under its name until 2026-11-28, kept for one release")
 	fs.Bool("owner", false, "the memory about the owner, which every worker and bot gets")
 }
 
-// memoryTarget is --owner, --agent, --bot (by id or name), or the Bot the calling pi is.
+// profileFlag is --profile, or --agent, its name until 2026-11-28 (issue #1336); naming two profiles is refused.
+func profileFlag(fs *flag.FlagSet) (string, error) {
+	profile, agent := str(fs, "profile"), str(fs, "agent")
+	if profile != "" && agent != "" && profile != agent {
+		return "", fmt.Errorf("%w: name the profile once, with --profile", ErrUsage)
+	}
+
+	return cmp.Or(profile, agent), nil
+}
+
+// memoryTarget is --owner, --profile, --bot (by id or name), or the Bot the calling pi is.
 func memoryTarget(ctx context.Context, e *env, fs *flag.FlagSet) (memoryOf, error) {
-	owner, agent, bot := boolean(fs, "owner"), str(fs, "agent"), str(fs, "bot")
+	agent, err := profileFlag(fs)
+	if err != nil {
+		return memoryOf{}, err
+	}
+
+	owner, bot := boolean(fs, "owner"), str(fs, "bot")
 
 	n := 0
 
@@ -83,25 +108,25 @@ func memoryTarget(ctx context.Context, e *env, fs *flag.FlagSet) (memoryOf, erro
 
 	switch {
 	case n > 1:
-		return memoryOf{}, fmt.Errorf("%w: name one memory: --owner, --agent or --bot", ErrUsage)
+		return memoryOf{}, fmt.Errorf("%w: name one memory: --owner, --profile or --bot", ErrUsage)
 	case owner:
 		return memoryOf{owner: true}, nil
 	case agent != "":
-		return memoryOf{agent: agent}, nil
+		return memoryOf{profile: agent}, nil
 	case bot != "":
 		id, err := botIDOf(ctx, e, bot)
 		if err != nil {
 			return memoryOf{}, err
 		}
 
-		return memoryOf{bot: id}, nil
+		return memoryOf{bot: id, label: bot}, nil
 	}
 
 	if name := os.Getenv(botEnv); name != "" {
-		return memoryOf{bot: name}, nil
+		return memoryOf{bot: name, label: name}, nil
 	}
 
-	return memoryOf{}, errors.New("name the memory with --bot, --agent or --owner")
+	return memoryOf{}, errors.New("name the memory with --bot, --profile or --owner")
 }
 
 func memoryShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -131,14 +156,14 @@ func readKept(ctx context.Context, e *env, target memoryOf) (kept, error) {
 		}
 
 		return keptMemory(resp.JSON200), nil
-	case target.agent != "":
-		resp, err := e.api.GetAgentMemoryWithResponse(ctx, target.agent)
+	case target.profile != "":
+		resp, err := e.api.GetProfileMemoryWithResponse(ctx, target.profile)
 		if err != nil {
-			return kept{}, fmt.Errorf("reading the memory of agent %s: %w", target.agent, err)
+			return kept{}, fmt.Errorf("reading the memory of profile %s: %w", target.profile, err)
 		}
 
 		if resp.JSON200 == nil {
-			return kept{}, apiError("reading the memory of agent "+target.agent, resp.StatusCode(), resp.JSONDefault)
+			return kept{}, apiError("reading the memory of profile "+target.profile, resp.StatusCode(), resp.JSONDefault)
 		}
 
 		return keptMemory(resp.JSON200), nil
@@ -180,14 +205,14 @@ func memorySet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 
 		k = keptMemory(resp.JSON200)
-	case target.agent != "":
-		resp, err := e.api.SetAgentMemoryWithResponse(ctx, target.agent, body)
+	case target.profile != "":
+		resp, err := e.api.SetProfileMemoryWithResponse(ctx, target.profile, body)
 		if err != nil {
-			return fmt.Errorf("setting the memory of agent %s: %w", target.agent, err)
+			return fmt.Errorf("setting the memory of profile %s: %w", target.profile, err)
 		}
 
 		if resp.JSON200 == nil {
-			return apiError("setting the memory of agent "+target.agent, resp.StatusCode(), resp.JSONDefault)
+			return apiError("setting the memory of profile "+target.profile, resp.StatusCode(), resp.JSONDefault)
 		}
 
 		k = keptMemory(resp.JSON200)
@@ -201,7 +226,7 @@ func memorySet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			return apiError("setting the memory of "+target.bot, resp.StatusCode(), resp.JSONDefault)
 		}
 
-		k = keptBot(resp.JSON200)
+		k = keptBotMemory(resp.JSON200, target.label)
 	}
 
 	return e.print(fs, k.value, func() { k.print(e) })
@@ -260,14 +285,14 @@ func changeKept(ctx context.Context, e *env, target memoryOf, change openapi.Mem
 		}
 
 		return keptMemory(resp.JSON200), nil
-	case target.agent != "":
-		resp, err := e.api.ChangeAgentMemoryWithResponse(ctx, target.agent, change)
+	case target.profile != "":
+		resp, err := e.api.ChangeProfileMemoryWithResponse(ctx, target.profile, change)
 		if err != nil {
-			return kept{}, fmt.Errorf("changing the memory of agent %s: %w", target.agent, err)
+			return kept{}, fmt.Errorf("changing the memory of profile %s: %w", target.profile, err)
 		}
 
 		if resp.JSON200 == nil {
-			return kept{}, apiError("changing the memory of agent "+target.agent, resp.StatusCode(), resp.JSONDefault)
+			return kept{}, apiError("changing the memory of profile "+target.profile, resp.StatusCode(), resp.JSONDefault)
 		}
 
 		return keptMemory(resp.JSON200), nil
@@ -281,6 +306,6 @@ func changeKept(ctx context.Context, e *env, target memoryOf, change openapi.Mem
 			return kept{}, apiError("changing the memory of "+target.bot, resp.StatusCode(), resp.JSONDefault)
 		}
 
-		return keptBot(resp.JSON200), nil
+		return keptBotMemory(resp.JSON200, target.label), nil
 	}
 }

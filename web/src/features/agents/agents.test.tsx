@@ -54,6 +54,7 @@ const profile = (name: string, m: Partial<Profile> = {}): Profile => ({
   version_id: `pfv_${name}_1`,
   version: 1,
   runtime: "claude",
+  instructions: "",
   fallbacks: [],
   skills: [],
   skills_off: [],
@@ -95,13 +96,17 @@ function server(
     // An agent's memory (issue #21): the writer's, read and replaced by the owner.
     const memoryOf = /^\/profiles\/([^/]+)\/memory$/.exec(path)
     if (memoryOf && request.method === "GET") {
-      return json({ agent: memoryOf[1], memory: memories[memoryOf[1]!] ?? "", memory_limit: 2200 })
+      return json({
+        profile: memoryOf[1],
+        memory: memories[memoryOf[1]!] ?? "",
+        memory_limit: 2200,
+      })
     }
     if (memoryOf && request.method === "PUT") {
       const { memory } = (await request.clone().json()) as { memory: string }
       memories[memoryOf[1]!] = memory.trim()
 
-      return json({ agent: memoryOf[1], memory: memory.trim(), memory_limit: 2200 })
+      return json({ profile: memoryOf[1], memory: memory.trim(), memory_limit: 2200 })
     }
     if (request.method === "GET" && path === "/skills") return json({ data: opts.skills ?? [] })
 
@@ -326,7 +331,7 @@ test("a new agent is sent as YAML built from the fields", async () => {
         'description: "Makes a narrow change."\n' +
         "runtime: codex\n" +
         "model:\n  provider: gateway\n  name: gpt-sol\n  effort: high\n" +
-        'instruction: "Keep the change small."\n',
+        'instructions: "Keep the change small."\n',
     },
   ])
 })
@@ -380,39 +385,44 @@ test("saving an agent makes a revision, and a refusal is shown in the server's w
   expect(screen.getByRole("button", { name: "Save revision" })).toBeDisabled()
 })
 
-// Scenario: the owner orders the agents that take this one's Tasks while it is out of quota (issue #171). The
-// other workers are offered, never the agent itself; the order chosen is the order saved, and a
-// row can be removed.
-test("fallbacks are chosen in order from the other workers and saved with the agent", async () => {
+// Scenario: the owner orders the models a worker of the agent runs while its own cannot be served (issue #1336; they
+// were other agents until 2026-11-28). The picker offers every model but the agent's own; the order chosen is the
+// order saved, and a row can be removed.
+test("fallbacks are models chosen in order and saved with the agent", async () => {
   const applied = server([
-    profile("writer"),
-    profile("codex-worker", { runtime: "codex" }),
-    profile("omp-worker", { runtime: "omp" }),
+    profile("writer", {
+      provider: "claude-subscription",
+      model: "claude-opus-5-5",
+      source:
+        "name: writer\ndescription: What writer is for.\nruntime: claude\n" +
+        "model: {provider: claude-subscription, name: claude-opus-5-5}\n",
+    }),
   ])
   open("/settings/agents/writer")
   const user = userEvent.setup()
 
-  const add = await screen.findByLabelText("Fallbacks")
-  await vi.waitFor(() => expect(add).toBeEnabled())
-  expect(add).toHaveTextContent("Add a fallback…")
-  expect(await options(user, add)).toEqual(["codex-worker", "omp-worker"])
+  await user.click(await screen.findByLabelText("Fallback models"))
+  await vi.waitFor(() =>
+    expect(
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Add a fallback…", "gpt-sol"]),
+  )
+  await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "gpt-sol" }))
 
-  await choose(user, add, "omp-worker")
-  await choose(user, screen.getByLabelText("Fallbacks"), "codex-worker")
-
-  const rows = within(screen.getByRole("list", { name: "Fallbacks, in order" })).getAllByRole(
+  const rows = within(screen.getByRole("list", { name: "Fallback models, in order" })).getAllByRole(
     "listitem",
   )
-  expect(rows).toHaveLength(2)
-  expect(within(rows[0]!).getByLabelText("Fallback 1")).toHaveTextContent("omp-worker")
-  expect(screen.getByLabelText("Fallbacks")).toBeDisabled()
+  expect(rows).toHaveLength(1)
+  expect(screen.getByLabelText("Fallback models")).toHaveTextContent("gpt-sol")
 
   await user.click(screen.getByRole("button", { name: "Save revision" }))
   await vi.waitFor(() => expect(applied).toHaveLength(1))
-  expect(applied[0]?.source).toContain("fallbacks: [omp-worker, codex-worker]\n")
+  expect(applied[0]?.source).toContain('fallbacks: ["gateway/gpt-sol"]\n')
 
-  await user.click(screen.getByRole("button", { name: "Remove fallback omp-worker" }))
-  expect(screen.getByLabelText("Fallback 1")).toHaveTextContent("codex-worker")
+  await user.click(screen.getByRole("button", { name: "Remove fallback 1" }))
+  expect(screen.queryByRole("list", { name: "Fallback models, in order" })).not.toBeInTheDocument()
 })
 
 const skill = (name: string, everyone = false): Skill => ({
@@ -534,17 +544,17 @@ test("going back to the builder asks before YAML edits are discarded", async () 
   const yaml = await screen.findByRole("textbox", { name: "Config (YAML)" })
   expect(yaml).toHaveValue(profile("reviewer").source)
 
-  await user.type(yaml, "instruction: by hand\n")
+  await user.type(yaml, "instructions: by hand\n")
   await user.click(screen.getByRole("button", { name: "Builder" }))
 
   const dialog = await screen.findByRole("alertdialog", { name: "Discard YAML edits?" })
   await user.click(within(dialog).getByRole("button", { name: "Keep editing YAML" }))
   expect(screen.getByRole("textbox", { name: "Config (YAML)" })).toHaveValue(
-    `${profile("reviewer").source}instruction: by hand\n`,
+    `${profile("reviewer").source}instructions: by hand\n`,
   )
 
   await user.click(screen.getByRole("button", { name: "Save revision" }))
-  expect(applied[0]?.source).toBe(`${profile("reviewer").source}instruction: by hand\n`)
+  expect(applied[0]?.source).toBe(`${profile("reviewer").source}instructions: by hand\n`)
 })
 
 // Scenario: an earlier version is restored. It is restored by its id, so the server applies that version's own source
@@ -587,7 +597,7 @@ const draft = (m: Partial<Draft>): Draft => ({
   runtime: "claude",
   model: "",
   effort: "",
-  instruction: "",
+  instructions: "",
   fallbacks: [],
   skills: [],
   skillsOff: [],
@@ -612,11 +622,17 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
   expect(toYaml(draft({ model: "gpt-5/turbo" }), models)).toContain(
     'model:\n  name: "gpt-5/turbo"\n',
   )
-  expect(toYaml(draft({ instruction: "Read only.\n\nReport with file paths.\n" }), models)).toBe(
-    'name: a\ndescription: "d"\nruntime: claude\ninstruction: |\n  Read only.\n\n  Report with file paths.\n',
+  expect(toYaml(draft({ instructions: "Read only.\n\nReport with file paths.\n" }), models)).toBe(
+    'name: a\ndescription: "d"\nruntime: claude\ninstructions: |\n  Read only.\n\n  Report with file paths.\n',
   )
-  expect(toYaml(draft({ fallbacks: ["codex-worker", "omp-worker"] }), models)).toBe(
-    'name: a\ndescription: "d"\nruntime: claude\nfallbacks: [codex-worker, omp-worker]\n',
+  // Fallbacks are models named with their provider (issue #1336), written as they are.
+  expect(
+    toYaml(
+      draft({ fallbacks: ["claude-subscription/claude-opus-5-5", "gateway/gpt-sol"] }),
+      models,
+    ),
+  ).toBe(
+    'name: a\ndescription: "d"\nruntime: claude\nfallbacks: ["claude-subscription/claude-opus-5-5", "gateway/gpt-sol"]\n',
   )
   // The builder does not edit an agent's skills yet; saving it keeps them (issue #21).
   expect(toYaml(draft({ skills: ["review-go"], skillsOff: ["pdf"] }), models)).toBe(
@@ -626,8 +642,8 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
   expect(toYaml(draft({ tools: ["web_*"], toolsOff: ["web_fetch"] }), models)).toBe(
     'name: a\ndescription: "d"\nruntime: claude\ntools: ["web_*"]\ntools_off: [web_fetch]\n',
   )
-  expect(toYaml(draft({ instruction: "  indented first line\nsecond" }), models)).toContain(
-    'instruction: "  indented first line\\nsecond"\n',
+  expect(toYaml(draft({ instructions: "  indented first line\nsecond" }), models)).toContain(
+    'instructions: "  indented first line\\nsecond"\n',
   )
   // And what a worker asks of a machine (issue #731), as the profile's requests: an agent saved from the builder
   // keeps them.
@@ -666,7 +682,7 @@ test("an agent is duplicated into the new agent's form", async () => {
     provider: "claude-subscription",
     model: "claude-opus-5-5",
     effort: "high",
-    instruction: "Be strict.",
+    instructions: "Be strict.",
   })
   const applied = server([reviewer, profile("reviewer-copy"), profile("reviewer-copy-2")])
   const router = open("/settings/agents/reviewer")

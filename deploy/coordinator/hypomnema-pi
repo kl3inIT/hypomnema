@@ -137,9 +137,9 @@ dir=$(cd "$dir" && pwd -P)
 run="$home/run/$chat"
 mkdir -p "$run"
 
-# The Bot's persona and memory, read with the coordinator's token and given to pi after its built-in instructions.
+# The Bot's instructions and memory, read with the coordinator's token and given to pi after its built-in instructions.
 # They are read here, once per pi process (Hermes gives its memory once per session). Without them pi would answer as
-# another Bot, so pi does not start. A Lark group's chat (--group, issue #246) gets the persona without the memory,
+# another Bot, so pi does not start. A Lark group's chat (--group, issue #246) gets the instructions without the memory,
 # and is told who writes there (OpenClaw leaves MEMORY.md out of a group session's prompt). It runs in the same box
 # with its own token as any other chat. No command here reads stdin: it is pi's.
 prompt="$run/prompt.md"

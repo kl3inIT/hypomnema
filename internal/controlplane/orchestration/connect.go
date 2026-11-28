@@ -353,6 +353,9 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 	)
 
 	agent := task.Profile
+	// A Dispatch is the role's when it runs down the role's chain; one down its profile's fallbacks is the profile's,
+	// a writer on every model of it (issue #1336).
+	role := false
 
 	if d.ProfileVersionID.Valid {
 		v, err := q.GetProfileVersion(ctx, d.ProfileVersionID.String)
@@ -360,7 +363,8 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 			return Offer{}, notFound(err, "profile version", d.ProfileVersionID.String)
 		}
 
-		instruction, agent, limit = v.Instruction.String, v.Profile, v.MemoryLimitBytes.Int64
+		instruction, agent, limit = v.Instructions.String, v.Profile, v.MemoryLimitBytes.Int64
+		role = d.ChainEntry.Valid && roleRouted(v, task)
 	}
 
 	memory, err := memorystore.AgentMemoryTx(ctx, q, agent)
@@ -415,7 +419,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 	return Offer{
 		ModelAPI:   api,
 		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Profile: task.Profile, Instruction: instruction,
-		RoleRouted: d.ChainEntry.Valid,
+		RoleRouted: role,
 		Spec:       spec,
 		Repo:       run.Repo.String, RepoHost: host, RepoKind: kind, RepoSSHURL: sshURL,
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,

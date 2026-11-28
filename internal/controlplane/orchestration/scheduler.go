@@ -224,14 +224,11 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
-	// A Task that waits only for a limit to reset goes to a backup of its profile.
+	// A Task that waits only for a limit to reset goes down its chain: its role's, or its profile's fallbacks
+	// (issue #1336).
 	if spec == nil && len(r.chain) > 0 && (reason == "" || reason == ReasonNoAccount) {
 		spec, r, reason, err = placeRoleBackup(ctx, q, p, task, r, host, recentExpiries, reason)
 		if err != nil {
-			return err
-		}
-	} else if spec == nil && reason == "" && len(r.chain) == 0 {
-		if spec, r, reason, err = placeBackup(ctx, q, p, task, r, host, recentExpiries); err != nil {
 			return err
 		}
 	}
@@ -278,114 +275,6 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 	}
 
 	return nil
-}
-
-// placeBackup places a Task under the first backup of its profile a worker
-// can start under now, when every account of the profile's runtime waits for
-// a limit to reset. The owner orders the backups, as OpenMausBot's list per
-// bot (server/host/limit-takeover.ts, chosen) and OpenClaw's fallbacks per
-// agent. It returns no spec, and r as given, when the Task waits.
-//
-// A Task that has not started (issue #171) goes to any node the backup can
-// run on. A Task whose worker met the limit under way (issue #187) is handed
-// off: the backup takes it over in the same worktree, on the Conversation's
-// node, with a session of its own, as Orca hands a session to another agent
-// (agent-session-continuation.ts) and OpenMausBot sends a limited turn's
-// request again on a backup (server/quota-switch.ts, turnFailed).
-//
-// The Task waits when it names its own runtime or model (that choice is
-// strict: OpenClaw, t3code), when its last Conversation is closed, when it
-// may not be handed off (mayHandOff), and when no backup can run now
-// (OpenMausBot's usable, t3code). A backup's own backups are not followed
-// (t3code: one hop).
-func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
-	recentExpiries map[string]bool,
-) (*DispatchSpec, resolved, string, error) {
-	if task.Runtime.String != "" || task.Model.String != "" {
-		return nil, r, "", nil
-	}
-
-	a := p.availability(r.runtime, r.gateway, r.accounts)
-	if a.Reason != ReasonAccountsCooling {
-		return nil, r, "", nil
-	}
-
-	conv, open, err := openConversation(ctx, q, task.ID)
-	if err != nil {
-		return nil, r, "", err
-	}
-
-	started := conv.ID != ""
-
-	if started {
-		if !open {
-			return nil, r, "", nil
-		}
-
-		if may, err := mayHandOff(ctx, q, task); err != nil || !may {
-			return nil, r, "", err
-		}
-	}
-
-	own, err := q.GetProfileVersion(ctx, r.versionID)
-	if err != nil {
-		return nil, r, "", notFound(err, "profile version", r.versionID)
-	}
-
-	// A Run a Bot created falls back only to profiles on the Bot's workers list, read now (issue #169).
-	mayGive, err := runBotGives(ctx, q, task.RunID)
-	if err != nil {
-		return nil, r, "", err
-	}
-
-	var reason string
-	for _, name := range splitNames(own.Fallbacks) {
-		if !mayGive(name) {
-			continue
-		}
-
-		v, err := q.CurrentProfileVersion(ctx, name)
-		if err != nil {
-			return nil, r, "", notFound(err, "profile", name)
-		}
-
-		b, err := resolveVersion(ctx, q, task, v)
-		if err != nil {
-			return nil, r, "", err
-		}
-
-		var spec *DispatchSpec
-		var wait string
-		if started {
-			spec, wait = placeHandoff(p, conv, b, host.asking(b))
-		} else {
-			spec, wait = placeNew(p, task, b, host.asking(b), recentExpiries)
-		}
-		if wait == ReasonNodesLowDisk {
-			reason = wait
-		}
-
-		if spec != nil {
-			b.fallbackFor, b.fallbackUntil, b.handoff = task.Profile, a.At.UnixMilli(), started
-
-			return spec, b, "", nil
-		}
-	}
-
-	return nil, r, reason, nil
-}
-
-// runBotGives says which profiles the Bot that created a Run may give work
-// to; every one for a Run no Bot created (the owner's), or whose Bot is gone.
-func runBotGives(ctx context.Context, q *store.Queries, runID string) (func(string) bool, error) {
-	every := func(string) bool { return true }
-
-	_, bot, found, err := runBot(ctx, q, runID)
-	if err != nil || !found {
-		return every, err
-	}
-
-	return func(profile string) bool { return bot.MayGive(profile) == nil }, nil
 }
 
 // runBot is the Bot that created a Run: its id, "" for a Run no Bot created
@@ -487,25 +376,8 @@ func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, e
 		return handoffWithoutApprovedWrites(ctx, q, task.ID)
 	}
 
-	v, err := q.CurrentProfileVersion(ctx, task.Profile)
-	if err != nil {
-		return false, notFound(err, "profile", task.Profile)
-	}
-
-	if v.Fallbacks == "" {
-		return false, nil
-	}
-
-	moved, err := q.CountFallbacksOfTask(ctx, task.ID)
-	if err != nil {
-		return false, fmt.Errorf("reading the fallbacks of task %s: %w", task.ID, err)
-	}
-
-	if moved > 0 {
-		return false, nil
-	}
-
-	return handoffWithoutApprovedWrites(ctx, q, task.ID)
+	// A Dispatch that ran down no chain has no later entry to hand off to (issue #1336).
+	return false, nil
 }
 
 func handoffWithoutApprovedWrites(ctx context.Context, q *store.Queries, taskID string) (bool, error) {

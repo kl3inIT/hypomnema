@@ -247,7 +247,9 @@ func TestTheOwnersMentionIsHisTurnAndATeammatesClearsTheMark(t *testing.T) {
 	require.NotEmpty(t, item.Chat)
 	assert.True(t, w.ownerTurn(item.Chat), "the owner's call is his turn, as his words in the Inbox are")
 
-	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot", Persona: "The BeyondPilot project."})
+	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "BeyondPilot", AgentSpec: orchestration.AgentSpec{Instructions: "The BeyondPilot project."},
+	})
 	require.NoError(t, err)
 
 	passed, err := w.svc.Inbox().Edit(ctx,

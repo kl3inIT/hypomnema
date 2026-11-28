@@ -61,19 +61,6 @@ func (q *Queries) CountDispatchesOfProfileVersion(ctx context.Context, versionID
 	return count, err
 }
 
-const countFallbacksNaming = `-- name: CountFallbacksNaming :one
-SELECT count(*) FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
-WHERE p.name <> ?1 AND p.deleted_at IS NULL AND (',' || v.fallbacks || ',') LIKE ('%,' || ?1 || ',%')
-`
-
-// The profiles, not deleted, whose current version names a profile among its backups.
-func (q *Queries) CountFallbacksNaming(ctx context.Context, profile string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countFallbacksNaming, profile)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countTasksOfProfileSince = `-- name: CountTasksOfProfileSince :one
 SELECT count(*) FROM tasks WHERE profile = ?1 AND created_at >= ?2
 `
@@ -105,7 +92,7 @@ func (q *Queries) CountUnfinishedTasksOfProfile(ctx context.Context, profile str
 }
 
 const currentProfileVersion = `-- name: CurrentProfileVersion :one
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes, v.preset, v.memory_limit_bytes FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instructions, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes, v.preset, v.memory_limit_bytes FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
 WHERE p.name = ?1 AND p.deleted_at IS NULL
 `
 
@@ -123,7 +110,7 @@ func (q *Queries) CurrentProfileVersion(ctx context.Context, name string) (Profi
 		&i.Provider,
 		&i.Model,
 		&i.Effort,
-		&i.Instruction,
+		&i.Instructions,
 		&i.CreatedAt,
 		&i.Description,
 		&i.Fallbacks,
@@ -214,7 +201,7 @@ func (q *Queries) GetProfileEvenDeleted(ctx context.Context, name string) (Profi
 }
 
 const getProfileVersion = `-- name: GetProfileVersion :one
-SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes, preset, memory_limit_bytes FROM profile_versions WHERE id = ?1
+SELECT id, profile, version, source, digest, runtime, provider, model, effort, instructions, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes, preset, memory_limit_bytes FROM profile_versions WHERE id = ?1
 `
 
 func (q *Queries) GetProfileVersion(ctx context.Context, id string) (ProfileVersion, error) {
@@ -230,7 +217,7 @@ func (q *Queries) GetProfileVersion(ctx context.Context, id string) (ProfileVers
 		&i.Provider,
 		&i.Model,
 		&i.Effort,
-		&i.Instruction,
+		&i.Instructions,
 		&i.CreatedAt,
 		&i.Description,
 		&i.Fallbacks,
@@ -296,7 +283,7 @@ func (q *Queries) InsertProfile(ctx context.Context, arg InsertProfileParams) er
 
 const insertProfileVersion = `-- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
-                              instruction, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis,
+                              instructions, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis,
                               memory_request_bytes, memory_limit_bytes, preset, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
         ?12, ?13, ?14, ?15, ?16, ?17, ?18,
@@ -314,7 +301,7 @@ type InsertProfileVersionParams struct {
 	Provider           sql.NullString
 	Model              sql.NullString
 	Effort             sql.NullString
-	Instruction        sql.NullString
+	Instructions       sql.NullString
 	Fallbacks          string
 	Skills             string
 	SkillsOff          string
@@ -339,7 +326,7 @@ func (q *Queries) InsertProfileVersion(ctx context.Context, arg InsertProfileVer
 		arg.Provider,
 		arg.Model,
 		arg.Effort,
-		arg.Instruction,
+		arg.Instructions,
 		arg.Fallbacks,
 		arg.Skills,
 		arg.SkillsOff,
@@ -355,7 +342,7 @@ func (q *Queries) InsertProfileVersion(ctx context.Context, arg InsertProfileVer
 }
 
 const listCurrentProfileVersions = `-- name: ListCurrentProfileVersions :many
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes, v.preset, v.memory_limit_bytes FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instructions, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes, v.preset, v.memory_limit_bytes FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
 WHERE p.deleted_at IS NULL ORDER BY p.name
 `
 
@@ -378,7 +365,7 @@ func (q *Queries) ListCurrentProfileVersions(ctx context.Context) ([]ProfileVers
 			&i.Provider,
 			&i.Model,
 			&i.Effort,
-			&i.Instruction,
+			&i.Instructions,
 			&i.CreatedAt,
 			&i.Description,
 			&i.Fallbacks,
@@ -439,7 +426,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]ListModelsRow, error) {
 }
 
 const listProfileVersions = `-- name: ListProfileVersions :many
-SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes, preset, memory_limit_bytes FROM profile_versions WHERE profile = ?1 ORDER BY version DESC
+SELECT id, profile, version, source, digest, runtime, provider, model, effort, instructions, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes, preset, memory_limit_bytes FROM profile_versions WHERE profile = ?1 ORDER BY version DESC
 `
 
 func (q *Queries) ListProfileVersions(ctx context.Context, profile string) ([]ProfileVersion, error) {
@@ -461,7 +448,7 @@ func (q *Queries) ListProfileVersions(ctx context.Context, profile string) ([]Pr
 			&i.Provider,
 			&i.Model,
 			&i.Effort,
-			&i.Instruction,
+			&i.Instructions,
 			&i.CreatedAt,
 			&i.Description,
 			&i.Fallbacks,
