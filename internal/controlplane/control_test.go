@@ -23,14 +23,18 @@ import (
 // Scenario (issue #716): the control socket, next to the database, answers which chats' turns run, to the control
 // plane's user alone. A socket left by an earlier run is replaced, and the socket goes when the control plane stops.
 func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
-	t.Parallel()
+	// Keep the long temporary path and address the socket relative to it so the Unix address fits.
+	work := filepath.Join(t.TempDir(), strings.Repeat("a", 108))
+	dir := filepath.Join(work, "data")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	t.Chdir(work)
 
-	// Reproduce a worker's long TMPDIR on runners with short temporary paths too.
-	dir := filepath.Join(t.TempDir(), strings.Repeat("a", 108))
-	require.NoError(t, os.Mkdir(dir, 0o700))
-	path := controlSocket(filepath.Join(dir, "hypomnema.db"))
-	assert.Equal(t, filepath.Join(dir, "control.sock"), path)
+	path := controlSocket(filepath.Join("data", "hypomnema.db"))
+	assert.Equal(t, filepath.Join("data", "control.sock"), path)
 	require.NoError(t, os.WriteFile(path, nil, 0o600), "a stale socket")
+
+	ln, err := listenControl(t.Context(), path)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -57,7 +61,7 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, func() int { return 2 },
+		serveControl(ctx, ln, func() []string { return []string{"cht_a"} }, func() int { return 2 },
 			func() int { return 1 }, begin, slog.New(slog.NewTextHandler(t.Output(), nil)))
 	}()
 
@@ -68,31 +72,24 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	}}
 	t.Cleanup(client.CloseIdleConnections)
 
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://control"+selfupdate.PathTurns, nil)
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck // read only
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
 	var got selfupdate.Turns
-
-	require.Eventually(t, func() bool {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://control"+selfupdate.PathTurns, nil)
-		if err != nil {
-			return false
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close() //nolint:errcheck // read only
-
-		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&got) == nil
-	}, 5*time.Second, 10*time.Millisecond)
-
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.Equal(t, selfupdate.Turns{Chats: []string{"cht_a"}, ToolCalls: 2, Renders: 1}, got)
 
 	// The update names itself: the control plane writes the marker, through the coordinator's lock.
 	body := strings.NewReader(fmt.Sprintf(`{"pid":%d,"start":""}`, os.Getpid()))
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://control"+selfupdate.PathUpdate, body)
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodPost, "http://control"+selfupdate.PathUpdate, body)
 	require.NoError(t, err)
 
-	resp, err := client.Do(req)
+	resp, err = client.Do(req)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)

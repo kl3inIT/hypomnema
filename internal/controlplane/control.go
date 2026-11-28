@@ -27,37 +27,31 @@ func controlSocket(database string) string {
 	return filepath.Join(filepath.Dir(database), selfupdate.ControlSocket)
 }
 
-// serveControl serves the control socket at path until ctx ends. A socket that cannot listen is logged, and the
-// control plane serves without it: an update then does not wait (selfupdate).
-func serveControl(ctx context.Context, path string, working func() []string, calls, renders func() int,
-	begin func(mark func() error) error, logger *slog.Logger,
-) {
-	fail := func(err error) {
-		logger.ErrorContext(ctx, "control socket cannot listen", slog.String("event", "controlplane.control.failed"),
-			slog.String("path", path), slog.String("error", err.Error()))
-	}
-
+// listenControl replaces a stale socket and returns a listener restricted to the control plane's user.
+func listenControl(ctx context.Context, path string) (net.Listener, error) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		fail(err)
-
-		return
+		return nil, err
 	}
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "unix", path)
 	if err != nil {
-		fail(err)
-
-		return
+		return nil, err
 	}
 
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = ln.Close()
 
-		fail(err)
-
-		return
+		return nil, err
 	}
 
+	return ln, nil
+}
+
+// serveControl handles requests on the open control socket until ctx ends.
+func serveControl(ctx context.Context, ln net.Listener, working func() []string, calls, renders func() int,
+	begin func(mark func() error) error, logger *slog.Logger,
+) {
+	dir := filepath.Dir(ln.Addr().String())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+selfupdate.PathTurns, func(w http.ResponseWriter, _ *http.Request) {
 		chats := working()
@@ -78,7 +72,7 @@ func serveControl(ctx context.Context, path string, working func() []string, cal
 			return
 		}
 
-		if err := begin(func() error { return selfupdate.WriteMarker(filepath.Dir(path), b) }); err != nil {
+		if err := begin(func() error { return selfupdate.WriteMarker(dir, b) }); err != nil {
 			logger.ErrorContext(r.Context(), "marking the update failed", slog.String("event", "controlplane.control.failed"),
 				slog.String("error", err.Error()))
 			http.Error(w, err.Error(), http.StatusInternalServerError)

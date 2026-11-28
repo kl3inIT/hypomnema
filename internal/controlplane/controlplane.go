@@ -991,13 +991,22 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}()
 
 	// `hypomnema update` waits for Bots' turns, tool calls and video renders (issues #716, #1060, #1328).
+	// If the socket cannot listen, log the error and serve without it.
 	controlDone := make(chan struct{})
 
 	go func() {
 		defer close(controlDone)
 
-		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, agents.ToolCalls, videoSvc.Renders,
-			sup.BeginUpdate, logger)
+		path := controlSocket(cfg.Database.Path)
+		controlListener, err := listenControl(ctx, path)
+		if err != nil {
+			logger.ErrorContext(ctx, "control socket cannot listen", slog.String("event", "controlplane.control.failed"),
+				slog.String("path", path), slog.String("error", err.Error()))
+
+			return
+		}
+
+		serveControl(ctx, controlListener, sup.WorkingChats, agents.ToolCalls, videoSvc.Renders, sup.BeginUpdate, logger)
 	}()
 
 	serveErr := platform.Serve(ctx, ln, mux, logger)
