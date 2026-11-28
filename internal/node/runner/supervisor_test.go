@@ -36,6 +36,11 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
+	if os.Getenv("FAKE_HOG") != "" {
+		hog()
+		os.Exit(0)
+	}
+
 	if mode := os.Getenv("FAKE_CLI"); mode != "" {
 		os.Exit(fakeCLI(mode))
 	}
@@ -99,6 +104,16 @@ func fakeCLI(mode string) int {
 			say(line{Type: "note", N: notes})
 		case "result":
 			say(line{Type: "result"})
+		case "finish-hog":
+			// The worker reports, then a process of its takes more memory than its scope allows and is killed,
+			// and the worker ends at once, before anything reads its scope again.
+			_ = bridge.Finish(os.Getenv("FAKE_BRIDGE"), bridge.Final{Summary: "the tests pass"})
+			child := exec.Command(os.Args[0]) //nolint:noctx,gosec // the fake CLI's own child
+			child.Env = append(os.Environ(), "FAKE_HOG=1")
+			_ = child.Run()
+			say(line{Type: "result"})
+
+			return 0
 		case "interrupt":
 			// The session the interrupt named, for a test to read.
 			_ = os.WriteFile("interrupted.txt", []byte(l.Session), 0o600)
@@ -1080,7 +1095,8 @@ func TestAnAdoptedWorkerIsMovedIntoItsScope(t *testing.T) {
 		}, got[:9])
 		joined := " " + strings.Join(got, " ") + " "
 		assert.Contains(t, joined, " Slice s hypomnema-workers.slice ")
-		assert.Contains(t, joined, " PIDs au "+strconv.Itoa(len(tree))+" ")
+		// The worker's processes and the holder that keeps its scope until its end is read.
+		assert.Contains(t, joined, " PIDs au "+strconv.Itoa(len(tree)+1)+" ")
 		for _, p := range tree {
 			assert.Contains(t, joined, " "+strconv.Itoa(p)+" ")
 		}
@@ -1183,4 +1199,66 @@ func TestALiveWorkerOverTheSliceEndsOOMKilled(t *testing.T) {
 	assert.Equal(t, "worker_error", f.Class)
 	assert.Equal(t, nodeproto.ExitOOMKilled, f.Exit.Reason)
 	assert.True(t, strings.HasPrefix(f.Summary, "oom_killed: "), f.Summary)
+}
+
+// Scenario (review round 2): an adopted worker whose earlier daemon died before its started report went is killed for
+// memory. Its control plane may still have it starting, which takes no worker_error: the node says it started again
+// first (a control plane that knows refuses it), then that it failed for memory.
+func TestAnAdoptedWorkerKilledForMemoryIsSaidStartedFirst(t *testing.T) {
+	t.Parallel()
+
+	report := newReporter()
+	sup := &Supervisor{}
+	sup.ended(t.Context(), &Worker{
+		id: "dsp_1", dir: t.TempDir(), r: report, turn: &fakeTurn{}, pid: 42, started: true, adopted: true,
+	}, shim.Exit{Code: -1, Signal: "killed", OOMKills: 1})
+
+	assert.Equal(t, 1, report.startedCount(), "the started report goes again")
+	require.Len(t, report.finished, 1)
+	assert.Equal(t, "worker_error", report.finished[0].Class)
+	assert.Equal(t, "oom_killed", report.finished[0].Exit.Reason)
+}
+
+// Scenario (review round 2, live): a worker an earlier daemon started outside the slice, with a shim that does not
+// count kills for memory, is adopted into a scope of 64 MiB; it finishes, then a process of its is killed for memory
+// and it ends at once, its scope emptied before the Supervisor's next read. The holder keeps the scope until its end
+// is read, so the Dispatch fails oom_killed rather than succeeding. It starts an OOM kill in a real scope, so it runs
+// only when HYPOMNEMA_TEST_WORKER_SLICE is set, on a node with no real services.
+func TestAnAdoptedWorkersKillForMemoryIsNotLost(t *testing.T) {
+	if os.Getenv("HYPOMNEMA_TEST_WORKER_SLICE") == "" {
+		t.Skip("set HYPOMNEMA_TEST_WORKER_SLICE=1 on a node with no real services")
+	}
+
+	g := newRig(t, "hang")
+	g.start(newReporter())
+
+	again := g.restart()
+	again.sup.Memory = memlimit.Probe(t.Context())
+	require.True(t, again.sup.Memory.On(), again.sup.Memory.Reason)
+
+	d := again.dispatch()
+	d.Offer.MemoryLimit = 64 << 20
+
+	report := newReporter()
+	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, d, report))
+
+	pid, err := shim.PID(again.sup.dir("dsp_1"))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		raw, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cgroup"))
+		return strings.Contains(string(raw), "/hypomnema-worker-dsp_1.scope")
+	}, 10*time.Second, 20*time.Millisecond)
+
+	w := again.sup.get("dsp_1")
+	require.NotNil(t, w)
+	require.NoError(t, w.Send(t.Context(), []byte(`{"type":"finish-hog"}`)))
+
+	report.wait(t)
+	require.Len(t, report.finished, 1)
+	f := report.finished[0]
+	t.Logf("%+v", f)
+	assert.Equal(t, "worker_error", f.Class)
+	assert.Equal(t, "oom_killed", f.Exit.Reason)
+	assert.True(t, strings.HasPrefix(f.Summary, "oom_killed: "), f.Summary)
+	assert.NoFileExists(t, filepath.Join(again.sup.dir("dsp_1"), "scope-holder.json"), "the holder is stopped")
 }
