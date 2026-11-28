@@ -5,6 +5,8 @@
 package githubapptest
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -65,6 +67,20 @@ type GitHub struct {
 	// .../pulls/{n}/reviews), in order.
 	refused map[string]int
 	reviews []Made
+	// heldReviews are the next answers to a review made held back, in order (HoldNextReview).
+	heldReviews []*heldRead
+}
+
+// HoldNextReview makes the next review made be made when its POST arrives, but its answer be given only once release
+// is called; arrived is closed when the review is made, as GitHub may make a review and answer late.
+func (g *GitHub) HoldNextReview() (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	h := &heldRead{arrived: make(chan struct{}), release: make(chan struct{})}
+	g.heldReviews = append(g.heldReviews, h)
+
+	return h.arrived, sync.OnceFunc(func() { close(h.release) })
 }
 
 // Made is a review made on a pull request through the API: by whom GitHub took it to be, from the token that made
@@ -324,7 +340,7 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 	case r.Method == http.MethodPost && g.refused[path] != 0:
 		return answer(g.refused[path], map[string]any{"message": "refused"})
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/repos/") && strings.HasSuffix(path, "/reviews"):
-		return g.review(path, auth, sent)
+		return g.review(path, auth, sent, strings.Contains(r.Header.Get("Accept-Encoding"), "gzip"))
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/repos/") &&
 		(strings.HasSuffix(path, "/reactions") || strings.HasSuffix(path, "/comments") ||
 			strings.HasSuffix(path, "/replies")):
@@ -383,7 +399,8 @@ func (g *GitHub) RoundTrip(r *http.Request) (*http.Response, error) {
 // review makes a review on a pull request as GitHub's POST /repos/{owner}/{repo}/pulls/{n}/reviews does: by the
 // App's account when an installation's token made it, else by the owner's; and the pull_request_review delivery
 // GitHub sends the App for it. g.mu is held.
-func (g *GitHub) review(path, auth string, sent []byte) (*http.Response, error) {
+// The answer is gzipped when the request accepts it, as GitHub's API answers (Content-Encoding: gzip).
+func (g *GitHub) review(path, auth string, sent []byte, gzipped bool) (*http.Response, error) {
 	parts := strings.Split(path, "/")
 
 	number, err := strconv.Atoi(parts[len(parts)-2])
@@ -413,10 +430,39 @@ func (g *GitHub) review(path, auth string, sent []byte) (*http.Response, error) 
 	made := Made{By: by, URL: ReviewURL(number, id), Event: ReviewAt(by, number, id, state, asked.Body, time.Now())}
 	g.reviews = append(g.reviews, made)
 
-	return answer(http.StatusOK, map[string]any{
+	resp, err := answer(http.StatusOK, map[string]any{
 		"id": id, "html_url": made.URL, "state": strings.ToUpper(state), "user": person(by),
 		"submitted_at": time.Now().UTC().Format(time.RFC3339),
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if gzipped {
+		plain, _ := io.ReadAll(resp.Body)
+
+		var packed bytes.Buffer
+
+		zw := gzip.NewWriter(&packed)
+		_, _ = zw.Write(plain)
+		_ = zw.Close()
+
+		resp.Body = io.NopCloser(bytes.NewReader(packed.Bytes()))
+		resp.ContentLength = int64(packed.Len())
+		resp.Header.Set("Content-Encoding", "gzip")
+	}
+
+	if len(g.heldReviews) > 0 {
+		h := g.heldReviews[0]
+		g.heldReviews = g.heldReviews[1:]
+
+		g.mu.Unlock()
+		close(h.arrived)
+		<-h.release
+		g.mu.Lock()
+	}
+
+	return resp, nil
 }
 
 func answer(status int, body any) (*http.Response, error) {

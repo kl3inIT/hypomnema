@@ -3,6 +3,7 @@ package controlplane
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -32,6 +33,8 @@ type botGitHub struct {
 	proxy *serviceproxy.Proxy
 	conn  *tls.Conn
 	read  *bufio.Reader
+	// plain asks GitHub for an answer not compressed, so a test reaches what follows the read of the answer.
+	plain bool
 }
 
 // connToken is the Connection's own token, the owner's, which the proxy uses when no App token is picked.
@@ -49,7 +52,11 @@ func (w *appWorld) ghIn(chat string) *botGitHub {
 	_, err = w.svc.SetConnectionChats(ctx, serviceproxy.GitHubID, "default", true)
 	require.NoError(w.t, err)
 
-	_, pi, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(w.t, err)
+
+	// The Bot's pi's own token, bound to the chat and its Bot, as the coordinator gives each chat's pi.
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat, orchestration.DefaultBotID)
 	require.NoError(w.t, err)
 
 	agents := agentapi.New(w.svc, func(context.Context, string, string) (agentapi.Token, error) {
@@ -110,37 +117,68 @@ func (w *appWorld) ghIn(chat string) *botGitHub {
 func (g *botGitHub) post(path string, body []byte) int {
 	g.w.t.Helper()
 
+	status, _ := g.postRead(path, body)
+
+	return status
+}
+
+// postRead is post that also returns the answer's body as gh reads it: gh asks for gzip, as gh 2.103 does, and
+// unpacks what it gets.
+func (g *botGitHub) postRead(path string, body []byte) (int, string) {
+	g.w.t.Helper()
+
 	req, err := http.NewRequestWithContext(g.w.t.Context(), http.MethodPost, "https://api.github.com/"+
 		strings.TrimPrefix(path, "/"), bytes.NewReader(body))
 	require.NoError(g.w.t, err)
 	req.Header.Set("Authorization", "Bearer "+agenttool.Placeholder)
 	req.Header.Set("Content-Type", "application/json")
+	if !g.plain {
+		req.Header.Set("Accept-Encoding", "gzip")
+	}
 
-	answered := make(chan int, 1)
+	type got struct {
+		status int
+		body   string
+	}
+
+	answered := make(chan got, 1)
 
 	go func() {
 		if err := req.Write(g.conn); err != nil {
-			answered <- 0
+			answered <- got{}
 
 			return
 		}
 
 		resp, err := http.ReadResponse(g.read, req)
 		if err != nil {
-			answered <- 0
+			answered <- got{}
 
 			return
 		}
 
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-		answered <- resp.StatusCode
+		defer func() { _ = resp.Body.Close() }()
+
+		var r io.Reader = resp.Body
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			zr, err := gzip.NewReader(resp.Body)
+			if err != nil {
+				answered <- got{status: resp.StatusCode}
+
+				return
+			}
+
+			r = zr
+		}
+
+		raw, _ := io.ReadAll(r)
+		answered <- got{status: resp.StatusCode, body: string(raw)}
 	}()
 
 	for {
 		select {
-		case status := <-answered:
-			return status
+		case a := <-answered:
+			return a.status, a.body
 		case <-time.After(20 * time.Millisecond):
 		}
 

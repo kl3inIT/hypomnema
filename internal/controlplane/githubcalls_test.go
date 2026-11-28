@@ -304,11 +304,13 @@ func TestTheOwnersReviewCallEndsInAReplyLinkingHyposReview(t *testing.T) {
 		"and what to do when the review is not yet its evidence (review round 2 of PR #1323)")
 
 	gh := w.ghIn(items[0].Chat)
-	require.Equal(t, http.StatusOK, gh.post(command[1],
-		[]byte(`{"event":"COMMENT","body":"Two findings: the store reads twice."}`)))
+	status, answer := gh.postRead(command[1],
+		[]byte(`{"event":"COMMENT","body":"Two findings: the store reads twice."}`))
+	require.Equal(t, http.StatusOK, status)
 
 	made := w.gh.Reviews()
 	require.Len(t, made, 1)
+	assert.Contains(t, answer, made[0].URL, "gh gets GitHub's gzipped answer as it was, and reads the review")
 	assert.Equal(t, theApp.Login, made[0].By.Login, "the review went with the App's installation token")
 	w.deliverSigned("pull_request_review", made[0].Event)
 
@@ -569,4 +571,104 @@ func TestRepliesAreAnsweredInTheirThreadAndOneRefusalBlocksNoOther(t *testing.T)
 
 	require.Eventually(t, func() bool { return len(w.replies()) == 3 }, 10*time.Second, 10*time.Millisecond)
 	assert.Equal(t, "/repos/kl3init/hypomnema/issues/1303/comments", strings.ToLower(w.replies()[2].Path))
+}
+
+// Scenario (review round 3 of PR #1323): GitHub answers the App's review late, after the attempt that made it ended
+// and another began in the same chat. The review is the work of the attempt it was made in, fixed before its POST
+// went out, as RecordSent ties a send to its attempt (issue #1206): it is never the later attempt's.
+func TestALateAnswerRecordsNoReviewOnTheNextAttempt(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+	ctx := t.Context()
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: ownerOnGitHub, Number: 1269, PullRequest: true, ID: 9621, Body: mention + " review PR này",
+	}))
+
+	items := w.calls()
+	require.Len(t, items, 1)
+
+	hypo := inboxstore.Actor{Kind: inboxstore.Bot, ID: orchestration.DefaultBotID}
+	first, err := w.svc.Inbox().Start(ctx, inboxstore.Change{Actor: hypo, ID: items[0].ID, Revision: items[0].Revision},
+		inboxstore.Work{Kind: inboxstore.WorkChat, ID: items[0].Chat})
+	require.NoError(t, err)
+
+	arrived, release := w.gh.HoldNextReview()
+	t.Cleanup(release)
+
+	gh := w.ghIn(items[0].Chat)
+	gh.plain = true
+	posted := make(chan int, 1)
+
+	go func() {
+		posted <- gh.post("repos/kl3init/hypomnema/pulls/1269/reviews", []byte(`{"event":"COMMENT","body":"Late."}`))
+	}()
+
+	select {
+	case <-arrived:
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "the review was never made")
+	}
+
+	released, err := w.svc.Inbox().Release(ctx,
+		inboxstore.Change{Actor: hypo, ID: first.ID, Revision: first.Revision, Attempt: first.Work.Attempt},
+		"starting over")
+	require.NoError(t, err)
+
+	second, err := w.svc.Inbox().Start(ctx, inboxstore.Change{Actor: hypo, ID: released.ID,
+		Revision: released.Revision}, inboxstore.Work{Kind: inboxstore.WorkChat, ID: items[0].Chat})
+	require.NoError(t, err)
+	require.NotEqual(t, first.Work.Attempt, second.Work.Attempt)
+
+	release()
+	require.Equal(t, http.StatusOK, <-posted)
+
+	made := w.gh.Reviews()
+	require.Len(t, made, 1)
+
+	second, err = w.svc.Inbox().Get(ctx, second.ID)
+	require.NoError(t, err)
+
+	_, err = w.svc.Inbox().Done(ctx,
+		inboxstore.Change{Actor: hypo, ID: second.ID, Revision: second.Revision, Attempt: second.Work.Attempt},
+		inboxstore.Closing{
+			DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: orchestration.DefaultBotID},
+			How:    inboxstore.ClosedByBot, Reason: "Reviewed.",
+			Evidence: []inboxstore.Link{{Kind: inboxstore.LinkURL, Ref: made[0].URL}},
+		})
+	require.Error(t, err, "attempt A's review is not attempt B's work")
+}
+
+// Scenario (review round 3 of PR #1323): a review is recorded only for a Bot and its chat that a token named, and
+// for the attempt fixed before its POST: no Bot, no chat or no attempt records nothing.
+func TestARecordWithoutTheTokensBotOrAttemptRecordsNothing(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+	ctx := t.Context()
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: ownerOnGitHub, Number: 1269, PullRequest: true, ID: 9631, Body: mention + " review PR này",
+	}))
+
+	items := w.calls()
+	require.Len(t, items, 1)
+
+	hypo := inboxstore.Actor{Kind: inboxstore.Bot, ID: orchestration.DefaultBotID}
+	item, err := w.svc.Inbox().Start(ctx, inboxstore.Change{Actor: hypo, ID: items[0].ID, Revision: items[0].Revision},
+		inboxstore.Work{Kind: inboxstore.WorkChat, ID: items[0].Chat})
+	require.NoError(t, err)
+
+	url := githubapptest.ReviewURL(1269, 991)
+
+	for _, c := range []struct{ chat, bot, attempt string }{
+		{items[0].Chat, "", item.Work.Attempt},
+		{"", orchestration.DefaultBotID, item.Work.Attempt},
+		{items[0].Chat, orchestration.DefaultBotID, ""},
+	} {
+		recorded, err := w.svc.RecordAppReview(ctx, c.chat, c.bot, c.attempt, "kl3init/hypomnema", 1269, 991, url)
+		require.NoError(t, err)
+		assert.False(t, recorded, "%+v", c)
+	}
 }
