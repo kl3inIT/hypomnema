@@ -23,7 +23,7 @@
     <h1>The owner's Telegram: link steps and the Telegram tab (#1184)</h1>
     <p>
       Taken by <code>web/tests/telegram-1184.spec.ts</code> against a fake client API, on a computer (Desktop Chrome)
-      and a phone (Pixel 7), in light and dark. Every number, code, password and name is made up.
+      and a phone (Pixel 7), in light and dark. Every name is made up; the numbers are in Telegram's test range (+999 66 X YYYY).
     </p>
     <section>
       <h2>The api_id is missing</h2>
@@ -79,7 +79,7 @@
     </section>
     <section>
       <h2>The QR code</h2>
-      <p>Telegram's login link as a QR code, and where to scan it (Settings › Devices › Link Desktop Device).</p>
+      <p>Telegram's login link as a QR code, where to scan it (Settings › Devices › Link Desktop Device), and Use phone number to switch without closing.</p>
       <h3>Light</h3>
       <div class="screens">
         <figure>
@@ -130,6 +130,32 @@
       </div>
     </section>
     <section>
+      <h2>A wrong password</h2>
+      <p>The two-step password, refused once: asked again with its hint, the field empty (nothing typed is kept).</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-password-again-light-desktop.png" alt="A wrong password, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-password-again-light-phone.png" alt="A wrong password, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-password-again-dark-desktop.png" alt="A wrong password, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-password-again-dark-phone.png" alt="A wrong password, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
       <h2>By phone number</h2>
       <p>Use phone number: the number, with its country code.</p>
       <h3>Light</h3>
@@ -152,6 +178,32 @@
         <figure class="phone">
           <figcaption>Phone</figcaption>
           <img src="telegram-link-phone-dark-phone.png" alt="By phone number, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>The code</h2>
+      <p>The code Telegram sent, asked once the number was taken, and where it was sent.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-code-light-desktop.png" alt="The code, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-code-light-phone.png" alt="The code, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-code-dark-desktop.png" alt="The code, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-code-dark-phone.png" alt="The code, phone, dark">
         </figure>
       </div>
     </section>
@@ -183,7 +235,7 @@
     </section>
     <section>
       <h2>The Telegram tab</h2>
-      <p>Inbox › Chats the secretary reads: a Telegram tab with its counts; a person and the groups read, bots, Telegram's own account and a channel skipped by default.</p>
+      <p>Inbox › Chats the secretary reads: a Telegram tab with its counts; a person and the groups read (an ordinary group named Engineering Newsletter too: Telegram's flags only), bots, Telegram's own account and a channel skipped by default.</p>
       <h3>Light</h3>
       <div class="screens">
         <figure>
