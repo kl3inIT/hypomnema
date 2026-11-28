@@ -497,13 +497,14 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 }
 
 // decide applies the action's Policy. An empty message means the request
-// runs; otherwise it is what the tool is told. describe says what the owner is
+// runs; otherwise it is what the tool is told. A preapproved request skips asking but still respects refusals.
+// describe says what the owner is
 // asked, when he is. Of an action and those the request names beside it
 // (With), the strictest answer governs (Onyx's AllMatchedActions): one refused
 // or set to never refuses the request, and when the strictest is ask, each
 // action that asks needs its own answer, so that a grant of one never lets
 // another run (review of #746). The action returned is the one that decided.
-func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func(Action) asking,
+func (p *Proxy) decide(ctx context.Context, action Action, s session, preapproved bool, describe func(Action) asking,
 ) (governing Action, verdict, message string, err error) {
 	all := append([]Action{action}, action.With...)
 	if named, ok := writesOwners(s, all); ok {
@@ -533,6 +534,10 @@ func (p *Proxy) decide(ctx context.Context, action Action, s session, describe f
 	for i, a := range all {
 		if answers[i], err = p.answerOf(ctx, a, s); err != nil {
 			return action, "", "", err
+		}
+
+		if preapproved && answers[i].policy == orchestration.PolicyAsk {
+			answers[i].policy = orchestration.PolicyAllow
 		}
 
 		if answers[i].severity() > answers[strictest].severity() {

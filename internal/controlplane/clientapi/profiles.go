@@ -177,6 +177,7 @@ func toProfile(p profilestore.Profile) openapi.Profile {
 		SkillsOff: append([]string{}, p.SkillsOff...), Tools: append([]string{}, p.Tools...),
 		Preset: openapi.ToolPreset(p.Preset), ToolsOff: append([]string{}, p.ToolsOff...), CreatedAt: p.CreatedAt,
 		CpuRequestMillis: ptr(p.CPURequestMillis), MemoryRequestBytes: ptr(p.MemoryRequestBytes),
+		MemoryLimitBytes: ptr(p.MemoryLimitBytes),
 	}
 
 	if a := p.Availability; a != nil {

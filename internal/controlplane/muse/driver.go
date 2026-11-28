@@ -599,8 +599,8 @@ func (d *driver) wait(ctx context.Context, base chat, deadline time.Time) (chat,
 	}
 }
 
-// read reads the last answer and the thread's id (row 14).
-func (d *driver) read(ctx context.Context) (answer, error) {
+// read reads the answer after the base messages and the thread's id (row 14).
+func (d *driver) read(ctx context.Context, base int) (answer, error) {
 	var got struct {
 		Matched string   `json:"matched"`
 		Text    string   `json:"text"`
@@ -608,7 +608,7 @@ func (d *driver) read(ctx context.Context) (answer, error) {
 		Media   []string `json:"media"`
 	}
 
-	if err := d.eval(ctx, readAnswer, &got); err != nil {
+	if err := d.eval(ctx, readAnswer(base), &got); err != nil {
 		return answer{}, err
 	}
 
@@ -707,7 +707,7 @@ func (d *driver) ask(ctx context.Context, prompt, thread string, deadline time.T
 		return a, true, err
 	}
 
-	if a, err = d.read(ctx); err != nil {
+	if a, err = d.read(ctx, base.Count); err != nil {
 		return a, true, err
 	}
 
@@ -715,7 +715,9 @@ func (d *driver) ask(ctx context.Context, prompt, thread string, deadline time.T
 		a.Text = done.Last
 	}
 
-	if hint := quotaHint(a.Text); hint != "" {
+	// The quota is Muse's final word, its last message, never words an answer of several messages quotes before it
+	// (review of #1292: a quoted "usage limit" rested an account).
+	if hint := quotaHint(done.Last); hint != "" {
 		return a, true, fmt.Errorf("%w: …%s…", ErrQuota, hint)
 	}
 

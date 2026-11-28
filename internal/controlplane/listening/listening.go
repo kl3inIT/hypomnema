@@ -33,6 +33,9 @@
 //     full for their quotes, the code's ranking and clusters standing when no model answers as asked (issue #1306;
 //     semantic.go).
 //
+// The parts adapted from MIT and Apache-2.0 code carry those projects' notices in third_party/: last30days-skill
+// (and last30days-skill-cn), google-play-scraper, agent-reach, harken and obsei.
+//
 // It stores nothing: what a backend rests for is kept in memory, the control plane being one process that lives
 // across calls (last30days, a process per run, writes it to a file).
 package listening
@@ -142,6 +145,9 @@ type Item struct {
 	EngagementScore *int               `json:"engagement_score,omitempty"`
 	// Parent is the native id of the post a comment answers.
 	Parent string `json:"parent,omitempty"`
+	// Signals mark what the item says beyond its text: a careers page's role out of character for its company,
+	// "founding", "leadership", "specialized" or "new-geo" (last30days hiring_signals.py _strategic_candidates).
+	Signals []string `json:"signals,omitempty"`
 	// Subqueries are the labels of the subqueries that found it.
 	Subqueries []string  `json:"subqueries"`
 	FetchedAt  time.Time `json:"fetched_at"`
@@ -164,6 +170,11 @@ type Item struct {
 	// it says about the topic, kept only beside a checked quote (semantic pass, layer 2b).
 	Quotes []string `json:"quotes,omitempty"`
 	Claims []string `json:"claims,omitempty"`
+	// QuoteFrom says where the text was read, for an item a model found: caption, image_text or comment.
+	QuoteFrom string `json:"quote_from,omitempty"`
+	// Check is how an item a model found was checked, its link opened (muse.go): "verified: …", or in the answer's
+	// Unverified, why not. Empty for an item a source's own API gave.
+	Check string `json:"check,omitempty"`
 
 	// signals for the ranking, never answered.
 	relevance float64
@@ -191,6 +202,10 @@ type Answer struct {
 	// Limits are the bounds this search used; Pass reports the semantic pass over them.
 	Limits Limits `json:"limits"`
 	Pass   Pass   `json:"pass"`
+	// Unverified are what a model said it found and its link did not bear out, at most PoolSize, each with why in
+	// its Check: leads to look at, never evidence, so neither ranked, clustered nor counted as items (issue #1292;
+	// last30days grok_x._validate_items drops them, lib/grok_x.py:400-440).
+	Unverified []Item `json:"unverified,omitempty"`
 }
 
 // WebSearch asks the control plane's web search chain, recorded on the caller's gateway key.
@@ -209,6 +224,9 @@ type Config struct {
 	// chat model's name, ModelOff, or empty for DefaultReviewModel and DefaultReadModel.
 	ReviewModel string
 	ReadModel   string
+	// Muse is the owner's Muse pool, the backend of Facebook, Instagram and Threads (muse.go); nil: those sources
+	// cannot be read. Used only when Platforms is nil.
+	Muse Muse
 }
 
 // Service searches the sources.
@@ -227,12 +245,14 @@ type Service struct {
 	mu sync.Mutex
 	// resting is each backend's rest, by "<platform>/<backend>".
 	resting map[string]*SourceError
+	// health is each source's state after the last search that read it (health.go).
+	health map[string]*Health
 }
 
 // New returns a Service.
 func New(cfg Config) *Service {
 	if cfg.Platforms == nil {
-		cfg.Platforms = Sources(Endpoints{}, http.DefaultClient)
+		cfg.Platforms = append(Sources(Endpoints{}, http.DefaultClient), MuseSources(cfg.Muse, http.DefaultClient)...)
 	}
 
 	if cfg.Now == nil {
@@ -247,7 +267,7 @@ func New(cfg Config) *Service {
 		platforms: cfg.Platforms, now: cfg.Now, pacer: NewPacer(cfg.Now, cfg.Sleep), logger: cfg.Logger,
 		reviewModel: cfg.ReviewModel, readModel: cfg.ReadModel,
 		scores: newMemo[scored](cfg.Now), readings: newMemo[reading](cfg.Now), plans: newMemo[clusterPlan](cfg.Now),
-		resting: map[string]*SourceError{},
+		resting: map[string]*SourceError{}, health: map[string]*Health{},
 	}
 }
 
@@ -290,6 +310,13 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 	runs := make([]sourceRun, len(s.platforms))
 
+	streamsOf := map[string]int{}
+	for _, p := range s.platforms {
+		streamsOf[p.Name] = len(plan.subqueriesOf(p.Name))
+	}
+
+	run := NewRun(now, streamsOf)
+
 	var wg sync.WaitGroup
 
 	for i, p := range s.platforms {
@@ -305,21 +332,34 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 			for _, sq := range labels {
 				req := s.request(plan, c)
-				req.Query, req.Limit, req.From, req.To = sq.Query, plan.MaxResults, from, now
+				req.Query, req.Limit, req.From, req.To, req.Run = sq.Query, plan.MaxResults, from, now, run
 				st := s.runStream(ctx, p, plan.Backends[p.Name], sq, req)
 				cov.Streams = append(cov.Streams, st.report)
 				streams = append(streams, st)
 			}
 
-			runs[i] = sourceRun{coverage: cov.settle(), streams: streams}
+			runs[i] = sourceRun{coverage: cov, streams: streams}
 		})
 	}
 
 	wg.Wait()
 
+	// What backends read after every stream's first pass (Result.Then), in the sources' and subqueries' order, then
+	// each source's coverage.
+	for i := range runs {
+		for j := range runs[i].streams {
+			s.runThen(ctx, &runs[i].streams[j])
+			runs[i].coverage.Streams[j] = runs[i].streams[j].report
+		}
+
+		runs[i].coverage = runs[i].coverage.settle()
+	}
+
 	answer := Answer{From: from.Format(time.DateOnly), To: now.Format(time.DateOnly)}
 
 	var streams []stream
+
+	seen := map[string]bool{}
 
 	for _, r := range runs {
 		if r.coverage.Source == "" {
@@ -328,8 +368,18 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 		answer.Coverage = append(answer.Coverage, r.coverage)
 		streams = append(streams, r.streams...)
+
+		for _, st := range r.streams {
+			for _, it := range st.unverified {
+				if !seen[it.ID] && len(answer.Unverified) < PoolSize {
+					seen[it.ID] = true
+					answer.Unverified = append(answer.Unverified, it)
+				}
+			}
+		}
 	}
 
+	s.record(answer.Coverage, now)
 	answer.Limits = plan.limits()
 
 	items := rank(plan, streams, now)

@@ -6848,6 +6848,7 @@ components:
           description: >-
             The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
         temp_isolation: { $ref: "#/components/schemas/NodeTempIsolation" }
+        memory_limit: { $ref: "#/components/schemas/NodeMemoryLimit" }
         active:
           type: integer
           description: Its Dispatches that have not settled.
@@ -7717,6 +7718,20 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/MachineProvider" }
+    NodeMemoryLimit:
+      type: object
+      additionalProperties: false
+      required: [on]
+      description: >-
+        Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's
+        allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user
+        manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version
+        does not say.
+      properties:
+        "on": { type: boolean }
+        reason:
+          type: string
+          description: Why it is off, in the node's words.
     NodeTempIsolation:
       type: object
       additionalProperties: false
@@ -11054,6 +11069,12 @@ components:
           description: >-
             What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the
             default for building work, 3 GiB.
+        memory_limit_bytes:
+          type: integer
+          format: int64
+          description: >-
+            The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node
+            kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
         skills:
           type: array
           items: { type: string }

@@ -286,3 +286,30 @@ func TestARestartLongerThanTheLeaseEndsWithAReattach(t *testing.T) {
 	assert.Equal(t, DispatchFailed, w.dispatchOf(gone.ID).Status)
 	assert.Equal(t, FailureLost, w.dispatchOf(gone.ID).FailureClass)
 }
+
+// Scenario: the implementer's profile caps each worker at 4 GiB (issue #1313 row 5). Its Dispatch's offer carries the
+// limit, which the node makes the worker's scope's MemoryMax; a profile without one offers none.
+func TestAProfilesMemoryLimitIsOffered(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(specs(1)...)
+	plain := w.dispatch(tasks[0].ID)
+
+	_, _, err := w.s.Profiles().ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway}\nlimits: {memory: 4Gi}\n")
+	require.NoError(t, err)
+
+	more := w.tasks(specs(1)...)
+	capped := w.dispatch(more[0].ID)
+
+	p, err := w.s.NodePending(t.Context(), w.node.ID)
+	require.NoError(t, err)
+
+	limits := map[string]int64{}
+	for _, o := range p.Offers {
+		limits[o.DispatchID] = o.MemoryLimit
+	}
+
+	assert.Equal(t, map[string]int64{plain.ID: 0, capped.ID: 4 << 30}, limits)
+}
