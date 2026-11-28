@@ -6,6 +6,9 @@ import { shot } from "./shot.js"
 // the default for new chats, a search, the kind and state filters and a switch per chat with why it is in that state;
 // the owner switches a chat off, on a phone and a computer, in light and dark. Every name and id is made up.
 
+// Capture native scrollbars as they appear in a desktop browser.
+test.use({ launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] } })
+
 type Chat = {
   id: string
   name: string
@@ -148,6 +151,49 @@ const chatRow = (page: Page, name: string) =>
   page.getByTestId("secretary-chat").filter({ hasText: name })
 
 for (const theme of ["light", "dark"] as const) {
+  test(`the Inbox source tabs fit without scroll controls in ${theme} mode`, async ({
+    page,
+    isMobile,
+  }) => {
+    if (!isMobile) await page.setViewportSize({ width: 1490, height: 900 })
+    await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
+    await serve(page)
+    await page.goto("/inbox/chats")
+    if (isMobile) await page.keyboard.press("Escape")
+
+    const tabs = page.getByRole("tablist")
+    await expect(tabs.getByRole("tab")).toHaveCount(3)
+    await tabs.getByRole("tab", { name: /Lark/ }).click()
+    await expect(chatRow(page, "Minh")).toBeVisible()
+    await shot(page, `inbox-source-tabs-${theme}`)
+
+    if (!isMobile) {
+      const scrollControls = await page.evaluate(`(() => {
+        const controls = []
+        for (
+          let element = document.querySelector('main [role="tablist"]');
+          element && !element.querySelector('[role="tabpanel"]');
+          element = element.parentElement
+        ) {
+          const { overflowX, overflowY, scrollbarWidth } = getComputedStyle(element)
+          if (scrollbarWidth === "none") continue
+          if (
+            overflowX === "scroll" ||
+            (overflowX === "auto" && element.scrollWidth > element.clientWidth)
+          )
+            controls.push("horizontal")
+          if (
+            overflowY === "scroll" ||
+            (overflowY === "auto" && element.scrollHeight > element.clientHeight)
+          )
+            controls.push("vertical")
+        }
+        return controls
+      })()`)
+      expect(scrollControls).toEqual([])
+    }
+  })
+
   // Scenario: the owner opens the gear of his Inbox, finds his chat with Lan Anh by a part of her name and switches
   // it off; it then says he skipped it, and the counts follow. The skipped filter lists it with the bots.
   test(`the owner switches a chat off from the Inbox's gear in ${theme} mode`, async ({

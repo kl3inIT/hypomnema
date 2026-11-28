@@ -44,10 +44,11 @@ func larkChatsAnswer(t *testing.T) *httptest.Server {
 		assert.Equal(t, "/open-apis/im/v1/chats", r.URL.Path)
 		assert.Equal(t, "Bearer lark-me-token", r.Header.Get("Authorization"))
 
-		page := `{"code":0,"data":{"items":[{"chat_id":"oc_aaa","name":"Minh","chat_mode":"p2p"},` +
+		page := `{"code":0,"data":{"items":[{"chat_id":"oc_aaa","name":"Newsletter Editor","chat_mode":"p2p","p2p_target_type":"user"},` +
 			`{"chat_id":"oc_bbb","name":"Design review","chat_mode":"group"}],"has_more":true,"page_token":"p2"}}`
 		if r.URL.Query().Get("page_token") == "p2" {
-			page = `{"code":0,"data":{"items":[{"chat_id":"oc_ccc","name":"Weekly Newsletter","chat_mode":"p2p"}],` +
+			page = `{"code":0,"data":{"items":[{"chat_id":"oc_ccc","name":"File Desk","chat_mode":"p2p","p2p_target_type":"app"},` +
+				`{"chat_id":"oc_ddd","name":"Paper Trail","chat_mode":"bot"}],` +
 				`"has_more":false}}`
 		}
 
@@ -166,7 +167,7 @@ func TestTheSecretaryReadsDirectChatsAndGroupsAndSkipsBotsOnEverySource(t *testi
 	assert.Equal(t, map[string]openapi.InboxChatCounts{
 		"zalo:main":   {All: 4, Read: 2, Skipped: 2, Direct: 1, Group: 1, Bot: 2},
 		"whatsapp:me": {All: 3, Read: 2, Skipped: 1, Direct: 1, Group: 1, Bot: 1},
-		"lark:me":     {All: 3, Read: 2, Skipped: 1, Direct: 1, Group: 1, Bot: 1},
+		"lark:me":     {All: 4, Read: 2, Skipped: 2, Direct: 1, Group: 1, Bot: 2},
 	}, counts, "lark:helper is an app's bot, not his")
 	assert.Equal(t, openapi.InboxChatDefaults{
 		Direct: true, Group: true, Bot: false,
@@ -182,8 +183,17 @@ func TestTheSecretaryReadsDirectChatsAndGroupsAndSkipsBotsOnEverySource(t *testi
 		"status@broadcast": "bot skipped by default",
 	}, readsByID(w.chatsOf(t, "whatsapp:me", openapi.ListInboxChatsParams{})))
 	assert.Equal(t, map[string]string{
-		"oc_aaa": "direct read by default", "oc_bbb": "group read by default", "oc_ccc": "bot skipped by default",
+		"oc_aaa": "direct read by default", "oc_bbb": "group read by default",
+		"oc_ccc": "bot skipped by default", "oc_ddd": "bot skipped by default",
 	}, readsByID(w.chatsOf(t, "lark:me", openapi.ListInboxChatsParams{})))
+
+	on, err := w.owner.SetInboxChatWithResponse(t.Context(), "lark", "me", "oc_ccc", openapi.InboxChatChoice{Reads: true})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, on.StatusCode(), string(on.Body))
+	bots := openapi.InboxChatBot
+	list := w.chatsOf(t, "lark:me", openapi.ListInboxChatsParams{Kind: &bots})
+	assert.Equal(t, map[string]string{"oc_ccc": "bot read by owner", "oc_ddd": "bot skipped by default"}, readsByID(list))
+	assert.Equal(t, openapi.InboxChatCounts{All: 4, Direct: 1, Group: 1, Bot: 2, Read: 3, Skipped: 1}, list.Counts)
 
 	for name, c := range map[string]*openapi.ClientWithResponses{
 		"chat bot": w.chatBot, "routine bot": w.routineBot, "coordinator": w.coordinator,
