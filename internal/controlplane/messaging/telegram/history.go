@@ -101,8 +101,28 @@ func (a *Account) fetch(ctx context.Context, client api, peer tg.InputPeerClass,
 // catchUp fills a gap: it fetches up to maxCatchUp messages of a peer between minID, the last message known before
 // the gap, and offsetID, and keeps them once every page is fetched, the oldest first, so that a fetch cut short keeps
 // nothing and leaves minID the newest message kept before the gap, for the next try to start from again (mautrix
-// keeps its anchor message for the same, backfill.go:270-287). The caller holds fetchMu.
-func (a *Account) catchUp(ctx context.Context, client api, peer tg.InputPeerClass, minID, offsetID int) error {
+// keeps its anchor message for the same, backfill.go:270-287); then runs once they are kept, to keep what else the
+// caller held back. The caller holds fetchMu.
+//
+// The updates manager goes on while the pages are fetched, and a deletion it hands over meanwhile finds no row of
+// them yet: the deletions kept during the catch-up (revokeLog) are applied again once the pages are kept, so that what
+// was deleted is not kept again with its text.
+func (a *Account) catchUp(ctx context.Context, client api, peer tg.InputPeerClass, minID, offsetID int,
+	then func() error,
+) error {
+	stop := a.revokes.watch()
+	err := a.fetchAndKeep(ctx, client, peer, minID, offsetID, then)
+
+	for _, r := range stop() {
+		err = errors.Join(err, a.store.revoke(ctx, a.key, r.chat, r.ids))
+	}
+
+	return err
+}
+
+func (a *Account) fetchAndKeep(ctx context.Context, client api, peer tg.InputPeerClass, minID, offsetID int,
+	then func() error,
+) error {
 	var fetched []tg.MessagesMessagesClass
 
 	_, _, err := a.pages(ctx, client, peer, minID, offsetID, maxCatchUp,
@@ -126,7 +146,11 @@ func (a *Account) catchUp(ctx context.Context, client api, peer tg.InputPeerClas
 		}
 	}
 
-	return nil
+	if then == nil {
+		return nil
+	}
+
+	return then()
 }
 
 // pages asks for a peer's history page by page, as fetch says, and hands each answer to keep, which gives its
@@ -273,7 +297,7 @@ func (a *Account) fillGap(ctx context.Context, client api, newest int, gap updat
 	}
 
 	return a.catchUp(ctx, client, &tg.InputPeerChannel{ChannelID: gap.ChannelID, AccessHash: gap.AccessHash}, newest,
-		until)
+		until, nil)
 }
 
 // syncDialogs goes on with the listing of every dialog of the account, page by page from where it stopped, keeping
@@ -450,26 +474,28 @@ func (a *Account) keepDialog(ctx context.Context, c conn, e tg.Entities, raw map
 		return err
 	}
 
+	keepTop := func() error {
+		if top == nil {
+			return nil
+		}
+
+		_, err := a.keepFetched(ctx, e, top)
+
+		return err
+	}
+
 	// The latest message is kept once what lies before it is (catchUp): kept first, it would be the newest message
 	// the next try starts from, and the gap would be skipped.
-	if catchUp && newest != 0 && d.TopMessage > newest+1 && info.listed {
-		peer, err := a.inputPeer(ctx, chat)
-		if err != nil {
-			return err
-		}
-
-		if err := a.catchUp(ctx, c.api, peer, newest, d.TopMessage); err != nil {
-			return err
-		}
+	if !catchUp || newest == 0 || d.TopMessage <= newest+1 || !info.listed {
+		return keepTop()
 	}
 
-	if top == nil {
-		return nil
+	peer, err := a.inputPeer(ctx, chat)
+	if err != nil {
+		return err
 	}
 
-	_, err = a.keepFetched(ctx, e, top)
-
-	return err
+	return a.catchUp(ctx, c.api, peer, newest, d.TopMessage, keepTop)
 }
 
 // trackChannel has the updates manager track a listed channel from its dialog's pts with its access hash, as gotd

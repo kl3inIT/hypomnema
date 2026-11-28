@@ -189,6 +189,8 @@ type Account struct {
 	// fetchMessagesSema (client.go:209).
 	pause   func(ctx context.Context, page int) error
 	fetchMu sync.Mutex
+	// revokes are the deletions a catch-up applies again once it kept its pages (catchUp).
+	revokes revokeLog
 	// retry is how long to wait before trying again what failed: retryWait.
 	retry func() backoff.BackOff
 	// syncMu makes the listing of dialogs one at a time, as mautrix's syncChatsLock (chatsync.go:58-62).

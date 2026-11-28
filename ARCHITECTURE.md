@@ -3410,7 +3410,8 @@ flowchart LR
       from (or loses, `OnChannelInaccessible`) leaves the list. A channel gap it cannot recover (`OnChannelGap`)
       keeps the latest messages it came with when it is reported, and fetches those since the last message kept
       before the gap (read then too), at most 500 (mautrix's `max_catchup_messages`), keeping them once all are
-      fetched. A fetched service message is skipped, as mautrix's backfill: only live updates change a chat.
+      fetched, then applying again the deletions that came meanwhile. A fetched service message is skipped, as
+      mautrix's backfill: only live updates change a chat.
     - **The listing of dialogs** (`tg_dialog_sync`): every dialog, 100 a page, each chat kept with its latest message
       and each listed channel tracked by the updates manager from its dialog's pts. It runs after a link and goes on
       from its kept page cursor on each session's start and each reconnection until done, as mautrix's chat sync,
