@@ -5000,6 +5000,15 @@ writes no prose (last30days SKILL.md LAW 7).
     no requests left `rate_limited` until GitHub's reset; arXiv's Atom API, the phrase quoted then its words, one call
     every 3 s (arXiv's terms); Techmeme's archive search with its `date:[…]` operator, pages of 10; DEV.to's search
     kept at relevance 0.25; Bluesky's searchPosts on `api.bsky.app` without a session.
+  - `toutiao` (`so_search`, `chinese.go`) and `bilibili` (`visitor_search`), added by the owner on 2026-11-28 (research
+    note §8), asked as a whole desktop browser (Chinese `Accept-Language`, the site's page as `Referer`): Toutiao's
+    `so.toutiao.com/search` information channel, the JSON cards its page embeds (title, source, publish time, reads,
+    comments, likes), up to 3 pages, a page shell asked again up to 3 times 0.8 s × try apart, its verify page
+    `refused`, then the hot board's entries naming the topic (undated); Bilibili as a visitor (`buvid3`/`buvid4` from
+    `finger/spi`), the WBI-signed video search (keys from `nav`, kept 6 hours) with the window as
+    `pubtime_begin_s`/`pubtime_end_s` in Beijing days, by rank then by clicks; a risk answer (HTTP 412, code -412 or
+    -352) gets fresh cookies and the legacy search; an answer of code 0 holding only a `v_voucher` is `refused`, never
+    a clean zero. Neither has an engagement score (no reference gives one an absolute scale).
   - `careers` (`careers_page`, `careers.go`, `signals.go`): the web search `<company> careers jobs`, its first careers
     address read, its roles from the schema.org JobPosting of the page or of the role pages it links on its own site;
     an item's `signals` mark a role out of character (`founding`, `leadership`, `specialized`, `new-geo`).
