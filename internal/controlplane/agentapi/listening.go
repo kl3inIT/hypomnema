@@ -51,12 +51,18 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"praise, questions, comparisons) rather than what the press or a company says; for a fact or one page, " +
 			"use web_search and web_fetch instead. You write the plan: up to " + strconv.Itoa(listening.MaxSubqueries) +
 			" subqueries, each a short search in the words people use (in their language), with the sources it " +
-			"reads; give `topic` in a few words. It answers JSON, no prose: `items` (the best " +
-			strconv.Itoa(listening.PoolSize) + ", best first, each with its cluster), `clusters` (items telling one " +
-			"story, tagged single-source or thin-evidence when the evidence is weak), and `coverage`, one line per " +
-			"source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with its code " +
-			"(need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend tried. " +
-			"Write your report from these; quote the text and give the link and date. " + listeningData,
+			"reads; give `topic` in a few words, and `depth` (quick, standard or deep). It answers JSON, no prose: " +
+			"`items` (the best of the pool, best first, each with its cluster; `provenance` llm when a model scored " +
+			"its relevance, with its `reason`, fallback when the code did; `fit` core, supporting or counter in its " +
+			"cluster; `quotes`, verbatim and checked against the post read in full, and `claims` beside them), " +
+			"`clusters` (items telling one story, tagged single-source or thin-evidence when the evidence is weak; a " +
+			"model-reviewed cluster carries its `audit`, and a failed one cannot back a finding alone), `coverage`, " +
+			"one line per source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with " +
+			"its code (need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend " +
+			"tried, `limits` (the pool, the model's shortlist and the full reads used) and `pass`, what each model " +
+			"step did and cost: model or fallback (the code's ranking stands, with why) or off. Write your report " +
+			"from these; quote the `quotes` or the text and give the link and date; when no cluster passed its " +
+			"audit, say the evidence is thin rather than fill the gap. " + listeningData,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 			`"topic":{"type":"string","description":"What the plan is about, in a few words; its words are not ` +
 			`counted when items are clustered."},` +
@@ -78,9 +84,24 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			`"description":"How many items each subquery reads from each source; ` +
 			strconv.Itoa(listening.DefaultResults) + ` when left out."},` +
 			`"backends":{"type":"object","additionalProperties":{"type":"string"},"description":"Pin a source to ` +
-			`one of its backends, as the coverage names them; leave it out to let each source try its own in order."}` +
+			`one of its backends, as the coverage names them; leave it out to let each source try its own in order."},` +
+			`"depth":{"type":"string","enum":["quick","standard","deep"],"description":"quick: ` +
+			depthLine(listening.DepthQuick) + `; standard: ` + depthLine(listening.DepthStandard) + `; deep: ` +
+			depthLine(listening.DepthDeep) + `. Standard when left out."},` +
+			`"pool":{"type":"integer","minimum":1,"maximum":` + strconv.Itoa(listening.MaxPool) + `,` +
+			`"description":"How many items the answer lists and the model scores, in place of the depth's."},` +
+			`"read":{"type":"integer","minimum":1,"maximum":` + strconv.Itoa(listening.MaxRead) + `,` +
+			`"description":"How many clusters' representatives are read in full, in place of the depth's."}` +
 			`},"required":["subqueries"]}`),
 	}
+}
+
+// depthLine says what a depth lets through.
+func depthLine(depth string) string {
+	l := listening.DepthLimits(depth)
+
+	return strconv.Itoa(l.Pool) + " items, " + strconv.Itoa(l.Shortlist) + " scored by the model, " +
+		strconv.Itoa(l.Read) + " read in full"
 }
 
 // listeningAnswer is listen_search's answer: the note that it is data, then the answer.
@@ -100,7 +121,7 @@ func (s *Server) listenCall(w http.ResponseWriter, r *http.Request, a agent, cal
 	var plan listening.Plan
 	if err := dec.Decode(&plan); err != nil {
 		answerTool(w, "listen_search takes {topic, subqueries [{label, query, sources, weight}], sources, "+
-			"source_weights, window_days, max_results, backends}: "+err.Error(), true)
+			"source_weights, window_days, max_results, backends, depth, pool, read}: "+err.Error(), true)
 
 		return
 	}

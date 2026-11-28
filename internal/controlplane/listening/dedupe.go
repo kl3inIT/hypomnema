@@ -115,6 +115,10 @@ func merge(kept, later Item) Item {
 		kept.Text = later.Text
 	}
 
+	if len(later.body) > len(kept.body) {
+		kept.body = later.body
+	}
+
 	if kept.Title == "" {
 		kept.Title = later.Title
 	}

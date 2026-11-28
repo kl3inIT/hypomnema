@@ -36,6 +36,10 @@ type Result struct {
 type Platform struct {
 	Name     string
 	Backends []Backend
+	// Read reads one of its items in full, the post and its top comments, for the semantic pass's full read
+	// (Agent-Reach's read action beside search, channels/base.py:30-50; last30days reads a kept thread's comments
+	// after ranking, reddit_hydrate.py); nil: its items are not read.
+	Read func(ctx context.Context, r Request, it Item) (string, error)
 }
 
 func (p Platform) backendNames() []string {
@@ -55,8 +59,9 @@ type Request struct {
 	Limit int
 	// From and To are the window: an item dated outside it is dropped.
 	From, To time.Time
-	// Web asks the web search chain; nil: it cannot be asked.
-	Web WebSearch
+	// Web asks the web search chain, Fetch reads a page; nil: it cannot be asked.
+	Web   WebSearch
+	Fetch WebFetch
 	// Pace waits for the backend's turn at a host, at least gap after the last call there, and gives the function
 	// that ends its turn.
 	Pace func(ctx context.Context, host string, gap time.Duration) (func(), error)
@@ -264,6 +269,7 @@ func (s *Service) inWindow(items []Item, source, backend, label string, req Requ
 			it.DateConfidence = "high"
 		}
 
+		it.body = it.Text
 		it.Text = clip(it.Text, maxTextRunes)
 		it.Title = strings.Join(strings.Fields(it.Title), " ")
 		out = append(out, it)

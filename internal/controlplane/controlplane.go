@@ -172,6 +172,12 @@ type Config struct {
 	// FFmpegOff installs no ffmpeg at start, from HYPOMNEMA_FFMPEG=0: for tests and a control plane that makes no
 	// videos, as BrowserOff is for the browser. It is installed otherwise (issue #818, row 9).
 	FFmpegOff bool
+	// ListeningReviewModel is the gateway chat model social listening's semantic pass scores its shortlist and
+	// reviews its clusters with, from HYPOMNEMA_LISTENING_REVIEW_MODEL; ListeningReadModel the one it reads the final
+	// items in full with, from HYPOMNEMA_LISTENING_READ_MODEL (issue #1306). `off` keeps that step deterministic;
+	// empty: listening.DefaultReviewModel and listening.DefaultReadModel.
+	ListeningReviewModel string
+	ListeningReadModel   string
 	// PprofAddr serves Go's profiles (net/http/pprof) on a listener of its
 	// own (issue #586), from HYPOMNEMA_PPROF_ADDR, such as 127.0.0.1:6060, as
 	// Coder's --pprof-address; only a loopback address is taken. Empty: no
@@ -209,6 +215,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BrowserTimeZone:  browser.TimeZone(env.String(envPrefix+"_BROWSER_TIMEZONE", ""), getenv),
 		PprofAddr:        env.String(envPrefix+"_PPROF_ADDR", ""),
 		FFmpegOff:        env.String(envPrefix+"_FFMPEG", "1") == "0",
+
+		ListeningReviewModel: env.String(envPrefix+"_LISTENING_REVIEW_MODEL", ""),
+		ListeningReadModel:   env.String(envPrefix+"_LISTENING_READ_MODEL", ""),
 	}
 
 	if cfg.BrowserDir == "" {
@@ -636,8 +645,18 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
 	}
 	agents.WithWeb(agentsWeb).
-		// Social listening (issue #1287): the web and Reddit, keyless, its web searches on the caller's key.
-		WithListening(agentListening{svc: listening.New(listening.Config{Logger: logger}), web: agentsWeb}).
+		// Social listening (issue #1287): the web and Reddit, keyless, its web searches, page reads and model calls
+		// (issue #1306) on the caller's key.
+		WithListening(agentListening{
+			svc: listening.New(listening.Config{
+				Logger: logger, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
+			}),
+			web: agentsWeb,
+			models: agentModels{
+				worker: modelgateway.WorkerModels{Server: gatewayServer, Gateway: gateway, Logger: logger},
+				bot:    modelgateway.BotModels{Server: gatewayServer, Gateway: gateway, Chats: sup},
+			},
+		}).
 		WithImages(agentImages{
 			worker: modelgateway.WorkerImages{Server: gatewayServer, Gateway: gateway, Logger: logger},
 			bot:    modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},

@@ -4955,9 +4955,11 @@ topic. The calling model writes the plan; the tool answers with items, clusters 
 writes no prose (last30days SKILL.md LAW 7).
 - Plan: `topic`, 1 to 5 `subqueries` (`label`, `query`, `sources`, `weight`), the
   `sources` a subquery naming none reads, `source_weights`, `window_days` (1 to 365, default 30), `max_results` a
-  stream keeps (1 to 50, default 25, last30days' default and deep depths), and `backends` pinning a source to one
-  backend. A plan that cannot run is the
-  tool's error, naming why; an unknown field is refused.
+  stream keeps (1 to 50, default 25, last30days' default and deep depths), `backends` pinning a source to one
+  backend, and `depth` (issue #1306): `quick`, `standard` (default) or `deep`, the answer's pool, the model's
+  shortlist and the full reads, 15/12/8, 40/40/18 and 60/60/20 (last30days' depth settings, radar's detail pages),
+  which `pool` (up to 60) and `read` (up to 20) override; the answer's `limits` says which were used. A plan that
+  cannot run is the tool's error, naming why; an unknown field is refused.
 - Sources, each an ordered chain of backends (`Platform`, `Backend`: name, host, opt-in, a side-effect-free probe,
   search): `web` is `web_search`, the web search chain above; `reddit` is `reddit_json`, Reddit's keyless
   `/search.json` (with the `<platform>:<app>:<version>` User-Agent), then `web_arctic`, the web search's
@@ -4997,12 +4999,40 @@ writes no prose (last30days SKILL.md LAW 7).
   score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
   Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
   freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
-  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
-  the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
+  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best of the depth's pool
+  are answered and the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay
+  two. Each item says what scored it, `provenance` `llm` (with the model's `reason`) or `fallback`.
 - Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
   or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
   test on Vietnamese posts (`listening/cluster_test.go`).
+- Semantic pass (issue #1306; `semantic.go`, `rerank.go`, `clusterplan.go`, `read.go`, `model.go`), after the code
+  has ranked and cut the pool, each step through the gateway's in-process `Complete` on the caller's gateway key
+  (`modelgateway.WorkerModels`, `BotModels`), whatever models that key lets its own client name; a caller without a
+  key is not asked for. (1) A cheap model scores the shortlist's relevance in one batched call (last30days
+  `rerank_candidates`): its score replaces the local one in the final score, one under 20 cuts the item to 0.3, a
+  local score never; an unknown id is dropped, an item it did not score keeps the local score. (2) A second call
+  reviews the code's clusters as a plan (radar's clustering contract): merge, split, every item assigned once with
+  `fit` core, supporting or counter and a reason; a plan naming an unknown item, one twice, leaving one out, or with
+  a bad fit, reason or title is refused whole and the code's clusters stand. Each reviewed cluster carries its
+  `audit` (3 members, 2 authors, 2 core); a failed one is capped at 54, so thin evidence, keeping
+  `uncapped_score`; none passing is reported as "nothing solid". (3) The clusters' representatives are read in
+  full, a web page through the caller's web fetch, a Reddit thread as the source gave it with its 10 top comments
+  by score from Arctic Shift's keyless `/api/comments/tree`, each cut at 20,000 characters; one call to a
+  long-context model extracts up to 5 verbatim `quotes` and 5 `claims` an item; a quote counts only when it is in
+  what was read (NFKC, spaces evened), a claim only beside a checked quote. The models are given a bounded,
+  sanitized payload (id, source, date, title 220 and text 420 characters without links, inside last30days'
+  `<untrusted_content>` fence, its tag defanged in a post). The review's calls have 30 s and 2 attempts, the read
+  60 s and one; the models are `HYPOMNEMA_LISTENING_REVIEW_MODEL` (default `opencode-go/deepseek-v4.1-flash`) and
+  `HYPOMNEMA_LISTENING_READ_MODEL` (default `codex-subscription/gpt-6-luna`), `off` keeping a step deterministic; a
+  name the gateway does not serve falls back to the default. Temperature 0 is sent except to OpenAI's reasoning
+  models (obsei). On no model, a failed call or an answer that is not what was asked, the code's ranking and
+  clusters stand. The answer's `pass` says, per step (`rerank`, `clusters`, `read`), `model`, `fallback` with its
+  reason or `off`, the model, calls, items from the cache, tokens (absent when a call did not count them) and
+  seconds. Scores and readings are kept in memory 24 hours (at most 4096 each), by item, its text, the question,
+  the prompt's version and the model; the cluster review, a judgment of the whole set, is asked each time.
+  `go test ./internal/controlplane/listening -run LiveSemantic` with `HYPOMNEMA_LISTENING_MODEL_URL` and
+  `HYPOMNEMA_LISTENING_MODEL_KEY` measures it on the Vietnamese fixtures.
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web

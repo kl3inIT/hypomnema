@@ -105,11 +105,15 @@ func localRank(it Item) float64 {
 	return 0.65*it.relevance + 0.25*float64(it.freshness)/100 + 0.10*float64(eng)/100
 }
 
-// finalScore is a fused item's score: last30days rerank._final_score with the local score in place of a model's
-// (rerank._fallback_tuple: relevance 0.7, quality 0.1), the fused rank, freshness and quality, plus engagement at
-// 0.15 (rerank.ENGAGEMENT_FINAL_WEIGHT).
+// finalScore is a fused item's score: last30days rerank._final_score, the model's score or, where it gave none, the
+// local score (rerank._fallback_tuple: relevance 0.7, quality 0.1), the fused rank, freshness and quality, plus
+// engagement at 0.15 (rerank.ENGAGEMENT_FINAL_WEIGHT); an item the model scored under rerankCliff is cut to 0.3.
 func finalScore(it Item) float64 {
 	rerank := math.Max(0, math.Min(100, it.relevance*100*0.7+sourceQuality*100*0.1))
+	if it.Provenance == ProvenanceLLM {
+		rerank = it.rerank
+	}
+
 	rrf := math.Max(0, math.Min(100, it.rrf/rrfCeiling*100))
 	known := 0.60*rerank + 0.20*rrf + 0.10*float64(it.freshness) + 0.05*sourceQuality*100
 
@@ -118,7 +122,12 @@ func finalScore(it Item) float64 {
 		eng = float64(*it.EngagementScore)
 	}
 
-	return known + 0.15*eng
+	base := known + 0.15*eng
+	if it.Provenance == ProvenanceLLM && it.rerank < rerankCliff {
+		base *= cliffMultiple
+	}
+
+	return base
 }
 
 // rank scores, fuses, deduplicates and orders the streams' items, the best first.
@@ -191,6 +200,7 @@ func rank(plan Plan, streams []stream, to time.Time) []Item {
 
 	out := make([]Item, 0, len(fused))
 	for _, c := range fused {
+		c.item.Provenance = ProvenanceFallback
 		c.item.Score = math.Round(finalScore(c.item)*10) / 10
 		out = append(out, c.item)
 	}
