@@ -60,9 +60,11 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"one line per source: ok, partial, no_results (read, nothing found: the only real zero) or not_read, with " +
 			"its code (need_login, refused, rate_limited, limit_reached, not_found, timeout, broken) and each backend " +
 			"tried, `limits` (the pool, the model's shortlist and the full reads used) and `pass`, what each model " +
-			"step did and cost: model or fallback (the code's ranking stands, with why) or off. Write your report " +
-			"from these; quote the `quotes` or the text and give the link and date; when no cluster passed its " +
-			"audit, say the evidence is thin rather than fill the gap. " + listeningData,
+			"step did and cost: model or fallback (the code's ranking stands, with why) or off. " +
+			"When available, use the social-listening skill for discovery, planning and the evidence report. " +
+			"Write your report from the results, with verbatim quotes (the `quotes` first) and their links and " +
+			"dates; when no cluster passed its audit, say the evidence is thin rather than fill the gap. " +
+			listeningData,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 			`"topic":{"type":"string","description":"What the plan is about, in a few words; its words are not ` +
 			`counted when items are clustered."},` +

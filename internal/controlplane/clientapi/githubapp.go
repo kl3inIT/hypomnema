@@ -55,9 +55,13 @@ type GitHubAppStatus struct {
 	LastDelivery  *githubstore.Delivery
 }
 
-// WithGitHubApp sets the owner's GitHub App.
-func (s *Server) WithGitHubApp(app GitHubApp) *Server {
+// WithGitHubApp sets the owner's GitHub App and the public URL of its setup page.
+func (s *Server) WithGitHubApp(app GitHubApp, publicURL string) *Server {
 	s.githubApp = app
+	s.githubAppPublicHost = ""
+	if u, err := url.Parse(publicURL); err == nil {
+		s.githubAppPublicHost = u.Host
+	}
 
 	return s
 }
@@ -254,7 +258,7 @@ func (s *Server) gitHubAppAct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !sameSite(r) {
+	if !sameSite(r, s.githubAppPublicHost) {
 		redirectPage(w, r, "not_same_site")
 
 		return
@@ -345,18 +349,27 @@ func redirectPage(w http.ResponseWriter, r *http.Request, done string) {
 	http.Redirect(w, r, gitHubAppSetupPath+"?"+url.Values{"done": {done}}.Encode(), http.StatusSeeOther)
 }
 
-// sameSite says a form was sent from this control plane's own page: its Origin is this host, or, without one, the
-// browser says it is same-origin. The session's cookie is SameSite=Lax, so another site's form carries none anyway.
-func sameSite(r *http.Request) bool {
-	if origin := r.Header.Get("Origin"); origin != "" {
-		u, err := url.Parse(origin)
-
-		return err == nil && u.Host == r.Host
+// sameSite checks the browser's fetch metadata first, as net/http.CrossOriginProtection does.
+// Without it, the Origin may name the public host even when a proxy rewrites the request Host.
+func sameSite(r *http.Request, publicHost string) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin":
+		return true
+	case "":
+		// Fall back to Origin.
+	default:
+		return false
 	}
 
-	site := r.Header.Get("Sec-Fetch-Site")
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Like net/http.CrossOriginProtection, allow requests with neither header.
+		return true
+	}
 
-	return site == "" || site == "same-origin"
+	u, err := url.Parse(origin)
+
+	return err == nil && u.Host != "" && (u.Host == r.Host || u.Host == publicHost)
 }
 
 // page is what the App's page shows.

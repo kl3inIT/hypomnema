@@ -296,7 +296,7 @@ func recordReviewVerdict(ctx context.Context, q *store.Queries, now int64, taskI
 	}); err != nil {
 		return fmt.Errorf("recording the review verdict: %w", err)
 	}
-	return nil
+	return queueVerdictStatus(ctx, q, now, taskID, pr, head, verdict)
 }
 
 // reviewedHead checks a new review Task against the verdicts its pull request already has, in any Run. A head gets

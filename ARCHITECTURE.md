@@ -2041,8 +2041,8 @@ flowchart LR
     ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
     PR["a profile's YAML<br/>skills, skills_off"]
     BL["a Bot's lists<br/>skills, skills_off"]
-    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, the phone"}
-    RB{"requires (metadata.hypomnema):<br/>what the Bot may use now, the phone"}
+    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, devices and tools"}
+    RB{"requires (metadata.hypomnema):<br/>the Bot's Connections, devices and tools"}
     DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
     NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
@@ -2119,7 +2119,7 @@ flowchart LR
     `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
     (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
     tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
-    `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
+    `metadata.hypomnema.requires` (`integration: superset`, `device: android`, `tool: listen_search`), as OpenClaw's skills declare
     `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
     and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
     frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
@@ -2610,6 +2610,8 @@ flowchart LR
       key and webhook secret as one value in the vault secret `github-app` (`githubapp.Credential`, as Omnara keeps
       them as one credential); the key and the secret are never answered, logged or written anywhere else. A new
       registration replaces the App. `GET /integrations/github/app` (`hypomnema hosts app`) shows it without them.
+      The setup page's buttons accept `Sec-Fetch-Site: same-origin`. With no fetch metadata, an `Origin` matching
+      the request host or the configured public host is accepted, as is a request with neither header (#1308).
     - **Its installations** are read from GitHub (`GET /app/installations` with the App's JWT, RS256 and nine
       minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
       back from installing it, on each `installation` and `installation_repositories` event, and on
@@ -5038,8 +5040,14 @@ writes no prose (last30days SKILL.md LAW 7).
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
   search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
   with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
+- The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
+  `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
+  agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
+  leads once and caps web supplements. Both web phases use the `web` source of `listen_search` for keyless
+  search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
+  risks and next focus, then reviews it once.
 - Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1288 to #1295).
+  (issues #1289 to #1295).
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
@@ -6269,6 +6277,34 @@ The owner's commands:
   `## Reviewed head` section appended to its spec, naming the Task, verdict and head of the latest one and asking
   for that verdict's findings and `git diff <reviewed_sha>..<head>`. A spec without `Head:` is not refused.
   Verdicts given before the migration that adds `review_verdicts` are not recorded.
+  The control plane posts a commit status `review` on the head a verdict covers (issue #1279,
+  `orchestration/reviewstatus.go`, after claude-code-action's `agent-approval-check`, a commit status on the head
+  made a required check): `success` for `correct` ("correct: reviewed by Task <id>"), `failure` for `incorrect` or
+  `blocked`, its description the verdict and the review's first finding (its `Findings:` field, else the first
+  line under a Findings heading, else its first line of prose), cut to 140 characters, linking the Task on the
+  Team page under `HYPOMNEMA_PUBLIC_URL`. A `quick` Task's pull request, which needs no worker review, gets
+  `success` "no review needed: quick Task <id>" on each of its heads: the Task is kept in `no_review_requests`
+  (repository, branch, the pull request its evidence names) when it succeeds, whatever becomes of its Run, and each
+  pass finds its pull request by that branch (`githost.FindRequest`, as the follower) and queues its open head,
+  only when the quick Task itself is the Task whose Dispatch last reported publishing that head (`dispatch_effects`
+  `git_push`, from `publish_branch`), so a narrow or broad Task that continues it, or is reopened on it, makes the
+  heads it pushes need their review, and a Task canceled before it pushed changes nothing. A head without that
+  record (on GitLab, where `publish_branch` does not run, or a push the node did not report) gets no automatic
+  status: it fails closed and is posted by hand ([CI runbook](docs/ci.md)). A queued status is dropped as
+  `superseded` when its head is no longer the quick Task's. It is followed until it is merged or closed, its head is
+  not the quick Task's, or a day passed. A branch without a pull request yet is
+  looked up every pass for 10 minutes, then every 15 minutes. The migration keeps the quick Tasks that succeeded
+  before it, with the pull request the follower found. Each status is queued in `review_statuses` (pull request,
+  full head SHA, Task, reason) in the transaction that learns it, a later
+  verdict on the same head replacing it; a verdict naming an abbreviated head is not queued, since a prefix may
+  name a newer commit too. Once a minute, after the reads, the follower reads each queued one's pull request with
+  its repository's Connection token (found by branch with the GitHub App's token where the App covers it; the App
+  only reads statuses) and posts it on that head when it is exactly the pull request's head
+  (`githost.PostStatus`; on GitHub `POST /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
+  open, a head that moved, a repository without a token and a status still unposted after a day are dropped
+  with that outcome; a failed post is tried again next minute. A status is of one commit, so a new head has none
+  until it is reviewed. The migration that adds the table queues each pull request's latest verdict, so the
+  open ones get theirs on the first pass. Pull requests no Task made get nothing ([CI runbook](docs/ci.md)).
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the

@@ -720,7 +720,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithRunCoordinator(cfg.CoordinatorToken).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
-		WithHostTokens(tokens).WithGitSSHKey(sshKey).WithGitHubApp(clientGitHubApp{app}).
+		WithHostTokens(tokens).WithGitSSHKey(sshKey).WithGitHubApp(clientGitHubApp{app}, cfg.PublicURL).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
 		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
@@ -877,7 +877,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	go func() {
 		defer close(pullRequestsDone)
 
-		followPullRequests(ctx, svc, tokens, logger, orchestration.LookUpEvery, followPullRequestsEvery)
+		followPullRequests(ctx, svc, tokens, logger, cfg.PublicURL, orchestration.LookUpEvery,
+			followPullRequestsEvery)
 	}()
 
 	supDone := make(chan struct{})
