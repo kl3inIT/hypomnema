@@ -130,6 +130,12 @@ func (s *Service) startLink(ctx context.Context, d Definition, label string,
 			d.Name)
 	}
 
+	if r, ok := svc.(messaging.Readier); ok {
+		if err := r.Ready(ctx); err != nil {
+			return SignIn{}, fmt.Errorf("%w: %w", ErrSignInFailed, err)
+		}
+	}
+
 	// The linking outlives this request, up to the time any sign-in has.
 	linkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), signInTimeout)
 
@@ -297,6 +303,9 @@ func (s *Service) saveDevice(ctx context.Context, d Definition, label string, li
 
 	if old != nil && old.ID() != acc.ID() {
 		_ = old.Logout(ctx)
+	} else if old != nil && old != acc {
+		// The same account linked again (Telegram's user id stays): its new session replaces the old one's.
+		old.Close()
 	}
 
 	return s.view(ctx, d, saved), nil
@@ -661,4 +670,28 @@ func (s *Service) Messages(ctx context.Context, integration, label string, q mes
 	}
 
 	return acc.Messages(ctx, q)
+}
+
+// unready says what a device's service lacks before it links an account (messaging.Readier), in its own words
+// without the service's name before them.
+func (s *Service) unready(ctx context.Context, d Definition) string {
+	if !d.IsDevice() {
+		return ""
+	}
+
+	s.mu.Lock()
+	svc := s.devices[d.ID]
+	s.mu.Unlock()
+
+	r, ok := svc.(messaging.Readier)
+	if !ok {
+		return ""
+	}
+
+	err := r.Ready(ctx)
+	if err == nil {
+		return ""
+	}
+
+	return strings.TrimPrefix(err.Error(), strings.ToLower(d.Name)+": ")
 }

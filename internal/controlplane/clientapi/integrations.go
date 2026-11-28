@@ -109,6 +109,8 @@ func toIntegration(i integration.Integration) openapi.Integration {
 		out.ClientId = &i.ClientID
 	}
 
+	out.Unready = opt(i.Unready)
+
 	for _, s := range i.Services {
 		out.Services = append(out.Services, s.Name)
 	}

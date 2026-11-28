@@ -7906,6 +7906,12 @@ components:
             The id of the OAuth client it signs in with; absent until one is
             set, and for an app, whose Connections each have their own. Not
             secret.
+        unready:
+          type: string
+          description: >-
+            For an Integration of kind device whose service needs more than the owner's phone (Telegram, issue
+            #1184): what is missing before an account can be linked, such as the api_id and api_hash in the vault.
+            Absent when nothing is.
         services:
           type: array
           items: { type: string }

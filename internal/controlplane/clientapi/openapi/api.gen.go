@@ -5176,6 +5176,9 @@ type Integration struct {
 
 	// Services The services a Connection can be granted, such as gmail; none for an app, which may do what the service allows the app.
 	Services []string `json:"services"`
+
+	// Unready For an Integration of kind device whose service needs more than the owner's phone (Telegram, issue #1184): what is missing before an account can be linked, such as the api_id and api_hash in the vault. Absent when nothing is.
+	Unready *string `json:"unready,omitempty"`
 }
 
 // IntegrationKind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans.

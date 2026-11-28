@@ -188,6 +188,9 @@ type Integration struct {
 	// of its Connections is an app of its own.
 	ClientID    string
 	Connections []Connection
+	// Unready says what the owner must set up before an account is linked, for a device whose service needs more
+	// than his phone (Telegram's api_id, issue #1184); empty when nothing is missing.
+	Unready string
 }
 
 // SignIn is a sign-in in progress. The owner opens URL in a browser on any
@@ -265,6 +268,7 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 		}
 
 		in.Connections = make([]Connection, 0, len(conns))
+		in.Unready = s.unready(ctx, d)
 
 		for _, c := range conns {
 			in.Connections = append(in.Connections, s.view(ctx, d, c))

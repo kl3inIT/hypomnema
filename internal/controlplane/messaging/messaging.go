@@ -65,6 +65,12 @@ type Ask struct {
 	Answer func(ctx context.Context, value string) error
 }
 
+// Readier is a service that links and connects no account until the owner set something up: Telegram until his
+// api_id and api_hash are in the vault (issue #1184). Ready says what is missing, nil once nothing is.
+type Readier interface {
+	Ready(ctx context.Context) error
+}
+
 // PhoneLinker is a service that also links an account by its phone number and the code sent to it, when its QR
 // code cannot be scanned (Telegram, issue #1184), as mautrix-telegram offers its phone login beside its QR login
 // (pkg/connector/login.go:106-129). Its steps are Link's, the first asking for the number.

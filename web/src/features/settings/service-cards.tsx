@@ -21,6 +21,7 @@ import {
   type ReactElement,
   type SVGProps,
 } from "react"
+import { Link } from "@tanstack/react-router"
 import { z } from "zod"
 
 import "@/api/client"
@@ -214,14 +215,9 @@ export function ServiceCard({ service }: { service: Integration }) {
   const role = service.kind === "role"
   // The owner's own messaging account, linked as a device of his by a QR code his phone scans (issue #615).
   const device = service.kind === "device"
-  // A device whose service needs the owner's own client (Telegram's api_id and api_hash, issue #1184) is not set up
-  // until it has one.
-  const ready =
-    account ||
-    app ||
-    role ||
-    (device && !clientDevices.has(service.id)) ||
-    Boolean(service.client_id)
+  // A device whose service needs more than the owner's phone (Telegram's api_id and api_hash in the vault, issue
+  // #1184) is not set up until the server says nothing is missing.
+  const ready = account || app || role || (device && !service.unready) || Boolean(service.client_id)
   // The owner may sign in to an app service as himself through one of its apps (issue #468): a user Connection.
   const apps = service.connections.filter((c) => !c.app)
   const add = (
@@ -296,13 +292,23 @@ export function ServiceCard({ service }: { service: Integration }) {
       {!ready && (
         <CardContent>
           <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
-            <p>
-              {clientHow[service.id] ??
-                `${service.name} signs in with an OAuth client you create once. Give its file to Hypomnema from a terminal:`}
-            </p>
-            <code className="font-mono text-foreground">
-              hypomnema integrations client set {service.id} --client-file &lt;file&gt;
-            </code>
+            {service.unready ? (
+              <p>
+                {`${service.name}: ${service.unready}. `}
+                <Link to="/settings/vault" className="text-foreground underline underline-offset-4">
+                  Open the Vault
+                </Link>
+              </p>
+            ) : (
+              <>
+                <p>
+                  {`${service.name} signs in with an OAuth client you create once. Give its file to Hypomnema from a terminal:`}
+                </p>
+                <code className="font-mono text-foreground">
+                  hypomnema integrations client set {service.id} --client-file &lt;file&gt;
+                </code>
+              </>
+            )}
           </div>
         </CardContent>
       )}
@@ -1420,16 +1426,6 @@ function askSays(ask: SignInAsk): string {
 // phoneLinks are the services that also link by phone number and code, when the QR code cannot be scanned:
 // Telegram's (issue #1184), as mautrix-telegram offers its phone login beside its QR login.
 const phoneLinks = new Set(["telegram"])
-
-// clientDevices are the devices that link with the owner's own client: Telegram's api_id and api_hash, which he
-// makes once at my.telegram.org (issue #1184), as mautrix-telegram needs them in its config.
-const clientDevices = new Set(["telegram"])
-
-// clientHow says how a service's client is made and given, for one whose words differ from an OAuth client's.
-const clientHow: Record<string, string> = {
-  telegram:
-    "Telegram's api_id is missing. Make an api_id and api_hash once at my.telegram.org › API development tools, put them in a JSON file as client_id and client_secret, and give it to Hypomnema from a terminal:",
-}
 
 // introHow says what linking gives, for a service whose words differ from WhatsApp's: Zalo keeps only the chats from
 // the link on, as its servers give no past (issues #669, #680).
