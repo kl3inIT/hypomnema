@@ -91,21 +91,40 @@ func TestMeasureReturnsAtItsDeadline(t *testing.T) {
 	}
 }
 
-// Once Measure returns at its deadline, nothing ffmpeg started is left running: the whole process group is killed,
+// Once a canceled Measure returns, nothing ffmpeg started is left running: the whole process group is killed,
 // not ffmpeg alone (review of #1046: two `sleep 30` children were still sleeping after Measure returned).
 func TestMeasureKillsWhatFFmpegStarted(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	pids := filepath.Join(dir, "pids")
-	tools := fakeFFmpeg(t, measureLines+"sleep 30 </dev/null 2>/dev/null &\necho $! >> '"+pids+"'\n"+
-		"sleep 30 </dev/null &\necho $! >> '"+pids+"'\nwait\n")
+	pending := pids + ".pending"
+	tools := fakeFFmpeg(t, "sleep 1\n"+measureLines+
+		"sleep 30 </dev/null 2>/dev/null &\nfirst=$!\n"+
+		"sleep 30 </dev/null &\n"+
+		"printf '%s\\n' \"$first\" \"$!\" > '"+pending+"' && mv '"+pending+"' '"+pids+"'\nwait\n")
 
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(t.Context())
+	var measureErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, measureErr = Measure(ctx, tools, "track.mp3", 0)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
 
-	_, err := Measure(ctx, tools, "track.mp3", 0)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+	// Publishing the PID file signals that both children are ready, even when ffmpeg starts slowly.
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(pids)
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond, "ffmpeg published both child PIDs")
+
+	cancel()
+	<-done
+	require.ErrorIs(t, measureErr, context.Canceled)
 
 	raw, err := os.ReadFile(pids) //nolint:gosec // The test's own file.
 	require.NoError(t, err)
