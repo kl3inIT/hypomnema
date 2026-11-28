@@ -251,7 +251,9 @@ func (s *Server) serveResponses(
 		}
 
 		record.Status = resp.StatusCode
-		if retryable(resp.StatusCode) && !last {
+		// The code decides whether the next target is tried, and the record keeps it (issue #1335, rows 1 and 6).
+		if code, moves := targetMovesOn(resp); moves && !last {
+			record.CoolingCode = code
 			cooling.other = true
 			drain(resp)
 

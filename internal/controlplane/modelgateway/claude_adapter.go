@@ -154,8 +154,9 @@ func (s *Server) claudeRefused(ctx context.Context, token AccountToken, resp *ht
 	_ = resp.Body.Close()
 
 	failure := claude.ParseFailure(resp.StatusCode, body)
-	failure.ResetsAt = claudeResetsAt(resp, body, s.svc.clock.Now())
-	s.claudeCool(ctx, token, failure, claudeCode(failure, resp.Header))
+	code := claudeCode(failure, resp.Header)
+	failure.ResetsAt = claudeResetsAt(resp, body, s.svc.clock.Now(), code)
+	s.claudeCool(ctx, token, failure, code)
 
 	out := &http.Response{
 		StatusCode: failure.Status, Header: http.Header{"Content-Type": {"application/json"}},
@@ -169,8 +170,13 @@ func (s *Server) claudeRefused(ctx context.Context, token AccountToken, resp *ht
 	return out
 }
 
+// claudeCool rests an account by why Anthropic refused it (issue #1335, row 3): a used-up window (usage_limit) until
+// its reset, or the usage wait when none is named; a throttle (rate_limit) for the short doubling wait, or the
+// Retry-After it names; anything else as every account rests (cool). It was every 429 resting as a used-up window,
+// an hour when no reset was named. opencode's classifyProviderFailure, which #1305 follows, and OmniRoute's
+// isClaudeUsageWall (open-sse/services/claudeLowPriority.ts:241-246) tell the two apart the same way.
 func (s *Server) claudeCool(ctx context.Context, token AccountToken, failure *claude.Failure, code CoolingCode) {
-	usageLimit := failure.Status == http.StatusTooManyRequests
+	usageLimit := code == CoolingUsageLimit
 	s.cool(ctx, claudeAccountRuntime, token, failure.Status, usageLimit, failure.ResetsAt, code, failure.Message)
 }
 
@@ -235,11 +241,12 @@ func claudeRefusal(failure *claude.Failure, now time.Time) *http.Response {
 	return resp
 }
 
-// claudeResetsAt reads when a usage limit ends: Anthropic's unified reset (a
-// Unix second), else the reset the other headers or the words name, as every
-// adapter reads one (providerReset).
-func claudeResetsAt(resp *http.Response, body []byte, now time.Time) time.Time {
-	if reset := resp.Header.Get("Anthropic-Ratelimit-Unified-Reset"); reset != "" {
+// claudeResetsAt reads when a refusal ends: for a used-up window (usage_limit), Anthropic's unified reset (a Unix
+// second); else the reset the other headers or the words name, as every adapter reads one (providerReset).
+// Anthropic names the window's reset on every answer, so a throttle reading it would rest to the window's end
+// (issue #1335, row 3).
+func claudeResetsAt(resp *http.Response, body []byte, now time.Time, code CoolingCode) time.Time {
+	if reset := resp.Header.Get("Anthropic-Ratelimit-Unified-Reset"); reset != "" && code == CoolingUsageLimit {
 		if secs, ok := claude.RetrySeconds(reset); ok && int64(secs) > now.Unix() {
 			return time.Unix(int64(secs), 0)
 		}

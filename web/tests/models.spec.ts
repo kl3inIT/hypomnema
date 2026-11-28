@@ -636,7 +636,9 @@ test("an account that only the owner can bring back says what to do", async ({ p
     "Add credits",
   )
   // A throttle ends by itself: nothing to do.
-  await expect(claude.getByLabel("Claude account throttled").getByTestId("rest-action")).toHaveCount(0)
+  await expect(
+    claude.getByLabel("Claude account throttled").getByTestId("rest-action"),
+  ).toHaveCount(0)
 
   expect(await fits(page)).toBe(true)
   await refused.scrollIntoViewIfNeeded()

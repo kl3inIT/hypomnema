@@ -67,9 +67,9 @@ func TestABotFallsBackWhenItsOnlyTargetIsOverloaded(t *testing.T) {
 	assert.Equal(t, 2, backupCalls.calls())
 }
 
-// Scenario: a target refuses the request itself, a client error (row 1): the next target is not tried, whatever the
-// words say, since another provider would refuse the same request; nor is it after a failure no code names. The
-// record names no code: nothing moved on.
+// Scenario: a target refuses the request itself, a client error (row 1): the next target is not tried, since another
+// provider would refuse the same request; nor is it after a failure no code names (Bifrost's caller_fault and
+// unknown, docs/features/retries-and-fallbacks.mdx). The record names no code: nothing moved on.
 func TestAClientErrorDoesNotMoveToTheNextTarget(t *testing.T) {
 	t.Parallel()
 
@@ -77,11 +77,10 @@ func TestAClientErrorDoesNotMoveToTheNextTarget(t *testing.T) {
 		status int
 		body   string
 	}{
-		"a 400":                    {http.StatusBadRequest, `{"error":{"message":"messages is too long"}}`},
-		"a 400 that says throttle": {http.StatusBadRequest, `{"error":{"message":"rate limit of the context"}}`},
-		"a 413":                    {http.StatusRequestEntityTooLarge, `{"error":{"message":"request too large"}}`},
-		"a 422":                    {http.StatusUnprocessableEntity, `{"error":{"message":"unprocessable"}}`},
-		"an unknown failure":       {http.StatusNotFound, `{"error":{"message":"no such route"}}`},
+		"a 400":              {http.StatusBadRequest, `{"error":{"message":"messages is too long"}}`},
+		"a 413":              {http.StatusRequestEntityTooLarge, `{"error":{"message":"request too large"}}`},
+		"a 422":              {http.StatusUnprocessableEntity, `{"error":{"message":"unprocessable"}}`},
+		"an unknown failure": {http.StatusNotFound, `{"error":{"message":"no such route"}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -99,22 +98,28 @@ func TestAClientErrorDoesNotMoveToTheNextTarget(t *testing.T) {
 	}
 }
 
-// Scenario: a target whose key is refused, or whose credits are spent (row 1): the next target answers, with no
-// Bot's fallback to wait for, and the record names why the request moved on (row 6).
+// Scenario: a target whose key is refused, whose credits are spent, or that throttles in a 400's words (row 1): the
+// next target answers, with no Bot's fallback to wait for, and the record names why the request moved on (row 6).
+// Bifrost rotates on a rate limit's words at any status but 401 and 403 (docs/features/retries-and-fallbacks.mdx).
 func TestARefusedKeyMovesToTheNextTarget(t *testing.T) {
 	t.Parallel()
 
 	for name, c := range map[string]struct {
 		status int
+		body   string
 		code   modelgateway.CoolingCode
 	}{
-		"a 401": {http.StatusUnauthorized, modelgateway.CoolingAuth},
-		"a 402": {http.StatusPaymentRequired, modelgateway.CoolingBilling},
+		"a 401": {http.StatusUnauthorized, `{"error":{"message":"no"}}`, modelgateway.CoolingAuth},
+		"a 402": {http.StatusPaymentRequired, `{"error":{"message":"no"}}`, modelgateway.CoolingBilling},
+		"a 400 that says throttle": {
+			http.StatusBadRequest, `{"error":{"message":"rate limit reached for requests"}}`,
+			modelgateway.CoolingRateLimit,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			refusing, _ := provider(t, plain(c.status, `{"error":{"message":"no"}}`))
+			refusing, _ := provider(t, plain(c.status, c.body))
 			healthy, healthyGot := provider(t, plain(http.StatusOK, answer))
 			g := newChatGateway(t, modelgateway.Config{}, refusing, healthy)
 
@@ -137,16 +142,17 @@ func TestAClaude429RestsByItsCode(t *testing.T) {
 
 	reset := time.Now().Add(90 * time.Minute).Truncate(time.Second)
 
+	// wait is how long the account rests from the refusal, or zero when it rests to the window's reset.
 	for name, c := range map[string]struct {
 		rejected bool
 		reset    bool
 		code     modelgateway.CoolingCode
-		until    time.Time
+		wait     time.Duration
 	}{
-		"a throttle":                    {false, true, modelgateway.CoolingRateLimit, time.Now().Add(2 * time.Second)},
-		"a rejected window":             {true, true, modelgateway.CoolingUsageLimit, reset},
-		"a rejected window, no reset":   {true, false, modelgateway.CoolingUsageLimit, time.Now().Add(time.Hour)},
-		"a throttle that names no wait": {false, false, modelgateway.CoolingRateLimit, time.Now().Add(2 * time.Second)},
+		"a throttle":                    {false, true, modelgateway.CoolingRateLimit, 2 * time.Second},
+		"a rejected window":             {true, true, modelgateway.CoolingUsageLimit, 0},
+		"a rejected window, no reset":   {true, false, modelgateway.CoolingUsageLimit, time.Hour},
+		"a throttle that names no wait": {false, false, modelgateway.CoolingRateLimit, 2 * time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -168,11 +174,18 @@ func TestAClaude429RestsByItsCode(t *testing.T) {
 			acc := &accounts{}
 			g := newClaudeGateway(t, backend, acc)
 
+			asked := time.Now()
 			status, _, body := g.call(t, g.key, askClaude+`,"stream":true}`)
 			require.Equal(t, http.StatusTooManyRequests, status, body)
 			assert.Equal(t, c.code, acc.lastCode())
-			assert.WithinDuration(t, c.until, acc.cooledUntil(), 3*time.Second,
-				"rests until %v, not %v", c.until, acc.cooledUntil())
+
+			want := reset
+			if c.wait > 0 {
+				want = asked.Add(c.wait)
+			}
+
+			assert.WithinDuration(t, want, acc.cooledUntil(), 3*time.Second,
+				"rests until %v, not %v", want, acc.cooledUntil())
 		})
 	}
 }

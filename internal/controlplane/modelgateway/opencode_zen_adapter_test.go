@@ -327,8 +327,8 @@ func TestAZenKeyWithNoBalanceRestsAnHourAndTheNextKeyServes(t *testing.T) {
 }
 
 // Scenario: Zen answers 401 to the first key. That key is marked refused and
-// the next serves; a refusal that is no quota rests the key only as long as
-// any refusal does.
+// the next serves; a refused key rests for the usage wait, an hour, since a
+// new key is the owner's to add (issue #1335, row 4).
 func TestZenMarksA401AndTriesTheNextKey(t *testing.T) {
 	t.Parallel()
 
@@ -350,7 +350,7 @@ func TestZenMarksA401AndTriesTheNextKey(t *testing.T) {
 	assert.Equal(t, "acc_1", subs.refused[0].AccountID)
 
 	rest, reason := subs.rest(orchestration.OpenCodeZenRuntime, "acc_1")
-	assert.WithinDuration(t, time.Now().Add(2*time.Minute), rest, 30*time.Second, "a refused key's usual rest")
+	assert.WithinDuration(t, time.Now().Add(time.Hour), rest, 30*time.Second, "a refused key's rest")
 	assert.Equal(t, "invalid key", reason, "Zen's own words")
 	assert.Equal(t, modelgateway.CoolingAuth, subs.of(orchestration.OpenCodeZenRuntime).codeOf("acc_1"))
 }

@@ -374,14 +374,25 @@ func (s *Server) tokenAfterRefusal(ctx context.Context, refused AccountToken, mo
 // a quota that is used up; a growing wait after a rate limit or an overload;
 // two minutes after a refusal; thirty seconds after another server error. The
 // account keeps why (code, classifyFailure) beside the provider's words
-// (reason; issue #1305).
+// (reason; issue #1305). A refused key or sign-in (auth) and spent credits
+// (billing) rest for the usage wait, an hour, not two minutes: nothing changes
+// until the owner signs in again or pays (issue #1335, row 4; OpenClaw's
+// billing off-time, docs/research/2026-11-13-gateway-features.md:70-72; Bifrost
+// does not retry a credential failure on the same key).
 func (s *Server) cool(
 	ctx context.Context, runtime string, token AccountToken, status int, quotaUsedUp bool, reset time.Time,
 	code CoolingCode, reason string,
 ) {
+	quotaUsedUp = quotaUsedUp || ownersToFix(code)
 	if until, ok := s.coolingUntil(token, status, quotaUsedUp, reset); ok {
 		s.park(ctx, runtime, token, until, code, reason)
 	}
+}
+
+// ownersToFix reports whether a rest ends only when the owner acts: a key or sign-in refused, or credits spent
+// (issue #1335, row 4).
+func ownersToFix(code CoolingCode) bool {
+	return code == CoolingAuth || code == CoolingBilling
 }
 
 // coolingUntil is until when a failure keeps an account, or one model of it, out of use (cool); false when the

@@ -563,6 +563,7 @@ type GatewayUsage struct {
 	TtftMs             sql.NullInt64
 	VideoID            string
 	VideoRev           int64
+	CoolingCode        string
 }
 
 type GatewayUsageDaily struct {
