@@ -1,7 +1,6 @@
 package listening_test
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -189,5 +188,5 @@ func TestReviewTwoAnImpossibleDateIsNoDate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.Items)
 	require.Len(t, got.Unverified, 1)
-	assert.True(t, strings.Contains(got.Unverified[0].Check, "Muse gave no date"), got.Unverified[0].Check)
+	assert.Contains(t, got.Unverified[0].Check, "Muse gave no date")
 }

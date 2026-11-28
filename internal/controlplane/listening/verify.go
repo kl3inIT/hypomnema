@@ -92,7 +92,8 @@ var unavailable = regexp.MustCompile(
 var (
 	instagramDescription = regexp.MustCompile(
 		`(?i)^([\d,.]+) likes?,\s*([\d,.]+) comments?\s*-\s*([A-Za-z0-9._]+)\s+on\s+`)
-	instagramTitle = regexp.MustCompile(`(?s)on Instagram:\s*"(.*)"\s*$`)
+	instagramTitle  = regexp.MustCompile(`(?s)on Instagram:\s*"(.*)"\s*$`)
+	instagramQuoted = regexp.MustCompile(`(?s):\s*"(.*)"\.?\s*$`)
 )
 
 // check opens a post's link and gives it as an item, whether it was verified (an unverified one says why in its
@@ -167,7 +168,8 @@ func (mr *museReader) check(ctx context.Context, r Request, lane *museLane, p mu
 		return fail("Muse did not say where it read the quote")
 	case quote == "":
 		return fail("Muse gave no quote")
-	case !slices.ContainsFunc(pg.captions(), func(field string) bool { return strings.Contains(foldText(field), quote) }):
+	case !slices.ContainsFunc(pg.captions(mr.site),
+		func(field string) bool { return strings.Contains(foldText(field), quote) }):
 		return fail("the page does not hold the quote in its caption")
 	case museDate == nil:
 		return fail("Muse gave no date in the form asked (YYYY-MM-DD): %q", p.date)
@@ -205,11 +207,25 @@ func (mr *museReader) check(ctx context.Context, r Request, lane *museLane, p mu
 	return it, true, observed
 }
 
-// captions are the page's fields that hold the post's caption, each on its own.
-func (pg page) captions() []string {
-	out := []string{pg.description, pg.metaDesc}
+// captions are the page's fields that hold the post's caption, each on its own. An Instagram page's description and
+// title wrap the caption in metadata, its counts, account and date ("12 likes, 3 comments - name on November 4,
+// 2026: "caption""), so only the caption inside is taken, as trend-opportunity-radar reads it, the title's first,
+// then the description's (run_instagram_opencli_capture.py:55-71); a field it cannot split gives none.
+func (pg page) captions(site museSite) []string {
+	if site.source != SourceInstagram {
+		return []string{pg.description, pg.metaDesc}
+	}
+
+	var out []string
+
 	if m := instagramTitle.FindStringSubmatch(pg.ogTitle); m != nil {
 		out = append(out, m[1])
+	}
+
+	for _, field := range []string{pg.description, pg.metaDesc} {
+		if m := instagramQuoted.FindStringSubmatch(field); m != nil {
+			out = append(out, m[1])
+		}
 	}
 
 	return out
@@ -410,11 +426,12 @@ func parseMuseDate(s string) *time.Time {
 	mi, _ := strconv.Atoi(m)
 	di, _ := strconv.Atoi(d)
 
-	if mi < 1 || mi > 12 || di < 1 || di > 31 {
+	t := time.Date(yi, time.Month(mi), di, 0, 0, 0, 0, time.UTC)
+
+	// A day that does not exist (2026-11-31) is no date: time.Date would roll it into the next month.
+	if t.Year() != yi || int(t.Month()) != mi || t.Day() != di {
 		return nil
 	}
-
-	t := time.Date(yi, time.Month(mi), di, 0, 0, 0, 0, time.UTC)
 
 	return &t
 }

@@ -56,8 +56,8 @@ const (
 	// (agentapi/muse.go, deadline_seconds minimum 30), as grok_x skips a call that cannot plausibly complete
 	// (_MIN_USEFUL_CALL_SECONDS, lib/grok_x.py:89-92).
 	museMinAsk = 30 * time.Second
-	// museDepth is how many extra questions a whole search asks, each for more posts of one group or account, however
-	// many streams it has: last30days takes the three handles a run's first results name most (entity_extract.extract_entities, max_handles=3, pipeline.py:6786-6789) and
+	// museDepth is how many Muse calls the extra questions of a whole search make, continuations included, each for
+	// more posts of one group or account, however many streams it has: last30days takes the three handles a run's first results name most (entity_extract.extract_entities, max_handles=3, pipeline.py:6786-6789) and
 	// searches each for the topic (grok_x.search_handles with and_topic, lib/grok_x.py:1328-1378).
 	museDepth = 3
 	// museContinueGap is the wait before asking again in a thread Muse said it is still working in: its check runs
@@ -143,7 +143,9 @@ func (mr *museReader) probe(Request) *SourceError {
 type museLane struct {
 	end time.Time
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// extra counts the Muse calls of the extra questions, continuations included: at most museDepth a search.
+	extra   int
 	seq     map[string]int
 	streams []*museStream
 	plan    map[*museStream][]string
@@ -178,6 +180,21 @@ func (l *museLane) next(site museSite) int {
 	l.seq[site.source]++
 
 	return l.seq[site.source]
+}
+
+// takeExtra takes one of the search's museDepth extra calls; false once they are spent. Every call of the extra
+// phase counts, its continuations too, as grok_x asks each handle once (attempts=1, lib/grok_x.py:1353-1368).
+func (l *museLane) takeExtra() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.extra >= museDepth {
+		return false
+	}
+
+	l.extra++
+
+	return true
 }
 
 // register keeps a stream that had its first pass, for the extra questions.
@@ -269,7 +286,7 @@ func (mr *museReader) search(ctx context.Context, r Request) (Result, error) {
 		counts: map[string]int{},
 	}
 
-	got, err := mr.list(ctx, r, lane, mr.site.prompt(r.Query, r.From, r.To, min(musePosts, r.Limit)), "")
+	got, err := mr.list(ctx, r, lane, mr.site.prompt(r.Query, r.From, r.To, min(musePosts, r.Limit)), "", nil)
 	if err != nil {
 		return Result{}, err
 	}
@@ -295,44 +312,78 @@ type museList struct {
 }
 
 // list asks Muse prompt, in thread when given, and continues in the same thread until the answer is a usable list, a
-// post of the platform with its quote, or only NO POSTS FOUND: the probes of 2026-11-27 and 2026-11-28 stopped
+// post of the platform with its quote, or exactly NO POSTS FOUND: the probes of 2026-11-27 and 2026-11-28 stopped
 // mid-work ("I'll send the verified list once that check returns"), and the list came on a later ask (owner,
-// 2026-11-28: ask again until it comes, within the search's time). A draft, a block with no link or no quote or an
-// answer that only names NO POSTS FOUND, is continued; a list whose posts are none of the platform is asked again
-// once and then taken as it is, as grok_x retries a response whose every item failed its provenance check and then
-// takes it as empty (lib/grok_x.py:400-440, 1223-1234, attempts=2). The first continuation is asked at once, as the
-// first probe's was; each later one waits museContinueGap after the last.
-func (mr *museReader) list(ctx context.Context, r Request, lane *museLane, prompt, thread string) (museList, error) {
+// 2026-11-28: ask again until it comes, within the search's time). A draft (a block with no link or no quote, an answer
+// that only names NO POSTS FOUND, or "NO POSTS FOUND." with anything around it) and a list none of whose posts is of
+// the platform are both asked again; when the time runs out first, the failure says why the last answer was not taken,
+// as grok_x returns its rejection's reason once its retries are spent (lib/grok_x.py:400-440, 1223-1234). The first
+// continuation is asked at once, as the first probe's was; each later one waits museContinueGap after the last, and
+// none is waited for past the questions' end. take, when given, is asked before every call and refuses once the
+// search's extra questions are spent (museLane.takeExtra).
+func (mr *museReader) list(ctx context.Context, r Request, lane *museLane, prompt, thread string,
+	take func() bool,
+) (museList, error) {
 	var (
 		out     museList
-		retried bool
+		why     string
+		lastEnd time.Time
 	)
 
 	out.thread = thread
 
-	for continuing := false; ; continuing = true {
-		if lane.askLeft(r.now()) < museMinAsk {
-			detail := "Muse's time for this search ran out"
-			if out.asks > 0 {
-				detail += " before it gave its list (thread " + muse.ThreadURL(out.thread) + ")"
-			}
+	ranOut := func() error {
+		detail := "Muse's time for this search ran out"
+		if out.asks > 0 {
+			detail += " before it gave a usable list (thread " + muse.ThreadURL(out.thread) + "): " + why
+		}
 
-			return out, Fail(CodeTimeout, "%s", detail)
+		return Fail(CodeTimeout, "%s", detail)
+	}
+
+	for conts := 0; ; conts++ {
+		askEnd := lane.end.Add(-museCheckTime)
+
+		ready := r.now()
+		if conts > 1 {
+			ready = lastEnd.Add(museContinueGap)
+		}
+
+		if askEnd.Sub(maxTime(ready, r.now())) < museMinAsk {
+			return out, ranOut()
+		}
+
+		if take != nil && !take() {
+			return out, errExtraSpent
 		}
 
 		done := func() {}
 
-		if continuing && r.Pace != nil {
+		if conts > 0 && r.Pace != nil {
 			// The first continuation of a thread is not paced: nothing was asked under its key yet.
-			var err error
-			if done, err = r.Pace(ctx, "muse-continue:"+out.thread, museContinueGap); err != nil {
-				return out, AsFailure(err)
+			pctx, cancel := context.WithTimeout(ctx, lane.askLeft(r.now()))
+			d, err := r.Pace(pctx, "muse-continue:"+out.thread, museContinueGap)
+
+			cancel()
+
+			if err != nil {
+				return out, ranOut()
+			}
+
+			done = d
+
+			if lane.askLeft(r.now()) < museMinAsk {
+				done()
+
+				return out, ranOut()
 			}
 		}
 
 		res, err := mr.ask(ctx, r, lane, prompt, out.thread)
 
 		done()
+
+		lastEnd = r.now()
 
 		if err != nil {
 			return out, err
@@ -346,20 +397,40 @@ func (mr *museReader) list(ctx context.Context, r Request, lane *museLane, promp
 		}
 
 		out.posts, out.none = parseMuse(res.Answer, res.Links, mr.site)
-		kind := listKind(out.posts)
 
-		switch {
-		case kind == listUsable || out.none:
+		switch listKind(out.posts) {
+		case listUsable:
 			return out, nil
-		case kind == listRejected && retried:
-			return out, nil
-		case out.thread == "":
+		case listRejected:
+			why = fmt.Sprintf("its last answer listed %d posts, none with a link to a %s post", len(out.posts),
+				mr.site.name)
+		default:
+			if out.none {
+				return out, nil
+			}
+
+			why = "its last answer was not yet a list"
+		}
+
+		out.posts = nil
+
+		if out.thread == "" {
 			return out, Fail(CodeBroken, "Muse gave no list and no thread to ask again in")
 		}
 
-		retried = retried || kind == listRejected
 		prompt = museContinue
 	}
+}
+
+// errExtraSpent: the search's extra questions are all asked.
+var errExtraSpent = errors.New("the search's extra questions are spent")
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+
+	return b
 }
 
 // What an answer's blocks are: a usable list, a list none of whose posts is of the platform, or a draft.
@@ -509,15 +580,24 @@ func (st *museStream) more(ctx context.Context) Result {
 
 		limit := min(musePosts, st.req.Limit-len(st.verified))
 
-		got, err := mr.list(ctx, st.req, st.lane, mr.site.depthPrompt(where, st.req.From, st.req.To, limit), st.thread)
-		if err != nil {
-			st.asks += got.asks
-			notes = append(notes, "more from "+where+": "+AsFailure(err).Error())
+		got, err := mr.list(ctx, st.req, st.lane, mr.site.depthPrompt(where, st.req.From, st.req.To, limit), st.thread,
+			st.lane.takeExtra)
+		st.asks += got.asks
 
+		switch {
+		case errors.Is(err, errExtraSpent):
+			notes = append(notes, fmt.Sprintf("more from %s not asked: the search's %d extra questions are spent",
+				where, museDepth))
+		case err != nil:
+			notes = append(notes, "more from "+where+": "+AsFailure(err).Error())
+		}
+
+		if err != nil {
 			break
 		}
 
 		asked = append(asked, where)
+		st.asks -= got.asks // add counts them
 		st.add(ctx, got)
 	}
 
@@ -741,8 +821,9 @@ func parseMuse(answer string, links []muse.Link, site museSite) ([]musePost, boo
 		posts = append(posts, p)
 	}
 
-	// Only an answer that is NO POSTS FOUND alone, as the template asks, is an empty one: a draft that names it is not.
-	none := len(posts) == 0 && strings.EqualFold(strings.Trim(answer, " \t\r\n*_`#>\"“”.!"), museNoPosts)
+	// Only an answer that is exactly NO POSTS FOUND, as the template asks, is an empty one: a draft that names it, or
+	// "NO POSTS FOUND." with a period, is not (review of #1292).
+	none := len(posts) == 0 && strings.TrimSpace(answer) == museNoPosts
 
 	return posts, none
 }
