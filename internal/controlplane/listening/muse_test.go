@@ -94,6 +94,8 @@ type pages struct {
 	status map[string]int
 	hits   []string
 	server *httptest.Server
+	// onHit, when set, runs at each request: a slow page moves the test's clock.
+	onHit func()
 }
 
 func newPages(t *testing.T) *pages {
@@ -104,8 +106,12 @@ func newPages(t *testing.T) *pages {
 		p.mu.Lock()
 		key := r.Header.Get("X-Host") + r.URL.Path
 		p.hits = append(p.hits, key)
-		body, status := p.html[key], p.status[key]
+		body, status, onHit := p.html[key], p.status[key], p.onHit
 		p.mu.Unlock()
+
+		if onHit != nil {
+			onHit()
+		}
 
 		if strings.HasPrefix(body, "redirect:") {
 			http.Redirect(w, r, strings.TrimPrefix(body, "redirect:"), http.StatusFound)

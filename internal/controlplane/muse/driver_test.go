@@ -669,3 +669,25 @@ func TestAnAnswerInSeveralMessagesIsReadWhole(t *testing.T) {
 	assert.Equal(t, "post: 1\nlink: Bài đăng\nquote: Vào web đọc truyện\n\nTH threads.com", a.Text)
 	assert.Equal(t, []Link{card, card}, a.Links, "the links of every new message, in order; the fake does not dedupe")
 }
+
+// Review round 1, P1 5: words about a quota quoted inside an answer of several messages are not Muse saying the
+// account is out of quota: the quota is read from the final message alone, and the whole answer is kept.
+func TestQuotaWordsInsideAnAnswerOfSeveralMessagesAreNotAQuota(t *testing.T) {
+	t.Parallel()
+
+	m := site()
+	m.path = "/thread/" + aThread
+	m.before = chat{Count: 1, Last: "an earlier answer"}
+	m.after = []chat{{Count: 3, Last: "TH threads.com", Busy: true}, {Count: 3, Last: "TH threads.com"}}
+	card := Link{URL: "https://example.com/doc", Text: "TH"}
+	m.messages = []answerMessage{
+		{text: "an earlier answer"},
+		{text: "The document says: \"each plan has a usage limit of 100 calls a day\".", links: []Link{card}},
+		{text: "TH threads.com", links: []Link{card}},
+	}
+
+	a, _, err := newDriver(&fakePage{answer: m.eval}).ask(t.Context(), "Continue", aThread, deadline())
+	require.NoError(t, err)
+	assert.Contains(t, a.Text, "usage limit of 100 calls")
+	assert.Contains(t, a.Text, "TH threads.com")
+}
