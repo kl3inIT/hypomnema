@@ -5022,21 +5022,23 @@ writes no prose (last30days SKILL.md LAW 7).
   `broken`. The question is a fixed template: public posts of the platform in the window, the search as a JSON
   string it is told to treat as data, up to 10 posts, one block each with the labels `post`, `link`, `author`,
   `where`, `date`, `quote_from` (caption, image_text or comment), `quote` (word for word), `likes`, `comments`,
-  `shares`, only posts it opened, and `NO POSTS FOUND` alone when none (a clean zero). Only a usable list (a post of
-  the platform with its quote) or that answer alone ends a question: a draft, Muse still working ("I'll send the
-  list once the check returns"), a block with no link or quote, or a draft that names `NO POSTS FOUND`, is continued
-  in the same thread at once, then a minute after each further one, until the list comes (owner, 2026-11-28); a
-  list none of whose posts is of the platform is asked again once, then taken as it is. Each block's link is the
+  `shares`, only posts it opened, and exactly `NO POSTS FOUND` when none (a clean zero). Only a usable list (a post
+  of the platform with its quote) or exactly that answer ends a question: a draft, Muse still working ("I'll send the
+  list once the check returns"), a block with no link or quote, a draft that names `NO POSTS FOUND`, "NO POSTS
+  FOUND." with a period, or a list none of whose posts is of the platform, is continued in the same thread at once,
+  then a minute after each further one, until a usable list comes (owner, 2026-11-28); when the time runs out first,
+  the stream is `timeout` with why the last answer was not taken, never a zero. Each block's link is the
   address it writes, else the answer's next link to a post of the platform, unwrapped from `l.meta.ai/?u=`; a block
   with no such link is left out and counted. A post is known by the platform's id: a Facebook reel, Page post, group
   post, shared post, photo or permalink, an Instagram `/p/` or `/reel/`, a Threads `/@handle/post/<code>`.
 - Every post's link is opened as a reader who is not signed in, one page a second a site, even one whose id dates it
   outside the window. It counts only when the page is that post (its `og:url`, else where it landed; a sign-in page
   or a gone post fails), the quote is the caption's and is found in one caption field (`og:description`, the
-  description, or Instagram's `on Instagram: "…"` title), never stitched from several (compared in NFKC, lowercased,
+  description; on Instagram only the quoted caption inside its title or description, never its counts, account
+  or date), never stitched from several (compared in NFKC, lowercased,
   spaces and edge punctuation folded), Muse gave a date in the form asked, and the date read from the link (an
   Instagram or Threads shortcode's id) or the page's first `<time datetime>`, never Muse's, lies in the window and
-  within a day of Muse's. A quote Muse read from a comment or an image's text is not on such a page, so it is not
+  within a day of Muse's (a day that does not exist, such as 2026-11-31, is no date). A quote Muse read from a comment or an image's text is not on such a page, so it is not
   checkable and stays unverified. A post that passes is an item, dated by its link or page with high confidence,
   its `check` saying so; one that fails is in the answer's `unverified` list with why, never an item, a cluster or a
   count (the coverage counts it as `unverified`). Counts are Muse's as it saw them, a missing one left out, never 0,
@@ -5044,10 +5046,10 @@ writes no prose (last30days SKILL.md LAW 7).
   in its link, or in an Instagram page's description (`… comments - <name> on …`).
 - After every stream's first pass (`Result.Then`, run in the sources' and subqueries' order before coverage is
   settled), Muse is asked once more, in the thread of the stream that saw it most, for more posts of each of the
-  three groups or accounts the whole search saw most: three extra questions a search at most, however many streams
-  run, each continued like a first one, while its stream has room. One deadline, six minutes from the search's start
+  three groups or accounts the whole search saw most, while its stream has room: three Muse calls in all for the
+  extra questions of a search, their continuations included, however many streams run. One deadline, six minutes from the search's start
   (`muse.MaxDeadline`, within the tools server's seven), covers the questions and the link checks: a question ends
-  25 s before it (ten links at a second each and one page's 15 s), none starts with less than 30 s to that end, no
+  25 s before it (ten links at a second each and one page's 15 s), none starts, nor is a continuation waited for, with less than 30 s to that end, no
   page is opened after the deadline (`not checked: the search's time ran out`), and a stream that could not be asked
   is `timeout`. Pool outcomes become codes: no account that can take it `need_login`, a permission card `refused`, a
   spent quota `limit_reached`, interrupted or unknown `timeout`, other errors `broken`. `HYPOMNEMA_LISTENING_LIVE=1
