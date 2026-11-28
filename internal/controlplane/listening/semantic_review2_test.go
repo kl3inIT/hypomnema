@@ -185,3 +185,51 @@ func TestAThreadReadLateIsCheckedAgainstItsOwnTitle(t *testing.T) {
 	assert.Equal(t, []string{"VETC hoàn tiền"}, a.Items[0].Quotes, "the search's title is not the post")
 	assert.Equal(t, day(3).Format(time.DateOnly), a.Items[0].PublishedAt.Format(time.DateOnly))
 }
+
+// Review round 3: a Vietnamese month written in words ("tháng mười một", "tháng Mười Một") is read too, day, month and
+// year still compared; and a year is read whole, so "20190" is no 2019.
+func TestAVietnameseMonthInWordsIsReadAndAYearWhole(t *testing.T) {
+	t.Parallel()
+
+	// Dated by the search's snippet, 2026-11-26 (since #1319 an undated web item is dropped at the search).
+	it := webPost("https://j.example/old", "VETC ra mắt", "", 1)
+	it.URL = it.NativeID
+	p := plan([]string{listening.SourceWeb}, "VETC")
+
+	read := func(quote, date string) listening.Answer {
+		t.Helper()
+
+		page := websearch.Page{Content: quote + "\n\nVETC ra mắt thẻ dán cho xe con."}
+		m := &fakeModel{answer: steps(nil, nil, readWith(map[string]string{
+			"VETC ra mắt": fmt.Sprintf(`"quotes":["VETC ra mắt thẻ dán"],"claims":[],`+
+				`"published":{"date":%q,"quote":%q}`, date, quote),
+		}))}
+
+		a, err := withModel(newClock(), listening.ModelOff, "", webSource(it)).
+			Search(t.Context(), p, listening.Caller{Model: m.Model, Fetch: pages{it.URL: page}.fetch})
+		require.NoError(t, err)
+
+		return a
+	}
+
+	for _, quote := range []string{
+		"Đăng ngày 22 tháng mười một năm 2019",
+		"22 tháng Mười Một, 2019 16:18",
+		"Thứ sáu, ngày 22 tháng Mười một năm 2019",
+	} {
+		a := read(quote, "2019-11-22")
+		assert.Equal(t, 1, a.Pass.Read.OutsideWindow, quote)
+		assert.Empty(t, a.Items, quote)
+	}
+
+	for quote, date := range map[string]string{
+		"Đăng ngày 22 tháng mười năm 2019":      "2019-11-22",
+		"Published November 22, 20190":          "2019-11-22",
+		"Đăng ngày 22 tháng mười một năm 20190": "2019-11-22",
+	} {
+		a := read(quote, date)
+		assert.Zero(t, a.Pass.Read.OutsideWindow, quote)
+		require.Len(t, a.Items, 1, quote)
+		assert.Equal(t, "2026-11-26", a.Items[0].PublishedAt.Format(time.DateOnly), quote)
+	}
+}
