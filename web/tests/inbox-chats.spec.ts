@@ -100,6 +100,30 @@ async function serve(page: Page) {
     const one = path.match(/^\/inbox\/chat-sources\/(\w+)\/(\w+)(?:\/(.+))?$/)
     if (one) {
       const key = `${one[1]}/${one[2]}`
+      if (request.method() === "POST" && one[3]?.startsWith("bulk")) {
+        type Choice = Pick<Chat, "reads" | "set_at">
+        const body = request.postDataJSON()
+        set.push({ path, body })
+        if (one[3] === "bulk/undo") {
+          for (const change of body.changes as { chat: string; previous?: Choice }[]) {
+            const original = fixtures[key].find((chat) => chat.id === change.chat)!
+            chats[key] = chats[key].map((chat) =>
+              chat.id === change.chat ? { ...original, ...change.previous } : chat,
+            )
+          }
+          return route.fulfill({ status: 204 })
+        }
+        const changes = []
+        for (const chat of chats[key]) {
+          if (!body.chat_ids.includes(chat.id) || chat.reads === body.reads) continue
+          const previous =
+            chat.set_by === "owner" ? { reads: chat.reads, set_at: chat.set_at } : undefined
+          const set_at = new Date().toISOString()
+          changes.push({ chat: chat.id, reads: body.reads, set_at, previous })
+          Object.assign(chat, { reads: body.reads, set_by: "owner", set_at })
+        }
+        return json({ changes })
+      }
       if (request.method() === "PUT") {
         const body = request.postDataJSON() as { reads: boolean }
         const id = decodeURIComponent(one[3])
@@ -255,6 +279,56 @@ for (const theme of ["light", "dark"] as const) {
     await expect(chatRow(page, "Kai")).toContainText("Direct · Read · Default")
   })
 }
+
+test("bulk chat actions confirm the shown count and let the owner undo", async ({
+  page,
+  isMobile,
+}) => {
+  if (!isMobile) await page.setViewportSize({ width: 1490, height: 900 })
+  const requests = await serve(page)
+  await page.goto("/inbox/chats")
+  if (isMobile) await page.keyboard.press("Escape")
+
+  await page.getByRole("searchbox").fill("a")
+  await page.getByRole("group", { name: "Kind" }).getByRole("button", { name: /Group/ }).click()
+  await expect(page.getByTestId("secretary-chat")).toHaveCount(2)
+  await shot(page, "inbox-bulk-controls")
+
+  await page.getByRole("button", { name: "Skip all shown" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm).toHaveAccessibleName("Skip 2 chats?")
+  await shot(page, "inbox-bulk-confirmation")
+  await confirm.getByRole("button", { name: "Skip", exact: true }).click()
+  await expect(chatRow(page, "Team Alpha")).toContainText("Skipped · Set by you")
+  expect(requests[0]).toEqual({
+    path: "/inbox/chat-sources/zalo/main/bulk",
+    body: { chat_ids: ["2002", "2003"], reads: false },
+  })
+  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await expect(chatRow(page, "Team Alpha")).toContainText("Read · Default")
+
+  await page
+    .getByRole("group", { name: "State" })
+    .getByRole("button", { name: /Skipped/ })
+    .click()
+  await expect(page.getByTestId("secretary-chat")).toHaveCount(1)
+  await page.getByRole("button", { name: "Read all shown" }).click()
+  await expect(confirm).toHaveAccessibleName("Read 1 chat?")
+  await confirm.getByRole("button", { name: "Read", exact: true }).click()
+  await expect(page.getByText("No chat matches.")).toBeVisible()
+  expect(requests[2]).toEqual({
+    path: "/inbox/chat-sources/zalo/main/bulk",
+    body: { chat_ids: ["2003"], reads: true },
+  })
+  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await expect(chatRow(page, "Gia đình")).toContainText("Skipped · Set by you")
+  expect(requests.map((r) => r.path)).toEqual([
+    "/inbox/chat-sources/zalo/main/bulk",
+    "/inbox/chat-sources/zalo/main/bulk/undo",
+    "/inbox/chat-sources/zalo/main/bulk",
+    "/inbox/chat-sources/zalo/main/bulk/undo",
+  ])
+})
 
 // Review of #1270, round 1: at 1280 px the gear pushed the Inbox's search over its title. The title, the search,
 // the filters and the gear each keep their own room.
