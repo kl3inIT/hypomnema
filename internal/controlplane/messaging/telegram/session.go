@@ -3,8 +3,10 @@ package telegram
 // gotd's storages over telegram.db: the session (session.Storage, gotd session/session.go:136-139), the update state
 // (updates.StateStorage, telegram/updates/storage.go:24-41) and the access hashes (ChannelAccessHasher and
 // UserAccessHasher, storage.go:43-55), as mautrix/telegram implements them over its database
-// (pkg/connector/store/scoped_store.go:38-230) and with gotd's own semantics: a new state forgets the channels' pts
-// (updates/storage_file.go:179-193), and a change of a state not kept is an error (storage.go:21-23).
+// (pkg/connector/store/scoped_store.go:38-230): a new state keeps the channels' pts, as mautrix's setStateQuery
+// does (scoped_store.go:48-55), where gotd's file storage forgets them (updates/storage_file.go:177-193): gotd sets a
+// new state after every general updates.difference (state_difference.go:134), and a restart before a channel's next
+// checkpoint would lose the channel. A change of a state not kept is an error (storage.go:21-23).
 
 import (
 	"context"
@@ -66,25 +68,15 @@ func (s stateStorage) GetState(ctx context.Context, userID int64) (updates.State
 	return st, true, nil
 }
 
-// SetState keeps a new state and forgets the channels' pts, as gotd's file and memory storages do.
+// SetState keeps a new state; the channels' pts stay, as mautrix's (scoped_store.go:48-55).
 func (s stateStorage) SetState(ctx context.Context, userID int64, st updates.State) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck // Rolling back after a commit does nothing.
-
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tg_state (user_id, pts, qts, date, seq) VALUES (?, ?, ?, ?, ?)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO tg_state (user_id, pts, qts, date, seq) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET pts = excluded.pts, qts = excluded.qts, date = excluded.date,
 			seq = excluded.seq`, userID, st.Pts, st.Qts, st.Date, st.Seq); err != nil {
 		return fmt.Errorf("telegram: keeping the update state: %w", err)
 	}
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM tg_channel_state WHERE user_id = ?`, userID); err != nil {
-		return fmt.Errorf("telegram: keeping the update state: %w", err)
-	}
-
-	return tx.Commit()
+	return nil
 }
 
 func (s stateStorage) set(ctx context.Context, userID int64, columns string, values ...any) error {

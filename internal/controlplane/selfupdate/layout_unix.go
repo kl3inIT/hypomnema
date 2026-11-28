@@ -67,8 +67,8 @@ func (o Options) waitReady(ctx context.Context) error {
 	}
 }
 
-// waitTurns waits until no Bot's turn and no agent's tool call runs in the control plane, asking its control socket
-// every TurnsEvery, for at most TurnsWithin; then the update goes on. The tool calls are waited for as OpenClaw's
+// waitTurns waits for Bots' turns, tool calls and renders to end, asking the control socket every TurnsEvery for
+// at most TurnsWithin. Then the update goes on, as OpenClaw's
 // update drains a Gateway's requests in flight before it restarts, for at most 5 minutes, then restarts anyway
 // (src/infra/restart-budget.ts:8 DEFAULT_RESTART_DEFERRAL_TIMEOUT_MS, src/gateway/server-reload-active-work.ts:38
 // "gateway request(s)", src/gateway/server-methods/update.ts:520; issue #1060). A control plane that does not answer, one from before the socket or one
@@ -107,27 +107,25 @@ func (o Options) waitTurns(ctx context.Context) {
 
 		switch {
 		case err != nil && said && !time.Now().Before(deadline):
-			o.printf("Bots' turns or tool calls still run after %s, %s; a turn is cut, and continues after the "+
-				"update\n", within, last)
+			o.printf("work still runs after %s, %s. Stopping the control plane\n", within, last)
 
 			return
 		case err != nil:
-			o.printf("not waiting for Bots' turns: the control plane did not say which run: %v\n", err)
+			o.printf("not waiting for work to end: the control plane did not say what runs: %v\n", err)
 
 			return
 		case !running.busy():
 			if said {
-				o.printf("no Bot's turn nor tool call runs now\n")
+				o.printf("no Bot's turn, tool call or video render runs now\n")
 			}
 
 			return
 		case !time.Now().Before(deadline):
-			o.printf("Bots' turns or tool calls still run after %s, %s; a turn is cut, and continues after the "+
-				"update\n", within, running)
+			o.printf("work still runs after %s, %s. Stopping the control plane\n", within, running)
 
 			return
 		case !said:
-			o.printf("waiting up to %s for Bots' turns and tool calls to end, %s\n", within, running)
+			o.printf("waiting up to %s for work to end, %s\n", within, running)
 
 			said = true
 		}
@@ -145,7 +143,7 @@ func (o Options) waitTurns(ctx context.Context) {
 // turnsAskWithin bounds one question on the control socket.
 const turnsAskWithin = 5 * time.Second
 
-// turns asks the control socket which chats' turns run, and how many tool calls, within the time given.
+// turns asks the control socket what work is running, within the time given.
 func (o Options) turns(ctx context.Context, within time.Duration) (Turns, error) {
 	resp, err := o.ask(ctx, http.MethodGet, PathTurns, nil, within)
 	if err != nil {

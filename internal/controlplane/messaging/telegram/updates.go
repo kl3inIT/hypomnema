@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/gotd/td/tg"
@@ -52,13 +54,64 @@ func (a *Account) handler() updateHandler {
 		return a.keepUpdate(ctx, e, u.Message, true)
 	})
 	d.OnDeleteMessages(func(ctx context.Context, _ tg.Entities, u *tg.UpdateDeleteMessages) error {
-		return a.store.revoke(ctx, a.key, "", u.Messages)
+		return a.revoke(ctx, "", u.Messages)
 	})
 	d.OnDeleteChannelMessages(func(ctx context.Context, _ tg.Entities, u *tg.UpdateDeleteChannelMessages) error {
-		return a.store.revoke(ctx, a.key, channelID(u.ChannelID), u.Messages)
+		return a.revoke(ctx, channelID(u.ChannelID), u.Messages)
 	})
 
 	return updateHandler{a: a, dispatch: d}
+}
+
+// revoke marks deleted messages, and has a catch-up running apply them again once it kept its pages (catchUp).
+func (a *Account) revoke(ctx context.Context, chat string, ids []int) error {
+	a.revokes.record(chat, ids)
+
+	return a.store.revoke(ctx, a.key, chat, ids)
+}
+
+// revokeLog keeps the deletions that arrive while a catch-up holds messages it has not kept yet: a revocation each,
+// its chat as store.revoke names it.
+type revokeLog struct {
+	mu       sync.Mutex
+	watchers map[*[]revocation]struct{}
+}
+
+type revocation struct {
+	chat string
+	ids  []int
+}
+
+// watch keeps the deletions from now on, until the stop it gives, which says what they were.
+func (l *revokeLog) watch() (stop func() []revocation) {
+	got := new([]revocation)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.watchers == nil {
+		l.watchers = map[*[]revocation]struct{}{}
+	}
+
+	l.watchers[got] = struct{}{}
+
+	return func() []revocation {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+
+		delete(l.watchers, got)
+
+		return *got
+	}
+}
+
+func (l *revokeLog) record(chat string, ids []int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for w := range l.watchers {
+		*w = append(*w, revocation{chat: chat, ids: slices.Clone(ids)})
+	}
 }
 
 // keepUpdate keeps a message an update brought, with what its entities say of its chat and of the people in it. An

@@ -953,6 +953,14 @@ type RestartBoot struct {
 	At int64
 }
 
+type ReviewStallTodo struct {
+	RunID       string
+	HeadSha     sql.NullString
+	PullRequest string
+	TodoID      string
+	LongReport  string
+}
+
 type ReviewStatus struct {
 	PullRequest string
 	HeadSha     string
@@ -1295,6 +1303,7 @@ type VideoRevision struct {
 	PinVoice    string
 	PinModel    string
 	Speed       float64
+	Attempts    int64
 }
 
 type VideoSetting struct {

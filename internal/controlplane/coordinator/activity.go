@@ -90,6 +90,11 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 		p.mu.Unlock()
 
 		if ch != nil {
+			// Apply the prompt acknowledgement in stdout order, before a fast turn can settle.
+			if rec.Success && rec.Command == "prompt" && dispositionOf(rec.Data) == "started" {
+				p.setWorking(true)
+			}
+
 			ch <- response{Success: rec.Success, Error: rec.Error, Data: rec.Data}
 		}
 	case "agent_start":

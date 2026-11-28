@@ -22,6 +22,7 @@ require (
 	github.com/gotd/contrib v0.26.0
 	github.com/gotd/log v0.1.0
 	github.com/gotd/td v0.166.1
+	github.com/itlightning/dateparse v0.2.1
 	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
 	github.com/oapi-codegen/nethttp-middleware v1.3.1
 	github.com/oapi-codegen/runtime v1.9.0
@@ -83,7 +84,6 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4 // indirect
 	github.com/gotd/ige v0.3.0 // indirect
 	github.com/gotd/neo v0.1.5 // indirect
-	github.com/itlightning/dateparse v0.2.1 // indirect
 	github.com/klauspost/compress v1.20.4 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect

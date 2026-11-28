@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/gotd/td/telegram/updates"
@@ -93,6 +94,70 @@ func (a *Account) backfill(ctx context.Context, client api, chat string, count i
 // fetch at a time, as mautrix's fetchMessagesSema (client.go:209).
 func (a *Account) fetch(ctx context.Context, client api, peer tg.InputPeerClass, minID, offsetID, count int,
 ) (int, bool, error) {
+	return a.pages(ctx, client, peer, minID, offsetID, count,
+		func(res tg.MessagesMessagesClass) ([]tg.MessageClass, int, error) { return a.keepPage(ctx, res) })
+}
+
+// catchUp fills a gap: it fetches up to maxCatchUp messages of a peer between minID, the last message known before
+// the gap, and offsetID, and keeps them once every page is fetched, the oldest first, so that a fetch cut short keeps
+// nothing and leaves minID the newest message kept before the gap, for the next try to start from again (mautrix
+// keeps its anchor message for the same, backfill.go:270-287); then runs once they are kept, to keep what else the
+// caller held back. The caller holds fetchMu.
+//
+// The updates manager goes on while the pages are fetched, and a deletion it hands over meanwhile finds no row of
+// them yet: the deletions kept during the catch-up (revokeLog) are applied again once the pages are kept, so that what
+// was deleted is not kept again with its text.
+func (a *Account) catchUp(ctx context.Context, client api, peer tg.InputPeerClass, minID, offsetID int,
+	then func() error,
+) error {
+	stop := a.revokes.watch()
+	err := a.fetchAndKeep(ctx, client, peer, minID, offsetID, then)
+
+	for _, r := range stop() {
+		err = errors.Join(err, a.store.revoke(ctx, a.key, r.chat, r.ids))
+	}
+
+	return err
+}
+
+func (a *Account) fetchAndKeep(ctx context.Context, client api, peer tg.InputPeerClass, minID, offsetID int,
+	then func() error,
+) error {
+	var fetched []tg.MessagesMessagesClass
+
+	_, _, err := a.pages(ctx, client, peer, minID, offsetID, maxCatchUp,
+		func(res tg.MessagesMessagesClass) ([]tg.MessageClass, int, error) {
+			fetched = append(fetched, res)
+
+			page, ok := res.AsModified()
+			if !ok {
+				return nil, 0, nil
+			}
+
+			return page.GetMessages(), 0, nil
+		})
+	if err != nil {
+		return err
+	}
+
+	for _, res := range slices.Backward(fetched) {
+		if _, _, err := a.keepPage(ctx, res); err != nil {
+			return err
+		}
+	}
+
+	if then == nil {
+		return nil
+	}
+
+	return then()
+}
+
+// pages asks for a peer's history page by page, as fetch says, and hands each answer to keep, which gives its
+// messages and how many were new.
+func (a *Account) pages(ctx context.Context, client api, peer tg.InputPeerClass, minID, offsetID, count int,
+	keep func(res tg.MessagesMessagesClass) ([]tg.MessageClass, int, error),
+) (int, bool, error) {
 	added := 0
 
 	for page := 1; count > 0; page++ {
@@ -110,7 +175,7 @@ func (a *Account) fetch(ctx context.Context, client api, peer tg.InputPeerClass,
 			return added, false, fmt.Errorf("telegram: fetching the history of a chat: %w", err)
 		}
 
-		messages, n, err := a.keepPage(ctx, res)
+		messages, n, err := keep(res)
 		added += n
 
 		if err != nil {
@@ -132,7 +197,8 @@ func (a *Account) fetch(ctx context.Context, client api, peer tg.InputPeerClass,
 	return added, false, nil
 }
 
-// keepPage keeps a page of messages with its entities, and gives its messages and how many were new.
+// keepPage keeps a page of messages with its entities, the oldest first, and gives its messages and how many were
+// new.
 func (a *Account) keepPage(ctx context.Context, res tg.MessagesMessagesClass) ([]tg.MessageClass, int, error) {
 	page, ok := res.AsModified()
 	if !ok {
@@ -146,7 +212,7 @@ func (a *Account) keepPage(ctx context.Context, res tg.MessagesMessagesClass) ([
 
 	added := 0
 
-	for _, mc := range page.GetMessages() {
+	for _, mc := range slices.Backward(page.GetMessages()) {
 		isNew, err := a.keepFetched(ctx, e, mc)
 		if err != nil {
 			return nil, added, err
@@ -160,12 +226,11 @@ func (a *Account) keepPage(ctx context.Context, res tg.MessagesMessagesClass) ([
 	return page.GetMessages(), added, nil
 }
 
-// keepFetched keeps a message fetched from Telegram: one people wrote, or what a service message says of its chat.
+// keepFetched keeps a message fetched from Telegram that people wrote. A service message is skipped, as mautrix's
+// backfill skips every message that is not a tg.Message (backfill.go:289-293): what it says of its chat is past (a
+// removal before the account was added back), and the chat as it is now comes with the answer's entities and the
+// updates (keepService).
 func (a *Account) keepFetched(ctx context.Context, e tg.Entities, mc tg.MessageClass) (bool, error) {
-	if svc, ok := mc.(*tg.MessageService); ok {
-		return false, a.keepService(ctx, e, svc)
-	}
-
 	k, ok := convert(a.userID, mc)
 	if !ok {
 		return false, nil
@@ -186,15 +251,12 @@ func lowestID(messages []tg.MessageClass) int {
 	return lowest
 }
 
-// recoverGap keeps a channel's messages across a gap the updates manager could not recover
-// (updates.channelDifferenceTooLong): the latest ones Telegram gave with it, then those between newest, the last
-// message known before the gap, and them, as gotd says they are to be fetched (telegram/updates/config.go:55-65,
-// OnChannelGap). newest is read when gotd reports the gap (updatesConfig), before the channel's next updates are kept;
-// a channel nothing was kept of (newest zero) starts from the latest.
-func (a *Account) recoverGap(ctx context.Context, client api, newest int, gap updates.ChannelGap) error {
-	a.fetchMu.Lock()
-	defer a.fetchMu.Unlock()
-
+// keepGap keeps what a channel's gap the updates manager could not recover (updates.channelDifferenceTooLong) came
+// with: its access hash, its entities and the latest messages Telegram gave. It runs in the manager's callback
+// (updatesConfig), in the order gotd reports to it, so that a loss gotd reports next (CHANNEL_PRIVATE,
+// OnChannelInaccessible, telegram/updates/state_channel.go:394-396,705-716, on the same goroutine) is not undone by
+// the gap's older entities.
+func (a *Account) keepGap(ctx context.Context, gap updates.ChannelGap) error {
 	if err := a.states.SetChannelAccessHash(ctx, a.userID, gap.ChannelID, gap.AccessHash); err != nil {
 		return err
 	}
@@ -204,15 +266,26 @@ func (a *Account) recoverGap(ctx context.Context, client api, newest int, gap up
 		return err
 	}
 
-	for _, mc := range gap.Messages {
+	for _, mc := range slices.Backward(gap.Messages) {
 		if _, err := a.keepFetched(ctx, e, mc); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// fillGap fetches the messages of a channel's gap between newest, the last message known before it, and those the
+// gap came with (keepGap), as gotd says they are to be fetched (telegram/updates/config.go:55-65, OnChannelGap).
+// newest is read when gotd reports the gap (updatesConfig), before the channel's next updates are kept; a channel
+// nothing was kept of (newest zero) starts from the latest.
+func (a *Account) fillGap(ctx context.Context, client api, newest int, gap updates.ChannelGap) error {
 	if newest == 0 {
 		return nil
 	}
+
+	a.fetchMu.Lock()
+	defer a.fetchMu.Unlock()
 
 	until := lowestID(gap.Messages)
 	if until == 0 && gap.TopMessage > 0 {
@@ -223,10 +296,8 @@ func (a *Account) recoverGap(ctx context.Context, client api, newest int, gap up
 		return nil
 	}
 
-	_, _, err = a.fetch(ctx, client, &tg.InputPeerChannel{ChannelID: gap.ChannelID, AccessHash: gap.AccessHash}, newest,
-		until, maxCatchUp)
-
-	return err
+	return a.catchUp(ctx, client, &tg.InputPeerChannel{ChannelID: gap.ChannelID, AccessHash: gap.AccessHash}, newest,
+		until, nil)
 }
 
 // syncDialogs goes on with the listing of every dialog of the account, page by page from where it stopped, keeping
@@ -239,7 +310,7 @@ func (a *Account) recoverGap(ctx context.Context, client api, newest int, gap up
 // end, only an empty page, a whole list (messages.dialogs) or as many dialogs as the count says; the next page starts
 // at the last dialog's peer, and at the id and date of the latest message of the last dialog that has one, a service
 // message too; a page that does not move the offset ends it. The cursor is kept after each page, as mautrix's
-// (chatsync.go:157-168), so that a failure resumes from it on the next connection.
+// (chatsync.go:157-168), so that a failure resumes from it on the next try (listUntilDone).
 func (a *Account) syncDialogs(ctx context.Context, c conn) error {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()
@@ -268,7 +339,7 @@ func (a *Account) syncDialogs(ctx context.Context, c conn) error {
 			return nil
 		}
 
-		next, err := a.keepDialogs(ctx, c, page, cur.catchUp)
+		next, err := a.keepDialogs(ctx, c, page, cur)
 		if err != nil {
 			return err
 		}
@@ -315,8 +386,11 @@ func (c dialogCursor) offsetPeer() (tg.InputPeerClass, error) {
 	}
 }
 
-// keepDialogs keeps a page of dialogs, and gives where the next page starts.
-func (a *Account) keepDialogs(ctx context.Context, c conn, page tg.ModifiedMessagesDialogs, catchUp bool,
+// keepDialogs keeps a page of dialogs, and gives where the next page starts. A page none of whose dialogs has a
+// latest message to start at (an empty one) keeps the offset id and date of cur, the page before, as gotd's iterator
+// keeps them (query/dialogs/iter.go:179-185): Telegram ignores the offset peer without them (mautrix
+// chatsync.go:203-204) and would answer the first page again.
+func (a *Account) keepDialogs(ctx context.Context, c conn, page tg.ModifiedMessagesDialogs, cur dialogCursor,
 ) (dialogCursor, error) {
 	e, err := a.keepRaw(ctx, page.GetUsers(), page.GetChats())
 	if err != nil {
@@ -339,7 +413,7 @@ func (a *Account) keepDialogs(ctx context.Context, c conn, page tg.ModifiedMessa
 		}
 	}
 
-	var next dialogCursor
+	next := dialogCursor{offsetID: cur.offsetID, offsetDate: cur.offsetDate}
 
 	for _, dc := range page.GetDialogs() {
 		p := dialogPeer(dc)
@@ -351,17 +425,17 @@ func (a *Account) keepDialogs(ctx context.Context, c conn, page tg.ModifiedMessa
 
 		next.peer, next.hash = chat, offsetHash(e, p)
 
+		top := tops[fmt.Sprintf("%s/%d", chat, dialogTop(dc))]
+		if m, ok := top.(interface{ GetDate() int }); ok {
+			next.offsetID, next.offsetDate = top.GetID(), m.GetDate()
+		}
+
 		d, ok := dc.(*tg.Dialog)
 		if !ok {
 			continue
 		}
 
-		top := tops[fmt.Sprintf("%s/%d", chat, d.TopMessage)]
-		if m, ok := top.(interface{ GetDate() int }); ok {
-			next.offsetID, next.offsetDate = top.GetID(), m.GetDate()
-		}
-
-		if err := a.keepDialog(ctx, c, e, raw, d, top, catchUp); err != nil {
+		if err := a.keepDialog(ctx, c, e, raw, d, top, cur.catchUp); err != nil {
 			return dialogCursor{}, err
 		}
 	}
@@ -400,14 +474,20 @@ func (a *Account) keepDialog(ctx context.Context, c conn, e tg.Entities, raw map
 		return err
 	}
 
-	if top != nil {
-		if _, err := a.keepFetched(ctx, e, top); err != nil {
-			return err
+	keepTop := func() error {
+		if top == nil {
+			return nil
 		}
+
+		_, err := a.keepFetched(ctx, e, top)
+
+		return err
 	}
 
+	// The latest message is kept once what lies before it is (catchUp): kept first, it would be the newest message
+	// the next try starts from, and the gap would be skipped.
 	if !catchUp || newest == 0 || d.TopMessage <= newest+1 || !info.listed {
-		return nil
+		return keepTop()
 	}
 
 	peer, err := a.inputPeer(ctx, chat)
@@ -415,9 +495,7 @@ func (a *Account) keepDialog(ctx context.Context, c conn, e tg.Entities, raw map
 		return err
 	}
 
-	_, _, err = a.fetch(ctx, c.api, peer, newest, d.TopMessage, maxCatchUp)
-
-	return err
+	return a.catchUp(ctx, c.api, peer, newest, d.TopMessage, keepTop)
 }
 
 // trackChannel has the updates manager track a listed channel from its dialog's pts with its access hash, as gotd
@@ -450,6 +528,18 @@ func (a *Account) trackChannel(ctx context.Context, c conn, e tg.Entities, d *tg
 	}
 
 	return nil
+}
+
+// dialogTop is the id of a dialog's latest message, a folder's too.
+func dialogTop(dc tg.DialogClass) int {
+	switch d := dc.(type) {
+	case *tg.Dialog:
+		return d.TopMessage
+	case *tg.DialogFolder:
+		return d.TopMessage
+	}
+
+	return 0
 }
 
 // dialogPeer is a dialog's peer, a folder's too, as gotd's dialogs iterator reads it.

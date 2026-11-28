@@ -58,13 +58,20 @@ func testAccount(t *testing.T) *Account {
 // messages.getHistory pages them (newest first, below offset_id, above min_id), and pages of dialogs.
 type fakeTelegram struct {
 	mu       sync.Mutex
-	messages map[string][]*tg.Message
+	messages map[string][]tg.MessageClass
 	users    []tg.UserClass
 	chats    []tg.ChatClass
 	dialogs  []tg.MessagesDialogsClass
-	// dialogsFail fails the dialogs request of that attempt, counted from 1, instead of answering a page.
+	// dialogsFail fails the dialogs request of that attempt, counted from 1, instead of answering a page, and
+	// historyFail the history request of that attempt, counted over every chat.
 	dialogsFail map[int]error
-	served      int
+	historyFail map[int]error
+	// dialogsBy, when set, answers each dialogs request in place of the pages of dialogs, as a server reads its
+	// offsets.
+	dialogsBy func(req *tg.MessagesGetDialogsRequest) tg.MessagesDialogsClass
+	served    int
+	// historyAsked counts the history requests of every chat.
+	historyAsked int
 	// asked are the history requests, by chat; dialogsAsked the dialogs requests.
 	asked        map[string][]tg.MessagesGetHistoryRequest
 	dialogsAsked []tg.MessagesGetDialogsRequest
@@ -86,7 +93,7 @@ func (f *fakeTelegram) TrackChannel(_ context.Context, channelID, accessHash int
 }
 
 func newFakeTelegram() *fakeTelegram {
-	return &fakeTelegram{messages: map[string][]*tg.Message{}, asked: map[string][]tg.MessagesGetHistoryRequest{}}
+	return &fakeTelegram{messages: map[string][]tg.MessageClass{}, asked: map[string][]tg.MessagesGetHistoryRequest{}}
 }
 
 // add puts messages with these ids in a chat, each from its peer.
@@ -119,13 +126,18 @@ func (f *fakeTelegram) MessagesGetHistory(_ context.Context, req *tg.MessagesGet
 	chat := inputChat(req.Peer)
 	f.asked[chat] = append(f.asked[chat], *req)
 
+	f.historyAsked++
+	if err := f.historyFail[f.historyAsked]; err != nil {
+		return nil, err
+	}
+
 	all := slices.Clone(f.messages[chat])
-	slices.SortFunc(all, func(a, b *tg.Message) int { return b.ID - a.ID })
+	slices.SortFunc(all, func(a, b tg.MessageClass) int { return b.GetID() - a.GetID() })
 
 	var page []tg.MessageClass
 
 	for _, m := range all {
-		if (req.OffsetID == 0 || m.ID < req.OffsetID) && m.ID > req.MinID && len(page) < req.Limit {
+		if id := m.GetID(); (req.OffsetID == 0 || id < req.OffsetID) && id > req.MinID && len(page) < req.Limit {
 			page = append(page, m)
 		}
 	}
@@ -141,6 +153,10 @@ func (f *fakeTelegram) MessagesGetDialogs(_ context.Context, req *tg.MessagesGet
 	f.dialogsAsked = append(f.dialogsAsked, *req)
 	if err := f.dialogsFail[len(f.dialogsAsked)]; err != nil {
 		return nil, err
+	}
+
+	if f.dialogsBy != nil {
+		return f.dialogsBy(req), nil
 	}
 
 	if f.served >= len(f.dialogs) {

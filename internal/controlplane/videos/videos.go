@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -162,8 +163,7 @@ type voicePin struct {
 // Progress is how many of a revision's scenes the stage it is at has done,
 // as aidemo's job status counts them (src/mcp/jobs.ts:64-67, scenesTotal and
 // scenesDone, reset at each sub-stage). It is kept in memory, as aidemo's
-// job is: a revision being made when the control plane stops is failed as
-// interrupted at its next start.
+// job is. When a revision is retried after a stop, it starts at voicing.
 type Progress struct {
 	ScenesDone  int `json:"scenes_done"`
 	ScenesTotal int `json:"scenes_total"`
@@ -249,8 +249,9 @@ type Service struct {
 	// mu orders the writes that read before they write: a make's queue cap and revision number, a delete's check.
 	mu sync.Mutex
 	// progress is the stage's progress of the revision being made, by revKey; pmu guards it.
-	pmu      sync.Mutex
-	progress map[string]Progress
+	pmu       sync.Mutex
+	progress  map[string]Progress
+	rendering atomic.Bool
 	// preview is held while a look sample is made: one at a time.
 	preview chan struct{}
 	// upload is held while a track is received: one at a time (issue #910, row 6a).

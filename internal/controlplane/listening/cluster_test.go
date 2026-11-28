@@ -115,7 +115,7 @@ func TestVietnamesePostsClusterByStory(t *testing.T) {
 	p.Topic = "VETC"
 	p.MaxResults = 25
 
-	a, err := s.Search(t.Context(), p, nil)
+	a, err := s.Search(t.Context(), p, listening.Caller{})
 	require.NoError(t, err)
 	require.Len(t, a.Items, len(vetcPosts))
 

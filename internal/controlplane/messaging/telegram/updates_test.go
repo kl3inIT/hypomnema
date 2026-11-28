@@ -261,11 +261,13 @@ func TestAChannelsGapIsFilledFromItsHistory(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.NoError(t, a.recoverGap(ctx, server, 10, updates.ChannelGap{
+	gap := updates.ChannelGap{
 		ChannelID: 9, AccessHash: 9000, LocalPts: 10, RemotePts: 300, TopMessage: 260,
 		Messages: []tg.MessageClass{message(peer, 260, "x"), message(peer, 259, "x"), message(peer, 258, "x")},
 		Chats:    []tg.ChatClass{channel(9, "VMAP AI")},
-	}))
+	}
+	require.NoError(t, a.keepGap(ctx, gap))
+	require.NoError(t, a.fillGap(ctx, server, 10, gap))
 
 	assert.Equal(t, strs(ids(1, 260)), keptIDs(t, a, "channel:9"))
 
@@ -288,9 +290,11 @@ func TestAGapInAChannelNeverKeptFetchesNothing(t *testing.T) {
 	server := newFakeTelegram()
 	server.add(peer, ids(1, 100)...)
 
-	require.NoError(t, a.recoverGap(t.Context(), server, 0, updates.ChannelGap{
+	gap := updates.ChannelGap{
 		ChannelID: 9, AccessHash: 9000, TopMessage: 100, Messages: []tg.MessageClass{message(peer, 100, "x")},
-	}))
+	}
+	require.NoError(t, a.keepGap(t.Context(), gap))
+	require.NoError(t, a.fillGap(t.Context(), server, 0, gap))
 
 	assert.Equal(t, []string{"100"}, keptIDs(t, a, "channel:9"))
 	assert.Empty(t, server.asked)
