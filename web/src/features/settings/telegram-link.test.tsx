@@ -30,7 +30,6 @@ const telegram = (over: Partial<Integration> = {}): Integration => ({
   id: "telegram",
   name: "Telegram",
   kind: "device",
-  client_id: "123456",
   services: [],
   connections: [],
   ...over,
@@ -146,13 +145,17 @@ const telegramCard = async () =>
     (await screen.findByText("Telegram")).closest<HTMLElement>("[data-testid=integration-card]")!,
   )
 
+// The server's words for a Telegram whose api_id and api_hash are not in the vault yet.
+const unready =
+  "the api_id is missing: make the application at my.telegram.org and keep its api_id and api_hash in the vault as the secrets telegram-api-id and telegram-api-hash"
+
 // Until the owner gave Hypomnema his api_id and api_hash, the card says the api_id is missing and how to give it,
 // and offers no link.
 test("Telegram says its api_id is missing until it has one", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const request = input as Request
     const path = new URL(request.url).pathname.replace("/api/v1", "")
-    if (path === "/integrations") return json({ data: [telegram({ client_id: undefined })] })
+    if (path === "/integrations") return json({ data: [telegram({ unready })] })
 
     return json({ data: [] })
   })
@@ -161,7 +164,10 @@ test("Telegram says its api_id is missing until it has one", async () => {
   const card = await telegramCard()
   expect(card.getByText("Not set up")).toBeInTheDocument()
   expect(card.getByText(/api_id is missing/)).toBeInTheDocument()
-  expect(card.getByText(/integrations client set telegram/)).toBeInTheDocument()
+  expect(card.getByRole("link", { name: "Open the Vault" })).toHaveAttribute(
+    "href",
+    "/settings/vault",
+  )
   expect(card.queryByRole("button", { name: "Link phone" })).not.toBeInTheDocument()
 })
 

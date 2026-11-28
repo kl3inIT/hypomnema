@@ -494,3 +494,39 @@ func TestAnAnswerNobodyAskedForIsRefused(t *testing.T) {
 	_, err = wa.svc.LinkByPhone(ctx, integration.WhatsAppID, "main")
 	require.ErrorIs(t, err, integration.ErrInvalid, "WhatsApp links by its QR code only")
 }
+
+// unready is a service that cannot link until the owner set it up, as Telegram until his api_id is in the vault.
+type unready struct {
+	telephone
+	err error
+}
+
+func (u unready) Ready(context.Context) error { return u.err }
+
+// Until the owner's api_id is in the vault the Integration says what is missing, for the page to show, and a link
+// does not start; once it is there the Integration says nothing.
+func TestAnIntegrationSaysWhatItLacksBeforeALink(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	p := &phone{devices: map[string]*device{}, answers: make(chan string, 4)}
+	svc := &unready{telephone: telephone{p}, err: errors.New("telegram: the api_id is missing: make it")}
+	w.svc = integration.New(w.orch, w.vault, w.clock, platform.NewID, integration.Telegram()).
+		WithDevices(integration.TelegramID, svc)
+	ctx := t.Context()
+
+	all, err := w.svc.List(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "the api_id is missing: make it", all[0].Unready)
+
+	_, err = w.svc.Begin(ctx, integration.TelegramID, "main", nil)
+	require.ErrorIs(t, err, integration.ErrSignInFailed)
+	assert.Contains(t, err.Error(), "api_id is missing")
+
+	svc.err = nil
+	w.svc.WithDevices(integration.TelegramID, svc)
+
+	all, err = w.svc.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, all[0].Unready)
+}

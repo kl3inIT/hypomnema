@@ -49,7 +49,10 @@ async function serve(
     kind: "device",
     services: [],
     connections: [],
-    ...(client && { client_id: "123456" }),
+    ...(!client && {
+      unready:
+        "the api_id is missing: make the application at my.telegram.org and keep its api_id and api_hash in the vault as the secrets telegram-api-id and telegram-api-hash",
+    }),
   }
   const state = {
     // accept is the phone accepting the QR code of an account with a two-step password.
@@ -146,7 +149,8 @@ for (const theme of ["light", "dark"] as const) {
       await serve(page, false)
       const card = await openTelegram(page, isMobile)
       await expect(card).toContainText("Not set up")
-      await expect(card).toContainText("Telegram's api_id is missing")
+      await expect(card).toContainText("Telegram: the api_id is missing")
+      await expect(card.getByRole("link", { name: "Open the Vault" })).toBeVisible()
       await expect(card.getByRole("button", { name: "Link phone" })).toHaveCount(0)
       await shot(page, `telegram-not-set-up-${theme}`)
     })
