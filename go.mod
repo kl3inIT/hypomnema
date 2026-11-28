@@ -8,45 +8,45 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/aws/aws-sdk-go-v2 v1.48.0
-	github.com/aws/aws-sdk-go-v2/credentials v1.21.0
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.344.3
-	github.com/aws/aws-sdk-go-v2/service/sts v1.52.0
-	github.com/aws/smithy-go v1.28.9
+	github.com/aws/aws-sdk-go-v2/credentials v1.21.3
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.350.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.53.0
+	github.com/aws/smithy-go v1.28.10
 	github.com/bluenviron/mediacommon/v2 v2.10.1-0.20261117172054-75fa748e4fd8
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/getkin/kin-openapi v0.153.0
 	github.com/go-chi/chi/v5 v5.5.0
-	github.com/gofrs/flock v0.13.1
+	github.com/gofrs/flock v0.13.2
 	github.com/gotd/contrib v0.26.0
 	github.com/gotd/log v0.1.0
 	github.com/gotd/td v0.166.1
 	github.com/itlightning/dateparse v0.2.1
-	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
+	github.com/larksuite/oapi-sdk-go/v3 v3.14.0
 	github.com/oapi-codegen/nethttp-middleware v1.3.1
-	github.com/oapi-codegen/runtime v1.9.0
-	github.com/pressly/goose/v3 v3.30.0
+	github.com/oapi-codegen/runtime v1.9.1
+	github.com/pressly/goose/v3 v3.30.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/stretchr/testify v1.12.1
-	github.com/ulikunitz/xz v0.5.15
-	github.com/vektah/gqlparser/v2 v2.5.27
+	github.com/ulikunitz/xz v0.5.17
+	github.com/vektah/gqlparser/v2 v2.5.64
 	github.com/xuri/excelize/v2 v2.11.1
-	github.com/yuin/goldmark v1.8.5
-	go.mau.fi/libsignal v0.2.2
+	github.com/yuin/goldmark v1.8.7
+	go.mau.fi/libsignal v0.2.3
 	go.mau.fi/whatsmeow v0.0.0-20261113220833-ecc39170bc14
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.59.0
-	golang.org/x/image v0.44.0
-	golang.org/x/net v0.62.0
+	golang.org/x/image v0.48.0
+	golang.org/x/net v0.63.0
 	golang.org/x/sync v0.25.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0
 	golang.org/x/text v0.44.0
-	golang.org/x/time v0.15.0
+	golang.org/x/time v0.16.0
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 	mvdan.cc/sh/v3 v3.14.1
 )
 
@@ -89,7 +89,7 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mfridman/interpolate v0.0.2 // indirect
+	github.com/mfridman/interpolate v0.2.0 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/ogen-go/ogen v1.23.0 // indirect
 	github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b // indirect
