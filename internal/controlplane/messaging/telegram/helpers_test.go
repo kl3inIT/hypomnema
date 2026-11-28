@@ -62,10 +62,27 @@ type fakeTelegram struct {
 	users    []tg.UserClass
 	chats    []tg.ChatClass
 	dialogs  []tg.MessagesDialogsClass
+	// dialogsFail fails the dialogs request of that attempt, counted from 1, instead of answering a page.
+	dialogsFail map[int]error
+	served      int
 	// asked are the history requests, by chat; dialogsAsked the dialogs requests.
 	asked        map[string][]tg.MessagesGetHistoryRequest
 	dialogsAsked []tg.MessagesGetDialogsRequest
 	loggedOut    bool
+	// tracked are the channels the account asked the updates manager to track, as TrackChannel's arguments.
+	tracked [][3]int64
+}
+
+// conn is a connection to this fake, with it as the updates manager too.
+func (f *fakeTelegram) conn() conn { return conn{api: f, tracker: f} }
+
+func (f *fakeTelegram) TrackChannel(_ context.Context, channelID, accessHash int64, pts int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.tracked = append(f.tracked, [3]int64{channelID, accessHash, int64(pts)})
+
+	return nil
 }
 
 func newFakeTelegram() *fakeTelegram {
@@ -122,11 +139,17 @@ func (f *fakeTelegram) MessagesGetDialogs(_ context.Context, req *tg.MessagesGet
 	defer f.mu.Unlock()
 
 	f.dialogsAsked = append(f.dialogsAsked, *req)
-	if len(f.dialogsAsked) > len(f.dialogs) {
+	if err := f.dialogsFail[len(f.dialogsAsked)]; err != nil {
+		return nil, err
+	}
+
+	if f.served >= len(f.dialogs) {
 		return &tg.MessagesDialogs{}, nil
 	}
 
-	return f.dialogs[len(f.dialogsAsked)-1], nil
+	f.served++
+
+	return f.dialogs[f.served-1], nil
 }
 
 func (f *fakeTelegram) AuthLogOut(context.Context) (*tg.AuthLoggedOut, error) {

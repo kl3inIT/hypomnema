@@ -247,7 +247,7 @@ func TestAChannelsGapIsFilledFromItsHistory(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.NoError(t, a.recoverGap(ctx, server, updates.ChannelGap{
+	require.NoError(t, a.recoverGap(ctx, server, 10, updates.ChannelGap{
 		ChannelID: 9, AccessHash: 9000, LocalPts: 10, RemotePts: 300, TopMessage: 260,
 		Messages: []tg.MessageClass{message(peer, 260, "x"), message(peer, 259, "x"), message(peer, 258, "x")},
 		Chats:    []tg.ChatClass{channel(9, "VMAP AI")},
@@ -274,7 +274,7 @@ func TestAGapInAChannelNeverKeptFetchesNothing(t *testing.T) {
 	server := newFakeTelegram()
 	server.add(peer, ids(1, 100)...)
 
-	require.NoError(t, a.recoverGap(t.Context(), server, updates.ChannelGap{
+	require.NoError(t, a.recoverGap(t.Context(), server, 0, updates.ChannelGap{
 		ChannelID: 9, AccessHash: 9000, TopMessage: 100, Messages: []tg.MessageClass{message(peer, 100, "x")},
 	}))
 
@@ -302,7 +302,7 @@ func TestATooLongGapCatchesUpEveryDialog(t *testing.T) {
 	}
 
 	page := func(peers []tg.PeerClass, tops []int) *tg.MessagesDialogsSlice {
-		res := &tg.MessagesDialogsSlice{Count: 3, Users: []tg.UserClass{user(7, "Trung")},
+		res := &tg.MessagesDialogsSlice{Count: 101, Users: []tg.UserClass{user(7, "Trung")},
 			Chats: []tg.ChatClass{&tg.Chat{ID: 8, Title: "Team"}, channel(9, "Busy")}}
 		for i, p := range peers {
 			res.Dialogs = append(res.Dialogs, &tg.Dialog{Peer: p, TopMessage: tops[i]})
@@ -324,7 +324,8 @@ func TestATooLongGapCatchesUpEveryDialog(t *testing.T) {
 	first, tops = append(first, trung), append(tops, 20)
 	server.dialogs = []tg.MessagesDialogsClass{page(first, tops), page([]tg.PeerClass{group}, []int{3})}
 
-	require.NoError(t, a.syncDialogs(ctx, server, true))
+	require.NoError(t, a.store.restartDialogs(ctx, a.key, true))
+	require.NoError(t, a.syncDialogs(ctx, server.conn()))
 
 	chats, err := a.Chats(ctx, messaging.MaxChats)
 	require.NoError(t, err)
@@ -358,7 +359,8 @@ func TestTheFirstListingKeepsEveryChatWithoutItsHistory(t *testing.T) {
 		Users:    []tg.UserClass{user(7, "Trung")},
 	}}
 
-	require.NoError(t, a.syncDialogs(t.Context(), server, true))
+	require.NoError(t, a.store.restartDialogs(t.Context(), a.key, true))
+	require.NoError(t, a.syncDialogs(t.Context(), server.conn()))
 
 	assert.Equal(t, []string{"20"}, keptIDs(t, a, "user:7"))
 	assert.Empty(t, server.asked)
