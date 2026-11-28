@@ -5002,7 +5002,11 @@ writes no prose (last30days SKILL.md LAW 7).
   `limit_reached`, `refused`) until the first is free; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
   anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
-  tried with its result, detail and rest (`until`, `skipped`).
+  tried with its result, detail and rest (`until`, `skipped`). Each source counts rejected candidates before
+  deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The web source requests the UTC
+  date window from the keyless chain. The answering provider and its `window_basis` (`server_bounds`,
+  `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result through. The
+  answer warns when fewer than 5 returned items or under 30% have dates in the window.
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
   `quote_from` and `check` for a post Muse found,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
@@ -5011,7 +5015,8 @@ writes no prose (last30days SKILL.md LAW 7).
   score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
   Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
   freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
-  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
+  rank, freshness and engagement (last30days' local score, multiplied by 0.35 for any out-of-window survivor),
+  at most 3 items an author; the best 40 are answered and
   the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
 - Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
