@@ -1,0 +1,15 @@
+TikTok-Api (davidteather/TikTok-Api)
+Copyright (c) 2019 David Teather
+
+Used under the MIT License, whose text is in LICENSE beside this file. Source:
+https://github.com/davidteather/TikTok-Api at 3df209ca519c99146acffb8a77d0d9fddd907132, and its pull request #1310.
+
+What is adapted from it here, rewritten in Go and JavaScript (internal/controlplane/listening/tiktok.go, issue #1294):
+the session's request parameters (TikTokApi/tiktok.py __set_session_params), the fetch made from a page on
+tiktok.com and read as text (generate_js_fetch, run_fetch_script), the wait for TikTok's web client
+(window.byted_acrawler, generate_x_bogus), the empty answer read as TikTok refusing a bot (make_request,
+EmptyResponseException), the item search's address and parameters (TikTokApi/api/search.py), the comment list's
+(TikTokApi/api/video.py comments) and the fields read of a video and a comment (video.py, TikTokApi/api/comment.py).
+Changed: as pull request #1310 does, no msToken, X-Bogus or X-Gnarly is added to a request, which TikTok's own web
+client signs; the page runs in the control plane's shared browser, in the signed-in account's own context, instead of
+a Playwright browser of TikTok-Api's.

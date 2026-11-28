@@ -47,7 +47,11 @@ func restFor(f *SourceError, now time.Time) time.Time {
 	}
 }
 
-// rest records a backend's failure and gives until when it rests; zero when it does not.
+// rest records a backend's failure and gives until when it rests; zero when it does not. A rest in force after a rate
+// limit or a spent quota, the site's own wait, is never shortened nor replaced by another call's failure (a timeout
+// of a search canceled while it waited, say): only a later wait of the same kind takes its place, as a site's stop is
+// never shortened (StopListeningSource, accounts.go stop; review round 2 of PR #1363; radar
+// collection-pacing-contract.md:12, "waiting longer is not permission to retry").
 func (s *Service) rest(id string, f *SourceError) time.Time {
 	until := restFor(f, s.now())
 	if until.IsZero() {
@@ -56,6 +60,11 @@ func (s *Service) rest(id string, f *SourceError) time.Time {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if r, ok := s.resting[id]; ok && s.now().Before(r.Until) && waits(r.Code) && (!waits(f.Code) ||
+		!until.After(r.Until)) {
+		return r.Until
+	}
 
 	// The rest keeps whether the failure may come back by itself, so a search skipped on it is no more told to the
 	// owner than the failure it rests for (review round 3 of PR #1322; Agent-Reach keeps the code a cooldown was made
@@ -110,3 +119,6 @@ func (s *Service) restOf(id string) *SourceError {
 
 	return r
 }
+
+// waits says a failure is the site's own wait: a rate limit or a spent quota.
+func waits(c Code) bool { return c == CodeRateLimited || c == CodeLimitReached }

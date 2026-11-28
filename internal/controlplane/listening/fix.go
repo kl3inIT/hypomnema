@@ -21,7 +21,7 @@ func Fix(source string, code Code, until time.Time) string {
 		at = " at " + until.UTC().Format("15:04 UTC, Jan 2")
 	}
 
-	signed := source == SourceX || source == SourceLinkedIn
+	signed := source == SourceX || source == SourceLinkedIn || source == SourceTikTok
 
 	switch {
 	case signed && code == CodeNeedLogin:
@@ -81,6 +81,8 @@ func Label(source string) string {
 		return "Reddit"
 	case SourceLinkedIn:
 		return "LinkedIn"
+	case SourceTikTok:
+		return "TikTok"
 	}
 
 	if source == "" {
