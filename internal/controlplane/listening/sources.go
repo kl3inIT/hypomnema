@@ -2,11 +2,8 @@ package listening
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"slices"
@@ -449,87 +446,6 @@ func redditTitle(title string) string {
 	}
 
 	return strings.TrimSpace(title)
-}
-
-// getJSON reads one JSON answer from a source, in its turn at the host: a failure's code is its status's
-// (HTTPFailure), and a page where JSON was asked is a refusal, a challenge or a sign-in page (last30days
-// reddit_public: "Anti-bot HTML response"; reddit_health: a challenge or a logged-out page is "blocked").
-//
-// slowDown reads a 422 as Arctic Shift's "slow down", a rate limit (last30days reddit_arctic._is_slow_down).
-//
-// path names the endpoint for its rest (Request.Resting): it is checked once the call has its turn, and a failure
-// that rests is recorded on it, so another search queued behind this one is not sent to a path that just refused.
-func getJSON(ctx context.Context, client *http.Client, r Request, host string, gap time.Duration, slowDown bool,
-	path, address string, out any,
-) error {
-	if r.Pace != nil {
-		done, err := r.Pace(ctx, host, gap)
-		if err != nil {
-			return AsFailure(err)
-		}
-
-		defer done()
-	}
-
-	if r.Resting != nil {
-		if rs := r.Resting(path); rs != nil {
-			return &SourceError{Code: rs.Code, Detail: rs.Detail, Until: rs.Until, resting: true}
-		}
-	}
-
-	err := fetchJSON(ctx, client, r, slowDown, address, out)
-	if err != nil && r.Rest != nil {
-		f := AsFailure(err)
-		if until := r.Rest(path, f); !until.IsZero() {
-			f.Until = until
-		}
-
-		return f
-	}
-
-	return err
-}
-
-// fetchJSON is one GET of a JSON answer.
-func fetchJSON(ctx context.Context, client *http.Client, r Request, slowDown bool, address string, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
-	if err != nil {
-		return Fail(CodeBroken, "%s", err.Error())
-	}
-
-	req.Header.Set("User-Agent", redditUserAgent)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return AsFailure(err)
-	}
-
-	defer resp.Body.Close() //nolint:errcheck // A read body's close has nothing to report.
-
-	if resp.StatusCode == http.StatusUnprocessableEntity && slowDown {
-		f := HTTPFailure(http.StatusTooManyRequests, resp.Header, r.now())
-		f.Detail = "HTTP 422 slow down"
-
-		return f
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return HTTPFailure(resp.StatusCode, resp.Header, r.now())
-	}
-
-	if media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); !strings.Contains(media, "json") {
-		return Fail(CodeRefused, "the source answered a page (%s), not JSON: a challenge or a sign-in page", media)
-	}
-
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(out); err != nil {
-		return Fail(CodeBroken, "the answer is not the source's JSON: %s", err.Error())
-	}
-
-	return nil
 }
 
 // hostOf is an address's host and port, lowercased, without "www.".
