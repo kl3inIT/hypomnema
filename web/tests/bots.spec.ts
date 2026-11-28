@@ -4,6 +4,7 @@ import { choose } from "./choose.js"
 import { shot } from "./shot.js"
 import type {
   Bot,
+  BotVersion,
   SetupChange as Change,
   ChatMessage as Message,
 } from "../src/api/generated/types.gen.js"
@@ -148,6 +149,7 @@ async function fakeServer(
     changes?: Change[]
     integrations?: object[]
     notes?: Record<string, string>
+    versions?: Record<string, BotVersion[]>
   } = {},
 ) {
   let bots = start
@@ -189,6 +191,27 @@ async function fakeServer(
 
       const stored = { ...bots.find((b) => b.id === memoryOf[1])!, memory: kept }
       bots = [...bots.filter((b) => b.id !== memoryOf[1]), stored]
+
+      // The memory as kept, in the shape a profile's has (issue #1336).
+      return json({ bot: memoryOf[1], memory: kept, memory_limit: 2200 })
+    }
+
+    // A Bot's saved settings, newest first (issue #1336), and a restore that saves one again.
+    const versionsOf = /^\/bots\/([^/]+)\/versions$/.exec(path)
+    if (versionsOf && request.method() === "GET") {
+      return json({ data: opts.versions?.[versionsOf[1]!] ?? [] })
+    }
+    const restore = /^\/bots\/([^/]+)\/versions\/([^/]+)\/restore$/.exec(path)
+    if (restore && request.method() === "POST") {
+      const version = opts.versions?.[restore[1]!]?.find((v) => v.id === restore[2])
+      const had = bots.find((b) => b.id === restore[1])!
+      const stored = {
+        ...had,
+        ...version!.settings,
+        instructions: version!.settings.instructions ?? "",
+        updated_at: hours(0),
+      }
+      bots = bots.map((b) => (b.id === restore[1] ? stored : b))
 
       return json(stored)
     }
@@ -1015,4 +1038,67 @@ test("a chat shows what the Bot coordinator changed, and the owner undoes it", a
   await expect(made.getByRole("button", { name: "Undo" })).toHaveCount(0)
   expect(calls).toContainEqual({ call: "POST /setup-changes/chg_1/undo", body: null })
   await shot(page, "chat-setup-changes-undone")
+})
+
+// Scenario (issue #1336): the owner opens a Bot's versions, each saying who saved it and when, opens an older one
+// and restores it: the form shows its instructions and model again, and the Bot keeps its name and memory.
+test("a Bot's versions say who saved them, and an older one is restored", async ({ page }) => {
+  const version = (
+    n: number,
+    at: number,
+    settings: BotVersion["settings"],
+    m: Partial<BotVersion> = {},
+  ) => ({
+    id: `bov_${n}`,
+    version: n,
+    settings: { preset: "full" as const, ...settings },
+    source: "save" as const,
+    saved_by: "owner" as const,
+    created_at: hours(at),
+    ...m,
+  })
+  await fakeServer(page, [coordinator], {
+    versions: {
+      coordinator: [
+        version(
+          3,
+          1,
+          { provider: "gateway", model: "gpt-luna", instructions: coordinator.instructions },
+          {
+            saved_by: "main_bot",
+            chat_id: "cht_main_coordinator",
+          },
+        ),
+        version(2, 26, {
+          provider: "claude-subscription",
+          model: "claude-opus-5-5",
+          effort: "high",
+          fallbacks: ["opencode-go/deepseek-v4.1-flash"],
+          instructions: "Plan the work and give it to workers. Answer in Vietnamese.",
+        }),
+        version(1, 200, {}, { source: "before_versions", saved_by: undefined }),
+      ],
+    },
+  })
+  await page.goto("/bots/coordinator")
+
+  const versions = page.getByRole("list", { name: "Versions" })
+  await versions.scrollIntoViewIfNeeded()
+  await expect(versions.getByRole("listitem")).toHaveCount(3)
+  await expect(versions.getByRole("listitem").first()).toContainText("Saved by the main Bot")
+  await versions.getByText("Version 2", { exact: true }).click()
+  await expect(versions.getByText("claude-subscription/claude-opus-5-5 (high)")).toBeVisible()
+  await versions.getByText("Version 2", { exact: true }).scrollIntoViewIfNeeded()
+  await shot(page, "bot-versions")
+
+  await versions.getByRole("button", { name: "Restore this version" }).click()
+  const dialog = page.getByRole("alertdialog")
+  await expect(dialog).toContainText("Its name and memory stay")
+  await shot(page, "bot-version-restore")
+  await dialog.getByRole("button", { name: "Restore", exact: true }).click()
+  await expect(page.getByLabel("Instructions")).toHaveValue(
+    "Plan the work and give it to workers. Answer in Vietnamese.",
+  )
+  await page.getByLabel("Instructions").scrollIntoViewIfNeeded()
+  await shot(page, "bot-version-restored")
 })
