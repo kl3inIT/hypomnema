@@ -157,6 +157,7 @@ test("Settings on a phone is a list of sections", async ({ page, isMobile }) => 
     "Workers",
   ])
   await expect(list.getByRole("region", { name: "Preferences" }).getByRole("link")).toHaveText([
+    "About you",
     "Notifications",
   ])
   await expect(list.getByRole("region", { name: "Workers" }).getByRole("link")).toHaveText([
