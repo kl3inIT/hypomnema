@@ -30,21 +30,39 @@ type Backend struct {
 
 // Result is what a backend read: the items, and a note on how (which provider answered, which step failed).
 type Result struct {
-	Items       []Item
+	Items []Item
+	// Unverified are items a model said it found that their links did not bear out (Answer.Unverified).
+	Unverified  []Item
 	Detail      string
 	provider    string
 	windowBasis websearch.WindowBasis
 	dropped     Drops
+	// Failed is a failure beside the items read: a part of the read that could not be done (a page, an order, a
+	// thread). With items the stream is partial, without it is not read: a failure is never a clean zero
+	// (last30days doctor.audit_state, lib/doctor.py:128-161, a partial read is unverified).
+	Failed *SourceError
+	// Then is what the backend reads for this stream after every stream of the search had its first pass, its
+	// items joining the stream's; nil: nothing. last30days runs its supplemental lanes after the main collection,
+	// under the run's own cutoff (pipeline.py:6880-6916): Muse's extra questions (muse.go).
+	Then func(ctx context.Context) Result
 }
 
 // Platform is a source and its backends, in the order they are tried (Agent-Reach Action.backends).
 type Platform struct {
 	Name     string
 	Backends []Backend
+	// LiveQuery is what the source's live test searches, one a day (Agent-Reach Action.live_test, channels/base.py;
+	// last30days doctor's probes): a topic it has data on.
+	LiveQuery string
 	// Read reads one of its items in full, the post and its top comments, for the semantic pass's full read
 	// (Agent-Reach's read action beside search, channels/base.py:30-50; last30days reads a kept thread's comments
 	// after ranking, reddit_hydrate.py); nil: its items are not read.
 	Read func(ctx context.Context, r Request, it Item) (Document, error)
+	// Adds says what the source brings when it is on, as last30days' nudge says what each missing source would add
+	// (quality_nudge.py:458-462, "video transcripts with key moments").
+	Adds string
+	// Page is the page of Settings where its accounts are, for a source that has them; its card links there.
+	Page string
 }
 
 // Document is an item read in full: its text, and when its page says it was published, nil when it says none. Its text
@@ -88,6 +106,8 @@ type Request struct {
 	// Now is the clock: a source's wait (Retry-After) counts from when its answer arrived, as last30days'
 	// retry_delay_from_headers is read when the 429 comes back (lib/http.py:77-119); nil: the wall clock.
 	Now func() time.Time
+	// Run is the search this request is part of, shared by its streams; nil outside a search.
+	Run *Run
 }
 
 func (r Request) now() time.Time {
@@ -110,6 +130,8 @@ type Attempt struct {
 	Until string `json:"until,omitempty"`
 	// Skipped: not asked this time, because it rests, its probe failed or its site already refused.
 	Skipped bool `json:"skipped,omitempty"`
+	// transient: one of its providers failed in a way that comes back by itself (SourceError.transient).
+	transient bool
 }
 
 const resultOK = "ok"
@@ -120,6 +142,14 @@ type stream struct {
 	subquery Subquery
 	source   string
 	items    []Item
+	// off: the owner switched the source off while it ran; no backend was asked after.
+	off bool
+	// unverified are what a model said it found that its links did not bear out (Answer.Unverified).
+	unverified []Item
+	// req is what the stream's backends were asked; then and thenBackend, what a backend reads after the first pass.
+	req         Request
+	then        func(ctx context.Context) Result
+	thenBackend string
 }
 
 // stopsHost are the codes after which the other backends of the same host are not asked in this search: Agent-Reach
@@ -133,7 +163,7 @@ func stopsHost(c Code) bool {
 // dispatch.py:276-322). A backend that reads nothing in the window is not an answer: the next is asked, as the web
 // search asks the next provider (websearch.search) and last30days backfills a thin Reddit (pipeline.py).
 func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subquery, req Request) stream {
-	st := stream{subquery: sq, source: p.Name, report: Stream{Subquery: sq.Label}}
+	st := stream{subquery: sq, source: p.Name, report: Stream{Subquery: sq.Label}, req: req}
 
 	var (
 		stopped = map[string]Code{}
@@ -148,7 +178,7 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 
 		id := p.Name + "/" + b.Name
 		skip := func(f *SourceError) {
-			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail, Skipped: true}
+			a := Attempt{Backend: b.Name, Result: string(f.Code), Detail: f.Detail, Skipped: true, transient: f.transient}
 			if !f.Until.IsZero() {
 				a.Until = f.Until.UTC().Format(time.RFC3339)
 			}
@@ -177,7 +207,23 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 			}
 		}
 
+		// The owner's switch is read again before each read starts: once saved Off, no new read begins.
+		if s.switchedOff(ctx, p.Name) {
+			st.off = true
+
+			return st
+		}
+
 		res, err := b.Search(ctx, req)
+
+		// And again once it answered, before the stream is settled and the read kept: a source switched off during its
+		// last request answers nothing (review round 2 of PR #1322).
+		if s.switchedOff(ctx, p.Name) {
+			st.off = true
+
+			return st
+		}
+
 		st.report.dropped.add(res.dropped)
 		attempt := Attempt{Backend: b.Name, Detail: res.Detail, Provider: res.provider, WindowBasis: res.windowBasis}
 		if err != nil {
@@ -204,7 +250,7 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 				until = s.rest(id, f)
 			}
 
-			attempt.Result, attempt.Detail = string(f.Code), f.Detail
+			attempt.Result, attempt.Detail, attempt.transient = string(f.Code), f.Detail, f.transient
 			if !until.IsZero() {
 				attempt.Until = until.UTC().Format(time.RFC3339)
 			}
@@ -226,7 +272,37 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 			continue
 		}
 
+		if res.Then != nil {
+			st.then, st.thenBackend = res.Then, b.Name
+		}
+
+		st.unverified = append(st.unverified, s.stampUnverified(res.Unverified, p.Name, b.Name, sq.Label, req)...)
+		st.report.Unverified = len(st.unverified)
+
 		items := s.inWindow(res, p.Name, b.Name, sq.Label, req, &st.report.dropped)
+		if f := res.Failed; f != nil && len(items) == 0 {
+			// Nothing left beside the failure: it is the stream's, rested as the failure path above rests one, so
+			// a block met after some output still keeps the next search away (review round 4 of PR #1321).
+			until := f.Until
+			if !f.pathRest {
+				until = s.rest(id, f)
+			}
+
+			attempt.Result, attempt.Detail = string(f.Code), joinDetail(res.Detail, f.Detail)
+			if !until.IsZero() {
+				attempt.Until = until.UTC().Format(time.RFC3339)
+			}
+
+			st.report.Tried = append(st.report.Tried, attempt)
+			failed = append(failed, f.Code)
+
+			if stopsHost(f.Code) {
+				stopped[b.Host] = f.Code
+			}
+
+			continue
+		}
+
 		if len(items) == 0 {
 			clean = true
 
@@ -237,6 +313,21 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 		}
 
 		attempt.Result = resultOK
+		if f := res.Failed; f != nil {
+			// Read in part: the stream keeps the failure's code, so its source is partial.
+			st.report.Code = f.Code
+			attempt.Detail = joinDetail(res.Detail, "part not read: "+f.Error())
+
+			until := f.Until
+			if f.restBackend {
+				until = s.rest(id, f)
+			}
+
+			if !until.IsZero() {
+				attempt.Until = until.UTC().Format(time.RFC3339)
+			}
+		}
+
 		st.report.Tried = append(st.report.Tried, attempt)
 		st.report.ServedBy = b.Name
 		st.report.Items = len(items)
@@ -253,16 +344,23 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 	case len(failed) > 0:
 		st.report.Code = slices.MinFunc(failed, func(a, b Code) int { return specificity(a) - specificity(b) })
 	default:
+		detail := "no backend of this source can be asked"
+		if pin == "" && slices.ContainsFunc(p.Backends, func(b Backend) bool { return b.OptIn }) {
+			detail = "off by default: pin one of its backends (" + strings.Join(p.backendNames(), ", ") +
+				") in `backends` to ask it"
+		}
+
 		st.report.Code = CodeBroken
 		st.report.Tried = append(st.report.Tried, Attempt{
-			Backend: "", Result: string(CodeBroken), Detail: "no backend of this source can be asked", Skipped: true,
+			Backend: "", Result: string(CodeBroken), Detail: detail, Skipped: true,
 		})
 	}
 
 	return st
 }
 
-// inWindow keeps items dated inside the UTC calendar window. Undated web items require server bounds.
+// inWindow keeps items dated inside the UTC calendar window. Undated web items require server bounds, unless the
+// request has no window at all (no start: the live test's, as Agent-Reach's name none, channels/reddit.py:50).
 func (s *Service) inWindow(res Result, source, backend, label string, req Request, dropped *Drops) []Item {
 	now := s.now().UTC()
 
@@ -275,7 +373,8 @@ func (s *Service) inWindow(res Result, source, backend, label string, req Reques
 			continue
 		}
 
-		if it.PublishedAt == nil && source == SourceWeb && res.windowBasis != websearch.WindowServerBounds {
+		if it.PublishedAt == nil && source == SourceWeb && !req.From.IsZero() &&
+			res.windowBasis != websearch.WindowServerBounds {
 			dropped.MissingDate++
 
 			continue
@@ -305,6 +404,67 @@ func (s *Service) inWindow(res Result, source, backend, label string, req Reques
 	return out
 }
 
+// runThen reads what a stream's backend reads after the first pass (Result.Then) and joins it to the stream: its items
+// up to the stream's limit, its unverified items, its detail on the backend's attempt; a stream that had found
+// nothing is served by it once it finds something.
+func (s *Service) runThen(ctx context.Context, st *stream) {
+	if st.then == nil {
+		return
+	}
+
+	res := st.then(ctx)
+
+	st.unverified = append(st.unverified,
+		s.stampUnverified(res.Unverified, st.source, st.thenBackend, st.subquery.Label, st.req)...)
+	st.report.Unverified = len(st.unverified)
+
+	if room := st.req; len(st.items) < room.Limit {
+		room.Limit -= len(st.items)
+		st.items = append(st.items,
+			s.inWindow(res, st.source, st.thenBackend, st.subquery.Label, room, &st.report.dropped)...)
+	}
+
+	st.report.Items = len(st.items)
+
+	for i := len(st.report.Tried) - 1; i >= 0; i-- {
+		a := &st.report.Tried[i]
+		if a.Backend != st.thenBackend || a.Skipped {
+			continue
+		}
+
+		if res.Detail != "" {
+			a.Detail = strings.TrimPrefix(a.Detail+"; then "+res.Detail, "; ")
+		}
+
+		if len(st.items) > 0 && st.report.ServedBy == "" {
+			a.Result = resultOK
+			st.report.ServedBy, st.report.Code = st.thenBackend, ""
+		}
+
+		break
+	}
+}
+
+// stampUnverified marks a model's unverified items as inWindow marks items, at most the request's limit, whatever
+// their date: a date outside the window may be why one failed, and its date is a model's, so low.
+func (s *Service) stampUnverified(items []Item, source, backend, label string, req Request) []Item {
+	now := s.now().UTC()
+	out := make([]Item, 0, min(len(items), req.Limit))
+
+	for _, it := range items[:min(len(items), req.Limit)] {
+		it.Source = source
+		it.Backend = backend
+		it.Subqueries = []string{label}
+		it.FetchedAt = now
+		it.ID = itemID(source, it.NativeID)
+		it.DateConfidence = "low"
+		it.Text = clip(it.Text, maxTextRunes)
+		out = append(out, it)
+	}
+
+	return out
+}
+
 // inDays says an item's date is inside the window, by day as last30days compares them (normalize.py:66): from's day
 // to to's day, both in; an undated item is.
 func inDays(published *time.Time, from, to time.Time) bool {
@@ -315,4 +475,30 @@ func inDays(published *time.Time, from, to time.Time) bool {
 	day := published.UTC().Format(time.DateOnly)
 
 	return day >= from.UTC().Format(time.DateOnly) && day <= to.UTC().Format(time.DateOnly)
+}
+
+// joinDetail joins two details, either of which may be empty.
+func joinDetail(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "; " + b
+	}
+}
+
+// worse is the more actionable of two failures, the first on a tie (Codes' order); nil is no failure.
+func worse(a, b *SourceError) *SourceError {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case specificity(b.Code) < specificity(a.Code):
+		return b
+	default:
+		return a
+	}
 }

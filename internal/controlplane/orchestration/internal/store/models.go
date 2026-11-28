@@ -639,6 +639,39 @@ type IntegrationClient struct {
 	UpdatedAt   int64
 }
 
+type ListeningBackend struct {
+	Source      string
+	Backend     string
+	Position    sql.NullInt64
+	LastOkAt    sql.NullInt64
+	LastErrorAt sql.NullInt64
+	LastCode    string
+	LastDetail  string
+	UpdatedAt   int64
+}
+
+type ListeningReading struct {
+	Source string
+	Day    string
+	Items  int64
+}
+
+type ListeningSource struct {
+	Source           string
+	Off              int64
+	Told             int64
+	LastReadAt       sql.NullInt64
+	LastResult       string
+	LastCode         string
+	PreviousResult   string
+	LastSuccessAt    sql.NullInt64
+	LastErrorAt      sql.NullInt64
+	LastErrorCode    string
+	LastErrorDetail  string
+	LastErrorBackend string
+	UpdatedAt        int64
+}
+
 type MachineProvider struct {
 	ID          string
 	Name        string
@@ -814,6 +847,8 @@ type Node struct {
 	TaskBranches        int64
 	DiskAlert           string
 	DiskAlertUntil      int64
+	MemoryLimit         sql.NullInt64
+	MemoryLimitReason   string
 }
 
 type NodeToken struct {
@@ -856,6 +891,7 @@ type ProfileVersion struct {
 	CpuRequestMillis   sql.NullInt64
 	MemoryRequestBytes sql.NullInt64
 	Preset             string
+	MemoryLimitBytes   sql.NullInt64
 }
 
 type Provider struct {

@@ -464,13 +464,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The web's search and pages (issue #354). A page is read only where the shared browser may go: the same
 	// rules, the owner's list of private destinations and the control plane's own port.
+	searchRules := egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
+		return slices.Contains(ownPorts, port)
+	}}
 	webSearch := websearch.New(websearch.Config{
 		// What the owner set on the Web search page and the keys in the vault, read at each search.
 		Keys: searchKeys(secrets, logger), Settings: gateway.SearchSettings, Usage: gateway,
 		Logger: logger,
-		Rules: egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
-			return slices.Contains(ownPorts, port)
-		}},
+		Rules:  searchRules,
 	})
 	metered := modelgateway.MeteredWeb{Web: webSearch, Gateway: gateway, Logger: logger}
 
@@ -644,13 +645,28 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agentsWeb := agentWeb{
 		worker: modelgateway.WorkerWeb{MeteredWeb: metered}, bot: modelgateway.BotWeb{MeteredWeb: metered, Chats: sup},
 	}
+	// Social listening (issues #1287, #1290): the web and Reddit, keyless, its web searches on the caller's key; the
+	// owner's switches and each source's readings kept in the database. The owner is told when a source breaks once
+	// the Channels below exist.
+	var tellListening func(ctx context.Context, b listening.Broken)
+
+	listen := listening.New(listening.Config{
+		Platforms: listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient),
+		Logger:    logger, DB: db, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
+		Muse: listeningMuse(musePool),
+		Tell: func(ctx context.Context, b listening.Broken) {
+			if tellListening != nil {
+				tellListening(ctx, b)
+			}
+		},
+	})
+
 	agents.WithWeb(agentsWeb).
-		// Social listening (issue #1287): the web and Reddit, keyless, its web searches, page reads and model calls
-		// (issue #1306) on the caller's key.
+		// Social listening (issues #1287, #1289): keyless sources, its web searches, page reads and model calls
+		// (issue #1306) on the caller's key, the pages a search names read through the web fetch's address check; Facebook, Instagram and Threads through
+		// the Muse pool (issue #1292).
 		WithListening(agentListening{
-			svc: listening.New(listening.Config{
-				Logger: logger, ReviewModel: cfg.ListeningReviewModel, ReadModel: cfg.ListeningReadModel,
-			}),
+			svc: listen,
 			web: agentsWeb,
 			models: agentModels{
 				worker: modelgateway.WorkerModels{Server: gatewayServer, Gateway: gateway, Logger: logger},
@@ -689,6 +705,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// A node still out of disk after trimming its caches, and its recovery, are told to the owner as a failing
 	// Routine is (issue #1017).
 	nodes.WithDiskAlerts(tellDiskAlert(svc, runtime, logger))
+
+	// A social listening source that broke is told to him the same way, once until it works again (issue #1290).
+	tellListening = tellListeningBroken(svc, runtime, logger)
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
 	routineRunner := routines.New(svc, svc.Routines(), routines.Config{
@@ -734,6 +753,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithMeetings(meetingWork).
 		WithWeb(modelgateway.BotWeb{MeteredWeb: metered, Chats: sup}).
 		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
+		WithListening(listeningSettings{svc: listen, web: webSearch}).
 		WithImages(modelgateway.BotImages{Server: gatewayServer, Gateway: gateway, Chats: sup, Logger: logger},
 			imageSettings{Service: gateway, server: gatewayServer}).
 		WithAudio(modelgateway.BotAudio{Speech: voice, Gateway: gateway, Chats: sup, Logger: logger},
@@ -889,6 +909,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = sup.Run(ctx)
 	}()
 
+	// A social listening source not read for a day is tested, every hour (issue #1290).
+	listeningDone := make(chan struct{})
+
+	go func() {
+		defer close(listeningDone)
+
+		listen.Run(ctx, listeningSettings{svc: listen, web: webSearch}.search)
+	}()
+
 	routinesDone := make(chan struct{})
 
 	go func() {
@@ -952,6 +981,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-browserDone
 	<-meetingsDone
 	<-routinesDone
+	<-listeningDone
 	<-channelsDone
 	<-loopDone
 	<-machinesDone

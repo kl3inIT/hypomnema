@@ -23,6 +23,29 @@ type workerTree struct {
 	read     func(int) (processInfo, bool)
 }
 
+// Tree is the shim at pid and every live process under it, the shim first: the shim is its worker's subreaper, so
+// what the worker started stays under it. A zombie, which cannot be moved, is left out. With no process table, the
+// shim alone.
+func Tree(pid int) []int {
+	table, err := processTable()
+	if err != nil {
+		return []int{pid}
+	}
+
+	if info, ok := table[pid]; !ok || info.dead {
+		return nil
+	}
+
+	out := []int{pid}
+	for _, child := range descendants(pid, table) {
+		if !table[child].dead {
+			out = append(out, child)
+		}
+	}
+
+	return out
+}
+
 func descendants(root int, table map[int]processInfo) []int {
 	children := make(map[int][]int)
 	for pid, info := range table {

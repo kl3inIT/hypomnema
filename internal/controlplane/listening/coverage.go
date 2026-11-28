@@ -1,6 +1,9 @@
 package listening
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // What a source covered, as the answer says it: read with items, read and empty, read in part, or not read. Only a
 // clean zero says nobody talked: a source that failed is "not read", with its cause, never a zero (last30days
@@ -11,6 +14,9 @@ const (
 	StatePartial   = "partial"
 	StateNoResults = "no_results"
 	StateNotRead   = "not_read"
+	// StateOff: the owner switched the source off while the search ran; no read of it started after, and nothing of
+	// it is answered (issue #1290, review round 1).
+	StateOff = "off"
 )
 
 // Coverage is one source's line of the answer.
@@ -21,9 +27,13 @@ type Coverage struct {
 	// Items are those read in the window, before duplicates are removed.
 	Items   int   `json:"items"`
 	Dropped Drops `json:"dropped"`
+	// Unverified counts what a model said it found that its links did not bear out (Answer.Unverified).
+	Unverified int `json:"unverified,omitempty"`
 	// Code is why a stream was not read, the most actionable of them (last30days FAILURE_SPECIFICITY); empty when
 	// every stream was read.
-	Code    Code     `json:"code,omitempty"`
+	Code Code `json:"code,omitempty"`
+	// Fix is the one step that fixes Code, the same words the Social listening page shows (Fix).
+	Fix     string   `json:"fix,omitempty"`
 	Streams []Stream `json:"streams"`
 }
 
@@ -45,7 +55,10 @@ type Stream struct {
 	Subquery string `json:"subquery"`
 	ServedBy string `json:"served_by,omitempty"`
 	Items    int    `json:"items"`
-	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served.
+	// Unverified counts the stream's unverified items (Answer.Unverified).
+	Unverified int `json:"unverified,omitempty"`
+	// Code is no_results for a clean zero, a failure's code when nothing read it, empty when it was served in full,
+	// and the failure's code beside its items when it was served in part (Result.Failed).
 	Code    Code      `json:"code,omitempty"`
 	Tried   []Attempt `json:"tried"`
 	dropped Drops
@@ -64,6 +77,7 @@ func (c Coverage) settle() Coverage {
 
 	for _, s := range c.Streams {
 		c.Items += s.Items
+		c.Unverified += s.Unverified
 		c.Dropped.add(s.dropped)
 
 		if s.read() {
@@ -86,7 +100,25 @@ func (c Coverage) settle() Coverage {
 
 	if len(failed) > 0 {
 		c.Code = slices.MinFunc(failed, func(a, b Code) int { return specificity(a) - specificity(b) })
+		c.Fix = Fix(c.Source, c.Code, c.until())
 	}
 
 	return c
+}
+
+// until is when the first attempt that failed with the source's code may be asked again; zero when none says.
+func (c Coverage) until() time.Time {
+	for _, s := range c.Streams {
+		for _, a := range s.Tried {
+			if a.Result != string(c.Code) || a.Until == "" {
+				continue
+			}
+
+			if t, err := time.Parse(time.RFC3339, a.Until); err == nil {
+				return t
+			}
+		}
+	}
+
+	return time.Time{}
 }

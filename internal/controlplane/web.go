@@ -111,6 +111,44 @@ func (a agentListening) Search(ctx context.Context, who agentapi.Who, plan liste
 	})
 }
 
+// SourceNames are the sources a plan may name: those the owner has not switched off; none when they cannot be read.
+func (a agentListening) SourceNames(ctx context.Context) []string {
+	on, err := a.svc.On(ctx)
+	if err != nil {
+		return nil
+	}
+
+	return on
+}
+
+// listeningSettings is social listening's sources for the Social listening page (issue #1290). A test the owner asks
+// for, and the daily one, read the web through the web search chain itself, keyless, recorded on no gateway key: no
+// agent asked for them, as a token's own search that belongs to no chat is recorded on none (modelgateway.BotWeb).
+type listeningSettings struct {
+	svc *listening.Service
+	web *websearch.Service
+}
+
+func (l listeningSettings) search(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+	return l.web.Search(ctx, query, limit, "")
+}
+
+func (l listeningSettings) States(ctx context.Context) ([]listening.SourceState, error) {
+	return l.svc.States(ctx)
+}
+
+func (l listeningSettings) SetSource(ctx context.Context, source string, on bool) error {
+	return l.svc.SetSource(ctx, source, on)
+}
+
+func (l listeningSettings) SetOrder(ctx context.Context, source string, backends []string) error {
+	return l.svc.SetOrder(ctx, source, backends)
+}
+
+func (l listeningSettings) Test(ctx context.Context, source string) error {
+	return l.svc.Test(ctx, source, l.search, true)
+}
+
 // agentModels are the gateway's chat models as a tool asks them for a worker or a Bot's pi, on its key.
 type agentModels struct {
 	worker modelgateway.WorkerModels
@@ -124,8 +162,6 @@ func (a agentModels) Complete(ctx context.Context, who agentapi.Who, body []byte
 
 	return a.bot.Complete(ctx, who.ChatID, body)
 }
-
-func (a agentListening) SourceNames() []string { return a.svc.SourceNames() }
 
 // dispatchRuntime is the runtime a Dispatch's worker runs: its
 // Conversation's.

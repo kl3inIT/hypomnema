@@ -2545,6 +2545,8 @@ flowchart LR
   every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
   `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
+  Requests only place work; the node makes its allocatable memory the ceiling of all its workers together
+  ([Workers' memory ceiling](#workers-memory-ceiling-issue-1313)).
   A new Task with a legacy profile whose runtime has only accounts that cool down is placed under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
@@ -2599,7 +2601,8 @@ flowchart LR
     [docs/github-app.md](docs/github-app.md)). Workers and the coordinator act on the repositories it is installed
     on with its installations' tokens, which count against the App's own rate limit, not the owner's token's
     (GitHub's "Rate limits for GitHub Apps"); GitHub's events end the waits for CI. The owner's token stays for his
-    own actions and for the repositories the App does not cover, so nothing changes before the App exists.
+    own actions and for the repositories the App does not cover. Opening pull requests and the coordinator's
+    CodeRabbit trigger use the owner's GitHub Connection (#1339).
     - **Registering it** from a manifest (GitHub's "Registering a GitHub App from a manifest"; Omnara's guided
       setup, `docs/integrations/github.mdx:20-75`, `internal/httpapi/github_app_setup_routes.go:88-107`): the page
       `/api/v1/integrations/github/app/setup`, which only the owner's session or token opens, posts the manifest to
@@ -2649,6 +2652,9 @@ flowchart LR
       gives none (the App no longer covers the repository, or the node reconnected to a control plane of an earlier
       release, without the route), gh and git fail closed, saying why, as Omnara's `RunGitHubCLI` returns its
       credential error: no token is kept on the node, and the machine's own login may reach more than the owner's.
+      For `gh pr create` the shim asks `POST /agent/v1/github/pr-create-token` with the same Dispatch key. The
+      control plane selects the repository's Connection, with the same owner identity match as commit attribution.
+      The shim uses that token for the create command. See [the GitHub App guide](docs/github-app.md).
       A Bot's gh through the service proxy goes with the App's token
       when its request names a repository the App covers (a REST path under `/repos/{owner}/{repo}`, or GraphQL
       variables `owner` with `repo` or `name`, as gh sends them); the control plane's own reads of a followed pull
@@ -3393,6 +3399,44 @@ flowchart LR
       (types named as zlog's worker_sync names them, a message taken back left out), the phone's ids turned into
       Zalo Web's through `/api/znoise`; a chat Zalo does not know is skipped. The session's `phone_sync` says the
       stage (asking, sending, importing, done, failed) and what was kept; the backup is removed after.
+  - Telegram, the owner's personal account as a user client of MTProto, never a bot
+    ([issue #1184](https://github.com/kl3inIT/hypomnema/issues/1184), part 1; `messaging/telegram`): the package and
+    its store only. It is not wired into the control plane yet: no Integration, link, tools or Inbox tab (part 2).
+    - **The client**: `github.com/gotd/td` in the control plane's process, with `gotd/contrib`'s flood-wait
+      middleware and a rate limit of 10 requests a second (burst 5), as gotd's `examples/userbot`. The owner's
+      `api_id` and `api_hash` are the vault's generic secrets `telegram-api-id` and `telegram-api-hash`; without
+      them `Ready` answers that the `api_id` is missing and a kept account opens `disconnected`, saying so.
+    - **`telegram.db`** beside the control plane's database (private): gotd's session (`tg_sessions`, keyed by the
+      owner's Telegram user id), the update state (`tg_state`, `tg_channel_state`) and access hashes
+      (`tg_access_hashes`) as mautrix/telegram keeps them, the people's names (`tg_users`), and the mirror
+      `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s; `tg_version` 0. A new update
+      state keeps the channels' pts, as mautrix's store does (gotd's file storage forgets them).
+    - **Every chat kept**: gotd's updates manager recovers gaps itself and hands new, edited and deleted messages to
+      the mirror; a group or channel created is listed from its service message, and one the account is removed
+      from (or loses, `OnChannelInaccessible`) leaves the list. A channel gap it cannot recover (`OnChannelGap`)
+      keeps the latest messages it came with when it is reported, and fetches those since the last message kept
+      before the gap (read then too), at most 500 (mautrix's `max_catchup_messages`), keeping them once all are
+      fetched, then applying again the deletions that came meanwhile. A fetched service message is skipped, as
+      mautrix's backfill: only live updates change a chat.
+    - **The listing of dialogs** (`tg_dialog_sync`): every dialog, 100 a page, each chat kept with its latest message
+      and each listed channel tracked by the updates manager from its dialog's pts. It runs after a link and goes on
+      from its kept page cursor on each session's start and each reconnection until done, as mautrix's chat sync,
+      and after a failure again with gotd's reconnection backoff; a gap of the account's own updates (`OnTooLong`)
+      or a state not found starts it again, catching each chat up as a channel gap is, a chat's latest message kept
+      only after its gap. A short page ends it only when the count is reached, and a page without a latest message
+      keeps the offset before (gotd's dialogs iterator).
+    - **The past**: `Backfill` fetches older messages with `messages.getHistory`, 100 a page, one fetch at a time,
+      waiting 2 s more each page up to 15 s (20 s at most for one fetch of 500); no takeout. gotd's flood-wait
+      middleware waits out a `FLOOD_WAIT` of up to a minute, five times; a longer one fails the request (a listing
+      tries again after its backoff). `messages.readHistory` is never called, so nothing is marked read.
+    - **Chats**: ids `user:<id>`, `chat:<id>`, `channel:<id>`. A person is `dm`; a bot or an account Telegram marks
+      verified, support, scam or fake is `bot`; a basic group, a megagroup or a forum (one chat) is `group`; a
+      broadcast channel or a gigagroup is `broadcast`. A deleted account and a chat left or lost are not listed;
+      their messages stay.
+    - **State**: from gotd's `AuthLostKindOf`: banned is `banned`; revoked, unregistered, expired, an invalid key or a
+      deleted account is `logged_out`; `AUTH_KEY_DUPLICATED` is `replaced`, and these end the session. A frozen
+      account is shown as `banned` with its end date and appeal link while it keeps reading. Any other end is
+      `disconnected`, connected again with gotd's backoff.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
@@ -4969,8 +5013,11 @@ not checked against the live site in the change that wrote them.
   and the caller's cancelling end it. A permission card (`[data-hatch-composer-approval-stack]`,
   `hatch-inline-approval-card`) stops it with the card's text: Hypomnema never clicks one; the owner answers it in
   his own Muse. A tab or Chrome gone after the send is "sent, result unknown" and the context is dropped. The
-  answer is read from `[data-message-item][data-message-role="assistant"]`, the agent bubble as fallback (logged),
-  with its links and media; the thread from `/thread/<uuid>`. An answer with no link is marked unverified.
+  answer is read from `[data-message-item][data-message-role="assistant"]`, the agent bubble as fallback (logged):
+  every such message after those the thread showed before the send, their texts joined and their links and media in
+  order, since Muse may end a list with a link card of its own (issue #1292); a spent quota is read from the last
+  message alone, never from words an answer quotes; the thread from `/thread/<uuid>`. An
+  answer with no link is marked unverified.
 - `muse.db` beside the control plane's database (tables `mu_*`, FTS5 over prompt and answer) keeps each question
   with its account, thread, the agent that asked, its answer, links, outcome (`answered`, `interrupted`,
   `unknown`, `asks_permission`, `error`) and time, each account's state, rest and usage, each thread's account,
@@ -4987,7 +5034,7 @@ not checked against the live site in the change that wrote them.
 - Not built: Muse's images and videos as tools (#781, step 3), a history screen for `muse.db`, watching an account's
   tab live, Muse Spark through `api.meta.ai`.
 
-Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issue #1287, step 2 of #781,
+Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issues #1287 and #1289, step 2 of #781,
 [research](docs/research/2026-11-27-social-listening.md)): the tool `listen_search` finds what people say about a
 topic. The calling model writes the plan; the tool answers with items, clusters and each source's coverage, and
 writes no prose (last30days SKILL.md LAW 7).
@@ -5008,7 +5055,74 @@ writes no prose (last30days SKILL.md LAW 7).
   the stream's limit; the detail counts the threads dropped. When the archive could not be read and the bar leaves
   none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. That failure rests the archive's path only, not
   `web_arctic`: the next subquery still searches the web and keeps its threads as the search showed them. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
-  `web_arctic` was added for that (owner, 2026-11-27).
+  `web_arctic` was added for that (owner, 2026-11-27). `facebook`, `instagram` and `threads` each have one backend,
+  `muse` (`listening/muse.go`, `verify.go`; issue #1292), described below.
+- The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
+  - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
+    and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the
+    videos read with their metadata, and with fewer than 3 in the window the results page asked again for recent
+    uploads (YouTube's upload-date filter); then the top comments (top-level, not the channel's, 5 each) of the 3 most
+    watched and the captions (`vi-orig,en-orig,vi,en`) of the 2 most watched, a video's text being its transcript's
+    most quotable sentences. A bot check is `refused`, a 429 `rate_limited`; a failed comment or caption read is named
+    in the detail.
+  - `google_play` (`play_reviews`, `stores.go`): the app the query names by its package, else the first app of Play's
+    search; google-play-scraper's batchexecute call, `hl=vi`, `gl=vn`, newest first, page after page until the
+    stream's limit or a review older than the window; an error on any page fails the stream, Play's gateway error is
+    `rate_limited`, a review's date is Play's epoch in UTC, TLS verified.
+  - `app_store` (`rss_reviews`): the app named by its id, else the first of Apple's search in Vietnam's store; its
+    public reviews feed (JSON, the first page's four spellings, one answering 400 or 404 passed for the next), at most
+    10 pages 300 ms apart, until the window ends. The feed links every review to its app's page, so a review's
+    address carries its id (`reviewId=`) and two reviews never fold into one. A review's `engagement` holds its
+    `rating` (and Play's `thumbs_up`), which no score is made of.
+  - `hackernews` (`algolia`, `apis.go`), `github` (`issues_search`), `arxiv` (`arxiv_api`), `techmeme`
+    (`techmeme_search`), `devto` (`forem_api`), `bluesky` (`appview`): Algolia's stories and comments in the window
+    (a story of 2 points or fewer, and a hit naming no query word, left out; a comment's `parent` is its story);
+    GitHub's keyless issue search by title, 10 at most, kept when its title or repository names the topic, a 403 with
+    no requests left `rate_limited` until GitHub's reset; arXiv's Atom API, the phrase quoted then its words, one call
+    every 3 s (arXiv's terms); Techmeme's archive search with its `date:[…]` operator, pages of 10; DEV.to's search
+    kept at relevance 0.25; Bluesky's searchPosts on `api.bsky.app` without a session.
+  - `toutiao` (`so_search`, `chinese.go`) and `bilibili` (`visitor_search`), added by the owner on 2026-11-28 (research
+    note §8). `toutiao` is off by default (an opt-in backend, read only when a plan pins it) until the owner decides
+    on its terms: its robots.txt allows only `/`, and its user agreement limits automated collection and commercial
+    reuse without written leave (review of PR #1321). Both are asked as a whole desktop browser (Chinese `Accept-Language`, the site's page as `Referer`): Toutiao's
+    `so.toutiao.com/search` information channel, the JSON cards its page embeds (title, source, publish time, reads,
+    comments, likes), up to 3 pages, a page shell asked again up to 3 times 0.8 s × try apart, its verify page
+    `refused` (by the address's path or host, never a keyword), then the hot board's entries naming the topic
+    (undated), read even when the search failed, that failure kept beside them; Bilibili as a visitor (`buvid3`/`buvid4` from
+    `finger/spi`), the WBI-signed video search (keys from `nav`, kept 6 hours) with the window as
+    `pubtime_begin_s`/`pubtime_end_s` in Beijing days, by rank then by clicks; a risk answer (HTTP 412, code -412 or
+    -352) gets fresh cookies and the legacy search; an answer of code 0 holding only a `v_voucher` is `refused`, never
+    a clean zero, and stays `refused` when the legacy search then finds nothing; a later order that fails beside
+    results makes the read partial. Neither has an engagement score (no reference gives one an absolute scale).
+  - `careers` (`careers_page`, `careers.go`, `signals.go`): the web search `<company> careers jobs`, its first careers
+    address read, its roles from the schema.org JobPosting of the page or of the role pages it links on its own site;
+    an item's `signals` mark a role out of character (`founding`, `leadership`, `specialized`, `new-geo`; a place is
+    its city folded, so "Hà Nội", "Ha Noi" and "Hanoi" are one). A role page not read makes the read partial.
+  - `voz`, `tinhte`, `otofun` (`web_thread`, `forums.go`, `robots.go`): the web search `site:<forum> <query>`, its
+    thread links, each read (title, first post, date, author) only where the forum's robots.txt, the group naming
+    `hypomnema` else `*`, allows the path and its Content-Signal allows an AI's input and not only reference use; else
+    the search's excerpt and link. voz.vn says `use=reference`, so it is excerpts only. robots.txt is kept 24 hours; a
+    4xx is no rules, a 5xx or no answer disallows all (RFC 9309), checked again at every redirect; a robots.txt 429
+    rests the forum's pages like a thread's, so neither is asked until its `Retry-After`. The robots.txt itself is
+    read one redirect at a time, each hop resting on its own host (Otofun's old host sends it to the new one). A thread that could not be
+    read keeps its excerpt and makes the read partial.
+  - A page a search named (a careers page, a role, a thread, a robots.txt) is read through the web fetch's client
+    (`websearch.PageClient`: public addresses only, each redirect followed by hand), as `hypomnema/1 (+…)`. A refusal
+    or a rate limit rests that host's pages (`Retry-After` kept), so the next search sends nothing there.
+- A backend that read in part (`Result.Failed`: a page, an order, a thread or YouTube's recent-uploads search not
+  read) keeps that failure's code on its stream beside the items: the source is `partial` and its health
+  `unverified`. With no item left, the failure is the stream's, never a clean zero, and rests the backend as any
+  failure does. YouTube's recent-uploads search
+  refused or rate limited stops that search's captions and comments and rests the backend; so does a bot check
+  or a 429 met while listing or reading the videos, even after yt-dlp printed some (they are kept).
+- Ranking per source: engagement weights and references, YouTube on its view scale, a comment scored on its votes
+  alone, and each source's quality from last30days' `signals.py`; arXiv, Techmeme, careers, forums and the app stores
+  have no engagement score.
+- Health (`health.go`, `Service.Health`): per source `working` after a search read it (in full or empty),
+  `unverified` before any or after one read in part, `not_working` after one that could not read it, with the last
+  success, the last failure, its code and detail; in memory. A search that asked none of a source's backends (off
+  by default and not pinned, or every backend resting) leaves its health as it was. Each source names the query its live test reads
+  (`Platform.LiveQuery`); `TestLiveEverySource` (`HYPOMNEMA_LISTENING_LIVE=1`, yt-dlp on PATH) reads every source.
 - A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
   refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
   first with items serves. An opt-in backend is asked only when pinned. After `need_login`, `refused`,
@@ -5016,8 +5130,8 @@ writes no prose (last30days SKILL.md LAW 7).
   subqueries run one after another; sources run at once.
 - Failure codes, a closed set: `need_login` (401), `refused` (403, a page where JSON was asked), `rate_limited` (429,
   Arctic Shift's 422), `limit_reached` (402), `not_found` (404, 410), `timeout`, `broken`, and `no_results`, the only
-  clean zero. Rests, in memory: a wait the source or the chain named, else refused 6 hours, rate limited what the source said (`Retry-After`,
-  `x-ratelimit-reset`) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
+  clean zero. Rests, in memory: a wait the source or the chain named, else refused 6 hours, rate limited what the source said (`Retry-After` in
+  seconds or as an HTTP date, `x-ratelimit-reset`, kept however long; a value past 10^8 is a Unix time) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
 - Pacing: one call at a time per host, Reddit's at least 1 s apart, Arctic Shift's 400 ms (`Pacer`), whoever asks.
   The web searches a plan makes wait in the chain for their route's turn, one call at a time per key or keyless
   provider and 1 s apart (`websearch.WithPace`); a provider's rest is stored before its turn ends, and a route that
@@ -5025,16 +5139,19 @@ writes no prose (last30days SKILL.md LAW 7).
   `/search.json` and Arctic Shift's `/api/posts/ids` each rest on their own as paths, checked again once a call has
   its turn, so a search queued behind a 403 or a 429 sends nothing.
 - The web search chain's failure keeps each route's rest (`websearch.FailedError`: rests, providers asked, empty,
-  other failures): when every provider that failed rests, the web's code is the rest's (`rate_limited`,
-  `limit_reached`, `refused`) until the first is free; another failure is `broken`.
+  other failures, timeouts among them): when every provider that failed rests or timed out (no answer in time, 408,
+  504), the web's code is the most actionable of the rests' (`rate_limited`, `limit_reached`, `refused`) and
+  `timeout`; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
-  anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
-  tried with its result, detail and rest (`until`, `skipped`). Each source counts rejected candidates before
-  deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The web source requests the UTC
-  date window from the keyless chain. The answering provider and its `window_basis` (`server_bounds`,
-  `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result through. The
-  answer warns when fewer than 5 returned items or under 30% have dates in the window.
+  anything), `not_read`, or `off` (switched off while the search ran), with the most actionable code, `fix` (the
+  one step that fixes it, `listening.Fix`, the same words the Social listening page shows), and per stream the
+  backend that served and each backend tried with its result, detail and rest (`until`, `skipped`). Each source
+  counts rejected candidates before deduplication in `dropped` (`missing_date`, `outside_window`, `off_topic`). The
+  web source requests the UTC date window from the keyless chain. The answering provider and its `window_basis`
+  (`server_bounds`, `query_hint`, `none`) appear in the attempt. Only server bounds allow an undated web result
+  through. The answer warns when fewer than 5 returned items or under 30% have dates in the window.
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
+  `quote_from` and `check` for a post Muse found,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
   without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
   on the source's log scale (Reddit's only; a web page has none), parent, the subqueries that found it, fetch time,
@@ -5049,6 +5166,46 @@ writes no prose (last30days SKILL.md LAW 7).
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
   or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
   test on Vietnamese posts (`listening/cluster_test.go`).
+- Muse as a source (issue #1292): Facebook (groups and Pages), Instagram and Threads are read by asking the Muse
+  pool above, as `listen_search` (its agent in `muse.db`), when its tools are on; a control plane without Muse says
+  `broken`. The question is a fixed template: public posts of the platform in the window, the search as a JSON
+  string it is told to treat as data, up to 10 posts, one block each with the labels `post`, `link`, `author`,
+  `where`, `date`, `quote_from` (caption, image_text or comment), `quote` (word for word), `likes`, `comments`,
+  `shares`, only posts it opened, and exactly `NO POSTS FOUND` when none (a clean zero). Only a usable list (a post
+  of the platform with its quote) or exactly that answer ends a question: a draft, Muse still working ("I'll send the
+  list once the check returns"), a block with no link or quote, a draft that names `NO POSTS FOUND`, "NO POSTS
+  FOUND." with a period, or a list none of whose posts is of the platform, is continued in the same thread at once,
+  then a minute after each further one, until a usable list comes (owner, 2026-11-28); when the time runs out first,
+  the stream is `timeout` with why the last answer was not taken, never a zero. Each block's link is the
+  address it writes, else the answer's next link to a post of the platform, unwrapped from `l.meta.ai/?u=`; a block
+  with no such link is left out and counted. A post is known by the platform's id: a Facebook reel, Page post, group
+  post, shared post, photo or permalink, an Instagram `/p/` or `/reel/`, a Threads `/@handle/post/<code>`.
+- Every post's link is opened as a reader who is not signed in, one page a second a site, even one whose id dates it
+  outside the window. It counts only when the page is that post (its `og:url`, else where it landed; a sign-in page
+  or a gone post fails), the quote is the caption's and is found in one caption field (`og:description`, the
+  description; on Instagram only the quoted caption inside its title or description, never its counts, account
+  or date), never stitched from several (compared in NFKC, lowercased,
+  spaces and edge punctuation folded), Muse gave a date in the form asked, and the date read from the link (an
+  Instagram or Threads shortcode's id) or the page's first `<time datetime>`, never Muse's, lies in the window and
+  within a day of Muse's (a day that does not exist, such as 2026-11-31, is no date). A quote Muse read from a comment or an image's text is not on such a page, so it is not
+  checkable and stays unverified. A post that passes is an item, dated by its link or page with high confidence,
+  its `check` saying so; one that fails is in the answer's `unverified` list with why, never an item, a cluster or a
+  count (the coverage counts it as `unverified`). Counts are Muse's as it saw them, a missing one left out, never 0,
+  and not scored; an Instagram page's own counts replace them. The group or account of a post is the one observed:
+  in its link, or in an Instagram page's description (`… comments - <name> on …`).
+- After every stream's first pass (`Result.Then`, run in the sources' and subqueries' order before coverage is
+  settled), Muse is asked once more, in the thread of the stream that saw it most, for more posts of each of the
+  three groups or accounts the whole search saw most, while its stream has room: three Muse calls in all for the
+  extra questions of a search, their continuations included, however many streams run. One deadline, six minutes from the search's start
+  (`muse.MaxDeadline`, within the tools server's seven), covers the questions and the link checks: a question ends
+  25 s before it (ten links at a second each and one page's 15 s), none starts, nor is a continuation waited for, with less than 30 s to that end, no
+  page is opened after the deadline (`not checked: the search's time ran out`), and a stream that could not be asked
+  is `timeout`. Pool outcomes become codes: no account that can take it `need_login`, a permission card `refused`, a
+  spent quota `limit_reached`, interrupted or unknown `timeout`, an error once the questions' time is spent (the pool's
+  "Muse was not asked: context deadline exceeded") `timeout`, other errors `broken`; a question cut by the deadline
+  keeps why the answers before it were not taken. `HYPOMNEMA_LISTENING_LIVE=1
+  go test ./internal/controlplane/listening -run LiveMuse` checks the ten posts of the 2026-11-27 probe against the
+  real threads.com.
 - Semantic pass (issue #1306; `semantic.go`, `rerank.go`, `clusterplan.go`, `read.go`, `model.go`), after the code
   has ranked and cut the pool, each step through the gateway's in-process `Complete` on the caller's gateway key
   (`modelgateway.WorkerModels`, `BotModels`), whatever models that key lets its own client name; a caller without a
@@ -5096,16 +5253,56 @@ writes no prose (last30days SKILL.md LAW 7).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
-  search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
-  with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
+  search page has (owner, 2026-11-27: no paid services). Every source is read without an account or a key. `go test
+  ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources, and runs the
+  Social listening page's live test of every source.
+- Settings → Gateway → Social listening (issue #1290; `listening/settings.go`, `health.go`, `fix.go`,
+  `clientapi/listening.go`, `web/src/features/listening/`), after Muse in the Gateway group: one card a source, as a
+  Grid or a Table (the Machines page's switch, kept in the browser), under four counted groups that filter it,
+  last30days doctor's: `working` (its last reading in the last 24 hours passed: a search read it, items or a clean
+  zero, or its live test read an item), `unverified` (read in part, or not read in 24 hours), `broken` (its last
+  reading failed), `could_be_on` (switched off, never counted as broken; its card says what it would add). A card
+  shows its backends in the order a search tries them, each ready or resting until when and its last answer, moved
+  up or down; its last success, its items this week (real searches, before duplicates are removed), its last error
+  with its fix (kept after it works again, marked as before), "Regressed" when the reading right before the latest
+  passed and the latest fails, whatever the time between (Agent-Reach `regressed()`), a link to the Settings page of
+  its accounts for a source that has one, and its switch. An off source keeps its last values. A broken card wears postiz's "!" and
+  a press anywhere on it tests the source again; "Test again" does the same on a card read in part or not for a day.
+- The owner's switches and backend orders are kept in `listening_sources.off` and `listening_backends.position`; a
+  source that is off is neither read nor may a plan name it, and `listen_search` lists only the sources that are on
+  (none on: no tool). The switch is read again before each read starts and again once each read answered: a search
+  under way starts no read of a source switched off meanwhile, and a source switched off during its last request is
+  answered as coverage `off` with none of its items, and no reading of it is kept.
+  Each reading, a real search's coverage or a live test's, is kept: the source's last and previous results, last
+  success and last error (`listening_sources`), each backend's last answer (`listening_backends`), and per UTC day
+  the items real searches read (`listening_readings`, 7 days). API, only the owner's: `GET /gateway/listening`,
+  `PUT /gateway/listening/sources/{source}` (`on`), `PUT …/{source}/order` (each backend once), `POST …/{source}/test`.
+- The live test (Agent-Reach's `check`): each backend that is not opt-in is asked the source's own `LiveQuery`
+  (issue #1289; `python` for a source that names none), 2 results, with no date window, in turn; a source whose
+  backends are all opt-in is not tested; the source passes when one reads an item, and a clean zero fails it (`no_results`). The control
+  plane looks every hour, from its start, for a source that is on and not read in 24 hours and tests it; the owner's
+  test first ends the source's rests, its backends' and the paths its searches rested. Its web searches go through
+  the chain keyless, fresh (`websearch.Fresh`: never answered from the five-minute cache), and are recorded on no
+  gateway key.
+- The owner is told once when a source breaks, as a disk alert is: a line in the main Bot's main chat and a card
+  through its Lark Channels, with the code, what happened and the fix. A reading that fails sets
+  `listening_sources.told` only where it was not set, and only that reading tells; a reading that read items, passed
+  or read in part, clears it (a clean zero does not). A reading is not told when any backend it tried, or any web
+  search provider behind one, failed with a rate limit, a spent quota or a timeout, which come back by themselves,
+  whatever code the backend's failure takes (one provider's 504 or 429 among four 500s is not told).
 - The built-in store skill `social-listening` (`clientcli/skills/social-listening`, issue #1288) declares
   `metadata.hypomnema.requires.tool: listen_search`. The skill resolver checks the same tool switches the
   agent API uses. The skill checks for ambiguous queries, resolves communities, plans by intent, follows new
   leads once and caps web supplements. Both web phases use the `web` source of `listen_search` for keyless
   search. The Bot writes the report with coverage, support and counter-evidence, confidence, dated quotes,
-  risks and next focus, then reviews it once.
-- Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1289 to #1295).
+  risks and next focus, then reviews it once. It gives the Muse sources one or two subqueries a call and keeps
+  `unverified` posts out of the evidence (issue #1292).
+- Not built: the keyed and signed-in sources, the hosted job boards' APIs, and saved topics (issues #1291 to
+  #1295). yt-dlp is not on the PATH of zm's control plane user (`command -v yt-dlp`, 2026-11-28): until it is,
+  `youtube` answers `broken`.
+  `site:facebook.com` web search as Facebook's second backend is not built either; nor is opening a post as a
+  signed-in reader: a public Facebook group's page answered a sign-in page to one who is not (2026-11-28), so
+  its posts are likely to stay unverified (inferred).
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
@@ -6292,11 +6489,14 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told the verdict and findings, without adding a Task; the reviewer first reads
-  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1
-  of its own) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
-  permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
-  nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  and the owner told the verdict and findings, without adding a Task. Once an important GitHub pull request's
+  author Task succeeds, the coordinator requests a CodeRabbit review through `gh api` at most once an hour
+  across the owner's repositories (#1339). The service proxy sends this REST comment with the GitHub Connection
+  token and the owner's standing approval. The coordinator waits for a completed review on the head before
+  dispatching the reviewer, except on a CodeRabbit rate limit or its own hourly limit. A failed or cancelled
+  review gets one retry under the same limit. A fix head gets an incremental request only if a Critical or Major
+  finding was fixed. The reviewer answers findings against the head. CodeRabbit is never a merge condition.
+  The model is the profile's unless the owner names one, and a profile or model that cannot be served is
   reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
   each rule's source is in `docs/role-routing.md` (issue #1051).
   A worker that turned auto-merge on finishes without waiting for CI, and the control plane follows its pull
@@ -6864,6 +7064,80 @@ Node (`internal/node`):
   (`util/workqueue/queue.go:210-221,243-264,306-319`). The policy does not
   protect free space on a separate cache or temp volume.
 - The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
+
+### Workers' memory ceiling (issue #1313)
+
+- On 2026-11-27 a node's workers filled all the memory of a machine without swap that also ran production services,
+  and the machine hung with no OOM kill until a hard reboot. Since then one ceiling covers all of a node's workers
+  (`internal/node/memlimit`), as Buildkite's Elastic CI Stack runs its agent's jobs in a systemd slice with
+  `MemoryHigh`, `MemoryMax` and `MemorySwapMax` (`packer/linux/stack/conf/bin/bk-install-elastic-stack.sh:732-777`).
+- At its start the node probes, once: `systemd-run` and `systemctl` on `PATH`, cgroup v2, the memory controller in
+  its user manager's `user@<uid>.service/cgroup.controllers`, and a scope that runs `true` in the slice, with
+  `OOMPolicy=continue` where the manager takes it (systemd 253 and later; an earlier one has no OOM policy for a
+  scope). When one fails, the workers run in the daemon's own cgroup as before, the node logs the reason once
+  (`node.memory_limit_off`) and says it at each hello (`memory_limit`, kept in `nodes.memory_limit` and
+  `memory_limit_reason`), and the Machines page shows "Memory not limited:" and the reason under a machine's memory
+  (nothing for a node of an earlier release, which does not say).
+- With the limit on, the Supervisor starts each worker's shim through `systemd-run --user --scope --collect
+  --slice=hypomnema-workers.slice --unit=hypomnema-worker-<dispatch>.scope -p OOMPolicy=continue`, which moves itself
+  into the new scope and executes the shim with its pid; the shim, the CLI and everything it spawns stay in that
+  scope, and what `systemd-run` says when it fails goes to the run directory's `stderr.log`. The daemon itself, its
+  terminals and an agent's commands on the machine (`node_exec`) stay outside the slice, so a kill inside it never
+  takes the daemon down. systemd names the slice's cgroup `hypomnema.slice/hypomnema-workers.slice`. A worker an
+  earlier daemon started (before the node limited its workers, or before it updated itself, which it does while
+  workers run) is moved into its own scope there when the new daemon adopts it: its shim and every process under it
+  (the shim is their subreaper) are handed to a new transient scope with the user manager's `StartTransientUnit` and
+  its `PIDs` property, through `busctl`, as a scope takes processes started elsewhere (`systemd.scope(5)`). A process
+  forked between the listing and the move stays behind and may fork again; the daemon's cgroup, which it shares,
+  cannot be frozen without freezing the daemon, so the new scope is frozen (`cgroup.freeze`) and the tree is listed
+  again, what is outside written into the scope's `cgroup.procs` (frozen as it enters), until a listing finds every
+  process inside; the scope is thawed then, as runc freezes a container's cgroup before listing it
+  (`libcontainer/init_linux.go:699-702`). Memory a process used before the move stays charged to the daemon's cgroup
+  until it is freed (the kernel's `cgroup-v2.rst`, "Memory Ownership"): the ceiling covers what an adopted worker uses
+  after it. With the worker, a holder process (`sleep infinity`, kept in the run directory's `scope-holder.json` with
+  its start time) is put in the scope, so the scope and its `memory.events` outlive the worker until the Supervisor
+  has read its end, then it is stopped. A process whose cgroup cannot be read counts as not moved, and only a
+  listing that reads every process inside ends the move. A move that is not done within 5 s, or a thaw that cannot be
+  written, fails the adoption: it is logged (`node.memory_scope_failed`), and the worker is stopped and fails
+  (`worker_error`, "the worker could not be moved into hypomnema-workers.slice: …") rather than run outside the
+  ceiling or stay frozen. A later daemon that finds the worker, or its holder, already in the slice thaws its scope
+  first, since a daemon that died during a move may have left it frozen.
+- The ceiling is the node's allocatable memory as placement computes it (`memory_bytes - reserved_memory_bytes - 1
+  GiB`, `Service.WorkerMemoryMax`), as the kubelet makes a node's allocatable the limit of the cgroup of all its pods
+  (`pkg/kubelet/cm/node_container_manager_linux.go:69-85`). The control plane sends it as `worker_memory_max` in the
+  hello's answer and in each heartbeat's acknowledgement, so a reserve the owner changes reaches the node within a
+  heartbeat. A control plane that does not say it (an earlier release, or one that could not read it) leaves what the
+  node applied last, and so does 0 (a node that never said its size, or one whose owner reserved all its memory): an
+  Allocatable of 0 never lifts the ceiling to `infinity`, the slice keeps the last one, and the node logs
+  `node.memory_limit_kept` once. The node applies a new value with
+  `systemctl --user set-property hypomnema-workers.slice MemoryMax=<ceiling> MemoryHigh=<ceiling> MemorySwapMax=0`,
+  which takes effect at once and stays in a drop-in for the next start.
+  `MemoryHigh` equals `MemoryMax`, as Buildkite's defaults give both the same (`templates/aws-stack.yml:477-494`;
+  the owner, 2026-11-28): checked on 2026-11-28 on stc-hy-app with the slice at 512 MiB
+  (`TestALiveWorkerOverTheSliceEndsOOMKilled`, behind `HYPOMNEMA_TEST_WORKER_SLICE`), a worker that took memory a
+  page at a time with `MemoryHigh` at 90 % stayed throttled between the two for the test's 15 minutes and was not
+  killed; with both equal the kernel killed it within a second, it ended `oom_killed`, and nothing outside the
+  slice was touched.
+- No worker has a ceiling of its own by default: one build can take 2.7 GiB with a CLI beside it. A profile may set
+  one, as a Kubernetes or Coder container sets its limits (`examples/templates/kubernetes/main.tf:298-306`):
+  `limits: {memory: 4Gi}` in its YAML, kept in `profile_versions.memory_limit_bytes` and sent in the offer as
+  `memory_limit`, which the node makes the scope's `MemoryMax`. A memory request over the limit is refused, and a
+  profile with a limit and no request asks for its limit, as Kubernetes validates and defaults a container's
+  (`pkg/apis/core/validation/validation.go:6518`). The builder keeps a profile's limit when it saves it but does not
+  edit it. CPU is not limited: its overload slows a machine without hanging it.
+- When the worker exits, the shim reads its scope's `memory.events` (`oom_kill`, how many of its processes any OOM
+  killer killed, its descendants' included) and writes the kills since its worker started into its exit file, before
+  it exits: the scope, and the cgroup that holds the count, go with its last process (containerd's note,
+  `internal/cri/server/events.go:211-225`). The Supervisor also reads the scope's `memory.events` every second while
+  the worker runs, and once more as it ends, for a shim that cannot count (one an earlier daemon started, one the
+  kernel killed itself). A kill makes the exit's `reason` `oom_killed`, whichever process it was, as containerd says
+  `OOMKilled` for a container whose child was killed (`events.go:194-236`), and the Dispatch fails the same whenever
+  it happened (`worker_error`), as Kubernetes takes an `OOMKilled` container for a failure even when it exited 0
+  (`pkg/kubelet/kuberuntime/helpers.go:170-177`): its summary begins `oom_killed: the kernel killed a process of this
+  worker for memory`, then what the worker said, its `finish` report's summary and evidence included (a Gate it asked
+  is said there, not kept). A worker killed before its CLI said it started is reported started first, and an adopted
+  one is said started again (a control plane that knew refuses it), so it does not
+  end as a start that failed. Only a stop the owner asked for ends as before, canceled.
 
 ## Web client
 
@@ -7651,6 +7925,7 @@ internal/node/acp         the ACP runtime for omp and opencode: each CLI's confi
 internal/node/transcript  the forwarder of every worker's transcript, the decoder interface, the cutting of items
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
+internal/node/memlimit    the workers' memory ceiling: the probe, each worker's systemd scope, the slice's properties, memory.events
 internal/node/skills      the skills an offer names: fetched once by digest, and placed where each CLI reads them
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end

@@ -33,12 +33,17 @@
 //     full for their quotes, the code's ranking and clusters standing when no model answers as asked (issue #1306;
 //     semantic.go).
 //
-// It stores nothing: what a backend rests for is kept in memory, the control plane being one process that lives
-// across calls (last30days, a process per run, writes it to a file).
+// The parts adapted from MIT and Apache-2.0 code carry those projects' notices in third_party/: last30days-skill
+// (and last30days-skill-cn), google-play-scraper, agent-reach, harken and obsei.
+//
+// What a backend rests for is kept in memory, the control plane being one process that lives across calls
+// (last30days, a process per run, writes it to a file). What the owner sets of the sources and how each last read
+// are kept in the control plane's database, for the Social listening page (issue #1290, settings.go and health.go).
 package listening
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -142,6 +147,9 @@ type Item struct {
 	EngagementScore *int               `json:"engagement_score,omitempty"`
 	// Parent is the native id of the post a comment answers.
 	Parent string `json:"parent,omitempty"`
+	// Signals mark what the item says beyond its text: a careers page's role out of character for its company,
+	// "founding", "leadership", "specialized" or "new-geo" (last30days hiring_signals.py _strategic_candidates).
+	Signals []string `json:"signals,omitempty"`
 	// Subqueries are the labels of the subqueries that found it.
 	Subqueries []string  `json:"subqueries"`
 	FetchedAt  time.Time `json:"fetched_at"`
@@ -164,6 +172,11 @@ type Item struct {
 	// it says about the topic, kept only beside a checked quote (semantic pass, layer 2b).
 	Quotes []string `json:"quotes,omitempty"`
 	Claims []string `json:"claims,omitempty"`
+	// QuoteFrom says where the text was read, for an item a model found: caption, image_text or comment.
+	QuoteFrom string `json:"quote_from,omitempty"`
+	// Check is how an item a model found was checked, its link opened (muse.go): "verified: …", or in the answer's
+	// Unverified, why not. Empty for an item a source's own API gave.
+	Check string `json:"check,omitempty"`
 
 	// signals for the ranking, never answered.
 	relevance float64
@@ -191,6 +204,10 @@ type Answer struct {
 	// Limits are the bounds this search used; Pass reports the semantic pass over them.
 	Limits Limits `json:"limits"`
 	Pass   Pass   `json:"pass"`
+	// Unverified are what a model said it found and its link did not bear out, at most PoolSize, each with why in
+	// its Check: leads to look at, never evidence, so neither ranked, clustered nor counted as items (issue #1292;
+	// last30days grok_x._validate_items drops them, lib/grok_x.py:400-440).
+	Unverified []Item `json:"unverified,omitempty"`
 }
 
 // WebSearch asks the control plane's web search chain, recorded on the caller's gateway key.
@@ -205,10 +222,18 @@ type Config struct {
 	// Sleep waits between two calls to one site; nil: a timer.
 	Sleep  func(ctx context.Context, d time.Duration) error
 	Logger *slog.Logger
+	// DB keeps the owner's switches and orders and each source's readings (issue #1290); nil: every source is on,
+	// in the registry's order, and nothing is kept.
+	DB *sql.DB
+	// Tell tells the owner that a source broke, once until it works again; nil: he is not told.
+	Tell func(ctx context.Context, b Broken)
 	// ReviewModel scores the shortlist and reviews its clusters, ReadModel reads the final items in full: a gateway
 	// chat model's name, ModelOff, or empty for DefaultReviewModel and DefaultReadModel.
 	ReviewModel string
 	ReadModel   string
+	// Muse is the owner's Muse pool, the backend of Facebook, Instagram and Threads (muse.go); nil: those sources
+	// cannot be read. Used only when Platforms is nil.
+	Muse Muse
 }
 
 // Service searches the sources.
@@ -218,6 +243,9 @@ type Service struct {
 	pacer     *Pacer
 	logger    *slog.Logger
 
+	db   *sql.DB
+	tell func(ctx context.Context, b Broken)
+
 	reviewModel, readModel string
 	// scores and readings are the model's judgments, kept for a later search of the same items.
 	scores   *memo[scored]
@@ -225,14 +253,18 @@ type Service struct {
 	plans    *memo[clusterPlan]
 
 	mu sync.Mutex
-	// resting is each backend's rest, by "<platform>/<backend>".
+	// resting is each backend's rest, by "<platform>/<backend>", and each path's, by "path:<path>".
 	resting map[string]*SourceError
+	// pathOwner is the source whose search rested a path, whose test clears it.
+	pathOwner map[string]string
+	// health is each source's state after the last search that read it (health.go).
+	health map[string]*Health
 }
 
 // New returns a Service.
 func New(cfg Config) *Service {
 	if cfg.Platforms == nil {
-		cfg.Platforms = Sources(Endpoints{}, http.DefaultClient)
+		cfg.Platforms = append(Sources(Endpoints{}, http.DefaultClient), MuseSources(cfg.Muse, http.DefaultClient)...)
 	}
 
 	if cfg.Now == nil {
@@ -245,13 +277,13 @@ func New(cfg Config) *Service {
 
 	return &Service{
 		platforms: cfg.Platforms, now: cfg.Now, pacer: NewPacer(cfg.Now, cfg.Sleep), logger: cfg.Logger,
-		reviewModel: cfg.ReviewModel, readModel: cfg.ReadModel,
+		db: cfg.DB, tell: cfg.Tell, reviewModel: cfg.ReviewModel, readModel: cfg.ReadModel,
 		scores: newMemo[scored](cfg.Now), readings: newMemo[reading](cfg.Now), plans: newMemo[clusterPlan](cfg.Now),
-		resting: map[string]*SourceError{},
+		resting: map[string]*SourceError{}, pathOwner: map[string]string{}, health: map[string]*Health{},
 	}
 }
 
-// SourceNames are the sources a plan may name, in order.
+// SourceNames are the sources of the registry, in order, whether on or off.
 func (s *Service) SourceNames() []string {
 	out := make([]string, 0, len(s.platforms))
 	for _, p := range s.platforms {
@@ -264,20 +296,17 @@ func (s *Service) SourceNames() []string {
 // Search runs a plan with what its caller may use: the web search chain for the backends that ask it, the web fetch
 // and the gateway's models for the semantic pass.
 func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, error) {
-	plan, err := s.check(plan)
+	platforms, on, err := s.live(ctx)
 	if err != nil {
 		return Answer{}, err
 	}
 
-	// The web searches a plan makes wait for their route's turn, one call at a time per key or keyless provider and
-	// webGap apart, where the chain knows the route (websearch.WithPace).
-	// Listening asks only the keyless providers, never the owner's keys or subscriptions: no paid service (owner,
-	// 2026-11-27), as last30days reads Reddit through keyless web search (reddit_discover.py:322-350).
-	ctx = websearch.KeylessOnly(ctx)
-	ctx = websearch.WithPace(ctx, func(ctx context.Context, route string) (func(), error) {
-		return s.pacer.Wait(ctx, "web:"+route, webGap)
-	})
+	plan, err = s.check(plan, on)
+	if err != nil {
+		return Answer{}, err
+	}
 
+	ctx = s.searchContext(ctx)
 	now := s.now().UTC()
 	from := now.AddDate(0, 0, -plan.WindowDays)
 
@@ -288,11 +317,18 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 		streams  []stream
 	}
 
-	runs := make([]sourceRun, len(s.platforms))
+	runs := make([]sourceRun, len(platforms))
+
+	streamsOf := map[string]int{}
+	for _, p := range s.platforms {
+		streamsOf[p.Name] = len(plan.subqueriesOf(p.Name))
+	}
+
+	run := NewRun(now, streamsOf)
 
 	var wg sync.WaitGroup
 
-	for i, p := range s.platforms {
+	for i, p := range platforms {
 		labels := plan.subqueriesOf(p.Name)
 		if len(labels) == 0 {
 			continue
@@ -304,22 +340,54 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 			var streams []stream
 
 			for _, sq := range labels {
-				req := s.request(plan, c)
-				req.Query, req.Limit, req.From, req.To = sq.Query, plan.MaxResults, from, now
+				req := s.owned(s.request(plan, c), p.Name)
+				req.Query, req.Limit, req.From, req.To, req.Run = sq.Query, plan.MaxResults, from, now, run
 				st := s.runStream(ctx, p, plan.Backends[p.Name], sq, req)
+
+				// Switched off while the search ran: nothing of it is answered, and no other read of it starts.
+				if st.off {
+					runs[i] = sourceRun{coverage: Coverage{Source: p.Name, State: StateOff, Streams: []Stream{}}}
+
+					return
+				}
+
 				cov.Streams = append(cov.Streams, st.report)
 				streams = append(streams, st)
 			}
 
-			runs[i] = sourceRun{coverage: cov.settle(), streams: streams}
+			runs[i] = sourceRun{coverage: cov, streams: streams}
 		})
 	}
 
 	wg.Wait()
 
+	// What backends read after every stream's first pass (Result.Then), in the sources' and subqueries' order, then
+	// each source's coverage. A source switched off while the search ran is answered off as it is.
+	for i := range runs {
+		if runs[i].coverage.State == StateOff {
+			continue
+		}
+
+		for j := range runs[i].streams {
+			s.runThen(ctx, &runs[i].streams[j])
+			runs[i].coverage.Streams[j] = runs[i].streams[j].report
+		}
+
+		runs[i].coverage = runs[i].coverage.settle()
+	}
+
+	// Each source's reading is kept for the Social listening page, and tells the owner when it broke it.
+	for _, r := range runs {
+		if r.coverage.Source != "" && r.coverage.State != StateOff {
+			s.record(ctx, coverageReading(r.coverage))
+		}
+	}
+
 	answer := Answer{From: from.Format(time.DateOnly), To: now.Format(time.DateOnly)}
 
 	var streams []stream
+
+	seen := map[string]bool{}
 
 	for _, r := range runs {
 		if r.coverage.Source == "" {
@@ -328,8 +396,18 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 
 		answer.Coverage = append(answer.Coverage, r.coverage)
 		streams = append(streams, r.streams...)
+
+		for _, st := range r.streams {
+			for _, it := range st.unverified {
+				if !seen[it.ID] && len(answer.Unverified) < PoolSize {
+					seen[it.ID] = true
+					answer.Unverified = append(answer.Unverified, it)
+				}
+			}
+		}
 	}
 
+	s.recordHealth(answer.Coverage, now)
 	answer.Limits = plan.limits()
 
 	items := rank(plan, streams, now)
@@ -366,9 +444,39 @@ func (s *Service) Search(ctx context.Context, plan Plan, c Caller) (Answer, erro
 	return answer, nil
 }
 
-// check fills a plan's defaults and refuses one that cannot be run, saying why.
-func (s *Service) check(plan Plan) (Plan, error) {
-	known := s.SourceNames()
+// searchContext is the context a search's backends run in. The web searches it makes wait for their route's turn, one
+// call at a time per key or keyless provider and webGap apart, where the chain knows the route (websearch.WithPace).
+// Listening asks only the keyless providers, never the owner's keys or subscriptions: no paid service (owner,
+// 2026-11-27), as last30days reads Reddit through keyless web search (reddit_discover.py:322-350).
+func (s *Service) searchContext(ctx context.Context) context.Context {
+	ctx = websearch.KeylessOnly(ctx)
+
+	return websearch.WithPace(ctx, func(ctx context.Context, route string) (func(), error) {
+		return s.pacer.Wait(ctx, "web:"+route, webGap)
+	})
+}
+
+// owned is a request whose path rests are noted as the source's, so its test clears them.
+func (s *Service) owned(r Request, source string) Request {
+	rest := r.Rest
+	r.Rest = func(path string, f *SourceError) time.Time {
+		s.own("path:"+path, source)
+
+		return rest(path, f)
+	}
+
+	return r
+}
+
+// check fills a plan's defaults and refuses one that cannot be run, saying why; on are the sources it may name.
+func (s *Service) check(plan Plan, on map[string]bool) (Plan, error) {
+	var known []string
+
+	for _, name := range s.SourceNames() {
+		if on[name] {
+			known = append(known, name)
+		}
+	}
 
 	if plan.WindowDays == 0 {
 		plan.WindowDays = DefaultWindowDays
@@ -402,6 +510,11 @@ func (s *Service) check(plan Plan) (Plan, error) {
 	sourceErr := func(name string) error {
 		if slices.Contains(known, name) {
 			return nil
+		}
+
+		if slices.Contains(s.SourceNames(), name) {
+			return fmt.Errorf("%w: %q is switched off on the Social listening page; the sources are %s", ErrInvalid,
+				name, strings.Join(known, ", "))
 		}
 
 		return fmt.Errorf("%w: %q is not a source; the sources are %s", ErrInvalid, name, strings.Join(known, ", "))

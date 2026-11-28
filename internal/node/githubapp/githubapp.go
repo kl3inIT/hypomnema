@@ -185,10 +185,19 @@ func (c Client) get(ctx context.Context, method, path string, query url.Values, 
 // (one of an earlier release the node reconnected to) gives none: the call fails, saying so, since no token is kept
 // on the node to fall back on (review round 1).
 func (c Client) Token(ctx context.Context) (string, error) {
+	token, err := c.token(ctx, agenttool.PathGitHubToken)
+	if err != nil {
+		return "", fmt.Errorf("asking the control plane for the GitHub App's token: %w", err)
+	}
+
+	return token, nil
+}
+
+func (c Client) token(ctx context.Context, path string) (string, error) {
 	var t agenttool.GitHubToken
 
-	if err := c.get(ctx, http.MethodPost, agenttool.PathGitHubToken, nil, &t); err != nil {
-		return "", fmt.Errorf("asking the control plane for the GitHub App's token: %w", err)
+	if err := c.get(ctx, http.MethodPost, path, nil, &t); err != nil {
+		return "", err
 	}
 
 	if t.Token == "" || strings.ContainsAny(t.Token, " \r\n") {
@@ -211,12 +220,10 @@ func pathWithout(bin string) string {
 	return strings.Join(dirs, string(os.PathListSeparator))
 }
 
-// MainGH runs the real gh with a fresh token as GH_TOKEN: `hypomnema-node gh <bin> <gh's arguments>`. A GH_TOKEN or
-// GITHUB_TOKEN the worker set itself is kept, as Omnara's RunGitHubCLI keeps it. When the control plane gives no
-// token of the App's (the App is no longer installed on the repository, or the control plane is of an earlier
-// release), gh does not run: it fails closed, saying why, as Omnara's RunGitHubCLI returns its credential error. No
-// token is kept on the node to fall back on, and the machine's own login may reach more than the owner's Connection
-// (review rounds 1 and 2).
+// MainGH runs the real gh with a fresh token as GH_TOKEN: `hypomnema-node gh <bin> <gh's arguments>`.
+// For gh pr create, the owner's GitHub Connection takes precedence (issue #1339). Other commands keep a GH_TOKEN
+// or GITHUB_TOKEN the worker set itself, as Omnara's RunGitHubCLI keeps it. If the control plane cannot provide a
+// requested token, gh fails closed (review rounds 1 and 2 of issue #1262).
 func MainGH(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: hypomnema-node gh <dir> [gh arguments]")
@@ -231,19 +238,42 @@ func MainGH(ctx context.Context, args []string) error {
 		return errors.New("gh: command not found")
 	}
 
-	if os.Getenv("GH_TOKEN") == "" && os.Getenv("GITHUB_TOKEN") == "" {
-		token, err := FromEnv().Token(ctx)
-		if err != nil {
-			return fmt.Errorf("%w; gh does not run with this machine's own login: ask the coordinator, or wait for "+
-				"the control plane to give the GitHub App's token again", err)
-		}
+	args = args[1:]
+	token, err := FromEnv().ghToken(ctx, args)
+	if err != nil {
+		return err
+	}
 
+	if token != "" {
 		if err := os.Setenv("GH_TOKEN", token); err != nil {
 			return err
 		}
 	}
 
-	return syscall.Exec(gh, append([]string{"gh"}, args[1:]...), os.Environ()) //nolint:gosec // gh, found on PATH
+	return syscall.Exec(gh, append([]string{"gh"}, args...), os.Environ()) //nolint:gosec // gh, found on PATH
+}
+
+func (c Client) ghToken(ctx context.Context, args []string) (string, error) {
+	if len(args) >= 2 && args[0] == "pr" && args[1] == "create" {
+		token, err := c.token(ctx, agenttool.PathGitHubPRCreateToken)
+		if err != nil {
+			return "", fmt.Errorf("opening a pull request needs the owner's GitHub Connection: %w", err)
+		}
+
+		return token, nil
+	}
+
+	if os.Getenv("GH_TOKEN") != "" || os.Getenv("GITHUB_TOKEN") != "" {
+		return "", nil
+	}
+
+	token, err := c.Token(ctx)
+	if err != nil {
+		return "", fmt.Errorf("%w; gh does not run with this machine's own login: ask the coordinator, or wait for "+
+			"the control plane to give the GitHub App's token again", err)
+	}
+
+	return token, nil
 }
 
 // MainCredential is git's credential helper: `hypomnema-node git-credential get`, answering a request for

@@ -1173,6 +1173,48 @@ func (e LarkChannelMode) Valid() bool {
 	}
 }
 
+// Defines values for ListeningBackendState.
+const (
+	ListeningBackendStateReady   ListeningBackendState = "ready"
+	ListeningBackendStateResting ListeningBackendState = "resting"
+)
+
+// Valid indicates whether the value is a known member of the ListeningBackendState enum.
+func (e ListeningBackendState) Valid() bool {
+	switch e {
+	case ListeningBackendStateReady:
+		return true
+	case ListeningBackendStateResting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListeningGroup.
+const (
+	Broken     ListeningGroup = "broken"
+	CouldBeOn  ListeningGroup = "could_be_on"
+	Unverified ListeningGroup = "unverified"
+	Working    ListeningGroup = "working"
+)
+
+// Valid indicates whether the value is a known member of the ListeningGroup enum.
+func (e ListeningGroup) Valid() bool {
+	switch e {
+	case Broken:
+		return true
+	case CouldBeOn:
+		return true
+	case Unverified:
+		return true
+	case Working:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MachineProviderKind.
 const (
 	Aws MachineProviderKind = "aws"
@@ -5341,6 +5383,105 @@ type LarkChannelSettings struct {
 	WebLink *bool `json:"web_link,omitempty"`
 }
 
+// Listening defines model for Listening.
+type Listening struct {
+	Counts ListeningCounts `json:"counts"`
+
+	// Sources The sources, in the order a plan's coverage lists them.
+	Sources []ListeningSource `json:"sources"`
+}
+
+// ListeningBackend defines model for ListeningBackend.
+type ListeningBackend struct {
+	LastError *ListeningFailure `json:"last_error,omitempty"`
+	LastOkAt  *time.Time        `json:"last_ok_at,omitempty"`
+	Name      string            `json:"name"`
+
+	// OptIn Asked only when a plan pins the source to it.
+	OptIn bool `json:"opt_in"`
+
+	// RestCode Why a source or a backend was not read, as listen_search's coverage names it: need_login, refused, rate_limited, limit_reached, not_found, timeout, broken or no_results. A plain string, since an enum of these would share names with ErrorCode's in the generated code.
+	RestCode     *ListeningCode `json:"rest_code,omitempty"`
+	RestingUntil *time.Time     `json:"resting_until,omitempty"`
+
+	// State resting: it is skipped until `resting_until`, after `rest_code`.
+	State ListeningBackendState `json:"state"`
+}
+
+// ListeningBackendState resting: it is skipped until `resting_until`, after `rest_code`.
+type ListeningBackendState string
+
+// ListeningCode Why a source or a backend was not read, as listen_search's coverage names it: need_login, refused, rate_limited, limit_reached, not_found, timeout, broken or no_results. A plain string, since an enum of these would share names with ErrorCode's in the generated code.
+type ListeningCode = string
+
+// ListeningCounts defines model for ListeningCounts.
+type ListeningCounts struct {
+	Broken     int `json:"broken"`
+	CouldBeOn  int `json:"could_be_on"`
+	Unverified int `json:"unverified"`
+	Working    int `json:"working"`
+}
+
+// ListeningFailure defines model for ListeningFailure.
+type ListeningFailure struct {
+	At      time.Time `json:"at"`
+	Backend *string   `json:"backend,omitempty"`
+
+	// Code Why a source or a backend was not read, as listen_search's coverage names it: need_login, refused, rate_limited, limit_reached, not_found, timeout, broken or no_results. A plain string, since an enum of these would share names with ErrorCode's in the generated code.
+	Code   ListeningCode `json:"code"`
+	Detail string        `json:"detail"`
+
+	// Fix The one step that fixes it
+	Fix string `json:"fix"`
+}
+
+// ListeningGroup working: its last reading in the last 24 hours passed. unverified: read in part, or not read in the last 24 hours. broken: its last reading failed. could_be_on: the owner switched it off.
+type ListeningGroup string
+
+// ListeningOrder defines model for ListeningOrder.
+type ListeningOrder struct {
+	Backends []string `json:"backends"`
+}
+
+// ListeningSource defines model for ListeningSource.
+type ListeningSource struct {
+	// Adds What the source brings when it is on.
+	Adds string `json:"adds"`
+
+	// Backends Its backends, in the order a search tries them.
+	Backends []ListeningBackend `json:"backends"`
+
+	// CheckedAt Its last reading.
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+
+	// Code Why a source or a backend was not read, as listen_search's coverage names it: need_login, refused, rate_limited, limit_reached, not_found, timeout, broken or no_results. A plain string, since an enum of these would share names with ErrorCode's in the generated code.
+	Code *ListeningCode `json:"code,omitempty"`
+
+	// Group working: its last reading in the last 24 hours passed. unverified: read in part, or not read in the last 24 hours. broken: its last reading failed. could_be_on: the owner switched it off.
+	Group ListeningGroup `json:"group"`
+
+	// ItemsThisWeek Items real searches read in the last 7 UTC days, before duplicates are removed.
+	ItemsThisWeek int               `json:"items_this_week"`
+	Label         string            `json:"label"`
+	LastError     *ListeningFailure `json:"last_error,omitempty"`
+	LastSuccessAt *time.Time        `json:"last_success_at,omitempty"`
+
+	// Name The source's name, as a plan names it.
+	Name string `json:"name"`
+	On   bool   `json:"on"`
+
+	// Page The page of Settings where the source's accounts are, for a source that has them.
+	Page *string `json:"page,omitempty"`
+
+	// Regressed It passed on an earlier day and fails today.
+	Regressed bool `json:"regressed"`
+}
+
+// ListeningSwitch defines model for ListeningSwitch.
+type ListeningSwitch struct {
+	On bool `json:"on"`
+}
+
 // MachineProvider defines model for MachineProvider.
 type MachineProvider struct {
 	Id   string              `json:"id"`
@@ -6227,8 +6368,11 @@ type Node struct {
 	Machine *NodeMachine `json:"machine,omitempty"`
 
 	// MaxDispatches The node's optional cap on the Dispatches it runs at once; left out for none, when the requests of its Dispatches against its allocatable decide (issue #731).
-	MaxDispatches *int   `json:"max_dispatches,omitempty"`
-	Name          string `json:"name"`
+	MaxDispatches *int `json:"max_dispatches,omitempty"`
+
+	// MemoryLimit Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version does not say.
+	MemoryLimit *NodeMemoryLimit `json:"memory_limit,omitempty"`
+	Name        string           `json:"name"`
 
 	// Requested An amount of CPU and memory (issue
 	Requested Resources `json:"requested"`
@@ -6328,6 +6472,14 @@ type NodeMachinePower string
 // NodeMachineState provisioning until the node says hello; provision_failed when the provider refused or the node never did; deleting and delete_failed while the machine is destroyed, which is tried again until it is.
 type NodeMachineState string
 
+// NodeMemoryLimit Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version does not say.
+type NodeMemoryLimit struct {
+	On bool `json:"on"`
+
+	// Reason Why it is off, in the node's words.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // NodeStats The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
 type NodeStats struct {
 	At time.Time `json:"at"`
@@ -6421,6 +6573,9 @@ type Profile struct {
 	// Fallbacks The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
 	Fallbacks   []string `json:"fallbacks"`
 	Instruction *string  `json:"instruction,omitempty"`
+
+	// MemoryLimitBytes The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
+	MemoryLimitBytes *int64 `json:"memory_limit_bytes,omitempty"`
 
 	// MemoryRequestBytes What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
 	MemoryRequestBytes *int64  `json:"memory_request_bytes,omitempty"`
@@ -9679,6 +9834,12 @@ type CreateGatewayKeyJSONRequestBody = NewGatewayKey
 // UpdateGatewayKeyJSONRequestBody defines body for UpdateGatewayKey for application/json ContentType.
 type UpdateGatewayKeyJSONRequestBody = GatewayKeyUpdate
 
+// SetListeningSourceJSONRequestBody defines body for SetListeningSource for application/json ContentType.
+type SetListeningSourceJSONRequestBody = ListeningSwitch
+
+// SetListeningOrderJSONRequestBody defines body for SetListeningOrder for application/json ContentType.
+type SetListeningOrderJSONRequestBody = ListeningOrder
+
 // SetGatewayModelAttributesJSONRequestBody defines body for SetGatewayModelAttributes for application/json ContentType.
 type SetGatewayModelAttributesJSONRequestBody = GatewayModelSettings
 
@@ -11313,6 +11474,56 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
 	GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetListening The social listening sources, each with its group, switch, backends in order, last success, items this week and last error with its fix; only the owner
+	//
+	// Each source is in one of four groups (issue #1290): working (its last reading in the last 24 hours passed), unverified (read in part, or not read in the last 24 hours), broken (its last reading failed) and could_be_on (switched off). A reading is a real search's or the daily live test's. `counts` counts each group.
+	//
+	// Corresponds with GET /gateway/listening (the `GetListening` operationId).
+	GetListening(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetListeningSourceWithBody Switch a social listening source on or off; only the owner
+	//
+	// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+	SetListeningSourceWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetListeningSource Switch a social listening source on or off; only the owner
+	//
+	// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+	SetListeningSource(ctx context.Context, source string, body SetListeningSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetListeningOrderWithBody Set the order a social listening source tries its backends in; only the owner
+	//
+	// Each of the source's backends is named once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+	SetListeningOrderWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetListeningOrder Set the order a social listening source tries its backends in; only the owner
+	//
+	// Each of the source's backends is named once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+	SetListeningOrder(ctx context.Context, source string, body SetListeningOrderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TestListeningSource Test a social listening source now; only the owner
+	//
+	// Clears the source's rests and asks each of its backends the live test's search, one at a time per site, then answers the sources with what it found. It takes as long as the source takes to answer.
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/test (the `TestListeningSource` operationId).
+	TestListeningSource(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	//
@@ -15994,6 +16205,116 @@ func (c *Client) GetGatewayToolConfig(ctx context.Context, keyId string, tool Ga
 // Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
 func (c *Client) GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetGatewayKeyValueRequest(c.Server, keyId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetListening The social listening sources, each with its group, switch, backends in order, last success, items this week and last error with its fix; only the owner
+//
+// Each source is in one of four groups (issue #1290): working (its last reading in the last 24 hours passed), unverified (read in part, or not read in the last 24 hours), broken (its last reading failed) and could_be_on (switched off). A reading is a real search's or the daily live test's. `counts` counts each group.
+//
+// Corresponds with GET /gateway/listening (the `GetListening` operationId).
+func (c *Client) GetListening(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetListeningRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetListeningSourceWithBody Switch a social listening source on or off; only the owner
+//
+// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+func (c *Client) SetListeningSourceWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetListeningSourceRequestWithBody(c.Server, source, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetListeningSource Switch a social listening source on or off; only the owner
+//
+// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+func (c *Client) SetListeningSource(ctx context.Context, source string, body SetListeningSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetListeningSourceRequest(c.Server, source, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetListeningOrderWithBody Set the order a social listening source tries its backends in; only the owner
+//
+// Each of the source's backends is named once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+func (c *Client) SetListeningOrderWithBody(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetListeningOrderRequestWithBody(c.Server, source, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetListeningOrder Set the order a social listening source tries its backends in; only the owner
+//
+// Each of the source's backends is named once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+func (c *Client) SetListeningOrder(ctx context.Context, source string, body SetListeningOrderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetListeningOrderRequest(c.Server, source, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TestListeningSource Test a social listening source now; only the owner
+//
+// Clears the source's rests and asks each of its backends the live test's search, one at a time per site, then answers the sources with what it found. It takes as long as the source takes to answer.
+//
+// Corresponds with POST /gateway/listening/sources/{source}/test (the `TestListeningSource` operationId).
+func (c *Client) TestListeningSource(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTestListeningSourceRequest(c.Server, source)
 	if err != nil {
 		return nil, err
 	}
@@ -26027,6 +26348,161 @@ func NewGetGatewayKeyValueRequest(server string, keyId string) (*http.Request, e
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetListeningRequest constructs an http.Request for the GetListening method
+func NewGetListeningRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetListeningSourceRequest calls the generic SetListeningSource builder with application/json body
+func NewSetListeningSourceRequest(server string, source string, body SetListeningSourceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetListeningSourceRequestWithBody(server, source, "application/json", bodyReader)
+}
+
+// NewSetListeningSourceRequestWithBody constructs an http.Request for the SetListeningSource method, with any body, and a specified content type
+func NewSetListeningSourceRequestWithBody(server string, source string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSetListeningOrderRequest calls the generic SetListeningOrder builder with application/json body
+func NewSetListeningOrderRequest(server string, source string, body SetListeningOrderJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetListeningOrderRequestWithBody(server, source, "application/json", bodyReader)
+}
+
+// NewSetListeningOrderRequestWithBody constructs an http.Request for the SetListeningOrder method, with any body, and a specified content type
+func NewSetListeningOrderRequestWithBody(server string, source string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s/order", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewTestListeningSourceRequest constructs an http.Request for the TestListeningSource method
+func NewTestListeningSourceRequest(server string, source string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "source", source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/listening/sources/%s/test", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -36681,6 +37157,60 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
 	GetGatewayKeyValueWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*GetGatewayKeyValueResponse, error)
 
+	// GetListeningWithResponse The social listening sources, each with its group, switch, backends in order, last success, items this week and last error with its fix; only the owner
+	//
+	// Each source is in one of four groups (issue #1290): working (its last reading in the last 24 hours passed), unverified (read in part, or not read in the last 24 hours), broken (its last reading failed) and could_be_on (switched off). A reading is a real search's or the daily live test's. `counts` counts each group.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/listening (the `GetListening` operationId).
+	GetListeningWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetListeningResponse, error)
+
+	// SetListeningSourceWithBodyWithResponse Switch a social listening source on or off; only the owner
+	//
+	// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+	SetListeningSourceWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetListeningSourceResponse, error)
+
+	// SetListeningSourceWithResponse Switch a social listening source on or off; only the owner
+	//
+	// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+	SetListeningSourceWithResponse(ctx context.Context, source string, body SetListeningSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*SetListeningSourceResponse, error)
+
+	// SetListeningOrderWithBodyWithResponse Set the order a social listening source tries its backends in; only the owner
+	//
+	// Each of the source's backends is named once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+	SetListeningOrderWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetListeningOrderResponse, error)
+
+	// SetListeningOrderWithResponse Set the order a social listening source tries its backends in; only the owner
+	//
+	// Each of the source's backends is named once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+	SetListeningOrderWithResponse(ctx context.Context, source string, body SetListeningOrderJSONRequestBody, reqEditors ...RequestEditorFn) (*SetListeningOrderResponse, error)
+
+	// TestListeningSourceWithResponse Test a social listening source now; only the owner
+	//
+	// Clears the source's rests and asks each of its backends the live test's search, one at a time per site, then answers the sources with what it found. It takes as long as the source takes to answer.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/listening/sources/{source}/test (the `TestListeningSource` operationId).
+	TestListeningSourceWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*TestListeningSourceResponse, error)
+
 	// ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -44085,6 +44615,198 @@ func (r GetGatewayKeyValueResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetGatewayKeyValueResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetListeningResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Listening
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetListeningResponse) GetJSON200() *Listening {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetListeningResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetListeningResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetListeningResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetListeningResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetListeningResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetListeningSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Listening
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetListeningSourceResponse) GetJSON200() *Listening {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetListeningSourceResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetListeningSourceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetListeningSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetListeningSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetListeningSourceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetListeningOrderResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Listening
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetListeningOrderResponse) GetJSON200() *Listening {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetListeningOrderResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetListeningOrderResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetListeningOrderResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetListeningOrderResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetListeningOrderResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type TestListeningSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Listening
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r TestListeningSourceResponse) GetJSON200() *Listening {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r TestListeningSourceResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r TestListeningSourceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r TestListeningSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TestListeningSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TestListeningSourceResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -55880,6 +56602,96 @@ func (c *ClientWithResponses) GetGatewayKeyValueWithResponse(ctx context.Context
 	return ParseGetGatewayKeyValueResponse(rsp)
 }
 
+// GetListeningWithResponse The social listening sources, each with its group, switch, backends in order, last success, items this week and last error with its fix; only the owner
+//
+// Each source is in one of four groups (issue #1290): working (its last reading in the last 24 hours passed), unverified (read in part, or not read in the last 24 hours), broken (its last reading failed) and could_be_on (switched off). A reading is a real search's or the daily live test's. `counts` counts each group.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/listening (the `GetListening` operationId).
+func (c *ClientWithResponses) GetListeningWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetListeningResponse, error) {
+	rsp, err := c.GetListening(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetListeningResponse(rsp)
+}
+
+// SetListeningSourceWithBodyWithResponse Switch a social listening source on or off; only the owner
+//
+// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+func (c *ClientWithResponses) SetListeningSourceWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetListeningSourceResponse, error) {
+	rsp, err := c.SetListeningSourceWithBody(ctx, source, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetListeningSourceResponse(rsp)
+}
+
+// SetListeningSourceWithResponse Switch a social listening source on or off; only the owner
+//
+// A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does not offer it.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/listening/sources/{source} (the `SetListeningSource` operationId).
+func (c *ClientWithResponses) SetListeningSourceWithResponse(ctx context.Context, source string, body SetListeningSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*SetListeningSourceResponse, error) {
+	rsp, err := c.SetListeningSource(ctx, source, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetListeningSourceResponse(rsp)
+}
+
+// SetListeningOrderWithBodyWithResponse Set the order a social listening source tries its backends in; only the owner
+//
+// Each of the source's backends is named once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+func (c *ClientWithResponses) SetListeningOrderWithBodyWithResponse(ctx context.Context, source string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetListeningOrderResponse, error) {
+	rsp, err := c.SetListeningOrderWithBody(ctx, source, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetListeningOrderResponse(rsp)
+}
+
+// SetListeningOrderWithResponse Set the order a social listening source tries its backends in; only the owner
+//
+// Each of the source's backends is named once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/listening/sources/{source}/order (the `SetListeningOrder` operationId).
+func (c *ClientWithResponses) SetListeningOrderWithResponse(ctx context.Context, source string, body SetListeningOrderJSONRequestBody, reqEditors ...RequestEditorFn) (*SetListeningOrderResponse, error) {
+	rsp, err := c.SetListeningOrder(ctx, source, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetListeningOrderResponse(rsp)
+}
+
+// TestListeningSourceWithResponse Test a social listening source now; only the owner
+//
+// Clears the source's rests and asks each of its backends the live test's search, one at a time per site, then answers the sources with what it found. It takes as long as the source takes to answer.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/listening/sources/{source}/test (the `TestListeningSource` operationId).
+func (c *ClientWithResponses) TestListeningSourceWithResponse(ctx context.Context, source string, reqEditors ...RequestEditorFn) (*TestListeningSourceResponse, error) {
+	rsp, err := c.TestListeningSource(ctx, source, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTestListeningSourceResponse(rsp)
+}
+
 // ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
 //
 // Returns a wrapper object for the known response body format(s).
@@ -63397,6 +64209,138 @@ func ParseGetGatewayKeyValueResponse(rsp *http.Response) (*GetGatewayKeyValueRes
 	return response, nil
 }
 
+// ParseGetListeningResponse parses an HTTP response from a GetListeningWithResponse call
+func ParseGetListeningResponse(rsp *http.Response) (*GetListeningResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetListeningResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetListeningSourceResponse parses an HTTP response from a SetListeningSourceWithResponse call
+func ParseSetListeningSourceResponse(rsp *http.Response) (*SetListeningSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetListeningSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetListeningOrderResponse parses an HTTP response from a SetListeningOrderWithResponse call
+func ParseSetListeningOrderResponse(rsp *http.Response) (*SetListeningOrderResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetListeningOrderResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTestListeningSourceResponse parses an HTTP response from a TestListeningSourceWithResponse call
+func ParseTestListeningSourceResponse(rsp *http.Response) (*TestListeningSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TestListeningSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Listening
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListGatewayModelsResponse parses an HTTP response from a ListGatewayModelsWithResponse call
 func ParseListGatewayModelsResponse(rsp *http.Response) (*ListGatewayModelsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -70370,6 +71314,18 @@ type ServerInterface interface {
 	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
 	// (GET /gateway/keys/{key_id}/value)
 	GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string)
+	// GetListening The social listening sources, each with its group, switch, backends in order, last success, items this week and last error with its fix; only the owner
+	// (GET /gateway/listening)
+	GetListening(w http.ResponseWriter, r *http.Request)
+	// SetListeningSource Switch a social listening source on or off; only the owner
+	// (PUT /gateway/listening/sources/{source})
+	SetListeningSource(w http.ResponseWriter, r *http.Request, source string)
+	// SetListeningOrder Set the order a social listening source tries its backends in; only the owner
+	// (PUT /gateway/listening/sources/{source}/order)
+	SetListeningOrder(w http.ResponseWriter, r *http.Request, source string)
+	// TestListeningSource Test a social listening source now; only the owner
+	// (POST /gateway/listening/sources/{source}/test)
+	TestListeningSource(w http.ResponseWriter, r *http.Request, source string)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(w http.ResponseWriter, r *http.Request)
@@ -74400,6 +75356,98 @@ func (siw *ServerInterfaceWrapper) GetGatewayKeyValue(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetGatewayKeyValue(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetListening operation middleware
+func (siw *ServerInterfaceWrapper) GetListening(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetListening(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetListeningSource operation middleware
+func (siw *ServerInterfaceWrapper) SetListeningSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetListeningSource(w, r, source)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetListeningOrder operation middleware
+func (siw *ServerInterfaceWrapper) SetListeningOrder(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetListeningOrder(w, r, source)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TestListeningSource operation middleware
+func (siw *ServerInterfaceWrapper) TestListeningSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "source" -------------
+	var source string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "source", r.PathValue("source"), &source, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TestListeningSource(w, r, source)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -81106,6 +82154,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/images", wrapper.GetImages)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/images/providers/{provider}", wrapper.SetImageProvider)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/images/order", wrapper.SetImageOrder)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/listening", wrapper.GetListening)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/listening/sources/{source}", wrapper.SetListeningSource)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/listening/sources/{source}/order", wrapper.SetListeningOrder)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/listening/sources/{source}/test", wrapper.TestListeningSource)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/muse", wrapper.GetMuse)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/muse/tools", wrapper.SetMuseTools)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/muse/sign-in", wrapper.StartMuseSignIn)
@@ -85636,6 +86688,163 @@ type GetGatewayKeyValuedefaultJSONResponse struct {
 }
 
 func (response GetGatewayKeyValuedefaultJSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetListeningRequestObject struct {
+}
+
+type GetListeningResponseObject interface {
+	VisitGetListeningResponse(w http.ResponseWriter) error
+}
+
+type GetListening200JSONResponse Listening
+
+func (response GetListening200JSONResponse) VisitGetListeningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetListeningdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetListeningdefaultJSONResponse) VisitGetListeningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetListeningSourceRequestObject struct {
+	Source string `json:"source"`
+	Body   *SetListeningSourceJSONRequestBody
+}
+
+type SetListeningSourceResponseObject interface {
+	VisitSetListeningSourceResponse(w http.ResponseWriter) error
+}
+
+type SetListeningSource200JSONResponse Listening
+
+func (response SetListeningSource200JSONResponse) VisitSetListeningSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetListeningSourcedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetListeningSourcedefaultJSONResponse) VisitSetListeningSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetListeningOrderRequestObject struct {
+	Source string `json:"source"`
+	Body   *SetListeningOrderJSONRequestBody
+}
+
+type SetListeningOrderResponseObject interface {
+	VisitSetListeningOrderResponse(w http.ResponseWriter) error
+}
+
+type SetListeningOrder200JSONResponse Listening
+
+func (response SetListeningOrder200JSONResponse) VisitSetListeningOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetListeningOrderdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetListeningOrderdefaultJSONResponse) VisitSetListeningOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TestListeningSourceRequestObject struct {
+	Source string `json:"source"`
+}
+
+type TestListeningSourceResponseObject interface {
+	VisitTestListeningSourceResponse(w http.ResponseWriter) error
+}
+
+type TestListeningSource200JSONResponse Listening
+
+func (response TestListeningSource200JSONResponse) VisitTestListeningSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TestListeningSourcedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response TestListeningSourcedefaultJSONResponse) VisitTestListeningSourceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -94111,6 +95320,18 @@ type StrictServerInterface interface {
 	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
 	// (GET /gateway/keys/{key_id}/value)
 	GetGatewayKeyValue(ctx context.Context, request GetGatewayKeyValueRequestObject) (GetGatewayKeyValueResponseObject, error)
+	// GetListening The social listening sources, each with its group, switch, backends in order, last success, items this week and last error with its fix; only the owner
+	// (GET /gateway/listening)
+	GetListening(ctx context.Context, request GetListeningRequestObject) (GetListeningResponseObject, error)
+	// SetListeningSource Switch a social listening source on or off; only the owner
+	// (PUT /gateway/listening/sources/{source})
+	SetListeningSource(ctx context.Context, request SetListeningSourceRequestObject) (SetListeningSourceResponseObject, error)
+	// SetListeningOrder Set the order a social listening source tries its backends in; only the owner
+	// (PUT /gateway/listening/sources/{source}/order)
+	SetListeningOrder(ctx context.Context, request SetListeningOrderRequestObject) (SetListeningOrderResponseObject, error)
+	// TestListeningSource Test a social listening source now; only the owner
+	// (POST /gateway/listening/sources/{source}/test)
+	TestListeningSource(ctx context.Context, request TestListeningSourceRequestObject) (TestListeningSourceResponseObject, error)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(ctx context.Context, request ListGatewayModelsRequestObject) (ListGatewayModelsResponseObject, error)
@@ -97865,6 +99086,122 @@ func (sh *strictHandler) GetGatewayKeyValue(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetGatewayKeyValueResponseObject); ok {
 		if err := validResponse.VisitGetGatewayKeyValueResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetListening operation middleware
+func (sh *strictHandler) GetListening(w http.ResponseWriter, r *http.Request) {
+	var request GetListeningRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetListening(ctx, request.(GetListeningRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetListening")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetListeningResponseObject); ok {
+		if err := validResponse.VisitGetListeningResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetListeningSource operation middleware
+func (sh *strictHandler) SetListeningSource(w http.ResponseWriter, r *http.Request, source string) {
+	var request SetListeningSourceRequestObject
+
+	request.Source = source
+
+	var body SetListeningSourceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetListeningSource(ctx, request.(SetListeningSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetListeningSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetListeningSourceResponseObject); ok {
+		if err := validResponse.VisitSetListeningSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetListeningOrder operation middleware
+func (sh *strictHandler) SetListeningOrder(w http.ResponseWriter, r *http.Request, source string) {
+	var request SetListeningOrderRequestObject
+
+	request.Source = source
+
+	var body SetListeningOrderJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetListeningOrder(ctx, request.(SetListeningOrderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetListeningOrder")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetListeningOrderResponseObject); ok {
+		if err := validResponse.VisitSetListeningOrderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TestListeningSource operation middleware
+func (sh *strictHandler) TestListeningSource(w http.ResponseWriter, r *http.Request, source string) {
+	var request TestListeningSourceRequestObject
+
+	request.Source = source
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TestListeningSource(ctx, request.(TestListeningSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TestListeningSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TestListeningSourceResponseObject); ok {
+		if err := validResponse.VisitTestListeningSourceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

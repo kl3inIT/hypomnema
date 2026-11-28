@@ -2779,6 +2779,88 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Images" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/listening:
+    get:
+      operationId: GetListening
+      summary: >-
+        The social listening sources, each with its group, switch, backends in order, last success, items this week
+        and last error with its fix; only the owner
+      description: >-
+        Each source is in one of four groups (issue #1290): working (its last reading in the last 24 hours passed),
+        unverified (read in part, or not read in the last 24 hours), broken (its last reading failed) and could_be_on
+        (switched off). A reading is a real search's or the daily live test's. `counts` counts each group.
+      responses:
+        "200":
+          description: The sources.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listening" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/listening/sources/{source}:
+    parameters:
+      - name: source
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    put:
+      operationId: SetListeningSource
+      summary: Switch a social listening source on or off; only the owner
+      description: >-
+        A source that is off is neither read nor may a plan name it, from the next search on, and listen_search does
+        not offer it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ListeningSwitch" }
+      responses:
+        "200":
+          description: The sources after the switch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listening" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/listening/sources/{source}/order:
+    parameters:
+      - name: source
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    put:
+      operationId: SetListeningOrder
+      summary: Set the order a social listening source tries its backends in; only the owner
+      description: Each of the source's backends is named once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ListeningOrder" }
+      responses:
+        "200":
+          description: The sources in their new order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listening" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/listening/sources/{source}/test:
+    parameters:
+      - name: source
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      operationId: TestListeningSource
+      summary: Test a social listening source now; only the owner
+      description: >-
+        Clears the source's rests and asks each of its backends the live test's search, one at a time per site, then
+        answers the sources with what it found. It takes as long as the source takes to answer.
+      responses:
+        "200":
+          description: The sources after the test.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listening" }
+        default: { $ref: "#/components/responses/Error" }
   /gateway/muse:
     get:
       operationId: GetMuse
@@ -6820,6 +6902,7 @@ components:
           description: >-
             The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
         temp_isolation: { $ref: "#/components/schemas/NodeTempIsolation" }
+        memory_limit: { $ref: "#/components/schemas/NodeMemoryLimit" }
         active:
           type: integer
           description: Its Dispatches that have not settled.
@@ -7407,6 +7490,103 @@ components:
         quality: { type: string, maxLength: 20 }
         background: { type: string, maxLength: 20 }
         image_size: { type: string, maxLength: 4, description: "Antigravity's output size: 1K, 2K or 4K." }
+    Listening:
+      type: object
+      required: [counts, sources]
+      properties:
+        counts: { $ref: "#/components/schemas/ListeningCounts" }
+        sources:
+          type: array
+          description: The sources, in the order a plan's coverage lists them.
+          items: { $ref: "#/components/schemas/ListeningSource" }
+    ListeningCounts:
+      type: object
+      required: [working, unverified, broken, could_be_on]
+      properties:
+        working: { type: integer }
+        unverified: { type: integer }
+        broken: { type: integer }
+        could_be_on: { type: integer }
+    ListeningGroup:
+      type: string
+      enum: [working, unverified, broken, could_be_on]
+      description: >-
+        working: its last reading in the last 24 hours passed. unverified: read in part, or not read in the last 24
+        hours. broken: its last reading failed. could_be_on: the owner switched it off.
+    ListeningCode:
+      type: string
+      maxLength: 32
+      description: >-
+        Why a source or a backend was not read, as listen_search's coverage names it: need_login, refused,
+        rate_limited, limit_reached, not_found, timeout, broken or no_results. A plain string, since an enum of these
+        would share names with ErrorCode's in the generated code.
+    ListeningSource:
+      type: object
+      required: [name, label, adds, "on", group, regressed, items_this_week, backends]
+      properties:
+        name: { type: string, description: "The source's name, as a plan names it." }
+        label: { type: string }
+        adds: { type: string, description: What the source brings when it is on. }
+        page:
+          type: string
+          description: The page of Settings where the source's accounts are, for a source that has them.
+        "on": { type: boolean }
+        group: { $ref: "#/components/schemas/ListeningGroup" }
+        code:
+          $ref: "#/components/schemas/ListeningCode"
+          description: Why its last reading did not pass, when it is broken or was read in part.
+        regressed:
+          type: boolean
+          description: It passed on an earlier day and fails today.
+        checked_at: { type: string, format: date-time, description: Its last reading. }
+        last_success_at: { type: string, format: date-time }
+        items_this_week:
+          type: integer
+          description: Items real searches read in the last 7 UTC days, before duplicates are removed.
+        last_error: { $ref: "#/components/schemas/ListeningFailure" }
+        backends:
+          type: array
+          description: Its backends, in the order a search tries them.
+          items: { $ref: "#/components/schemas/ListeningBackend" }
+    ListeningBackend:
+      type: object
+      required: [name, opt_in, state]
+      properties:
+        name: { type: string }
+        opt_in: { type: boolean, description: Asked only when a plan pins the source to it. }
+        state:
+          type: string
+          enum: [ready, resting]
+          description: "resting: it is skipped until `resting_until`, after `rest_code`."
+        resting_until: { type: string, format: date-time }
+        rest_code: { $ref: "#/components/schemas/ListeningCode" }
+        last_ok_at: { type: string, format: date-time }
+        last_error: { $ref: "#/components/schemas/ListeningFailure" }
+    ListeningFailure:
+      type: object
+      required: [code, detail, at, fix]
+      properties:
+        code: { $ref: "#/components/schemas/ListeningCode" }
+        detail: { type: string }
+        backend: { type: string }
+        at: { type: string, format: date-time }
+        fix: { type: string, description: The one step that fixes it, as listen_search's coverage says it. }
+    ListeningSwitch:
+      type: object
+      additionalProperties: false
+      required: ["on"]
+      properties:
+        "on": { type: boolean }
+    ListeningOrder:
+      type: object
+      additionalProperties: false
+      required: [backends]
+      properties:
+        backends:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { type: string, maxLength: 64 }
     Muse:
       type: object
       required: [tools_on, accounts]
@@ -7689,6 +7869,20 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/MachineProvider" }
+    NodeMemoryLimit:
+      type: object
+      additionalProperties: false
+      required: [on]
+      description: >-
+        Whether the node runs its workers in its systemd slice hypomnema-workers.slice, whose MemoryMax is the node's
+        allocatable memory, as it said at its last connect (issue #1313). Off, the machine has no systemd or its user
+        manager does not delegate memory, and its workers' memory is not limited. Left out for a node whose version
+        does not say.
+      properties:
+        "on": { type: boolean }
+        reason:
+          type: string
+          description: Why it is off, in the node's words.
     NodeTempIsolation:
       type: object
       additionalProperties: false
@@ -10996,6 +11190,12 @@ components:
           description: >-
             What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the
             default for building work, 3 GiB.
+        memory_limit_bytes:
+          type: integer
+          format: int64
+          description: >-
+            The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node
+            kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
         skills:
           type: array
           items: { type: string }

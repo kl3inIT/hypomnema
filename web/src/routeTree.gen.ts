@@ -39,6 +39,7 @@ import { Route as SettingsMuseRouteImport } from './routes/settings.muse'
 import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsSharedLinksRouteImport } from './routes/settings.shared-links'
+import { Route as SettingsSocialListeningRouteImport } from './routes/settings.social-listening'
 import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
 import { Route as SettingsWebSearchRouteImport } from './routes/settings.web-search'
@@ -201,6 +202,11 @@ const SettingsSharedLinksRoute = SettingsSharedLinksRouteImport.update({
   path: '/settings/shared-links',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsSocialListeningRoute = SettingsSocialListeningRouteImport.update({
+  id: '/settings/social-listening',
+  path: '/settings/social-listening',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsUsageRoute = SettingsUsageRouteImport.update({
   id: '/settings/usage',
   path: '/settings/usage',
@@ -286,6 +292,7 @@ export interface FileRoutesByFullPath {
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
+  '/settings/social-listening': typeof SettingsSocialListeningRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
@@ -329,6 +336,7 @@ export interface FileRoutesByTo {
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
+  '/settings/social-listening': typeof SettingsSocialListeningRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
@@ -373,6 +381,7 @@ export interface FileRoutesById {
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
+  '/settings/social-listening': typeof SettingsSocialListeningRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
@@ -418,6 +427,7 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
+    | '/settings/social-listening'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
@@ -461,6 +471,7 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
+    | '/settings/social-listening'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
@@ -504,6 +515,7 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
+    | '/settings/social-listening'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
@@ -548,6 +560,7 @@ export interface RootRouteChildren {
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsSharedLinksRoute: typeof SettingsSharedLinksRoute
+  SettingsSocialListeningRoute: typeof SettingsSocialListeningRoute
   SettingsUsageRoute: typeof SettingsUsageRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
   SettingsWebSearchRoute: typeof SettingsWebSearchRoute
@@ -775,6 +788,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSharedLinksRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/social-listening': {
+      id: '/settings/social-listening'
+      path: '/settings/social-listening'
+      fullPath: '/settings/social-listening'
+      preLoaderRoute: typeof SettingsSocialListeningRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/usage': {
       id: '/settings/usage'
       path: '/settings/usage'
@@ -884,6 +904,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsSharedLinksRoute: SettingsSharedLinksRoute,
+  SettingsSocialListeningRoute: SettingsSocialListeningRoute,
   SettingsUsageRoute: SettingsUsageRoute,
   SettingsVaultRoute: SettingsVaultRoute,
   SettingsWebSearchRoute: SettingsWebSearchRoute,

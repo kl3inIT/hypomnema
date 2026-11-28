@@ -2,6 +2,7 @@ package listening_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -70,4 +71,117 @@ func TestLiveRedditAndWeb(t *testing.T) {
 	for _, c := range a.Clusters {
 		t.Logf("cluster %s %s %.1f %v %d items %q", c.ID, c.Uncertainty, c.Score, c.Sources, len(c.Items), c.Title)
 	}
+}
+
+// TestLiveSourcesTest runs the live test of the real web and Reddit, as the Social listening page's daily test and
+// its "Test again" do, and logs each source's state as the page shows it (issue #1290, the pull request's
+// Verification). It never runs in CI: set HYPOMNEMA_LISTENING_LIVE=1.
+func TestLiveSourcesTest(t *testing.T) {
+	if os.Getenv("HYPOMNEMA_LISTENING_LIVE") == "" {
+		t.Skip("live check: set HYPOMNEMA_LISTENING_LIVE=1 to read the real sources")
+	}
+
+	web := websearch.New(websearch.Config{})
+	s := listening.New(listening.Config{DB: migrated(t), Platforms: listening.Sources(listening.Endpoints{},
+		&http.Client{Timeout: 20 * time.Second})})
+	search := func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+		return web.Search(ctx, query, limit, "")
+	}
+
+	s.TestStale(t.Context(), search)
+
+	states, err := s.States(t.Context())
+	require.NoError(t, err)
+
+	for _, st := range states {
+		t.Logf("source %s: %s code=%q regressed=%v checked=%s", st.Name, st.Group, st.Code, st.Regressed,
+			st.CheckedAt.Format(time.RFC3339))
+
+		if st.LastError != nil {
+			t.Logf("  last error %s %s: %s; fix: %s", st.LastError.Backend, st.LastError.Code, st.LastError.Detail,
+				st.LastError.Fix)
+		}
+
+		for _, b := range st.Backends {
+			rest := ""
+			if b.Resting != nil {
+				rest = fmt.Sprintf(" resting until %s (%s)", b.Resting.Until.Format(time.RFC3339), b.Resting.Code)
+			}
+
+			last := ""
+			if b.LastError != nil {
+				last = fmt.Sprintf(" last error %s: %s", b.LastError.Code, b.LastError.Detail)
+			}
+
+			t.Logf("  backend %s ok=%s%s%s", b.Name, b.LastOK.Format(time.RFC3339), rest, last)
+		}
+	}
+}
+
+// TestLiveEverySource is every source's live test (issue #1289: "it has a daily live test"; Agent-Reach `check` runs
+// each action's live_test): each source reads its LiveQuery from the real site, and one not read fails. It never runs
+// in CI: set HYPOMNEMA_LISTENING_LIVE=1; YouTube needs yt-dlp on PATH. One source at a time, as a daily check would.
+func TestLiveEverySource(t *testing.T) {
+	if os.Getenv("HYPOMNEMA_LISTENING_LIVE") == "" {
+		t.Skip("live check: set HYPOMNEMA_LISTENING_LIVE=1 to read the real sources")
+	}
+
+	web := websearch.New(websearch.Config{})
+	platforms := listening.Sources(listening.Endpoints{}, &http.Client{Timeout: 60 * time.Second})
+	s := listening.New(listening.Config{Platforms: platforms})
+	search := func(ctx context.Context, query string, limit int) (websearch.Answer, error) {
+		return web.Search(ctx, query, limit, "")
+	}
+
+	for _, p := range platforms {
+		t.Run(p.Name, func(t *testing.T) {
+			plan := listening.Plan{
+				Topic: p.LiveQuery, Sources: []string{p.Name}, WindowDays: 365, MaxResults: 10,
+				Subqueries: []listening.Subquery{{Query: p.LiveQuery}},
+			}
+
+			// An opt-in source (Toutiao, off until the owner decides on its terms) is pinned to be read.
+			for _, b := range p.Backends {
+				if b.OptIn {
+					plan.Backends = map[string]string{p.Name: b.Name}
+				}
+			}
+
+			a, err := s.Search(t.Context(), plan, listening.Caller{Web: search})
+			require.NoError(t, err)
+
+			c := a.Coverage[0]
+			t.Logf("%s: %s %s, %d items", c.Source, c.State, c.Code, c.Items)
+
+			for _, at := range c.Streams[0].Tried {
+				t.Logf("  %s: %s %s %s", at.Backend, at.Result, at.Detail, at.Until)
+			}
+
+			for i, it := range a.Items {
+				if i == 5 {
+					break
+				}
+
+				date := ""
+				if it.PublishedAt != nil {
+					date = it.PublishedAt.Format(time.DateOnly)
+				}
+
+				t.Logf("  item %s %s %v %v %q %q", date, it.URL, it.Engagement, it.Signals, it.Title, clipText(it.Text))
+			}
+
+			if c.State == listening.StateNotRead {
+				t.Errorf("%s was not read: %s", p.Name, c.Code)
+			}
+		})
+	}
+}
+
+func clipText(s string) string {
+	r := []rune(s)
+	if len(r) > 120 {
+		return string(r[:120]) + "…"
+	}
+
+	return s
 }
