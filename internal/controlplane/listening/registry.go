@@ -287,7 +287,8 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 	return st
 }
 
-// inWindow keeps items dated inside the UTC calendar window. Undated web items require server bounds.
+// inWindow keeps items dated inside the UTC calendar window. Undated web items require server bounds, unless the
+// request has no window at all (no start: the live test's, as Agent-Reach's name none, channels/reddit.py:50).
 func (s *Service) inWindow(res Result, source, backend, label string, req Request, dropped *Drops) []Item {
 	now := s.now().UTC()
 
@@ -300,7 +301,8 @@ func (s *Service) inWindow(res Result, source, backend, label string, req Reques
 			continue
 		}
 
-		if it.PublishedAt == nil && source == SourceWeb && res.windowBasis != websearch.WindowServerBounds {
+		if it.PublishedAt == nil && source == SourceWeb && !req.From.IsZero() &&
+			res.windowBasis != websearch.WindowServerBounds {
 			dropped.MissingDate++
 
 			continue

@@ -253,7 +253,12 @@ func webBackend() Backend {
 	return Backend{
 		Name: BackendWebSearch, Host: BackendWebSearch, Probe: needsWeb,
 		Search: func(ctx context.Context, r Request) (Result, error) {
-			a, err := r.Web(websearch.WithWindow(ctx, r.From, r.To), r.Query, min(r.Limit, websearch.MaxResults))
+			// A request with no start has no window, the live test's (health.go): no provider is asked one.
+			if !r.From.IsZero() {
+				ctx = websearch.WithWindow(ctx, r.From, r.To)
+			}
+
+			a, err := r.Web(ctx, r.Query, min(r.Limit, websearch.MaxResults))
 			if errors.Is(err, websearch.ErrNoResults) {
 				return Result{Detail: "no provider found anything"}, nil
 			}
