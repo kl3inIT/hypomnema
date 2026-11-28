@@ -98,7 +98,7 @@ func TestMeasureKillsWhatFFmpegStarted(t *testing.T) {
 
 	dir := t.TempDir()
 	pids := filepath.Join(dir, "pids")
-	tools := fakeFFmpeg(t, measureLines+"sleep 30 </dev/null 2>/dev/null &\necho $! >> '"+pids+"'\n"+
+	tools := fakeFFmpeg(t, "sleep 1\n"+measureLines+"sleep 30 </dev/null 2>/dev/null &\necho $! >> '"+pids+"'\n"+
 		"sleep 30 </dev/null &\necho $! >> '"+pids+"'\nwait\n")
 
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
