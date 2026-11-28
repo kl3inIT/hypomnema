@@ -790,3 +790,45 @@ func TestOnlyTheCallPathReopensAsTheCaller(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// Scenario (last review of PR #1323): two closes with the same outcome, the same reason and no evidence, each wait for
+// their reply when calls reopen the item. They are two closes: each is answered on its own, where its call was made
+// (the first in its review thread, the second in the conversation), never folded into one reply.
+func TestTwoAlikeClosesEachGetTheirOwnReply(t *testing.T) {
+	t.Parallel()
+
+	w := newCallWorld(t)
+
+	w.deliverSigned("pull_request_review_comment", githubapptest.ReviewComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1340, ID: 9982, InReplyTo: 9980, Body: mention + " fix this", Path: "a.go", Line: 3,
+	}))
+
+	item := w.itemOf(1340)
+	w.closeByOwner(item.ID, "Done.")
+
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1340, PullRequest: true, ID: 9983, Body: mention + " and the docs",
+	}))
+	w.closeByOwner(item.ID, "Done.")
+
+	// A third call reopens the item before any reply went.
+	w.deliverSigned("issue_comment", githubapptest.IssueComment(githubapptest.Comment{
+		By: linhOnGitHub, Number: 1340, PullRequest: true, ID: 9984, Body: mention + " one more thing",
+	}))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	go w.app.Run(ctx)
+
+	require.Eventually(t, func() bool { return len(w.replies()) == 2 }, 10*time.Second, 10*time.Millisecond,
+		"one reply each close")
+
+	paths := map[string]bool{}
+	for _, r := range w.replies() {
+		paths[strings.ToLower(r.Path)] = true
+	}
+
+	assert.True(t, paths["/repos/kl3init/hypomnema/pulls/1340/comments/9980/replies"], "the first close, in its thread")
+	assert.True(t, paths["/repos/kl3init/hypomnema/issues/1340/comments"], "the second close, in the conversation")
+}
