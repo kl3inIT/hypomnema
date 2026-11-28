@@ -35,9 +35,14 @@ export const profileSchema = {
         effort: { enum: efforts.map((e) => e.value), description: "The reasoning effort." },
       },
     },
-    instruction: {
+    instructions: {
       type: "string",
       description: "Added after the rules every worker gets, which it may not override.",
+    },
+    instruction: {
+      type: "string",
+      deprecationMessage: "Named instructions since 2026-11-28; this name is read for one release.",
+      description: "Instructions under their name until 2026-11-28.",
     },
     preset: {
       enum: ["full", "report"],
@@ -59,9 +64,9 @@ export const profileSchema = {
       type: "array",
       maxItems: maxFallbacks,
       uniqueItems: true,
-      items: { type: "string" },
+      items: { type: "string", pattern: "^[^/]+/.+$" },
       description:
-        "Agents, in order, that take this one's Tasks while its accounts wait for a limit to reset.",
+        "Models, each provider/model, in order, a worker runs while its own model cannot be served.",
     },
     requests: {
       type: "object",

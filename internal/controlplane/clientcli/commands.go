@@ -465,10 +465,10 @@ var commands = []command{
 		flags:   jsonFlag, run: larkChannelPersonRemove,
 	},
 	{
-		name: "bots list", summary: "the bots: each a model, a persona and a memory", flags: jsonFlag, run: botsList,
+		name: "bots list", summary: "the bots: each a model, instructions and a memory", flags: jsonFlag, run: botsList,
 	},
 	{
-		name: "bots show", args: "<bot>", min: 1, max: 1, summary: "a bot's model, persona and memory",
+		name: "bots show", args: "<bot>", min: 1, max: 1, summary: "a bot's model, instructions and memory",
 		flags: jsonFlag, run: botsShow,
 	},
 	{
@@ -480,7 +480,8 @@ var commands = []command{
 				"for pi's default")
 			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas; empty clears them")
 			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
-			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
+			fs.String("instructions-file", "", "a file with what the bot is and how it behaves, or - for standard input")
+			fs.String("persona-file", "", "--instructions-file under its name until 2026-11-28, kept for one release")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
 			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
 			fs.String("preset", "", "tool family preset: full (default) or report")
@@ -504,6 +505,16 @@ var commands = []command{
 		run: botsSet,
 	},
 	{
+		name: "bots versions", args: "<bot>", min: 1, max: 1,
+		summary: "a bot's saved settings, newest first, with who saved each and when",
+		flags:   jsonFlag, run: botsVersions,
+	},
+	{
+		name: "bots restore", args: "<bot> <version id>", min: 2, max: 2,
+		summary: "save one of a bot's versions again; its name and memory stay (owner, or the main bot)",
+		flags:   jsonFlag, run: botsRestore,
+	},
+	{
 		name: "bots rename", args: "<bot> <new name>", min: 2, max: 2,
 		summary: "give a bot another name; its id, chats, routines and channels stay (owner, or the main bot)",
 		flags:   jsonFlag, run: botsRename,
@@ -519,7 +530,7 @@ var commands = []command{
 	},
 	{
 		name: "bots prompt", args: "<bot>", min: 1, max: 1,
-		summary: "what pi is given about a bot when it starts for a chat: the persona and the memory",
+		summary: "what pi is given about a bot when it starts for a chat: the instructions and the memory",
 		flags: func(fs *flag.FlagSet) {
 			fs.Bool("group", false, "for the chat of a Lark group: without the memory, and saying who writes there")
 		},
@@ -706,7 +717,7 @@ var commands = []command{
 		summary: "revoke a view-only link at once (owner)", flags: jsonFlag, run: artifactUnshare,
 	},
 	{
-		name: "memory show", summary: "a memory: a bot's, an agent's (--agent) or the one about the owner (--owner)",
+		name: "memory show", summary: "a memory: a bot's, a profile's (--profile) or the one about the owner (--owner)",
 		flags: memoryFlags, run: memoryShow,
 	},
 	{
@@ -729,7 +740,7 @@ var commands = []command{
 		flags:   memoryFlags, run: memoryChange(memoryRemove),
 	},
 	{
-		name: "memory ls", summary: "the notes of a bot's or an agent's memory, with their sizes",
+		name: "memory ls", summary: "the notes of a bot's or a profile's memory, with their sizes",
 		flags: notesFlags, run: notesList,
 	},
 	{
@@ -784,15 +795,17 @@ var commands = []command{
 		flags: jsonFlag, run: reposRemove,
 	},
 	{
-		name: "profiles routing", summary: "show the effective role and Task-kind mapping as YAML",
-		flags: jsonFlag, run: profilesRouting,
+		name: "roles routing", aliases: []string{"profiles routing"},
+		summary: "show the effective role and Task-kind mapping as YAML",
+		flags:   jsonFlag, run: profilesRouting,
 	},
 	{
-		name: "profiles routing-apply", args: "<file>", min: 1, max: 1,
+		name: "roles routing-apply", aliases: []string{"profiles routing-apply"}, args: "<file>", min: 1, max: 1,
 		summary: "validate and replace the role routing YAML (owner)", run: profilesRoutingApply,
 	},
 	{
-		name: "profiles metrics", summary: "settled attempts and cost by role, kind and chain entry (owner)",
+		name: "roles metrics", aliases: []string{"profiles metrics"},
+		summary: "settled attempts and cost by role, kind and chain entry (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("since", "", "start of the period in RFC3339 (default: 14 days ago)")
 			jsonFlag(fs)
@@ -818,7 +831,7 @@ var commands = []command{
 	},
 	{
 		name: "profiles rm", args: "<profile>", min: 1, max: 1,
-		summary: "delete a profile no unfinished task, backup or bot's workers list names; one used before is " +
+		summary: "delete a profile no unfinished task or bot's workers list names; one used before is " +
 			"hidden and kept for its runs, and applying it again brings it back (owner)",
 		flags: jsonFlag, run: profilesRemove,
 	},

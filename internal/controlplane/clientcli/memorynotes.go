@@ -10,15 +10,15 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// The notes of a memory from the terminal (issue #589): a Bot's or an agent's directory /memories, whose
+// The notes of a memory from the terminal (issue #589): a Bot's or a profile's directory /memories, whose
 // MEMORY.md is the memory `memory show` prints. The owner reads, writes and removes them; an agent writes its own
 // with the memory's tool.
 
 // notesFlags are memoryFlags: --owner is refused, the memory about the owner having no notes.
 func notesFlags(fs *flag.FlagSet) { memoryFlags(fs) }
 
-// notesOf is --agent, --bot or the Bot the calling pi is, as the API's query names it.
-func notesOf(ctx context.Context, e *env, fs *flag.FlagSet) (bot, agent *string, err error) {
+// notesOf is --profile, --bot or the Bot the calling pi is, as the API's query names it.
+func notesOf(ctx context.Context, e *env, fs *flag.FlagSet) (bot, profile *string, err error) {
 	if boolean(fs, "owner") {
 		return nil, nil, fmt.Errorf("%w: the memory about the owner is /memories/USER.md, and has no notes", ErrUsage)
 	}
@@ -28,12 +28,12 @@ func notesOf(ctx context.Context, e *env, fs *flag.FlagSet) (bot, agent *string,
 		return nil, nil, err
 	}
 
-	if target.agent != "" {
-		return nil, &target.agent, nil
+	if target.profile != "" {
+		return nil, &target.profile, nil
 	}
 
 	if target.bot == "" {
-		return nil, nil, fmt.Errorf("%w: name the memory with --bot or --agent", ErrUsage)
+		return nil, nil, fmt.Errorf("%w: name the memory with --bot or --profile", ErrUsage)
 	}
 
 	id, err := botIDOf(ctx, e, target.bot)
@@ -45,12 +45,12 @@ func notesOf(ctx context.Context, e *env, fs *flag.FlagSet) (bot, agent *string,
 }
 
 func notesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	bot, agent, err := notesOf(ctx, e, fs)
+	bot, profile, err := notesOf(ctx, e, fs)
 	if err != nil {
 		return err
 	}
 
-	resp, err := e.api.ListMemoryNotesWithResponse(ctx, &openapi.ListMemoryNotesParams{Bot: bot, Agent: agent})
+	resp, err := e.api.ListMemoryNotesWithResponse(ctx, &openapi.ListMemoryNotesParams{Bot: bot, Profile: profile})
 	if err != nil {
 		return fmt.Errorf("listing the notes: %w", err)
 	}
@@ -71,13 +71,13 @@ func notesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 }
 
 func notesCat(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	bot, agent, err := notesOf(ctx, e, fs)
+	bot, profile, err := notesOf(ctx, e, fs)
 	if err != nil {
 		return err
 	}
 
 	resp, err := e.api.GetMemoryNoteWithResponse(ctx, &openapi.GetMemoryNoteParams{
-		Bot: bot, Agent: agent, Path: fs.Arg(0),
+		Bot: bot, Profile: profile, Path: fs.Arg(0),
 	})
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", fs.Arg(0), err)
@@ -91,7 +91,7 @@ func notesCat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 }
 
 func notesPut(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	bot, agent, err := notesOf(ctx, e, fs)
+	bot, profile, err := notesOf(ctx, e, fs)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func notesPut(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	resp, err := e.api.PutMemoryNoteWithResponse(ctx, &openapi.PutMemoryNoteParams{
-		Bot: bot, Agent: agent, Path: fs.Arg(0),
+		Bot: bot, Profile: profile, Path: fs.Arg(0),
 	}, openapi.MemoryNoteText{Text: text})
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", fs.Arg(0), err)
@@ -118,13 +118,13 @@ func notesPut(ctx context.Context, e *env, fs *flag.FlagSet) error {
 }
 
 func notesRm(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	bot, agent, err := notesOf(ctx, e, fs)
+	bot, profile, err := notesOf(ctx, e, fs)
 	if err != nil {
 		return err
 	}
 
 	resp, err := e.api.DeleteMemoryNoteWithResponse(ctx, &openapi.DeleteMemoryNoteParams{
-		Bot: bot, Agent: agent, Path: fs.Arg(0),
+		Bot: bot, Profile: profile, Path: fs.Arg(0),
 	})
 	if err != nil {
 		return fmt.Errorf("removing %s: %w", fs.Arg(0), err)

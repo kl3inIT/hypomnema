@@ -186,7 +186,7 @@ func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore
 
 		listed++
 
-		fmt.Fprintf(&b, "- %s (%s): %s Connections: %s.\n", r.Name, r.ID, inboxPersonaLine(r.Persona),
+		fmt.Fprintf(&b, "- %s (%s): %s Connections: %s.\n", r.Name, r.ID, inboxPersonaLine(r.Instructions),
 			inboxConnectionWords(allowListOf(r.Connections)))
 	}
 

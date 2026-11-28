@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { ChevronRight, Trash2 } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { useState } from "react"
 
 import { getBotQueryKey, listBotsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
@@ -14,8 +14,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ModelMark } from "@/components/icons/model-mark"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { ModelField } from "@/features/agents/profile-editor"
-import { ModelPicker } from "@/features/agents/model-picker"
-import { modelKey } from "@/features/agents/profiles-state"
+import { FallbackModels } from "@/features/agents/fallback-models"
 import { everyCall } from "@/lib/query-keys"
 import { errorText } from "@/lib/server-error"
 import { useModels } from "@/features/agents/use-profiles"
@@ -33,10 +32,12 @@ import { ToolsField } from "@/features/tools/tools-field"
 
 import { BotAccess } from "./bot-access"
 import { BotChats } from "./bot-chats"
+import { BotVersions } from "./bot-versions"
 import {
   defaultModelLabel,
   draftOf,
   emptyDraft,
+  gatewayModels,
   modelLine,
   nameProblem,
   problem,
@@ -60,12 +61,15 @@ function Crumbs({ here }: { here: string }) {
 }
 
 // BotScreen is one Bot (issue #169), at its id: its name and model, its name to change (issue #466), the form for
-// its model and persona, its memory to read and edit, and its removal. The page is the Agents pages' profile page
+// its model and instructions, the versions of its settings (issue #1336), its memory to read and edit, and its
+// removal. The page is the Agents pages' profile page
 // (features/agents/profile-screen.tsx).
 export function BotScreen({ id }: { id: string }) {
   const bot = useBot(id)
   const models = useModels()
   const b = bot.data
+  // restores counts the versions restored on this page: the form starts again from the Bot each one saved.
+  const [restores, setRestores] = useState(0)
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -96,7 +100,8 @@ export function BotScreen({ id }: { id: string }) {
               </header>
 
               <Rename key={b.name} bot={b} />
-              <BotForm start={draftOf(b)} models={models.data ?? []} stored={b} />
+              <BotForm key={restores} start={draftOf(b)} models={models.data ?? []} stored={b} />
+              <BotVersions bot={b} onRestored={() => setRestores((n) => n + 1)} />
               <Memory bot={b} />
               <BotAccess bot={b} />
               <BotRoutines bot={b.id} />
@@ -170,7 +175,7 @@ function Rename({ bot }: { bot: Bot }) {
   )
 }
 
-// BotForm edits a Bot's model, persona and skills, and a new Bot's name, and saves them with one request. Its buttons
+// BotForm edits a Bot's model, instructions and skills, and a new Bot's name, and saves them with one request. Its buttons
 // are the profile editor's (features/agents/profile-editor.tsx). Leaving the page drops what was not saved
 // (owner, 2026-11-13).
 function BotForm({
@@ -251,21 +256,24 @@ function BotForm({
         gone="No provider offers this model any more. Pick another, or the default."
       />
 
-      <BotFallbacks
+      <FallbackModels
+        id="bot-fallback"
         primary={draft.model}
         chain={draft.fallbacks}
-        models={models}
+        models={gatewayModels(models)}
         onChange={(fallbacks) => set({ fallbacks })}
+        description="Tried in order when the previous model has no usable account. Chats that pick their own model skip this list."
+        missing="Choose a primary model served by the gateway to add fallbacks."
       />
 
       <Field>
-        <FieldLabel htmlFor="bot-persona">Persona</FieldLabel>
+        <FieldLabel htmlFor="bot-instructions">Instructions</FieldLabel>
         <Textarea
-          id="bot-persona"
+          id="bot-instructions"
           rows={8}
           placeholder="You are the team's researcher. Answer briefly, with sources."
-          value={draft.persona}
-          onChange={(event) => set({ persona: event.target.value })}
+          value={draft.instructions}
+          onChange={(event) => set({ instructions: event.target.value })}
         />
         <FieldDescription>
           What the Bot is and how it behaves. It gets this after its built-in instructions, in every
@@ -327,92 +335,6 @@ function BotForm({
 
 // Memory is what the Bot keeps across chats, an entry a line. The Bot writes it itself, an entry at a time; the
 // owner reads it here and edits it by hand (features/memory/memory-editor.tsx).
-function BotFallbacks({
-  primary,
-  chain,
-  models,
-  onChange,
-}: {
-  primary: string
-  chain: string[]
-  models: Model[]
-  onChange: (chain: string[]) => void
-}) {
-  const gateway = models.filter(
-    (model) =>
-      model.kind === "model_gateway" ||
-      model.kind.endsWith("_subscription") ||
-      model.kind === "opencode_go" ||
-      model.kind === "opencode_zen",
-  )
-  const canAdd = gateway.some((model) => modelKey(model.provider, model.name) === primary)
-  const free = gateway.filter((model) => {
-    const key = modelKey(model.provider, model.name)
-    return key !== primary && !chain.includes(key)
-  })
-
-  return (
-    <Field>
-      <FieldLabel htmlFor={chain.length ? "bot-fallback-1" : "bot-fallback-add"}>
-        Fallback models
-      </FieldLabel>
-      {chain.length > 0 && (
-        <ol aria-label="Fallback models, in order" className="flex flex-col gap-1.5">
-          {chain.map((key, index) => (
-            <li key={key} className="flex items-center gap-2">
-              <span className="w-3 text-xs text-muted-foreground tabular-nums" aria-hidden>
-                {index + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <ModelPicker
-                  id={`bot-fallback-${index + 1}`}
-                  model={key}
-                  models={[
-                    ...gateway.filter((model) => modelKey(model.provider, model.name) === key),
-                    ...free,
-                  ]}
-                  defaultLabel="Remove fallback"
-                  onChange={(next) =>
-                    onChange(
-                      next
-                        ? chain.map((item, at) => (at === index ? next : item))
-                        : chain.filter((item) => item !== key),
-                    )
-                  }
-                />
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Remove fallback ${index + 1}`}
-                onClick={() => onChange(chain.filter((item) => item !== key))}
-              >
-                <Trash2 aria-hidden />
-              </Button>
-            </li>
-          ))}
-        </ol>
-      )}
-      {canAdd && free.length > 0 && chain.length < 5 && (
-        <ModelPicker
-          id="bot-fallback-add"
-          model=""
-          models={free}
-          defaultLabel="Add a fallback…"
-          onChange={(next) => {
-            if (next) onChange([...chain, next])
-          }}
-        />
-      )}
-      <FieldDescription>
-        {canAdd
-          ? "Tried in order when the previous model has no usable account. Chats that pick their own model skip this list."
-          : "Choose a primary model served by the gateway to add fallbacks."}
-      </FieldDescription>
-    </Field>
-  )
-}
 
 function Memory({ bot }: { bot: Bot }) {
   const save = useSetBotMemory()
@@ -519,7 +441,7 @@ function Removal({ bot }: { bot: Bot }) {
             </Button>
           }
           title={`Remove ${bot.name}?`}
-          consequence="The Bot, its model and its persona are removed. This cannot be undone."
+          consequence="The Bot, its model and its instructions are removed. This cannot be undone."
           action="Remove"
           run={() => remove.mutateAsync({ id: bot.id })}
           onDone={gone}

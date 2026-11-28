@@ -1,8 +1,8 @@
 # Worker role routing
 
 The [default mapping](../internal/controlplane/orchestration/profilestore/role_routing.yaml) selects ordered runtime and model
-entries for a worker role and Task kind. `hypomnema profiles routing` prints the effective YAML. The owner can
-replace it with `hypomnema profiles routing-apply <file>`: every entry is validated against the provider's model
+entries for a worker role and Task kind. `hypomnema roles routing` prints the effective YAML. The owner can
+replace it with `hypomnema roles routing-apply <file>`: every entry is validated against the provider's model
 catalog before the whole mapping is stored. The built-in mapping can refer to models that a server has not yet
 discovered; an unavailable model is reported on the Task, not silently substituted.
 
@@ -13,10 +13,16 @@ model catalog, not the mapping, says which models a provider can serve.
 The current OpenCode Go adapter cools accounts across all its models, so both of its entries wait when the
 shared account pool cools.
 
-`hypomnema profiles metrics --json` reports two weeks of settled attempts, successes, failures and priced cost by
+`hypomnema roles metrics --json` reports two weeks of settled attempts, successes, failures and priced cost by
 role, kind and chain position (with model and runtime, so a changed order does not conflate different models).
 Use `--since` for a different period. Costs use the existing Dispatch usage ledger (#856), at API prices; entries
 with unpriced usage are counted separately. A Dispatch without a chain entry ran with a legacy profile.
+The commands were `hypomnema profiles routing`, `routing-apply` and `metrics` until 2026-11-28 (issue #1336); those
+spellings still work for one release.
+
+A profile that names its own runtime and model runs down a chain of its own when it has fallbacks (issue #1336):
+its model first, then each `provider/model` of its `fallbacks`, on its own runtime, as a role's chain is run. Until
+2026-11-28 a profile's fallbacks named backup profiles; the migration gave each version those profiles' models.
 
 ## Owner-confirmed cutover
 

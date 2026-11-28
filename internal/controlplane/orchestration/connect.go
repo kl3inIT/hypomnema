@@ -354,7 +354,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 			return Offer{}, notFound(err, "profile version", d.ProfileVersionID.String)
 		}
 
-		instruction, agent = v.Instruction.String, v.Profile
+		instruction, agent = v.Instructions.String, v.Profile
 	}
 
 	memory, err := memorystore.AgentMemoryTx(ctx, q, agent)

@@ -13,7 +13,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { MemoryEditor } from "@/features/memory/memory-editor"
 import { MemoryNotes } from "@/features/memory/memory-notes"
-import { useAgentMemory, useSetAgentMemory } from "@/features/memory/use-memory"
+import { useProfileMemory, useSetProfileMemory } from "@/features/memory/use-memory"
 import { PageHeader } from "@/components/page-header"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { StandingText } from "./agents-screen"
@@ -201,9 +201,9 @@ function Versions({ profile }: { profile: Profile }) {
 }
 
 // Removal deletes the agent after a question (issue #485), as the Bot page's Removal (features/bots/bot-screen.tsx).
-// The server refuses implementer and an agent an unfinished task, another agent's fallbacks or a Bot's workers still
-// name, and the dialog stays open with its reason. One that ran before is hidden, not gone, as Coder deletes a
-// template, and saving an agent of its name brings it back.
+// The server refuses implementer and an agent an unfinished task or a Bot's workers still name, and the dialog
+// stays open with its reason. One that ran before is hidden, not gone, as Coder deletes a template, and saving an
+// agent of its name brings it back.
 function Removal({ profile }: { profile: Profile }) {
   const remove = useDeleteProfile()
   const navigate = useNavigate()
@@ -224,8 +224,8 @@ function Removal({ profile }: { profile: Profile }) {
       className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-4"
     >
       <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
-        An agent can be deleted while no unfinished task, no other agent's fallbacks and no Bot's
-        workers name it. implementer is always there.
+        An agent can be deleted while no unfinished task and no Bot's workers name it. implementer
+        is always there.
       </p>
       <ConfirmDialog
         trigger={
@@ -251,8 +251,8 @@ function Removal({ profile }: { profile: Profile }) {
 // #21). It is not part of the agent's versions, as OpenMausBot's Memory is a section of a bot's settings beside its
 // configuration, not part of it. A worker writes it with its memory tool; the owner edits it by hand here.
 function AgentMemory({ name }: { name: string }) {
-  const memory = useAgentMemory(name)
-  const save = useSetAgentMemory(name)
+  const memory = useProfileMemory(name)
+  const save = useSetProfileMemory(name)
 
   if (memory.error) {
     return <p className="py-6 text-sm text-destructive">The memory could not be read.</p>
@@ -277,7 +277,7 @@ function AgentMemory({ name }: { name: string }) {
           reset: save.reset,
         }}
       />
-      <MemoryNotes of={{ agent: name }} />
+      <MemoryNotes of={{ profile: name }} />
     </div>
   )
 }

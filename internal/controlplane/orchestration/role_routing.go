@@ -79,7 +79,11 @@ func resolveRoleEntry(ctx context.Context, q *store.Queries, version store.Profi
 	chain []profilestore.RoleEntry, index int,
 ) (resolved, error) {
 	entry := chain[index]
+	// A role's effort is its routing's; a profile's own fallbacks run with the profile's effort (issue #1336).
 	effort := or(task.Effort.String, profilestore.RoleEffort(task.Profile, task.Kind))
+	if version.Runtime != profilestore.RoleRuntime {
+		effort = or(task.Effort.String, version.Effort.String)
+	}
 	if err := profilestore.CheckRoleEntryTx(ctx, q, entry, effort); err != nil {
 		return resolved{}, err
 	}

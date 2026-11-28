@@ -45,8 +45,8 @@ const DefaultProfile = "implementer"
 // MaxDescription bounds a profile's description.
 const MaxDescription = 500
 
-// MaxFallbacks bounds a profile's backups, as OpenMausBot keeps five for a
-// bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
+// MaxFallbacks bounds an agent's fallbacks, a Bot's or a profile's, as OpenMausBot keeps five backups for a bot
+// (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
 const MaxFallbacks = 5
 
 // BotRuntime is what every Bot runs: pi, started by the control plane. No node has it and no Task is placed under it
@@ -58,30 +58,46 @@ var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 var namePattern = storeutil.NamePattern
 
+// AgentSpec is what a Bot and a Profile have in common (issue #1336), embedded in each, as OpenClaw keeps one
+// agent entry for its main agent and its sub-agents (src/config/zod-schema.agent-entry-base.ts) and Paperclip one
+// agents table with the runtime as a column (packages/db/src/schema/agents.ts). What only a Bot has (its
+// Connections, workers, main chat) and what only a Profile has (its runtime, requests, versions' source) stay on
+// their own type.
+type AgentSpec struct {
+	// Instructions are what the agent is and how it works, written by the owner; they follow the runtime's own.
+	// A Bot's were its persona and a Profile's its instruction until 2026-11-28.
+	Instructions string
+	Provider     string
+	Model        string
+	Effort       string
+	// Fallbacks are models, each provider/model, in the owner's order, tried in turn when the agent's own model
+	// cannot be served now, as OpenClaw's model fallbacks (src/config/zod-schema.agent-model.ts). A Profile's
+	// named backup Profiles until 2026-11-28 (issue #171).
+	Fallbacks []string
+	// Skills are the skills the agent gets beside those given to everyone; SkillsOff the ones given to everyone
+	// it does not get (issue #21).
+	Skills    []string
+	SkillsOff []string
+	Preset    string
+	Tools     []string
+	ToolsOff  []string
+}
+
+// ToolSwitches are the agent's tool switches.
+func (a AgentSpec) ToolSwitches() agenttool.ToolSwitches {
+	return agenttool.ToolSwitches{Preset: a.Preset, On: a.Tools, Off: a.ToolsOff}
+}
+
 // Profile is the current version of a named profile, or one version of it.
 type Profile struct {
+	AgentSpec
+
 	Name string
 	// Description says what the profile is for, so a coordinator chooses by it.
 	Description string
 	VersionID   string
 	Version     int
 	Runtime     string
-	Provider    string
-	Model       string
-	Effort      string
-	Instruction string
-	// Fallbacks names, in the owner's order, the profiles a Task of this one
-	// runs under while every account of its runtime waits for a limit to
-	// reset (issue #171). Empty: the Task waits.
-	Fallbacks []string
-	// Skills are the skills the profile's workers get beside those given to
-	// everyone; SkillsOff the ones given to everyone they do not get
-	// (issue #21).
-	Skills    []string
-	SkillsOff []string
-	Preset    string
-	Tools     []string
-	ToolsOff  []string
 	// CPURequestMillis and MemoryRequestBytes are what a worker of the profile
 	// asks of a node, from the YAML's requests (issue #731); 0 is the default
 	// for building work, DefaultCPURequestMillis or DefaultMemoryRequest.
@@ -104,11 +120,6 @@ type Availability struct {
 	Available bool
 	Reason    string
 	At        *time.Time
-}
-
-// ToolSwitches are the tool switches of the profile's workers.
-func (p Profile) ToolSwitches() agenttool.ToolSwitches {
-	return agenttool.ToolSwitches{Preset: p.Preset, On: p.Tools, Off: p.ToolsOff}
 }
 
 // Placement says whether a worker can start under each profile now. It is the
@@ -178,6 +189,8 @@ type Source struct {
 		Name     string `yaml:"name"`
 		Effort   string `yaml:"effort"`
 	} `yaml:"model"`
+	Instructions string `yaml:"instructions"`
+	// Instruction is Instructions under its name until 2026-11-28 (issue #1336), read for one release.
 	Instruction string   `yaml:"instruction"`
 	Fallbacks   []string `yaml:"fallbacks"`
 	Skills      []string `yaml:"skills"`
@@ -288,10 +301,17 @@ func ParseProfile(name, source string) (Draft, error) {
 		return Draft{}, err
 	}
 
+	if in.Instructions != "" && in.Instruction != "" {
+		return Draft{}, fmt.Errorf("%w: give instructions, not instructions and instruction, its name until "+
+			"2026-11-28", storeerr.ErrInvalid)
+	}
+
 	p := Profile{
-		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
-		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Skills: in.Skills, SkillsOff: in.SkillsOff, Tools: in.Tools,
-		Preset: agenttool.DefaultPreset(in.Preset), ToolsOff: in.ToolsOff, Source: source,
+		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime, Source: source,
+		AgentSpec: AgentSpec{
+			Instructions: or(in.Instructions, in.Instruction), Fallbacks: in.Fallbacks, Skills: in.Skills,
+			SkillsOff: in.SkillsOff, Tools: in.Tools, Preset: agenttool.DefaultPreset(in.Preset), ToolsOff: in.ToolsOff,
+		},
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
@@ -376,7 +396,7 @@ func (s *Store) ApplyTx(ctx context.Context, q *store.Queries, now int64, d Draf
 		}
 	}
 
-	if err := checkFallbacks(ctx, q, p); err != nil {
+	if err := CheckFallbacksTx(ctx, q, p.Runtime, provider, p.Model, p.Fallbacks); err != nil {
 		return Profile{}, false, "", fmt.Errorf("profile %s: %w", p.Name, err)
 	}
 
@@ -399,7 +419,10 @@ func (s *Store) ApplyTx(ctx context.Context, q *store.Queries, now int64, d Draf
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
 		return Profile{}, false, "", fmt.Errorf("reading profile %s: %w", p.Name, err)
-	case current.Digest == digest && !current.deleted && current.Provider.String == p.Provider:
+	// The editor's text of the current version, with what a migration changed projected into it (issue #1336), is
+	// the same source as the one stored.
+	case (current.Digest == digest || EditableSource(current.ProfileVersion) == p.Source) && !current.deleted &&
+		current.Provider.String == p.Provider:
 		out = profileFromRow(current.ProfileVersion)
 		out.Source = editableProfileSource(out)
 
@@ -422,7 +445,7 @@ func (s *Store) ApplyTx(ctx context.Context, q *store.Queries, now int64, d Draf
 	if err := q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
 		ID: id, Profile: p.Name, Version: current.Version + 1, Source: p.Source, Digest: digest,
 		Description: p.Description, Runtime: or(p.Runtime, RoleRuntime), Provider: nullString(p.Provider),
-		Model: nullString(p.Model), Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
+		Model: nullString(p.Model), Effort: nullString(p.Effort), Instructions: nullString(p.Instructions),
 		Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
 		SkillsOff: strings.Join(p.SkillsOff, ","), Tools: strings.Join(p.Tools, ","),
 		Preset: p.Preset, ToolsOff: strings.Join(p.ToolsOff, ","), CpuRequestMillis: positive(p.CPURequestMillis),
@@ -485,9 +508,9 @@ func MissingProfileTx(ctx context.Context, q *store.Queries, err error, name str
 // Dispatches that ran them, as Coder marks a template deleted
 // (coderd/templates.go, deleteTemplate) and Onyx a persona: it is hidden and
 // no new Task names it. Refused for the starting profile (Hermes's default
-// profile, Onyx's built-ins), and while an unfinished Task names it, another
-// profile names it as a backup, or a Bot's workers list names it (Coder's
-// workspaces, Omnigent's agent_in_use): those are changed first.
+// profile, Onyx's built-ins), and while an unfinished Task names it or a Bot's
+// workers list names it (Coder's workspaces, Omnigent's agent_in_use): those
+// are changed first.
 func (s *Store) DeleteProfile(ctx context.Context, name string) error {
 	if name == DefaultProfile {
 		return fmt.Errorf("%w: profile %s is the one a task that names none runs under; it is always there",
@@ -530,17 +553,11 @@ func (s *Store) DeleteProfile(ctx context.Context, name string) error {
 	return nil
 }
 
-// profileDeletable refuses to delete a profile that unfinished Tasks, other
-// profiles' backups or Bots' workers lists still name.
+// profileDeletable refuses to delete a profile that unfinished Tasks or Bots' workers lists still name.
 func profileDeletable(ctx context.Context, q *store.Queries, name string) error {
 	unfinished, err := q.CountUnfinishedTasksOfProfile(ctx, name)
 	if err != nil {
 		return fmt.Errorf("reading the tasks of profile %s: %w", name, err)
-	}
-
-	named, err := q.CountFallbacksNaming(ctx, name)
-	if err != nil {
-		return fmt.Errorf("reading the backups naming profile %s: %w", name, err)
 	}
 
 	bots, err := q.BotsNamingWorker(ctx, nullString(name))
@@ -552,8 +569,6 @@ func profileDeletable(ctx context.Context, q *store.Queries, name string) error 
 	case unfinished > 0:
 		return fmt.Errorf("%w: %d unfinished tasks name profile %s; let them end or cancel them first", storeerr.ErrConflict,
 			unfinished, name)
-	case named > 0:
-		return fmt.Errorf("%w: %d profiles name %s as a backup; change them first", storeerr.ErrConflict, named, name)
 	case len(bots) > 0:
 		return fmt.Errorf("%w: the workers list of bots %s names profile %s; change them first", storeerr.ErrConflict,
 			strings.Join(bots, ", "), name)
@@ -562,23 +577,42 @@ func profileDeletable(ctx context.Context, q *store.Queries, name string) error 
 	return nil
 }
 
-// checkFallbacks checks the backups a profile names: each an existing
-// worker's profile, named once, and not the profile itself.
-func checkFallbacks(ctx context.Context, q *store.Queries, p Profile) error {
-	if len(p.Fallbacks) > MaxFallbacks {
-		return fmt.Errorf("%w: a profile names at most %d fallbacks", storeerr.ErrInvalid, MaxFallbacks)
+// CheckFallbacksTx checks an agent's fallbacks, a Bot's or a profile's (issue #1336): at most MaxFallbacks, each
+// provider/model, served on the agent's runtime, named once and not the agent's own model, which they follow, as
+// OpenClaw's model fallbacks follow its primary (src/config/zod-schema.agent-model.ts). provider is the agent's own,
+// as CheckModelTx found it.
+func CheckFallbacksTx(ctx context.Context, q *store.Queries, runtime, provider, model string, fallbacks []string,
+) error {
+	if len(fallbacks) == 0 {
+		return nil
 	}
 
-	for i, name := range p.Fallbacks {
+	if len(fallbacks) > MaxFallbacks {
+		return fmt.Errorf("%w: an agent has at most %d fallbacks", storeerr.ErrInvalid, MaxFallbacks)
+	}
+
+	if model == "" {
+		return fmt.Errorf("%w: choose a primary model before adding fallbacks", storeerr.ErrInvalid)
+	}
+
+	seen := map[string]bool{provider + "/" + model: true}
+
+	for _, ref := range fallbacks {
+		fp, fm, err := ModelRef(ref)
+
 		switch {
-		case name == p.Name:
-			return fmt.Errorf("%w: a profile is not its own fallback", storeerr.ErrInvalid)
-		case slices.Contains(p.Fallbacks[:i], name):
-			return fmt.Errorf("%w: fallback %q is named twice", storeerr.ErrInvalid, name)
+		case err != nil:
+			return err
+		case fp == "" || strings.ContainsAny(ref, ",\r\n") || strings.TrimSpace(ref) != ref:
+			return fmt.Errorf("%w: fallback %q must be provider/model", storeerr.ErrInvalid, ref)
+		case seen[ref]:
+			return fmt.Errorf("%w: fallback %q repeats a model in the chain", storeerr.ErrInvalid, ref)
 		}
 
-		if _, err := q.CurrentProfileVersion(ctx, name); err != nil {
-			return fmt.Errorf("fallback: %w", MissingProfileTx(ctx, q, err, name))
+		seen[ref] = true
+
+		if _, err := CheckModelTx(ctx, q, runtime, fp, fm, ""); err != nil {
+			return fmt.Errorf("fallback %s: %w", ref, err)
 		}
 	}
 
@@ -719,7 +753,9 @@ func EditableSource(v store.ProfileVersion) string {
 	return editableProfileSource(profileFromRow(v))
 }
 
-// editableProfileSource projects a migrated tool policy into the editor without rewriting the version's history.
+// editableProfileSource projects what a migration changed into the editor without rewriting the version's history:
+// the tool policy (00123), the instructions' name and the fallbacks converted from backup profiles to models (issue
+// #1336). A source a migration left as it was is returned as written.
 func editableProfileSource(p Profile) string {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(p.Source), &doc); err != nil || len(doc.Content) != 1 {
@@ -728,37 +764,69 @@ func editableProfileSource(p Profile) string {
 
 	root := doc.Content[0]
 	var source Source
-	if root.Kind != yaml.MappingNode || root.Decode(&source) != nil ||
-		agenttool.DefaultPreset(source.Preset) == p.Preset && slices.Equal(source.Tools, p.Tools) &&
-			slices.Equal(source.ToolsOff, p.ToolsOff) {
+	if root.Kind != yaml.MappingNode || root.Decode(&source) != nil {
 		return p.Source
 	}
 
-	var policy yaml.Node
-	if err := policy.Encode(struct {
-		Preset string   `yaml:"preset"`
-		On     []string `yaml:"tools,omitempty"`
-		Off    []string `yaml:"tools_off,omitempty"`
-	}{p.Preset, p.Tools, p.ToolsOff}); err != nil {
+	policyKept := agenttool.DefaultPreset(source.Preset) == p.Preset && slices.Equal(source.Tools, p.Tools) &&
+		slices.Equal(source.ToolsOff, p.ToolsOff)
+	fallbacksKept := slices.Equal(source.Fallbacks, p.Fallbacks)
+
+	if policyKept && fallbacksKept && source.Instruction == "" {
 		return p.Source
 	}
 
-	keys := make([]*yaml.Node, 0, len(root.Content)+len(policy.Content))
+	keys := make([]*yaml.Node, 0, len(root.Content)+6)
 	for index := 0; index < len(root.Content); index += 2 {
-		switch root.Content[index].Value {
-		case "preset", "tools", "tools_off":
+		key, value := root.Content[index], root.Content[index+1]
+
+		switch {
+		case !policyKept && slices.Contains([]string{"preset", "tools", "tools_off"}, key.Value):
+		case !fallbacksKept && key.Value == "fallbacks":
+			if len(p.Fallbacks) > 0 {
+				keys = append(keys, key, sequence(p.Fallbacks))
+			}
+		case key.Value == "instruction":
+			keys = append(keys, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "instructions"}, value)
 		default:
-			keys = append(keys, root.Content[index:index+2]...)
+			keys = append(keys, key, value)
 		}
 	}
 
-	root.Content = append(keys, policy.Content...)
+	if !fallbacksKept && len(source.Fallbacks) == 0 && len(p.Fallbacks) > 0 {
+		keys = append(keys, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fallbacks"}, sequence(p.Fallbacks))
+	}
+
+	if !policyKept {
+		var policy yaml.Node
+		if err := policy.Encode(struct {
+			Preset string   `yaml:"preset"`
+			On     []string `yaml:"tools,omitempty"`
+			Off    []string `yaml:"tools_off,omitempty"`
+		}{p.Preset, p.Tools, p.ToolsOff}); err != nil {
+			return p.Source
+		}
+
+		keys = append(keys, policy.Content...)
+	}
+
+	root.Content = keys
 	raw, err := yaml.Marshal(&doc)
 	if err != nil {
 		return p.Source
 	}
 
 	return string(raw)
+}
+
+// sequence is a list of names as a YAML flow sequence, as the editor writes one.
+func sequence(names []string) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+	for _, name := range names {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name})
+	}
+
+	return node
 }
 
 // withAvailability says of each profile whether a worker can start under it
@@ -818,11 +886,13 @@ func profileFromRow(v store.ProfileVersion) Profile {
 	}
 	return Profile{
 		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: runtime,
-		Provider: v.Provider.String,
-		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
-		Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills), SkillsOff: splitNames(v.SkillsOff),
-		Preset: v.Preset, Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff),
-		CreatedAt:        storeutil.Millis(v.CreatedAt),
+		AgentSpec: AgentSpec{
+			Provider: v.Provider.String, Model: v.Model.String, Effort: v.Effort.String,
+			Instructions: v.Instructions.String, Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills),
+			SkillsOff: splitNames(v.SkillsOff), Preset: v.Preset, Tools: splitNames(v.Tools),
+			ToolsOff: splitNames(v.ToolsOff),
+		},
+		Source: v.Source, CreatedAt: storeutil.Millis(v.CreatedAt),
 		CPURequestMillis: v.CpuRequestMillis.Int64, MemoryRequestBytes: v.MemoryRequestBytes.Int64,
 	}
 }
@@ -845,8 +915,8 @@ func splitNames(stored string) []string {
 // RestoreVersionTx points a profile at what one of its versions was, as a new
 // version, in the caller's transaction: the undo of a change the main Bot made
 // (setupchanges.go). Versions never change and their numbers only rise. What
-// it was may no longer be served, or name a backup that is gone: that is
-// refused rather than put back a profile that cannot run.
+// it was may no longer be served, its model or a fallback: that is refused
+// rather than put back a profile that cannot run.
 func (s *Store) RestoreVersionTx(ctx context.Context, q *store.Queries, now int64, name, beforeID string) error {
 	before, err := q.GetProfileVersion(ctx, beforeID)
 	if err != nil {
@@ -863,11 +933,11 @@ func (s *Store) RestoreVersionTx(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("profile %s as it was: %w", name, err)
 	}
 
-	// A backup it named may have gone since: the scheduler would not find it.
-	for _, backup := range splitNames(before.Fallbacks) {
-		if _, err := q.GetProfile(ctx, backup); err != nil {
-			return fmt.Errorf("%w: profile %s as it was names the backup %s, which is gone; change it by hand",
-				storeerr.ErrConflict, name, backup)
+	// A fallback it named may no longer be served (issue #1336).
+	if before.Runtime != RoleRuntime {
+		if err := CheckFallbacksTx(ctx, q, before.Runtime, before.Provider.String, before.Model.String,
+			splitNames(before.Fallbacks)); err != nil {
+			return fmt.Errorf("%w: profile %s as it was: %w", storeerr.ErrConflict, name, err)
 		}
 	}
 
@@ -880,7 +950,7 @@ func (s *Store) RestoreVersionTx(ctx context.Context, q *store.Queries, now int6
 	return q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
 		ID: id, Profile: name, Version: current.Version + 1, Source: before.Source, Digest: before.Digest,
 		Description: before.Description, Runtime: before.Runtime, Provider: before.Provider, Model: before.Model,
-		Effort: before.Effort, Instruction: before.Instruction, Fallbacks: before.Fallbacks, Skills: before.Skills,
+		Effort: before.Effort, Instructions: before.Instructions, Fallbacks: before.Fallbacks, Skills: before.Skills,
 		SkillsOff: before.SkillsOff, Preset: before.Preset, Tools: before.Tools, ToolsOff: before.ToolsOff,
 		CpuRequestMillis: before.CpuRequestMillis, MemoryRequestBytes: before.MemoryRequestBytes, Now: now,
 	})

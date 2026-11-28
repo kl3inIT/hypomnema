@@ -42,7 +42,7 @@ Two deployables, all Go:
   drives orchestration with the `hypomnema` CLI and a coordinator skill, as Orca's coordinators drive `orca
   orchestration` ([decision](decisions/2026-11-09-coordinator-cli-and-skill.md), issue #41); every policy decision
   is made in Go behind the client API. The owner's own agent on a laptop coordinates the same way. Several Bots,
-  each with its persona, memory and tools, as OpenMausBot's bots and OpenClaw's agents (issue #169).
+  each with its instructions, memory and tools, as OpenMausBot's bots and OpenClaw's agents (issue #169).
 - **Workers are coding agents' CLIs**, driven headless: Codex through `codex app-server` (JSON-RPC), Claude Code
   through bidirectional stream-JSON with permission prompts answered by the host, omp and opencode over ACP. pi is
   the Bots' and is not a worker; small cheap jobs go to omp or opencode on a model of the gateway.

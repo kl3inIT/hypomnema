@@ -96,7 +96,7 @@ flowchart TB
     SUP["supervisor: one pi per chat,<br/>stopped after 30 min idle (coordinator)"]
     subgraph BOX["bubblewrap box, user coordinator (hypomnema-pi)"]
         PI["pi --mode rpc"]
-        RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
+        RO["read-only: prompt.md (instructions, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
         MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>listen_search,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn,<br/>chat_search over its own chats"]
     end
@@ -1620,8 +1620,33 @@ sequenceDiagram
     shows less when it has less room). That is decided once for a Run; then the strip stays as the owner left it.
   - A wake-up's Run chip pins its Run to the dock, open, even when it has ended, until the chat is left.
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
-  Bot is a row with an id, a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona
+  Bot is a row with an id, a name, a model (provider, name, effort, checked as a profile's is, for pi), instructions
   and a memory. It is apart from the workers' profiles (owner, 2026-11-11).
+  - **One agent spec** (issue #1336, after OpenClaw's one agent entry, `src/config/zod-schema.agent-entry-base.ts`,
+    and Paperclip's one `agents` table): what a Bot and a profile have in common is `profilestore.AgentSpec`,
+    embedded in `orchestration.Bot` and `profilestore.Profile`, and the API's `AgentSpec` schema, which `Bot` and
+    `Profile` take with `allOf`: `instructions`, `provider`, `model`, `effort`, `fallbacks`, `skills`, `skills_off`
+    and the tool switches. A Bot's `instructions` were its `persona`, a profile's its `instruction` (migration
+    `agent_spec` renames `bots.persona` and `profile_versions.instruction` to `instructions`); for one release the
+    API still gives `persona` and `instruction` beside them and reads them when `instructions` is left out
+    (`BotSettings.persona`, a profile YAML's `instruction:`, both refused together), and the CLI's
+    `--persona-file` is `--instructions-file`. `fallbacks` is one thing on both, an ordered `provider/model` list
+    checked by `profilestore.CheckFallbacksTx` (at most five, each served on the agent's runtime, none repeated nor
+    the agent's own model, only after a model of its own); a Bot's must also be gateway models. The editor of a
+    profile whose stored source still says `instruction:` or names backup profiles shows it with `instructions:`
+    and the converted list, and applying that text unchanged makes no new version.
+  - **Versions** (issue #1336, after the profiles' versions and Paperclip's `agent_config_revisions` with
+    `createdByUserId`, `createdByAgentId`, `source` and `rolledBackFromRevisionId`): each save that changes a Bot's
+    settings keeps a row of `bot_versions` (`id`, `bot_id`, `version`, the settings as the setup changes keep them,
+    `source` `save`, `restore` or `undo`, `saved_by` `owner` or `main_bot` with its `chat_id`, `restored_from`,
+    `created_at`): `PUT`/`POST /bots`, the undo of a setup change and the owner's grant of a Connection a Bot asked
+    for. A Bot saved before versions keeps what it had as a `before_versions` version at its next save. Its name
+    and memory are not part of a version, as a profile's memory is not part of its versions. `GET
+    /bots/{bot_id}/versions` (`hypomnema bots versions`) lists them newest first to the tokens that read the Bot;
+    `POST /bots/{bot_id}/versions/{version_id}/restore` (`hypomnema bots restore`, the Bot page's Versions) saves
+    one again as a new version, for the owner or the main Bot from its chat (whose restore keeps what the Bot may
+    do with the owner's accounts), as Paperclip's rollback saves a revision's config again. The versions go with
+    the Bot (`ON DELETE CASCADE`).
   - **Ids and names** (issue #466, migration 00085; after the nodes' ids, OpenMausBot's bot ids and t3code's
     project ids). A Bot's id (`bot_` and 26 base32 characters, `platform.NewID`) never changes; its name is only
     shown and may change. Every record names the Bot by its id: `chats.bot_id`, `runs.bot_id`, `routines.bot_id`
@@ -1663,8 +1688,8 @@ sequenceDiagram
     (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the Bots oldest first, each with its
     `position` and `department`. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
-  - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
-    to give work to workers is the persona of `coordinator`; the instructions every Bot gets
+  - The instructions are the owner's text of what the Bot is, as `SOUL.md` of OpenClaw and Hermes, kept in its
+    versions since issue #1336. How to give work to workers is the instructions of `coordinator`; the instructions every Bot gets
     (`deploy/coordinator/AGENTS.md`) keep how a Bot works with the owner: the coordinator skill, the wake-ups and
     the language, and that what a document, an
     issue or memory says about the code or a server is checked before it is acted on or given to workers (issue
@@ -1694,10 +1719,12 @@ sequenceDiagram
     user cannot read the `coordinator` user's home, and the owner reads the memory on the web. The owner edits it
     by hand, as the owner of a reference's agent edits its memory file (owner, 2026-11-11): `PUT
     /bots/{bot_id}/memory` replaces the whole memory with his lines (empty lines and repeats dropped, the same
-    limit), from the Bot's page or `hypomnema memory set`. No journal, no undo.
+    limit), from the Bot's page or `hypomnema memory set`. No journal, no undo. `GET /bots/{bot_id}/memory` reads
+    it, and the three answer the `Memory` a profile's memory has (issue #1336; they answered the whole Bot until
+    then), with `bot` naming it.
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<id>/`, pi's
     working directory; for the main Bot a link to the directory pi always worked in, so its chats go on), reads
-    `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory, the list of its notes and which
+    `hypomnema bots prompt <id>` with the coordinator token (the instructions, the memory, the list of its notes and which
     file of `/memories` each is) and gives it to pi with `--append-system-prompt`. The memory is thus read once per pi
     process, as Hermes gives its memory once per session; a change is in the prompt from pi's next start. pi
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
@@ -1825,8 +1852,8 @@ sequenceDiagram
     routes. A name the Bot did not have must exist when it is set; one it kept may have gone since. `bots set
     --connections a,b | --all-connections`, `--workers a,b | --all-workers`; a change that names neither keeps
     the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
-    records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
-    when the Bot's list, read then, has that backup; otherwise it waits for the reset.
+    records the Bot that created it (`runs.bot`). A profile's fallbacks are models on its own runtime, not other
+    profiles, since issue #1336, so a Task of it never moves to a profile off the Bot's list.
   - **Connection requests, the grant card** (issue #471, part D; `orchestration/connectionrequests.go`, migration
     `connection_requests`, [research](docs/research/2026-11-21-grant-card.md)). A Bot whose `connections` list is
     limited may ask the owner for a Connection outside it, from its pi in its main chat only: the tool
@@ -1938,15 +1965,19 @@ sequenceDiagram
     when it was written, `Notes: 12 of 200 files (6%).`) and, from 80% of a limit, asks to make room until under
     70%, Coder's nudge; `hypomnema memory add|replace|remove` prints `agenttool.MemoryUsage` the same way. It is
     never put in a prompt.
-  - A Bot's prompt (`hypomnema bots prompt`) has, after the persona and before the Bot's own `MEMORY.md`, the
+  - A Bot's prompt (`hypomnema bots prompt`) has, after the instructions and before the Bot's own `MEMORY.md`, the
     memory about the owner (`/memories/USER.md`), then the Bot's notes with their sizes, read with the tool when
     their subject comes up (OpenMausBot's topic index); what changes least comes first. A Lark group's chat gets
     neither memory nor the notes.
-  - The client API: `GET /profiles/{name}/memory`, `GET /owner-memory` for every token; `POST /owner-memory` (one
-    change) for every token; `PUT` of either and `POST /profiles/{name}/memory` for the owner. A memory's notes:
-    `GET /memory-notes?bot=|agent=` and `GET /memory-notes/note?…&path=` for every token, a Bot's token only its
-    own Bot's; `PUT` and `DELETE /memory-notes/note` for the owner. `hypomnema memory show|set|add|replace|remove`
-    takes `--agent <name>` or `--owner` beside `--bot`; `hypomnema memory ls|cat|put|rm` the notes. Removing a Bot
+  - The client API: `GET /profiles/{name}/memory` (`GetProfileMemory`), `GET /owner-memory` for every token;
+    `POST /owner-memory` (one change) for every token; `PUT` of either and `POST /profiles/{name}/memory`
+    (`SetProfileMemory`, `ChangeProfileMemory`) for the owner. The operations were `GetAgentMemory`,
+    `SetAgentMemory` and `ChangeAgentMemory` until 2026-11-28 (issue #1336), and the `Memory` they answer names the
+    profile as `profile`, and for one release as `agent` too. A memory's notes: `GET /memory-notes?bot=|profile=`
+    and `GET /memory-notes/note?…&path=` for every token (`agent=` still names the profile for one release), a
+    Bot's token only its own Bot's; `PUT` and `DELETE /memory-notes/note` for the owner. `hypomnema memory
+    show|set|add|replace|remove` takes `--profile <name>` (`--agent`, its name until 2026-11-28, for one release)
+    or `--owner` beside `--bot`; `hypomnema memory ls|cat|put|rm` the notes. Removing a Bot
     with its chats removes its notes; a Bot with notes is not removed plainly.
   - On the web (`web/src/features/memory/`): an agent's page has Memory beside Configuration and Versions, and
     Settings has "About you" beside Notifications under Preferences, as OpenClaw's Profile (issue #1296).
@@ -2373,7 +2404,8 @@ flowchart LR
 - Legacy profiles (the domain store `orchestration/profilestore` keeps profiles, their versions, the role routing and
   the providers and models they name, reached through `Service.Profiles()`, issue #1241; issue #42, after Omnara's
   agent configs): a profile is a YAML document
-  (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
+  (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instructions`,
+  `instruction` until 2026-11-28 and read for one release, issue #1336). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
   API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or
@@ -2385,11 +2417,11 @@ flowchart LR
   section at the bottom of an agent's page, as the Bot page's Removal). One no Task named and no Dispatch ran goes
   with its versions, as Omnigent removes an agent no session uses; one used before is marked deleted
   (`profiles.deleted_at`, migration 00084), as Coder marks a template and Onyx a persona: it is left out of the
-  lists, reads as not found ("was deleted"), and no new Task, backup or Bot's workers list may name it, while its
+  lists, reads as not found ("was deleted"), and no new Task or Bot's workers list may name it, while its
   versions stay for the Dispatches that ran them. Applying its name again brings it back as a new version, even
   from the same source (Onyx's `mark_persona_as_not_deleted`). `implementer` is never deleted, and a profile is
-  not while a Task that names it has not ended (a failed one of an open Run counts, being reopenable), another
-  profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
+  not while a Task that names it has not ended (a failed one of an open Run counts, being reopenable) or a Bot's
+  workers list names it. Its agent memory is kept either way and
   belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. A subscription (`claude_subscription`, `codex_subscription`,
@@ -2425,9 +2457,13 @@ flowchart LR
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
-  A profile may name up to five `fallbacks`, other workers' profiles in the owner's order (issue #171, after
-  OpenMausBot's backups of a bot and OpenClaw's fallbacks of an agent;
-  [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); they are kept in the version.
+  A profile may name up to five `fallbacks`, models as `provider/model` in the owner's order, as a Bot's (issue
+  #1336, after OpenClaw's model fallbacks, `src/config/zod-schema.agent-model.ts`); they are kept in the version.
+  Until 2026-11-28 they named other workers' profiles (issue #171,
+  [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); migration `agent_spec` gave each version
+  that named backups each backup's current model, in order, dropping a role, a backup with no model of its own, a
+  name no profile has, a repeat and the version's own model, and kept what they named in
+  `legacy_profile_fallbacks`, which its Down puts back.
   The starting set: `implementer`, `reviewer` and `explorer` on Claude Code through the provider `model-gateway`
   (issue #462, migration 00081), the implementer and the reviewer on `claude-opus-5-5`, the explorer on
   `claude-sonnet-5-5`; providers `claude-subscription` and `model-gateway` (the gateway, below). The migration
@@ -2545,23 +2581,24 @@ flowchart LR
   every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
   `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
-  A new Task with a legacy profile whose runtime has only accounts that cool down is placed under the first
-  of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
-  current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
-  only one that names no runtime or model of its own; a backup's own `fallbacks` are not followed; with none that
-  can run, the Task waits as before. The Dispatch records `fallback_for`, the Task's own profile, and
+  A Task of a profile with `fallbacks` runs down a chain of its own (issue #1336; `profileChain`), as a role's
+  chain is run (role routing, above): the profile's model first, then each fallback, on the profile's runtime,
+  with the profile's effort and version. While the gateway cools the model, or every account of its runtime cools
+  down, the next entry that can run is placed (`placeRoleBackup`). Only a Task that names no runtime or model of
+  its own has a chain; with no entry that can run, the Task waits as before. Until 2026-11-28 the list named
+  backup profiles, under whose own version a Task ran (issue #171); a Dispatch made then that is still open keeps
+  that version. The Dispatch records `fallback_for`, the Task's own profile, and
   `fallback_until`, when its first account is free; the first such Dispatch of a Run for one `fallback_until` is
   escalated (`fallback`, with `profile`, `fallback` and `until`), so a coordinator hears of one stretch of a limit
-  once. Each pass starts from the Task's own profile, so work returns when the limit has reset. A profile whose
-  model the gateway serves never triggers it: the state of the gateway's accounts is not looked at. The Agents
-  page edits the list, and a Task's card says which profile it stands in for.
+  once. Each pass starts from the chain's first entry, so work returns when the limit has reset. The Agents page
+  edits the list with the Bot page's picker of models, and a Task's card says which profile it stands in for.
   A Task whose worker met the limit under way is handed off (issue #187, after Orca's hand-off of a session to
   another agent and OpenMausBot's resending of a limited turn;
   [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md), section 4): when its Dispatch ends
   `rate_limited` and the Task may be handed off, it is not held until the reset, and the next pass gives it a new
-  Conversation under the first fallback that can run on the Conversation's node, in the same worktree; the old
-  Conversation closes as superseded and no session of the first CLI is resumed. It may be handed off when it names
-  no runtime or model, its profile lists fallbacks, it was not handed off before, and no request to a service was
+  Conversation under the next entry of its chain that can run on the Conversation's node, in the same worktree;
+  the old Conversation closes as superseded and no session of the first CLI is resumed. It may be handed off when
+  it names no runtime or model, it runs down a chain with an entry after its own, and no request to a service was
   approved for it (a write the policy allows without asking leaves no record and is not seen). The Dispatch has
   `handoff`; its offer's spec is the Task's spec, then that another worker began it, the end of the previous
   Dispatch's transcript without reasoning (at most 40 items, 400 characters a line, 12,000 in all) inside
