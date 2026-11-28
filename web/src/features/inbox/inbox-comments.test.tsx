@@ -60,9 +60,9 @@ const wrap = (children: ReactNode) => (
   <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
 )
 
-async function write(item: Todo, button: string) {
+async function write(item: Todo, button: string, text = "Draft a reply to Kai") {
   render(wrap(<CommentComposer todo={item} mainBot="bot_main" botName={botName} />))
-  await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "Draft a reply to Kai")
+  await userEvent.type(screen.getByRole("textbox", { name: "Message" }), text)
   await userEvent.click(screen.getByRole("button", { name: button }))
 }
 
@@ -97,6 +97,17 @@ test("send on a handed item adds a comment", async () => {
   await waitFor(() =>
     expect(calls).toEqual([
       { call: "POST /inbox/tdo_1/comments", body: { text: "Draft a reply to Kai" } },
+    ]),
+  )
+})
+
+test("send on a review stall replies to the coordinator without handing over the item", async () => {
+  const calls = server()
+  await write(todo({ reply_to_coordinator: true }), "Send", "one more round")
+
+  await waitFor(() =>
+    expect(calls).toEqual([
+      { call: "POST /inbox/tdo_1/comments", body: { text: "one more round" } },
     ]),
   )
 })
