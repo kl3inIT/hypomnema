@@ -2702,9 +2702,12 @@ flowchart LR
       .../issues/comments/{id}/reactions` or `.../pulls/comments/{id}/reactions`, Omnara's `AcknowledgeComment`); a
       review has no reaction on GitHub. A review the App makes is recorded when its own POST
       `/repos/{owner}/{repo}/pulls/{n}/reviews` through the service proxy, sent with the App's installation token,
-      is answered 2xx (`serviceproxy.AppReviewed`, `orchestration.RecordAppReview`): by GitHub's id and address of
-      the review, on the item of that pull request whose attempt the chat it was sent from holds (the chat's work,
-      by the chat's own Bot), as an event `reviewed` by that Bot, the evidence it closes the item with; GitHub's
+      is answered 2xx (`serviceproxy.AppReviews`, `orchestration.AppReviewAttempt` and `RecordAppReview`): only from a
+      pi token, which names its chat and its Bot, the chat's own; the item's attempt that chat holds is read before
+      the POST goes out and checked again when the answer comes, so a late answer never counts for a later attempt;
+      the answer, unpacked by its `Content-Encoding` (gzip or deflate) for reading and passed on to gh as GitHub
+      sent it, gives GitHub's id and address of the review, recorded as an event `reviewed` by that Bot, the
+      evidence it closes the item with (review round 3 of PR #1323); GitHub's
       `pull_request_review` events never record one, so a review made before the attempt or from another chat,
       whenever its event comes, is never its work (review round 2 of PR #1323, after `RecordSent`).
       `App.Run`, started by `serve`, reads after each commit the calls not answered whose item closed

@@ -116,6 +116,7 @@ Never send a message to a client or a boss yourself.
 The review goes as the App because the REST call names the repository, which the service proxy reads to pick the
 App's installation token; `gh pr review` sends a mutation that names only the pull request's id, so it would go with
 the owner's own token and not count. The review counts as Hypo's work only when the App's own POST of it, from the
-chat of Hypo's current attempt, was answered by GitHub: the proxy records it then, by the review's id, and the item's
-history shows "The GitHub App reviewed the pull request". GitHub's later review event records nothing, so an older
+chat of Hypo's current attempt and with that chat's own token, was answered by GitHub: the proxy reads the attempt
+before the POST goes out and records the review by its id when the answer comes (gzipped or not), only if that
+attempt is still the one on the item; the item's history shows "The GitHub App reviewed the pull request". GitHub's later review event records nothing, so an older
 review, or one made elsewhere, never counts.

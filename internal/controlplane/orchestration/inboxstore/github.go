@@ -259,7 +259,8 @@ func (s *Store) callItemTx(ctx context.Context, q *store.Queries, now int64, c G
 }
 
 // MadeReview is a review the GitHub App made on a pull request, as GitHub answered the POST that made it, and where
-// it was made: the Bot whose gh sent it and the work of the chat it was sent from (a chat, or its Routine's run).
+// it was made: the Bot whose gh sent it, the work of the chat it was sent from (a chat, or its Routine's run) and the
+// attempt read before the POST went out (ReviewAttempt).
 type MadeReview struct {
 	Repository string
 	Number     int
@@ -267,17 +268,52 @@ type MadeReview struct {
 	URL        string
 	Bot        string
 	Work       Work
+	Attempt    string
+}
+
+// ReviewAttempt is the attempt a review the GitHub App makes now on a pull request would be the work of (issue
+// #1232; review round 3 of PR #1323): the current attempt on the pull request's item, when bot is on it in work. It
+// is read before the review's POST goes out and checked again when the review is recorded, as RecordSent records a
+// message in the attempt its send named (issue #1206). "" for none.
+func (s *Store) ReviewAttempt(ctx context.Context, repository string, number int, bot string, work Work,
+) (string, error) {
+	source := fmt.Sprintf("%s#%d", strings.ToLower(repository), number)
+
+	row, err := store.New(s.db).LatestTodoOfSource(ctx, store.LatestTodoOfSourceParams{
+		SourceKind: FromGitHub, SourceID: source,
+	})
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("reading the item of %s: %w", source, err)
+	case bot == "" || !onIt(row, bot, work):
+		return "", nil
+	}
+
+	return row.WorkAttempt.String, nil
+}
+
+// onIt says whether bot's attempt on the item is in work.
+func onIt(row store.Todo, bot string, work Work) bool {
+	return (row.State == Doing || row.State == Review) && row.WorkBot.String == bot &&
+		row.WorkKind.String == work.Kind && row.WorkID.String == work.ID
 }
 
 // RecordReview records on a pull request's item the review the GitHub App made on it, by the id GitHub gave it in
 // its answer to the App's own POST (issue #1232; review round 2 of PR #1323), when the Bot's attempt on the item is
-// in the chat the review was made from: then it is that attempt's work, the evidence its Bot closes the item with
+// in the chat the review was made from and is still the attempt read before the POST (round 3): then it is that attempt's work, the evidence its Bot closes the item with
 // (botsWork). As RecordSent records a message when its send is made (issue #1206), it is recorded when it is made, so
 // no review made before the attempt or elsewhere is ever its work, whatever GitHub's events say or when they come.
 // False when it is not recorded.
 func (s *Store) RecordReview(ctx context.Context, r MadeReview) (bool, error) {
-	if r.URL == "" || utf8.RuneCountInString(r.URL) > MaxRef || r.ID <= 0 || r.Bot == "" {
-		return false, fmt.Errorf("%w: a review names its id, its address and its Bot", storeerr.ErrInvalid)
+	if r.URL == "" || utf8.RuneCountInString(r.URL) > MaxRef || r.ID <= 0 {
+		return false, fmt.Errorf("%w: a review names its id and its address", storeerr.ErrInvalid)
+	}
+
+	if r.Bot == "" || r.Attempt == "" {
+		return false, nil
 	}
 
 	source := fmt.Sprintf("%s#%d", strings.ToLower(r.Repository), r.Number)
@@ -291,8 +327,8 @@ func (s *Store) RecordReview(ctx context.Context, r MadeReview) (bool, error) {
 			return nil
 		case err != nil:
 			return fmt.Errorf("reading the item of %s: %w", source, err)
-		case row.State != Doing && row.State != Review, row.WorkBot.String != r.Bot,
-			row.WorkKind.String != r.Work.Kind, row.WorkID.String != r.Work.ID:
+		case !onIt(row, r.Bot, r.Work), row.WorkAttempt.String != r.Attempt:
+			// Another attempt began meanwhile, or none is on: the review is not this one's.
 			return nil
 		}
 

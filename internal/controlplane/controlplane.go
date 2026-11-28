@@ -552,7 +552,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			return token.Value, err == nil && ok
 		},
 		// A review the App makes through it is its Bot's attempt's work (issue #1232).
-		AppReviewed: appReviewed(svc, logger),
+		AppReviews: appReviews{svc: svc, logger: logger},
 		// A request to AWS is signed again with the session of the role it was made for (issue #331).
 		AWS: integrations.RoleCredentials,
 		// A Connection that has its own address (Superset) is sent a relayed request by the service that signs
@@ -1203,21 +1203,28 @@ func backgroundBeside(coordinator []string) []string {
 	return out
 }
 
-// appReviewed records a review the owner's GitHub App made through the service proxy on the Inbox item of its pull
-// request, as its Bot's attempt's work (issue #1232, review round 2 of PR #1323). A review it cannot record is only
-// logged: GitHub has it, and the Bot is told that inbox_done refuses it.
-func appReviewed(svc *orchestration.Service, logger *slog.Logger) serviceproxy.AppReviewed {
-	return func(ctx context.Context, r serviceproxy.AppReview) {
-		recorded, err := svc.RecordAppReview(ctx, r.Chat, r.Bot, r.Repository, r.Number, r.ID, r.URL)
-		if err != nil {
-			logger.WarnContext(ctx, "a review the GitHub App made could not be recorded",
-				slog.String("event", "githubapp.review_failed"), slog.String("repository", r.Repository),
-				slog.String("error", err.Error()))
+// appReviews ties a review the owner's GitHub App makes through the service proxy to the Inbox attempt it is made in,
+// as its Bot's work (issue #1232, review rounds 2 and 3 of PR #1323). A review it cannot record is only logged: GitHub
+// has it, and the Bot is told that inbox_done refuses it.
+type appReviews struct {
+	svc    *orchestration.Service
+	logger *slog.Logger
+}
 
-			return
-		}
+func (a appReviews) AppReviewAttempt(ctx context.Context, chat, bot, repository string, number int) (string, error) {
+	return a.svc.AppReviewAttempt(ctx, chat, bot, repository, number)
+}
 
-		logger.InfoContext(ctx, "the GitHub App made a review", slog.String("event", "githubapp.reviewed"),
-			slog.String("repository", r.Repository), slog.Int("number", r.Number), slog.Bool("recorded", recorded))
+func (a appReviews) AppReviewed(ctx context.Context, r serviceproxy.AppReview) {
+	recorded, err := a.svc.RecordAppReview(ctx, r.Chat, r.Bot, r.Attempt, r.Repository, r.Number, r.ID, r.URL)
+	if err != nil {
+		a.logger.WarnContext(ctx, "a review the GitHub App made could not be recorded",
+			slog.String("event", "githubapp.review_failed"), slog.String("repository", r.Repository),
+			slog.String("error", err.Error()))
+
+		return
 	}
+
+	a.logger.InfoContext(ctx, "the GitHub App made a review", slog.String("event", "githubapp.reviewed"),
+		slog.String("repository", r.Repository), slog.Int("number", r.Number), slog.Bool("recorded", recorded))
 }
