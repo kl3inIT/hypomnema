@@ -942,11 +942,11 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 		"Only a CodeRabbit Rate limited check or the coordinator's hourly limit skips the CodeRabbit review",
 		"Create the reviewer Task only after the head's CodeRabbit check has completed with a review",
 		"Wait while the check is missing, queued or in progress",
-		"Ask once more on Failed or Cancelled, within the hourly limit",
+		"Ask once more on Failed or Cancelled, within the hourly limit", //nolint:misspell // CodeRabbit state
 		"Request a fix round's new head only when a Critical or Major finding was fixed",
 		"CodeRabbit is never a merge condition",
 	} {
-		assert.True(t, strings.Contains(strings.Join(strings.Fields(out), " "), want),
+		assert.Contains(t, strings.Join(strings.Fields(out), " "), want,
 			"the coordinator's CodeRabbit rules (issue #1339): %s", want)
 	}
 
@@ -984,10 +984,10 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 		"Only Rate limited or the coordinator's hourly limit lets an eligible review proceed without CodeRabbit",
 		"Wait while the check is missing, queued or in progress",
 		"Create the reviewer Task only once the check has completed with a review on that head",
-		"For Failed or Cancelled, ask once more within the same hourly limit",
+		"For Failed or Cancelled, ask once more within the same hourly limit", //nolint:misspell // CodeRabbit state
 		"Request CodeRabbit on a fix round's new head only when a Critical or Major finding was fixed",
 	} {
-		assert.True(t, strings.Contains(strings.Join(strings.Fields(out), " "), want),
+		assert.Contains(t, strings.Join(strings.Fields(out), " "), want,
 			"the CodeRabbit review reference (issue #1339): %s", want)
 	}
 	assert.Contains(t, out, "CodeRabbit is never a condition of its own")

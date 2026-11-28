@@ -6272,13 +6272,14 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told the verdict and findings, without adding a Task. For each succeeded author Task with a narrow
-  or broad GitHub pull request, including a fix round's new head, the coordinator requests an incremental CodeRabbit
-  review through `gh api` before dispatching the reviewer (#1339). The service proxy sends this exact REST comment
-  with the GitHub Connection token, with standing approval. The reviewer gives the head's CodeRabbit check up to
-  ten minutes when pending or absent, proceeds on a refusal, and answers any review's Critical and Major findings
-  against the head. CodeRabbit is never a merge condition. The model is the profile's unless the owner names one,
-  and a profile or model that cannot be served is
+  and the owner told the verdict and findings, without adding a Task. Once an important GitHub pull request's
+  author Task succeeds, the coordinator requests a CodeRabbit review through `gh api` at most once an hour
+  across the owner's repositories (#1339). The service proxy sends this REST comment with the GitHub Connection
+  token and the owner's standing approval. The coordinator waits for a completed review on the head before
+  dispatching the reviewer, except on a CodeRabbit rate limit or its own hourly limit. A failed or cancelled
+  review gets one retry under the same limit. A fix head gets an incremental request only if a Critical or Major
+  finding was fixed. The reviewer answers findings against the head. CodeRabbit is never a merge condition.
+  The model is the profile's unless the owner names one, and a profile or model that cannot be served is
   reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
   each rule's source is in `docs/role-routing.md` (issue #1051).
   A worker that turned auto-merge on finishes without waiting for CI, and the control plane follows its pull
