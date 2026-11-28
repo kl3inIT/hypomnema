@@ -392,7 +392,7 @@ func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoCha
 }
 
 const getTodoGitHubCall = `-- name: GetTodoGitHubCall :one
-SELECT delivery, todo_id, repository, number, kind, comment_id, login, url, replied_at, reply_url, created_at FROM todo_github_calls WHERE delivery = ?1
+SELECT delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url, replied_at, reply_url, created_at FROM todo_github_calls WHERE delivery = ?1
 `
 
 // A call of the GitHub App by its delivery (issue #1232): one delivered again is handled once.
@@ -406,6 +406,7 @@ func (q *Queries) GetTodoGitHubCall(ctx context.Context, delivery string) (TodoG
 		&i.Number,
 		&i.Kind,
 		&i.CommentID,
+		&i.ReplyTo,
 		&i.Login,
 		&i.Url,
 		&i.RepliedAt,
@@ -641,8 +642,9 @@ func (q *Queries) InsertTodoEvent(ctx context.Context, arg InsertTodoEventParams
 }
 
 const insertTodoGitHubCall = `-- name: InsertTodoGitHubCall :exec
-INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comment_id, login, url, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url,
+                               created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
 `
 
 type InsertTodoGitHubCallParams struct {
@@ -652,6 +654,7 @@ type InsertTodoGitHubCallParams struct {
 	Number     int64
 	Kind       string
 	CommentID  int64
+	ReplyTo    int64
 	Login      string
 	Url        string
 	Now        int64
@@ -665,6 +668,7 @@ func (q *Queries) InsertTodoGitHubCall(ctx context.Context, arg InsertTodoGitHub
 		arg.Number,
 		arg.Kind,
 		arg.CommentID,
+		arg.ReplyTo,
 		arg.Login,
 		arg.Url,
 		arg.Now,
@@ -773,7 +777,7 @@ func (q *Queries) LatestTodoOfSource(ctx context.Context, arg LatestTodoOfSource
 }
 
 const listGitHubCallsToReply = `-- name: ListGitHubCallsToReply :many
-SELECT c.delivery, c.todo_id, c.repository, c.number, c.kind, c.comment_id, c.login, c.url, c.replied_at, c.reply_url, c.created_at FROM todo_github_calls c
+SELECT c.delivery, c.todo_id, c.repository, c.number, c.kind, c.comment_id, c.reply_to, c.login, c.url, c.replied_at, c.reply_url, c.created_at FROM todo_github_calls c
 JOIN todos t ON t.id = c.todo_id
 WHERE c.replied_at IS NULL AND t.state IN ('done', 'dropped', 'duplicate')
 ORDER BY c.created_at, c.delivery
@@ -798,6 +802,7 @@ func (q *Queries) ListGitHubCallsToReply(ctx context.Context, lim int64) ([]Todo
 			&i.Number,
 			&i.Kind,
 			&i.CommentID,
+			&i.ReplyTo,
 			&i.Login,
 			&i.Url,
 			&i.RepliedAt,

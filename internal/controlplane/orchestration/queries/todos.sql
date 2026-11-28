@@ -245,8 +245,9 @@ LIMIT 1;
 SELECT * FROM todo_github_calls WHERE delivery = @delivery;
 
 -- name: InsertTodoGitHubCall :exec
-INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comment_id, login, url, created_at)
-VALUES (@delivery, @todo_id, @repository, @number, @kind, @comment_id, @login, @url, @now);
+INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url,
+                               created_at)
+VALUES (@delivery, @todo_id, @repository, @number, @kind, @comment_id, @reply_to, @login, @url, @now);
 
 -- name: ListGitHubCallsToReply :many
 -- The calls not answered yet whose item closed (issue #1232), oldest first: the control plane answers each item's on

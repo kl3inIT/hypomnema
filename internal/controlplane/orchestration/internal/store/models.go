@@ -1248,6 +1248,7 @@ type TodoGithubCall struct {
 	Number     int64
 	Kind       string
 	CommentID  int64
+	ReplyTo    int64
 	Login      string
 	Url        string
 	RepliedAt  sql.NullInt64

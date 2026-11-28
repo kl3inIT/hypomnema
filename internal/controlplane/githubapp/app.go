@@ -445,10 +445,8 @@ func (a *App) handle(ctx context.Context, cred Credential, ev Event) {
 		case ev.Action == "synchronize" || ev.Action == "reopened":
 			err = a.moved(ctx, ev)
 		}
-	case "issue_comment", "pull_request_review_comment":
-		err = a.call(ctx, cred, ev)
-	case "pull_request_review":
-		err = errors.Join(a.reviewed(ctx, cred, ev), a.call(ctx, cred, ev))
+	case "issue_comment", "pull_request_review_comment", "pull_request_review":
+		err = a.conversed(ctx, cred, ev)
 	}
 
 	if err != nil {

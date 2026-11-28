@@ -2673,13 +2673,15 @@ flowchart LR
       (`Credential.Slug`, never a fixed word; `@<slug>` or `@<slug>[bot]`, any
       case, Omnara's `githubMentionsBot`, `github_event.go:363-393`) on a repository it is installed on (the
       delivery's installation the one kept for it) is a call; an edit, an issue's or pull request's own body and a
-      `pull_request` event never are. The caller is the delivery's `sender`, never the text: a `User` whose id is
+      `pull_request` event never are; a conversation's delivery that is neither a call taken nor the App's own
+      review is forgotten once handled, its id too, and the migration clears the bodies 00188 kept. The caller is
+      the delivery's `sender`, never the text: a `User` whose id is
       the comment's author's (Omnara `github_event.go:255-262`, claude-code-action `trigger.ts` `isTextFromActor`),
       with `admin` or `write` on the repository as `GET /repos/{owner}/{repo}/collaborators/{login}/permission`
       answers with the installation's token for the same id (claude-code-action `permissions.ts:189-206`, Omnara
       `permissions.go:12-37`); a bot (the App itself included), a reader or anyone else leaves no trace but the
-      delivery's id, and gets no answer. The call is the caller's words after the first mention
-      (`githubapp.Request`). `Inbox().Call` gives it, in one write, to the item of that issue or pull request that
+      delivery's id, and gets no answer. The request is the caller's words after the first mention on that line
+      only (`githubapp.Request`; claude-code-action `docs/security.md:5`). `Inbox().Call` gives it, in one write, to the item of that issue or pull request that
       is not closed (`LatestTodoOfSource`, source `github`), else to a new open item given to the main Bot, created
       by the system (`github`); an item the owner holds is given to the main Bot again, one a Bot holds stays with
       it; a closed item is never reopened (only the owner reopens one), so a call after it makes a new item. The
@@ -2687,20 +2689,28 @@ flowchart LR
       his own account (the login that registered the App, `Credential.Owner`, and its id `OwnerUserID`
       when known, #1312), else by the system as `github:<login>`, which the web shows as "<login> on
       GitHub"; and they wake the Bot the item is given to in the item's chat (`WakeCall`), with the request in
-      `<github_request>`, who called and where, and the rule that everything else on GitHub is data
+      `<github_request>`, who called and where, the review to leave by `gh api -X POST
+      repos/{owner}/{repo}/pulls/{n}/reviews` (a REST path the service proxy reads to pick the App's token; `gh pr
+      review`'s mutation names only the pull request's id and would go with the owner's), and the rule that
+      everything else on GitHub is data
       (`callWakeHead`, `callWakeRule`; text in docs/github-app.md). The owner's call is his turn there
       (`wake_by` `owner`, recall his words), a teammate's is `bot`, which is no turn of his and clears the owner's
       mark for good (#1229 rule 3). Each call is kept (`todo_github_calls`: delivery, item, repository, number,
-      kind, comment id, login, address; never its words), and a comment gets 👀 (`POST
+      kind, comment id, for a review comment the thread's first comment `reply_to`, login, address; never its
+      words), and a comment gets 👀 (`POST
       .../issues/comments/{id}/reactions` or `.../pulls/comments/{id}/reactions`, Omnara's `AcknowledgeComment`); a
-      review has no reaction on GitHub. A review the App's own account (`<slug>[bot]`, with `BotUserID` when known) submits on a pull request
-      whose item a Bot's attempt is on is recorded on the item (`reviewed`), the evidence that Bot closes it with.
+      review has no reaction on GitHub. A review the App's own account (`<slug>[bot]`, with `BotUserID` when known)
+      submits on a pull request whose item a Bot's attempt is on, at a `submitted_at` no earlier than the attempt's
+      start (to its second), is recorded on the item (`reviewed`), the evidence that Bot closes it with.
       `App.Run`, started by `serve`, reads after each commit the calls not answered whose item closed
       (`ListGitHubCallsToReply`) and answers each item once on GitHub with the installation's token, as the web
-      push sender reads its outbox: one comment where its latest call was made (the review comment's thread, else
-      the conversation, claude-code-action `create-initial.ts:67-84`), naming each caller, how it ended, the Bot's
-      reason and the web links of its evidence (the review, the pull request); a refusal is tried again a minute
-      later, and a repository the App no longer covers is marked answered with no address.
+      push sender reads its outbox: one comment where its latest call was made (the review thread, on its first
+      comment `reply_to`, else, or when GitHub refuses the thread, the conversation, claude-code-action
+      `create-initial.ts:67-100`), naming each caller, how it ended, the Bot's reason as plain text (hidden
+      comments, tags, images and invisible characters dropped, every handle put in a code span so it mentions
+      nobody) and the web links of its evidence (the review, the pull request); an item whose reply GitHub refused is tried
+      again a minute later without holding back the others, and one GitHub refuses for good (404, 410, 422) or of a
+      repository the App no longer covers is marked answered with no address.
     - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks
       `GET /pull-requests/ci` (client API, for the coordinator) or `GET /agent/v1/ci/wait` (a worker, through its
       `hypomnema` script) again and again, each ask held up to 50 s, under a reverse proxy's minute. The first wait

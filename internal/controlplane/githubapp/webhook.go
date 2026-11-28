@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // The headers of a webhook delivery.
@@ -98,6 +99,10 @@ type Comment struct {
 	HTMLURL string `json:"html_url"`
 	Path    string `json:"path"`
 	Line    int    `json:"line"`
+	// InReplyToID is, for a review comment that replies in a thread, the thread's first comment.
+	InReplyToID int64 `json:"in_reply_to_id"`
+	// SubmittedAt is when a review was submitted.
+	SubmittedAt time.Time `json:"submitted_at"`
 }
 
 // Suite is a check suite or a workflow run: the commit it ran on, its status and conclusion, and the pull requests

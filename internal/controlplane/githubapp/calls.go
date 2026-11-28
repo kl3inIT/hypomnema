@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -74,15 +75,19 @@ func mentionWord(ch byte) bool {
 		ch == '-' || ch == '_' || ch == '@' || ch == '.'
 }
 
-// Request is the caller's request in body: their words after the first mention of the App, to the end (#1232, row
-// 4: "the caller's line after the mention is the request"). Empty when nothing follows the mention.
+// Request is the caller's request in body: their words after the first mention of the App, to the end of that line
+// (#1232, row 4: "the caller's line after the mention is the request"). A line before it and the paragraphs after it
+// are not (review round 1 of PR #1323), as claude-code-action takes only the trigger's own words as a request
+// (docs/security.md:5). Empty when nothing follows the mention on its line.
 func Request(body, slug string) string {
 	end, ok := mention(body, slug)
 	if !ok {
 		return ""
 	}
 
-	return strings.TrimSpace(strings.TrimLeft(body[end:], ",:;!?."))
+	line, _, _ := strings.Cut(body[end:], "\n")
+
+	return strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), ",:;!?."))
 }
 
 // conversation is what a delivery's call is made of, when it is one: its kind, its issue or pull request and the
@@ -123,12 +128,12 @@ func validLogin(s string) bool {
 	})
 }
 
-// call acts on a delivery that may be a call of the App. A delivery that is no call, or a call by someone who may
-// not make one, is left with nothing recorded and no answer on GitHub (#1232, row 2).
-func (a *App) call(ctx context.Context, cred Credential, ev Event) error {
+// call acts on a delivery that may be a call of the App, and says whether it took it. A delivery that is no call, or
+// a call by someone who may not make one, is left with nothing recorded and no answer on GitHub (#1232, row 2).
+func (a *App) call(ctx context.Context, cred Credential, ev Event) (bool, error) {
 	conv, ok := conversationOf(ev)
 	if !ok || conv.number <= 0 || conv.comment.ID <= 0 || !Mentions(conv.comment.Body, cred.Slug) {
-		return nil
+		return false, nil
 	}
 
 	// A person, who wrote the comment themselves: the App's own comments and every bot's are no call (claude-code-
@@ -136,24 +141,24 @@ func (a *App) call(ctx context.Context, cred Credential, ev Event) error {
 	sender := ev.Sender
 	if sender.Type != "User" || conv.comment.User.Type != "User" || sender.ID <= 0 ||
 		conv.comment.User.ID != sender.ID || !validLogin(sender.Login) {
-		return nil
+		return false, nil
 	}
 
 	repo := ev.Repo()
 
 	installation, ok, err := a.store().InstallationOf(ctx, repo)
 	if err != nil || !ok || installation.InstallationID != ev.Installation.ID {
-		return err
+		return false, err
 	}
 
 	token, ok, err := a.TokenFor(ctx, Host, repo)
 	if err != nil || !ok {
-		return err
+		return false, err
 	}
 
 	allowed, err := a.client.CanWrite(ctx, token.Value, repo, sender)
 	if err != nil {
-		return fmt.Errorf("reading %s's permission on %s: %w", sender.Login, repo, err)
+		return false, fmt.Errorf("reading %s's permission on %s: %w", sender.Login, repo, err)
 	}
 
 	if !allowed {
@@ -161,7 +166,7 @@ func (a *App) call(ctx context.Context, cred Credential, ev Event) error {
 			slog.String("event", "githubapp.call_ignored"), slog.String("repository", repo),
 			slog.String("login", sender.Login))
 
-		return nil
+		return false, nil
 	}
 
 	place := ""
@@ -172,14 +177,23 @@ func (a *App) call(ctx context.Context, cred Credential, ev Event) error {
 		}
 	}
 
+	// A reply is taken by GitHub only on the first comment of a review thread.
+	replyTo := int64(0)
+	if conv.kind == inboxstore.CallReviewComment {
+		replyTo = conv.comment.ID
+		if conv.comment.InReplyToID > 0 {
+			replyTo = conv.comment.InReplyToID
+		}
+	}
+
 	item, fresh, err := a.svc.Inbox().Call(ctx, inboxstore.GitHubCall{
 		Delivery: ev.Delivery, Repository: repo, Number: conv.number, PullRequest: conv.pullRequest,
-		Title: conv.title, Kind: conv.kind, CommentID: conv.comment.ID, URL: conv.comment.HTMLURL,
+		Title: conv.title, Kind: conv.kind, CommentID: conv.comment.ID, ReplyTo: replyTo, URL: conv.comment.HTMLURL,
 		Login: sender.Login, Owner: a.isOwner(cred, sender), Request: Request(conv.comment.Body, cred.Slug),
 		Place: place,
 	})
 	if err != nil || !fresh {
-		return err
+		return err == nil, err
 	}
 
 	a.logger.InfoContext(ctx, "a call of the GitHub App went to the Inbox", slog.String("event", "githubapp.called"),
@@ -189,10 +203,10 @@ func (a *App) call(ctx context.Context, cred Credential, ev Event) error {
 	// GitHub has no reaction on a review: only a comment gets 👀, as Omnara acknowledges the two comment kinds alone
 	// (github_event.go:436-460).
 	if conv.kind == inboxstore.CallReview {
-		return nil
+		return true, nil
 	}
 
-	return a.client.React(ctx, token.Value, repo, conv.kind == inboxstore.CallReviewComment, conv.comment.ID)
+	return true, a.client.React(ctx, token.Value, repo, conv.kind == inboxstore.CallReviewComment, conv.comment.ID)
 }
 
 // isOwner says whether a caller is the owner's account: the one that registered the App (#1232, row 7), by its login,
@@ -205,96 +219,168 @@ func (a *App) isOwner(cred Credential, u User) bool {
 // reviewed records the review the App itself left on a pull request on the item of its calls, the work of the Bot
 // whose attempt is on the item (inboxstore.RecordReview). Only the App's own account's review is: its login is its
 // slug with [bot], which no person's can be (claude-code-action actor.ts), and its id the bot's when known (#1312).
-func (a *App) reviewed(ctx context.Context, cred Credential, ev Event) error {
+func (a *App) reviewed(ctx context.Context, cred Credential, ev Event) (bool, error) {
 	r := ev.Review
 	if ev.Action != "submitted" || ev.PullRequest == nil || r == nil || r.User.Type != "Bot" ||
 		!strings.EqualFold(r.User.Login, cred.Slug+"[bot]") || (cred.BotUserID > 0 && r.User.ID != cred.BotUserID) ||
 		!strings.HasPrefix(r.HTMLURL, "https://github.com/") {
-		return nil
+		return false, nil
 	}
 
-	_, err := a.svc.Inbox().RecordReview(ctx, ev.Repo(), ev.PullRequest.Number, r.HTMLURL)
-
-	return err
+	return a.svc.Inbox().RecordReview(ctx, ev.Repo(), ev.PullRequest.Number, r.HTMLURL, r.SubmittedAt)
 }
 
-// replyRetry is how long the replies wait after GitHub refused one before they are tried again.
+// conversed acts on a conversation's delivery: a call of the App, or a review the App itself left. One that is
+// neither is forgotten once handled, its id too (review round 1 of PR #1323): only what is acted on is kept.
+func (a *App) conversed(ctx context.Context, cred Credential, ev Event) error {
+	recorded := false
+
+	var errs []error
+
+	if ev.Name == "pull_request_review" {
+		ok, err := a.reviewed(ctx, cred, ev)
+		recorded, errs = ok, append(errs, err)
+	}
+
+	taken, err := a.call(ctx, cred, ev)
+	errs = append(errs, err)
+
+	if !recorded && !taken {
+		errs = append(errs, a.store().ForgetDelivery(ctx, ev.Delivery))
+	}
+
+	return errors.Join(errs...)
+}
+
+// replyRetry is how long an item whose reply GitHub refused waits before it is tried again; the other items' replies
+// go on meanwhile.
 const replyRetry = time.Minute
 
 // Run answers on GitHub the calls whose item closed (#1232, row 3), then again after each commit, until ctx ends: the
 // calls kept are the queue, read once their item is closed, as the web push sender reads its outbox after each commit
-// (webpush.Sender.Run). A reply GitHub refused is tried again a minute later.
+// (webpush.Sender.Run). An item whose reply GitHub refused is tried again a minute later, and holds back no other
+// (review round 1 of PR #1323).
 func (a *App) Run(ctx context.Context) {
 	wake := a.svc.Subscribe(ctx)
+	retry := map[string]time.Time{}
 
 	for {
-		if err := a.reply(ctx); err != nil && ctx.Err() == nil {
-			a.logger.WarnContext(ctx, "answering a call of the GitHub App", slog.String("event", "githubapp.reply_failed"),
-				slog.String("error", err.Error()))
+		next := a.reply(ctx, retry)
 
-			retry := time.NewTimer(replyRetry)
-			select {
-			case <-ctx.Done():
-				retry.Stop()
+		var again <-chan time.Time
 
-				return
-			case <-retry.C:
+		var timer *time.Timer
+
+		if !next.IsZero() {
+			timer = time.NewTimer(time.Until(next))
+			again = timer.C
+		}
+
+		select {
+		case <-ctx.Done():
+		case <-wake:
+		case <-again:
+		}
+
+		if timer != nil {
+			timer.Stop()
+		}
+
+		if ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+// reply answers every item closed whose calls wait, but those whose last try failed less than replyRetry ago: one
+// comment each, where its latest call was made, mentioning each caller, with the outcome. A repository the App no
+// longer covers, or an answer GitHub refuses for good (gone, locked), cannot be answered: its calls are marked so,
+// with no address. It returns when the next item that failed is due, zero when none is.
+func (a *App) reply(ctx context.Context, retry map[string]time.Time) time.Time {
+	replies, err := a.svc.Inbox().Replies(ctx)
+	if err != nil {
+		a.replyFailed(ctx, "", err)
+
+		return time.Now().Add(replyRetry)
+	}
+
+	var next time.Time
+
+	for _, r := range replies {
+		if due, ok := retry[r.Todo.ID]; ok && time.Now().Before(due) {
+			if next.IsZero() || due.Before(next) {
+				next = due
 			}
 
 			continue
 		}
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-wake:
+		if err := a.answer(ctx, r); err != nil {
+			a.replyFailed(ctx, r.Todo.ID, err)
+
+			due := time.Now().Add(replyRetry)
+			retry[r.Todo.ID] = due
+
+			if next.IsZero() || due.Before(next) {
+				next = due
+			}
+
+			continue
 		}
+
+		delete(retry, r.Todo.ID)
 	}
+
+	return next
 }
 
-// reply answers every item closed whose calls wait: one comment each, where its latest call was made, mentioning each
-// caller, with the outcome. A repository the App no longer covers cannot be answered: its calls are marked so, with
-// no address.
-func (a *App) reply(ctx context.Context) error {
-	replies, err := a.svc.Inbox().Replies(ctx)
-	if err != nil || len(replies) == 0 {
+func (a *App) replyFailed(ctx context.Context, todo string, err error) {
+	a.logger.WarnContext(ctx, "answering a call of the GitHub App", slog.String("event", "githubapp.reply_failed"),
+		slog.String("todo", todo), slog.String("error", err.Error()))
+}
+
+// answer posts one item's reply and marks its calls answered: in the thread of its latest call when that is a review
+// comment, else, or when GitHub refuses the thread, in the issue's or pull request's conversation, as
+// claude-code-action falls back to an issue comment when anything fails (create-initial.ts:90-100).
+func (a *App) answer(ctx context.Context, r inboxstore.Reply) error {
+	last := r.Calls[len(r.Calls)-1]
+
+	deliveries := make([]string, 0, len(r.Calls))
+	for _, c := range r.Calls {
+		deliveries = append(deliveries, c.Delivery)
+	}
+
+	token, ok, err := a.TokenFor(ctx, Host, last.Repository)
+	if err != nil {
 		return err
 	}
 
-	for _, r := range replies {
-		last := r.Calls[len(r.Calls)-1]
+	address := ""
 
-		deliveries := make([]string, 0, len(r.Calls))
-		for _, c := range r.Calls {
-			deliveries = append(deliveries, c.Delivery)
+	if ok {
+		text := replyText(r)
+
+		if last.Kind == inboxstore.CallReviewComment && last.ReplyTo > 0 {
+			address, err = a.client.Reply(ctx, token.Value, last.Repository, last.Number, last.ReplyTo, text)
 		}
 
-		token, ok, err := a.TokenFor(ctx, Host, last.Repository)
-		if err != nil {
-			return err
+		if address == "" {
+			address, err = a.client.Reply(ctx, token.Value, last.Repository, last.Number, 0, text)
 		}
 
-		address := ""
+		var refused *Error
 
-		if ok {
-			ctx, cancel := context.WithTimeout(ctx, gitHubRead)
-			address, err = a.client.Reply(ctx, token.Value, last.Repository, last.Number,
-				last.Kind == inboxstore.CallReviewComment, last.CommentID, replyText(r))
-
-			cancel()
-
-			if err != nil {
-				return fmt.Errorf("answering the calls of %s on %s#%d: %w", r.Todo.ID, last.Repository, last.Number,
-					err)
-			}
-		}
-
-		if err := a.svc.Inbox().Replied(ctx, deliveries, address); err != nil {
-			return err
+		switch {
+		case errors.As(err, &refused) && (refused.Status == http.StatusNotFound || refused.Status == http.StatusGone ||
+			refused.Status == http.StatusUnprocessableEntity):
+			// For good: the issue or pull request is gone or locked.
+			a.replyFailed(ctx, r.Todo.ID, err)
+		case err != nil:
+			return fmt.Errorf("answering the calls of %s on %s#%d: %w", r.Todo.ID, last.Repository, last.Number, err)
 		}
 	}
 
-	return nil
+	return a.svc.Inbox().Replied(ctx, deliveries, address)
 }
 
 // maxReplyReason bounds the part of the item's close reason a reply quotes.
@@ -323,7 +409,7 @@ func replyText(r inboxstore.Reply) string {
 		b.WriteString("Closed without doing it.")
 	}
 
-	if reason := []rune(strings.TrimSpace(r.Todo.CloseReason)); len(reason) > 0 {
+	if reason := []rune(plainReason(r.Todo.CloseReason)); len(reason) > 0 {
 		if len(reason) > maxReplyReason {
 			reason = append(reason[:maxReplyReason-1], '…')
 		}
@@ -344,6 +430,30 @@ func replyText(r inboxstore.Reply) string {
 	}
 
 	return b.String()
+}
+
+// What a closing reason may hold that a reply on GitHub must not carry as it is (review round 1 of PR #1323): a
+// hidden HTML comment, a tag, an image, invisible characters (claude-code-action's sanitizer,
+// src/github/utils/sanitizer.ts: stripInvisibleCharacters, stripHiddenAttributes), and a handle, which GitHub would
+// make a mention that notifies its account.
+var (
+	hiddenComment = regexp.MustCompile(`(?s)<!--.*?(-->|$)`)
+	htmlTag       = regexp.MustCompile(`<[^>]*>`)
+	image         = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)`)
+	invisible     = regexp.MustCompile("[\u200B\u200C\u200D\u2060\uFEFF\u00AD\u202A-\u202E\u2066-\u2069]")
+	handle        = regexp.MustCompile(`(^|[^A-Za-z0-9_` + "`" + `])@([A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?)`)
+)
+
+// plainReason is a Bot's closing reason as a reply may quote it: on one line, without what is hidden, and with every
+// handle in a code span, where GitHub mentions nobody.
+func plainReason(reason string) string {
+	for _, re := range []*regexp.Regexp{hiddenComment, htmlTag, image, invisible} {
+		reason = re.ReplaceAllString(reason, "")
+	}
+
+	reason = strings.Join(strings.Fields(strings.ReplaceAll(reason, "`", "'")), " ")
+
+	return handle.ReplaceAllString(reason, "$1`@$2`")
 }
 
 // webLink says whether ref is a page on the web, https.
@@ -398,16 +508,17 @@ func (c Client) React(ctx context.Context, token, repo string, reviewComment boo
 	return c.do(ctx, http.MethodPost, path, token, map[string]string{"content": "eyes"}, nil)
 }
 
-// Reply posts body with token as a reply to a call and returns its address: in the review comment's thread for a
-// review comment (POST /repos/{owner}/{repo}/pulls/{n}/comments/{id}/replies), else in the issue's or pull request's
-// conversation (POST /repos/{owner}/{repo}/issues/{n}/comments), as claude-code-action's createInitialComment
-// (create-initial.ts:67-84).
-func (c Client) Reply(ctx context.Context, token, repo string, number int, reviewComment bool, id int64,
-	body string,
-) (string, error) {
+// Reply posts body with token as a reply to a call and returns its address: in a review thread, on its first comment
+// root (POST /repos/{owner}/{repo}/pulls/{n}/comments/{root}/replies, which GitHub takes on a thread's first comment
+// only), or in the issue's or pull request's conversation when root is 0 (POST /repos/{owner}/{repo}/issues/{n}/
+// comments), as claude-code-action's createInitialComment (create-initial.ts:67-84).
+func (c Client) Reply(ctx context.Context, token, repo string, number int, root int64, body string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitHubRead)
+	defer cancel()
+
 	path := "/repos/" + repo + "/issues/" + strconv.Itoa(number) + "/comments"
-	if reviewComment {
-		path = "/repos/" + repo + "/pulls/" + strconv.Itoa(number) + "/comments/" + strconv.FormatInt(id, 10) +
+	if root > 0 {
+		path = "/repos/" + repo + "/pulls/" + strconv.Itoa(number) + "/comments/" + strconv.FormatInt(root, 10) +
 			"/replies"
 	}
 

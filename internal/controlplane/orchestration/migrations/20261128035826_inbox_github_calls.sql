@@ -153,7 +153,8 @@ DROP TABLE todo_events_kept;
 DROP TABLE todos_kept;
 
 -- Each call (todo_github_calls): its delivery, the item it went to, where it was made (the repository, the issue or
--- pull request, the comment or review by its id and kind) and by whom, as GitHub's signed delivery says (sender),
+-- pull request, the comment or review by its id and kind, and for a review comment the first comment of its thread,
+-- reply_to, which GitHub takes replies to) and by whom, as GitHub's signed delivery says (sender),
 -- never its words, which are the item's thread. replied_at is when the control plane answered it on GitHub with the
 -- outcome, once the item closed (claude-code-action's tracking comment, src/github/operations/comments). todo_id has
 -- no foreign key, as todo_chat_departments has none, so that a later rebuild of todos keeps the calls.
@@ -164,6 +165,7 @@ CREATE TABLE todo_github_calls (
     number     INTEGER NOT NULL CHECK (number > 0),
     kind       TEXT    NOT NULL CHECK (kind IN ('comment', 'review_comment', 'review')),
     comment_id INTEGER NOT NULL CHECK (comment_id > 0),
+    reply_to   INTEGER NOT NULL DEFAULT 0 CHECK (reply_to >= 0),
     login      TEXT    NOT NULL CHECK (length(login) BETWEEN 1 AND 100),
     url        TEXT    NOT NULL,
     replied_at INTEGER,
@@ -173,6 +175,10 @@ CREATE TABLE todo_github_calls (
 
 CREATE INDEX todo_github_calls_todo ON todo_github_calls (todo_id, created_at);
 CREATE INDEX todo_github_calls_unreplied ON todo_github_calls (todo_id) WHERE replied_at IS NULL;
+
+-- No delivery's body is kept any more: a call's words go to its item's thread, and nothing else's is needed. The bodies
+-- 00188 kept for this issue go now, not when their thirty days end.
+UPDATE github_deliveries SET payload = NULL WHERE payload IS NOT NULL;
 
 -- +goose Down
 -- The items GitHub's calls made go with their events, and so do items marked their duplicates: the table before has

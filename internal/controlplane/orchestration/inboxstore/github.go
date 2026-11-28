@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
@@ -54,11 +55,15 @@ type GitHubCall struct {
 	Kind      string
 	CommentID int64
 	URL       string
+	// ReplyTo is, for a review comment, the first comment of its thread: GitHub takes a reply only to it. 0 for
+	// any other call.
+	ReplyTo int64
 	// Login is who called, GitHub's sender of the delivery, never the text; Owner says it is the owner's account,
 	// the one that registered the App (#1232, row 7).
 	Login string
 	Owner bool
-	// Request is the caller's own words after the mention, the only request (#1232, row 5); Place where a review
+	// Request is the caller's own words after the mention on its line, the only request (#1232, rows 4 and 5);
+	// Place where a review
 	// comment is in the diff, "path:line".
 	Request string
 	Place   string
@@ -158,7 +163,7 @@ func (s *Store) Call(ctx context.Context, c GitHubCall) (Todo, bool, error) {
 
 		if err := q.InsertTodoGitHubCall(ctx, store.InsertTodoGitHubCallParams{
 			Delivery: c.Delivery, TodoID: id, Repository: c.Repository, Number: int64(c.Number), Kind: c.Kind,
-			CommentID: c.CommentID, Login: c.Login, Url: c.URL, Now: now,
+			CommentID: c.CommentID, ReplyTo: c.ReplyTo, Login: c.Login, Url: c.URL, Now: now,
 		}); err != nil {
 			return fmt.Errorf("keeping GitHub's call %s: %w", c.Delivery, err)
 		}
@@ -254,12 +259,19 @@ func (s *Store) callItemTx(ctx context.Context, q *store.Queries, now int64, c G
 }
 
 // RecordReview records on a pull request's item the review the GitHub App left on it (issue #1232), when a Bot's
-// attempt is on the item: GitHub's signed event says the App's own account submitted it, as RecordSent records a
-// message the Bot sent when its send is made (issue #1206). It is then the attempt's work, the evidence the Bot
-// closes the item with (botsWork). False when no attempt is on the item.
-func (s *Store) RecordReview(ctx context.Context, repository string, number int, url string) (bool, error) {
+// attempt is on the item and GitHub submitted the review since that attempt began: GitHub's signed event says the
+// App's own account submitted it and when, as RecordSent records a message the Bot sent in its attempt when its send
+// is made (issue #1206). It is then that attempt's work, the evidence its Bot closes the item with (botsWork). A
+// review submitted before the attempt, whose event comes during it, is not (review round 1 of PR #1323); GitHub
+// gives the time to the second, so the attempt's start is read to its second. False when it is not recorded.
+func (s *Store) RecordReview(ctx context.Context, repository string, number int, url string, submitted time.Time,
+) (bool, error) {
 	if url == "" || utf8.RuneCountInString(url) > MaxRef {
 		return false, fmt.Errorf("%w: a review names its address", storeerr.ErrInvalid)
+	}
+
+	if submitted.IsZero() {
+		return false, nil
 	}
 
 	source := fmt.Sprintf("%s#%d", strings.ToLower(repository), number)
@@ -275,12 +287,15 @@ func (s *Store) RecordReview(ctx context.Context, repository string, number int,
 			return fmt.Errorf("reading the item of %s: %w", source, err)
 		case row.State != Doing && row.State != Review:
 			return nil
+		case submitted.Before(time.UnixMilli(row.WorkStartedAt.Int64).Truncate(time.Second)):
+			return nil
 		}
 
 		recorded = true
 
 		return commentlessTx(ctx, q, now, Actor{Kind: System, ID: "github"}, row, EventReviewed, map[string]any{
 			"review": url, "work_attempt": row.WorkAttempt.String, "work_bot": row.WorkBot.String,
+			"submitted_at": submitted.UTC().Format(time.RFC3339),
 		})
 	})
 	if err != nil {
@@ -330,6 +345,7 @@ type CallOf struct {
 	Number     int
 	Kind       string
 	CommentID  int64
+	ReplyTo    int64
 	Login      string
 	URL        string
 }
@@ -371,7 +387,7 @@ func (s *Store) Replies(ctx context.Context) ([]Reply, error) {
 
 			out[n].Calls = append(out[n].Calls, CallOf{
 				Delivery: r.Delivery, Repository: r.Repository, Number: int(r.Number), Kind: r.Kind,
-				CommentID: r.CommentID, Login: r.Login, URL: r.Url,
+				CommentID: r.CommentID, ReplyTo: r.ReplyTo, Login: r.Login, URL: r.Url,
 			})
 		}
 
