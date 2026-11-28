@@ -68,27 +68,35 @@ func (s *Service) send(req *http.Request, limit int64) ([]byte, error) {
 // the Web search page (issue #393, owner 2026-11-14): Exa has no balance to
 // read.
 func (s *Service) askExa(ctx context.Context, r route, query string, limit int) (reply, error) {
-	var answer struct {
-		Results []struct {
-			Title         string   `json:"title"`
-			URL           string   `json:"url"`
-			PublishedDate string   `json:"publishedDate"`
-			Highlights    []string `json:"highlights"`
-			Text          string   `json:"text"`
-		} `json:"results"`
-		CostDollars struct {
-			Total float64 `json:"total"`
-		} `json:"costDollars"`
-	}
-
-	err := s.postJSON(ctx, s.cfg.ExaURL, map[string]string{"X-Api-Key": r.key.Value}, map[string]any{
+	var answer exaAnswer
+	body := map[string]any{
 		"type": "auto", "query": query, "numResults": limit,
 		"contents": map[string]any{"text": true, "highlights": true},
-	}, "Exa", &answer)
-	if err != nil {
+	}
+	basis := searchWindow(ctx).exaBounds(body)
+
+	headers := map[string]string{"X-Api-Key": r.key.Value}
+	if err := s.postJSON(ctx, s.cfg.ExaURL, headers, body, "Exa", &answer); err != nil {
 		return reply{}, err
 	}
 
+	return reply{results: answer.read(), costDollars: max(answer.CostDollars.Total, 0), windowBasis: basis}, nil
+}
+
+type exaAnswer struct {
+	Results []struct {
+		Title         string   `json:"title"`
+		URL           string   `json:"url"`
+		PublishedDate string   `json:"publishedDate"`
+		Highlights    []string `json:"highlights"`
+		Text          string   `json:"text"`
+	} `json:"results"`
+	CostDollars struct {
+		Total float64 `json:"total"`
+	} `json:"costDollars"`
+}
+
+func (answer exaAnswer) read() []Result {
 	out := make([]Result, 0, len(answer.Results))
 
 	for _, item := range answer.Results {
@@ -106,7 +114,7 @@ func (s *Service) askExa(ctx context.Context, r route, query string, limit int) 
 		})
 	}
 
-	return reply{results: out, costDollars: max(answer.CostDollars.Total, 0)}, nil
+	return out
 }
 
 // postJSON posts a JSON body with headers and reads a JSON success into into.
@@ -146,16 +154,48 @@ func (s *Service) postJSON(ctx context.Context, endpoint string, headers map[str
 // askExaMCP asks Exa's public MCP without a key, its web_search_exa tool,
 // as opencode does (plugin/websearch/exa.ts).
 func (s *Service) askExaMCP(ctx context.Context, _ route, query string, limit int) (reply, error) {
-	result, err := s.callMCP(ctx, s.cfg.ExaMCPURL, "web_search_exa",
-		map[string]any{"query": query, "numResults": limit}, nil)
+	args := map[string]any{"query": query, "numResults": limit}
+	basis := searchWindow(ctx).exaBounds(args)
+	endpoint, tool := s.cfg.ExaMCPURL, "web_search_exa"
+
+	if basis == WindowServerBounds {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return reply{}, err
+		}
+
+		tool = "web_search_advanced_exa"
+		params := u.Query()
+		params.Set("tools", tool)
+		u.RawQuery = params.Encode()
+		endpoint = u.String()
+		args["textMaxCharacters"] = exaRESTSnippet
+	}
+
+	result, err := s.callMCP(ctx, endpoint, tool, args, nil)
 	if err != nil {
 		return reply{}, err
 	}
 
 	for _, c := range result.Content {
-		if c.Text != "" {
-			return reply{results: parseExaText(c.Text)}, nil
+		if c.Text == "" {
+			continue
 		}
+
+		if basis == WindowNone {
+			return reply{results: parseExaText(c.Text), windowBasis: basis}, nil
+		}
+
+		var answer exaAnswer
+		if strings.HasPrefix(c.Text, "No search results found.") {
+			break
+		}
+
+		if err := json.Unmarshal([]byte(c.Text), &answer); err != nil {
+			return reply{}, errors.New("its advanced search answer could not be read")
+		}
+
+		return reply{results: answer.read(), windowBasis: basis}, nil
 	}
 
 	return reply{}, nil
@@ -249,6 +289,7 @@ func parseExaText(text string) []Result {
 // searchWithPublicMcp) do. The results are its structured content, or the
 // JSON of its text when there is none (omp).
 func (s *Service) askParallel(ctx context.Context, _ route, query string, _ int) (reply, error) {
+	query, basis := searchWindow(ctx).hint(query)
 	result, err := s.callMCP(ctx, s.cfg.ParallelMCPURL, "web_search",
 		map[string]any{"objective": query, "search_queries": []string{query}}, nil)
 	if err != nil {
@@ -271,7 +312,7 @@ func (s *Service) askParallel(ctx context.Context, _ route, query string, _ int)
 		return reply{}, errors.New("its answer could not be read")
 	}
 
-	return reply{results: answer.read("\n\n")}, nil
+	return reply{results: answer.read("\n\n"), windowBasis: basis}, nil
 }
 
 // parallelAnswer is a Parallel search's answer, from its MCP and its API alike.

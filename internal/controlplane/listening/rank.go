@@ -22,6 +22,8 @@ const (
 	// maxPerAuthor keeps one author from filling the answer (last30days fusion._MAX_ITEMS_PER_AUTHOR,
 	// last30days-cn score.apply_per_author_cap).
 	maxPerAuthor = 3
+	// outOfWindowMultiplier is last30days rerank.OUT_OF_WINDOW_FINAL_MULTIPLIER.
+	outOfWindowMultiplier = 0.35
 )
 
 // engagementWeights are each source's counts and their weights, on log1p, and the value read as 100: a very high
@@ -189,9 +191,15 @@ func rank(plan Plan, streams []stream, to time.Time) []Item {
 		}
 	}
 
+	from := to.AddDate(0, 0, -plan.WindowDays)
 	out := make([]Item, 0, len(fused))
 	for _, c := range fused {
-		c.item.Score = math.Round(finalScore(c.item)*10) / 10
+		score := finalScore(c.item)
+		if !inDays(c.item.PublishedAt, from, to) {
+			score *= outOfWindowMultiplier
+		}
+
+		c.item.Score = math.Round(score*10) / 10
 		out = append(out, c.item)
 	}
 

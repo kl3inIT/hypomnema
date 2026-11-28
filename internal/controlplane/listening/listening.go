@@ -152,6 +152,7 @@ type Answer struct {
 	// Coverage says, for each source, what was read and what was not, and why.
 	Coverage []Coverage `json:"coverage"`
 	Clusters []Cluster  `json:"clusters"`
+	Warnings []string   `json:"warnings,omitempty"`
 	// Items are the best PoolSize, the best first; Omitted counts those left out.
 	Items   []Item `json:"items"`
 	Omitted int    `json:"omitted,omitempty"`
@@ -293,6 +294,20 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 
 	answer.Clusters = clusterItems(items, plan.topic())
 	answer.Items = items
+
+	// last30days-skill-cn render._assess_data_freshness measures dated evidence in the returned results.
+	dated := 0
+
+	for _, it := range items {
+		if it.PublishedAt != nil && inDays(it.PublishedAt, from, now) {
+			dated++
+		}
+	}
+
+	if dated < 5 || dated*10 < len(items)*3 {
+		answer.Warnings = []string{fmt.Sprintf("Thin date coverage: %d of %d returned items have a date inside the window.",
+			dated, len(items))}
+	}
 
 	if answer.Items == nil {
 		answer.Items = []Item{}

@@ -42,12 +42,16 @@ func TestLiveRedditAndWeb(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	t.Logf("window %s to %s, %d returned items, warnings %v", a.From, a.To, len(a.Items), a.Warnings)
+
 	for _, c := range a.Coverage {
-		t.Logf("coverage %s: %s %s, %d items", c.Source, c.State, c.Code, c.Items)
+		t.Logf("coverage %s: %s %s, %d items, missing_date=%d outside_window=%d off_topic=%d",
+			c.Source, c.State, c.Code, c.Items, c.Dropped.MissingDate, c.Dropped.OutsideWindow, c.Dropped.OffTopic)
 
 		for _, st := range c.Streams {
 			for _, at := range st.Tried {
-				t.Logf("  %s %s: %s %s %s skipped=%v", st.Subquery, at.Backend, at.Result, at.Detail, at.Until, at.Skipped)
+				t.Logf("  %s %s: %s %s %s skipped=%v provider=%s window_basis=%s",
+					st.Subquery, at.Backend, at.Result, at.Detail, at.Until, at.Skipped, at.Provider, at.WindowBasis)
 			}
 		}
 	}
@@ -58,7 +62,7 @@ func TestLiveRedditAndWeb(t *testing.T) {
 			date = it.PublishedAt.Format(time.DateOnly)
 		}
 
-		t.Logf("item %s %s %s %s %v %q", it.Source, it.Backend, date, it.URL, it.Engagement, it.Title)
+		t.Logf("item %s %s %s %s %s %v %q", it.Source, it.Backend, date, it.DateConfidence, it.URL, it.Engagement, it.Title)
 	}
 
 	for _, c := range a.Clusters {

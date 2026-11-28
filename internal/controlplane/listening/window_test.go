@@ -27,6 +27,8 @@ func TestWebWindowAndDroppedItems(t *testing.T) {
 		{"parallel", "query_hint", "after:2026-10-28", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			requests := make(chan string, 1)
 			fixtures := `[{"title":"VETC current","url":"https://example.org/current","publish_date":"2026-11-20"},
 				{"title":"VETC old","url":"https://example.org/old","publish_date":"2022-11-20"},
@@ -44,7 +46,8 @@ func TestWebWindowAndDroppedItems(t *testing.T) {
 					return
 				}
 				// Firecrawl's current web response has no publication field.
-				_, _ = fmt.Fprint(w, `{"success":true,"data":{"web":[{"title":"VETC undated","url":"https://example.org/undated"}]}}`)
+				_, _ = fmt.Fprint(w, `{"success":true,"data":{"web":[
+					{"title":"VETC undated","url":"https://example.org/undated"}]}}`)
 			})
 			web := websearch.New(websearch.Config{FirecrawlURL: url, ParallelMCPURL: url})
 			c := newClock()

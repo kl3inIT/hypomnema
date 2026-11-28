@@ -43,6 +43,13 @@ const (
 func (s *Service) askTavily(ctx context.Context, r route, query string, limit int) (reply, error) {
 	headers := map[string]string{"X-Client-Name": userAgent}
 	body := map[string]any{"query": query, "max_results": limit, "search_depth": "basic"}
+	basis := WindowNone
+
+	if dates := searchWindow(ctx); dates.from != "" {
+		body["start_date"], body["end_date"] = dates.from, dates.to
+		body["filter_by_published_date"] = true
+		basis = WindowServerBounds
+	}
 
 	if r.key.Value != "" {
 		headers["Authorization"] = "Bearer " + r.key.Value
@@ -74,7 +81,7 @@ func (s *Service) askTavily(ctx context.Context, r route, query string, limit in
 		}
 	}
 
-	return reply{results: out}, nil
+	return reply{results: out, windowBasis: basis}, nil
 }
 
 // askFirecrawl asks Firecrawl's search, v2, with a key as Authorization:
@@ -95,6 +102,16 @@ func (s *Service) askFirecrawl(ctx context.Context, r route, query string, limit
 	}
 
 	body := map[string]any{"query": query, "limit": limit}
+	basis := WindowNone
+
+	if dates := searchWindow(ctx); dates.from != "" {
+		// The window is already stored as validated UTC calendar days.
+		from, _ := time.Parse(time.DateOnly, dates.from)
+		to, _ := time.Parse(time.DateOnly, dates.to)
+		body["tbs"] = "cdr:1,cd_min:" + from.Format("01/02/2006") + ",cd_max:" + to.Format("01/02/2006")
+		basis = WindowServerBounds
+	}
+
 	if err := s.postJSON(ctx, s.cfg.FirecrawlURL+"/search", headers, body, "Firecrawl", &answer); err != nil {
 		return reply{}, err
 	}
@@ -136,7 +153,7 @@ func (s *Service) askFirecrawl(ctx context.Context, r route, query string, limit
 		out = append(out, Result{Title: it.Title, URL: it.URL, Snippet: snippet})
 	}
 
-	return reply{results: out}, nil
+	return reply{results: out, windowBasis: basis}, nil
 }
 
 // askParallelKey asks Parallel's search API with a key, in search-rotation's
@@ -145,10 +162,26 @@ func (s *Service) askFirecrawl(ctx context.Context, r route, query string, limit
 func (s *Service) askParallelKey(ctx context.Context, r route, query string, limit int) (reply, error) {
 	var answer parallelAnswer
 
-	err := s.postJSON(ctx, s.cfg.ParallelURL, map[string]string{"X-Api-Key": r.key.Value}, map[string]any{
+	body := map[string]any{
 		"objective": query, "search_queries": []string{query}, "mode": "fast", "max_results": limit,
 		"max_chars_per_result": 400,
-	}, "Parallel", &answer)
+	}
+	basis := WindowNone
+
+	if dates := searchWindow(ctx); dates.from != "" {
+		delete(body, "max_results")
+		delete(body, "max_chars_per_result")
+		body["advanced_settings"] = map[string]any{
+			"max_results":   limit,
+			"source_policy": map[string]string{"after_date": dates.from},
+		}
+		// A lower bound covers a current window. For a historical window, only dated results can be checked.
+		if dates.to >= s.now().UTC().Format(time.DateOnly) {
+			basis = WindowServerBounds
+		}
+	}
+
+	err := s.postJSON(ctx, s.cfg.ParallelURL, map[string]string{"X-Api-Key": r.key.Value}, body, "Parallel", &answer)
 	if err != nil {
 		return reply{}, err
 	}
@@ -158,7 +191,7 @@ func (s *Service) askParallelKey(ctx context.Context, r route, query string, lim
 		out[i].Snippet = clip(out[i].Snippet, parallelCut)
 	}
 
-	return reply{results: out}, nil
+	return reply{results: out, windowBasis: basis}, nil
 }
 
 // askTinyFish asks TinyFish's search API with a key, as web-search-plus
@@ -167,6 +200,13 @@ func (s *Service) askParallelKey(ctx context.Context, r route, query string, lim
 // kept here.
 func (s *Service) askTinyFish(ctx context.Context, r route, query string, limit int) (reply, error) {
 	values := url.Values{"query": {query}, "domain_type": {"web"}}
+	basis := WindowNone
+
+	if dates := searchWindow(ctx); dates.from != "" {
+		values.Set("after_date", dates.from)
+		values.Set("before_date", dates.to)
+		basis = WindowServerBounds
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.cfg.TinyFishURL+"?"+values.Encode(), nil)
 	if err != nil {
@@ -203,7 +243,7 @@ func (s *Service) askTinyFish(ctx context.Context, r route, query string, limit 
 		}
 	}
 
-	return reply{results: out}, nil
+	return reply{results: out, windowBasis: basis}, nil
 }
 
 // askYou asks You.com's hosted MCP in its free profile, with no key, its
@@ -222,8 +262,15 @@ func (s *Service) askYou(ctx context.Context, _ route, query string, limit int) 
 		headers["Mcp-Session-Id"] = session
 	}
 
-	result, err := s.callMCP(ctx, s.cfg.YouMCPURL, "you-search",
-		map[string]any{"query": query, "extraction": "none", "count": limit}, headers)
+	args := map[string]any{"query": query, "extraction": "none", "count": limit}
+	basis := WindowNone
+
+	if dates := searchWindow(ctx); dates.from != "" {
+		args["freshness"] = dates.from + "to" + dates.to
+		basis = WindowServerBounds
+	}
+
+	result, err := s.callMCP(ctx, s.cfg.YouMCPURL, "you-search", args, headers)
 	if err != nil {
 		return reply{}, err
 	}
@@ -288,7 +335,7 @@ func (s *Service) askYou(ctx context.Context, _ route, query string, limit int) 
 		})
 	}
 
-	return reply{results: out}, nil
+	return reply{results: out, windowBasis: basis}, nil
 }
 
 // openMCP opens a session with an MCP server, as an MCP client connects
