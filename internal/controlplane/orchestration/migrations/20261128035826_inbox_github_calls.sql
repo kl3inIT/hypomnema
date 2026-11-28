@@ -5,8 +5,9 @@
 -- Inbox item as its container is the design's (#1232, row 4).
 --
 -- SQLite cannot change a column's check in place: todos is rebuilt from its definition now, 00174's (its Up) with
--- project_id's reference to departments (00175), in the same order, and its events kept aside and put back as 00174
--- does, since dropping todos deletes them (ON DELETE CASCADE).
+-- project_id's reference to departments (00175), in the same order; its events, and the review limits reached that
+-- name an item (review_stall_todos, 00193), are kept aside and put back as 00174 keeps the events, since dropping
+-- todos deletes them (ON DELETE CASCADE). No other table has a foreign key to todos.
 
 -- +goose Up
 
@@ -14,6 +15,7 @@ PRAGMA defer_foreign_keys = ON;
 
 CREATE TABLE todos_kept AS SELECT * FROM todos;
 CREATE TABLE todo_events_kept AS SELECT * FROM todo_events;
+CREATE TABLE review_stall_todos_kept AS SELECT * FROM review_stall_todos;
 
 DROP INDEX todo_events_todo;
 DROP TABLE todo_events;
@@ -149,6 +151,10 @@ SELECT id, todo_id, at, revision, actor_kind, actor, kind, before, after FROM to
 
 CREATE INDEX todo_events_todo ON todo_events (todo_id, id);
 
+INSERT INTO review_stall_todos (run_id, head_sha, pull_request, todo_id, long_report)
+SELECT run_id, head_sha, pull_request, todo_id, long_report FROM review_stall_todos_kept;
+
+DROP TABLE review_stall_todos_kept;
 DROP TABLE todo_events_kept;
 DROP TABLE todos_kept;
 
@@ -201,6 +207,7 @@ PRAGMA defer_foreign_keys = ON;
 CREATE TABLE todos_kept AS SELECT * FROM todos
 WHERE source_kind <> 'github' AND coalesce(duplicate_of, '') NOT IN (SELECT id FROM todos WHERE source_kind = 'github');
 CREATE TABLE todo_events_kept AS SELECT * FROM todo_events WHERE todo_id IN (SELECT id FROM todos_kept);
+CREATE TABLE review_stall_todos_kept AS SELECT * FROM review_stall_todos WHERE todo_id IN (SELECT id FROM todos_kept);
 
 DROP INDEX todo_events_todo;
 DROP TABLE todo_events;
@@ -334,5 +341,9 @@ SELECT id, todo_id, at, revision, actor_kind, actor, kind, before, after FROM to
 
 CREATE INDEX todo_events_todo ON todo_events (todo_id, id);
 
+INSERT INTO review_stall_todos (run_id, head_sha, pull_request, todo_id, long_report)
+SELECT run_id, head_sha, pull_request, todo_id, long_report FROM review_stall_todos_kept;
+
+DROP TABLE review_stall_todos_kept;
 DROP TABLE todo_events_kept;
 DROP TABLE todos_kept;
