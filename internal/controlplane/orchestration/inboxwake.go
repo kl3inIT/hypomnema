@@ -177,6 +177,11 @@ func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore
 		return "", fmt.Errorf("listing the Bots: %w", err)
 	}
 
+	repos, err := reposOfBots(ctx, q)
+	if err != nil {
+		return "", err
+	}
+
 	var b strings.Builder
 
 	b.WriteString(inboxMainRule)
@@ -190,8 +195,15 @@ func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore
 
 		listed++
 
-		fmt.Fprintf(&b, "- %s (%s): %s Connections: %s.\n", r.Name, r.ID, inboxPersonaLine(r.Instructions),
+		fmt.Fprintf(&b, "- %s (%s): %s Connections: %s.", r.Name, r.ID, inboxPersonaLine(r.Instructions),
 			inboxConnectionWords(allowListOf(r.Connections)))
+
+		// The repositories whose Runs it owns (issue #1334).
+		if owned := repos[r.ID]; len(owned) > 0 {
+			fmt.Fprintf(&b, " Repositories: %s.", strings.Join(owned, ", "))
+		}
+
+		b.WriteString("\n")
 	}
 
 	if listed == 0 {
@@ -206,7 +218,9 @@ func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore
 const (
 	inboxMainRule = "\nPass it with inbox_update pass_to (the Bot's id) when the work needs a project Bot's accounts " +
 		"or context, the ones below; do it yourself or start a Run otherwise. The Bot you pass it to reports in the " +
-		"item's thread and closes it, or gives it back. The project Bots:\n"
+		"item's thread and closes it, or gives it back. When it needs a project Bot but none below fits, keep it and " +
+		"say why with inbox_update not_passed: the Inbox shows it as not passed, with your reason. A Run on a " +
+		"repository a project Bot owns goes to that Bot's chat by itself. The project Bots:\n"
 	inboxProjectRule = "\nGive it back when it is not yours to do: to the owner (inbox_update hand_back) when he " +
 		"must decide or send, or to %s (inbox_update pass_to %s) when another Bot's accounts are needed. Pass it " +
 		"to no other Bot.\n"

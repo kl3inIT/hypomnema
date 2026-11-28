@@ -93,6 +93,10 @@ func printBot(e *env, b *openapi.Bot) {
 	e.printf("guaranteed workers: %d\n", b.GuaranteedDispatches)
 	e.printf("owner's accounts: %s\n", cmp.Or(string(val(b.OwnerAccounts)), "use"))
 
+	if repos := val(b.Repos); len(repos) > 0 {
+		e.printf("repositories: %s\n", strings.Join(repos, ", "))
+	}
+
 	if instructions := botInstructions(*b); instructions != "" {
 		e.printf("\n%s\n", instructions)
 	}
@@ -440,29 +444,62 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 	}
 
+	// Only --repos given changes no setting: the Bot is not saved again.
+	settings := false
+	fs.Visit(func(f *flag.Flag) { settings = settings || (f.Name != "repos" && f.Name != "json") })
+
+	saved := had
+	if had == nil || settings {
+		if saved, err = saveBot(ctx, e, name, had, set); err != nil {
+			return err
+		}
+	}
+
+	// The repositories it owns (issue #1334) are set apart from its settings, by the owner only.
+	if isSet(fs, "repos") {
+		repos := *list(str(fs, "repos"))
+
+		resp, err := e.api.SetBotReposWithResponse(ctx, saved.Id, openapi.BotRepos{Repos: repos})
+		if err != nil {
+			return fmt.Errorf("setting the repositories of bot %s: %w", name, err)
+		}
+
+		if resp.JSON200 == nil {
+			return apiError("setting the repositories of bot "+name, resp.StatusCode(), resp.JSONDefault)
+		}
+
+		saved = resp.JSON200
+	}
+
+	return e.print(fs, saved, func() { printBot(e, saved) })
+}
+
+// saveBot makes the Bot named when had is nil, else saves set as its settings.
+func saveBot(ctx context.Context, e *env, name string, had *openapi.Bot, set openapi.BotSettings,
+) (*openapi.Bot, error) {
 	if had == nil {
 		made, err := e.api.CreateBotWithResponse(ctx, openapi.NewBot{Name: name, Settings: &set})
 		if err != nil {
-			return fmt.Errorf("making bot %s: %w", name, err)
+			return nil, fmt.Errorf("making bot %s: %w", name, err)
 		}
 
 		if made.JSON201 == nil {
-			return apiError("making bot "+name, made.StatusCode(), made.JSONDefault)
+			return nil, apiError("making bot "+name, made.StatusCode(), made.JSONDefault)
 		}
 
-		return e.print(fs, made.JSON201, func() { printBot(e, made.JSON201) })
+		return made.JSON201, nil
 	}
 
 	put, err := e.api.PutBotWithResponse(ctx, had.Id, set)
 	if err != nil {
-		return fmt.Errorf("saving bot %s: %w", name, err)
+		return nil, fmt.Errorf("saving bot %s: %w", name, err)
 	}
 
 	if put.JSON200 == nil {
-		return apiError("saving bot "+name, put.StatusCode(), put.JSONDefault)
+		return nil, apiError("saving bot "+name, put.StatusCode(), put.JSONDefault)
 	}
 
-	return e.print(fs, put.JSON200, func() { printBot(e, put.JSON200) })
+	return put.JSON200, nil
 }
 
 // botsRename gives a Bot another name; its id and everything that names it stay.

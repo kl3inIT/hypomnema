@@ -119,6 +119,24 @@ UPDATE setup_changes SET undone_at = @now WHERE id = @id AND undone_at IS NULL;
 -- since bots had a model.
 SELECT name, provider, model FROM bots ORDER BY created_at, name;
 
+-- name: ListBotRepos :many
+-- Every repository a Bot owns (issue #1334), by Bot and then by repository.
+SELECT * FROM bot_repos ORDER BY bot_id, host, path;
+
+-- name: ListReposOfBot :many
+SELECT * FROM bot_repos WHERE bot_id = @bot_id ORDER BY host, path;
+
+-- name: DeleteReposOfBot :exec
+DELETE FROM bot_repos WHERE bot_id = @bot_id;
+
+-- name: InsertBotRepo :exec
+-- A repository has at most one owning Bot: a second claim breaks the key.
+INSERT INTO bot_repos (host, path, bot_id, created_at) VALUES (@host, @path, @bot_id, @now);
+
+-- name: OwnerOfRepo :one
+-- The Bot that owns a repository, with its name; the path compares without case.
+SELECT r.bot_id, b.name FROM bot_repos r JOIN bots b ON b.id = r.bot_id WHERE r.host = @host AND r.path = @path;
+
 -- name: InsertBotVersion :exec
 -- One save of a Bot's settings (issue #1336); its number follows the Bot's last.
 INSERT INTO bot_versions (id, bot_id, version, settings, source, saved_by, chat_id, restored_from, created_at)

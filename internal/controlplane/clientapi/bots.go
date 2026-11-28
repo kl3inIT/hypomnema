@@ -436,6 +436,17 @@ func toBotVersion(v orchestration.BotVersion) openapi.BotVersion {
 	}
 }
 
+// SetBotRepos replaces the repositories whose work a Bot owns (issue #1334).
+func (s *Server) SetBotRepos(ctx context.Context, req openapi.SetBotReposRequestObject,
+) (openapi.SetBotReposResponseObject, error) {
+	b, err := s.svc.SetBotRepos(ctx, req.BotId, req.Body.Repos)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetBotRepos200JSONResponse(toBot(b)), nil
+}
+
 func toBot(b orchestration.Bot) openapi.Bot {
 	return openapi.Bot{
 		Id: b.ID, Name: b.Name, Main: b.Main(), Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
@@ -449,6 +460,7 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), GuaranteedDispatches: b.Guarantee(),
 		OwnerAccounts: new(openapi.OwnerAccounts(cmp.Or(b.OwnerAccounts, orchestration.OwnerAccountsUse))),
 		Position:      b.Position, Department: opt(b.Department), MainChat: opt(b.MainChat),
+		Repos:     new(append([]string{}, b.Repos...)),
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }

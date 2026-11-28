@@ -1437,9 +1437,9 @@ sequenceDiagram
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
   page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
   dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
-- **Run custody** (issue #969, `orchestration/run_custody.go`): the client API assigns a new interactive Run to the
-  named chat or the main Bot's main chat (creating it if needed), and keeps the creator and the supervisor's
-  registered coordinator token ID. A Bot uses its own chat, a script Routine stays chatless, and other external
+- **Run custody** (issue #969, `orchestration/run_custody.go`): the client API assigns a new interactive Run to a
+  chat (Run routing, below), creating a Bot's main chat if needed, and keeps the creator and the supervisor's
+  registered coordinator token ID. A script Routine stays chatless, and other external
   coordinator tokens cannot create an interactive Run. A read-only Routine chat cannot be a destination. Retry of
   the same create does not resolve the default again.
   Only the owner can adopt a specific open, unbound Run; another live coordinator's Run or an ambiguous chatless
@@ -1456,6 +1456,23 @@ sequenceDiagram
     From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
     `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
     shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
+  - Run routing (issue #1334, `routeRun`): a Bot owns repositories (`bot_repos`: host and path, the path compared
+    without case, a repository at most one Bot's, `ON DELETE CASCADE` with the Bot; `SetBotRepos`, the owner's
+    `PUT /bots/{bot_id}/repos`, `bots set --repos`, the Bot page's Repositories; the main Bot owns none and a claim
+    on another Bot's repository is a conflict naming it). A new Run's chat is, in order: the chat named (`--chat`,
+    `chat_id`; `chat`); from a Bot chat whose Bot owns the repository, or owns none on a repository no Bot owns (or
+    with no repository), that chat (`own_chat`); the main chat of the Bot that owns the repository (`repo_owner`);
+    else the main Bot's main chat (`default`), also for a Run of a Bot that owns other repositories. `runs.routed_by` keeps which, shown as the Run's `routed_by` and printed by `runs create`. A Bot
+    chat's Run that goes to another Bot keeps the coordinator token (the one every pi's token is made under, so the
+    receiving Bot's pi changes it and the creating pi does not); the receiving Bot's chat gets one undelivered notice to
+    plan it and the creating chat a line (not given to pi) naming the Run and the chat. A Run is not moved after it
+    is made; a Routine's script Run stays chatless.
+    From: OpenClaw `3320cd365`, `src/routing/resolve-route.ts:317-326,578-602` (`matchedBy`; an explicit target
+    beats bindings, the most specific wins, no match goes to the default agent) and `docs/concepts/multi-agent.md`;
+    Paperclip `9c1fd246`, `packages/db/src/schema/projects.ts:22` (a project's lead agent), `docs/api/issues.md`
+    (one assignee, a second checkout is a 409) and `docs/specs/external-task-protocol.md:634-647` (the route is
+    resolved before the issue is made). The binding by repository is the owner's (2026-11-28); the lines in both
+    chats follow AdoptRun and `moveMainRunsTx`.
   - A main chat's Runs follow the main chat (issue #1169, `moveMainRunsTx`): when a Bot's main chat changes (New
     chat, `/new`, `chat --new`, or Set as main chat), the open Runs bound to the former main chat move to the new
     one in the same write. Each keeps its coordinator token and takes the Run's latest event as its cutoff, as an
@@ -5869,9 +5886,17 @@ its client API, its CLI and the Bots' tools.
   that passed the item ("<Bot> passed you Inbox item …", read its thread with `inbox_get`). The main Bot given an
   item is told the project Bots, each with its id, the first paragraph of its persona (≤ 300 characters) and its
   Connections (`every Connection` when not limited), and to pass the item (`inbox_update pass_to`) when the work
-  needs that Bot's accounts or context, else to do it itself or start a Run. A project Bot is told to give it back
+  needs that Bot's accounts or context, else to do it itself or start a Run. Each project Bot's line names the
+  repositories it owns (issue #1334). A project Bot is told to give it back
   to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an item is passed to is
-  woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now.
+  woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now. A pass to a
+  Bot that was removed is refused (`checkAssignee`); Bots have no paused state.
+- Not passed (issue #1334, `inboxstore/pass.go`, `notPassed`; after Paperclip `9c1fd246`,
+  `docs/specs/external-task-protocol.md:645-648`, the triage fallback with a visible "unresolved routing" comment):
+  the main Bot, given an item whose work needs a project Bot that none fits, keeps it and says why with
+  `inbox_update not_passed` (only the main Bot, only on an item it has, not with `pass_to` or `hand_back`). The
+  reason is `todos.not_passed`, the API's `Todo.not_passed`, shown as "Not passed" on the Inbox row (the reason on
+  hover), as a "Not passed" field of the item and as a thread line; any change of who has the item clears it.
 - The owner's mark (issue #1229, after OpenMausBot's `handsOnLending` and `handedInUnproven`,
   `server/host/cloud-lending-turns.ts`, and OpenClaw's `spawnedBySenderIsOwner`,
   `src/agents/subagents/spawn/spawn-parent-lineage.ts`): each wake-up of an item records who it comes from and the
@@ -6584,8 +6609,9 @@ The owner's commands:
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
-  - `runs create --chat <id>` and `run --chat <id>` choose the receiving chat (otherwise the API uses the default
-    described in Run custody); `runs adopt <run> [--chat <id>]` is the owner's command to assign existing work.
+  - `runs create --chat <id>` and `run --chat <id>` choose the receiving chat (otherwise the API routes the Run as
+    Run routing says) and `runs create` prints its `routed_by`; `runs adopt <run> [--chat <id>]` is the owner's
+    command to assign existing work. `repos list` names each registered repository's Bot (issue #1334).
   - `runs wait <run>` is optional observation. It returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
@@ -6598,8 +6624,8 @@ The owner's commands:
   new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
   a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
   `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`; `chats main <chat>` makes a
-  chat its Bot's main chat (owner; issue #923). `runs create` sends
-  `HYPOMNEMA_CHAT_ID` when pi's environment has it and `--chat` is absent; the API refuses another chat with
+  chat its Bot's main chat (owner; issue #923). `runs create` sends a chat only
+  with `--chat`: without it, pi's own token names its chat (issue #1334); the API refuses another chat with
   pi's own token (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
