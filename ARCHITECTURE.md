@@ -2620,6 +2620,13 @@ flowchart LR
       `POST /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the
       App's latest delivery again (`POST /app/hook/deliveries/{id}/attempts`); GitHub keeps its id, so it is answered
       200 as handled before, which GitHub's Recent Deliveries shows.
+    - **Commit attribution** ([issue #1312](https://github.com/kl3inIT/hypomnema/issues/1312)). App-backed offers
+      use the owner's GitHub Connection identity as author and the App's bot as committer. The control plane
+      reads the bot user ID at `GET /users/<slug>[bot]` and keeps it in the vault's App credential, backfilling
+      older credentials on the first App offer. The bot's address is `<bot user id>+<slug>[bot]@users.noreply.github.com`.
+      If the repository's Connection supplies no matching owner identity, the bot fills both Git identities and
+      the worker prompt asks for a `Co-authored-by` trailer when the App owner's GitHub account is known. With a
+      personal token the Connection account still fills both fields. See [the GitHub App guide](docs/github-app.md).
     - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): a token is made with the App's
       JWT for one repository (`POST /app/installations/{id}/access_tokens` with `repository_ids`, as Omnara's
       `auth.go:138-162`; every permission the installation has), so it reaches that repository alone, and reused
@@ -2628,7 +2635,7 @@ flowchart LR
       App covers is offered as the App's (`github_app` set) with no token at all, only by a node that said
       `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole Dispatch, is
       given the owner's, as before. So no token of the App's is kept with the offer in the node's state, in the
-      worker's environment or in the shim's spec. The commits still name the owner's account (issue #991). Such a
+      worker's environment or in the shim's spec. Such a
       node asks for a fresh token for its own clone, fetch and push (`publish_branch`), and puts `github-bin/` of the
       Dispatch's directory first on the worker's PATH,
       holding `gh` and `hypomnema` scripts, sets git's credential helper for github.com (an empty helper first,
@@ -3396,12 +3403,19 @@ flowchart LR
       (`tg_access_hashes`) as mautrix/telegram keeps them, the people's names (`tg_users`), and the mirror
       `tg_chats` and `tg_messages` with a full-text search, shaped as `whatsapp.db`'s.
     - **Every chat kept**: gotd's updates manager recovers gaps itself and hands new, edited and deleted messages to
-      the mirror. A channel gap it cannot recover (`OnChannelGap`) keeps the latest messages it came with and fetches
-      those since the newest kept, at most 500 (mautrix's `max_catchup_messages`); a gap of the account's own updates
-      (`OnTooLong`) or a state not kept (the first start after a link) lists every dialog, 100 a page, keeps each chat
-      with its latest message and catches each up the same way. `Backfill` fetches older messages with
-      `messages.getHistory`, 100 a page, one fetch at a time, waiting 2 s more each page up to 15 s; no takeout.
-      `messages.readHistory` is never called, so nothing is marked read.
+      the mirror; a group or channel created is listed from its service message, and one the account is removed
+      from (or loses, `OnChannelInaccessible`) leaves the list. A channel gap it cannot recover (`OnChannelGap`)
+      keeps the latest messages it came with and fetches those since the last message kept before the gap (read when
+      the gap is reported), at most 500 (mautrix's `max_catchup_messages`).
+    - **The listing of dialogs** (`tg_dialog_sync`): every dialog, 100 a page, each chat kept with its latest message
+      and each listed channel tracked by the updates manager from its dialog's pts. It runs after a link and goes on
+      from its kept page cursor on each connection until done, as mautrix's chat sync; a gap of the account's own
+      updates (`OnTooLong`) or a state not found starts it again, catching each chat up as a channel gap is. A short
+      page ends it only when the count is reached (gotd's dialogs iterator).
+    - **The past**: `Backfill` fetches older messages with `messages.getHistory`, 100 a page, one fetch at a time,
+      waiting 2 s more each page up to 15 s (20 s at most for one fetch of 500); no takeout. gotd's flood-wait
+      middleware waits out a `FLOOD_WAIT` of up to a minute, five times; a longer one fails the request (a listing
+      resumes on the next connection). `messages.readHistory` is never called, so nothing is marked read.
     - **Chats**: ids `user:<id>`, `chat:<id>`, `channel:<id>`. A person is `dm`; a bot or an account Telegram marks
       verified, support, scam or fake is `bot`; a basic group, a megagroup or a forum (one chat) is `group`; a
       broadcast channel or a gigagroup is `broadcast`. A deleted account and a chat left or lost are not listed;
@@ -3642,7 +3656,7 @@ flowchart LR
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
     A Bot given the same Connection reads GitHub through the service proxy instead (issue #685, under
     Integrations).
-  - The worker commits as the account its token belongs to (issue
+  - With a Connection token, the worker commits as the account that token belongs to (issue
     [#991](https://github.com/kl3inIT/hypomnema/issues/991)), not as the node user's `~/.gitconfig` says. The
     control plane reads that account once a token at the host's `GET /user`, with the token and through the
     Connection's route, and keeps it with the Connection (`connections.git_name`, `git_email`, and

@@ -33,14 +33,26 @@ func (i Identity) Known() bool { return i.Name != "" && i.Email != "" }
 // user.name and user.email of any configuration file, as Coder's workspace
 // agent sets them (examples/templates/docker/main.tf:45-53). It is empty for an
 // identity that is not known, so git keeps what the machine says.
-func (i Identity) Env() []string {
+func (i Identity) Env() []string { return i.EnvWithCommitter(i) }
+
+// EnvWithCommitter also supports App-backed commits whose author and committer can differ. If either identity is
+// unknown, git uses the other for both fields.
+func (i Identity) EnvWithCommitter(committer Identity) []string {
+	if !i.Known() {
+		i = committer
+	}
+
+	if !committer.Known() {
+		committer = i
+	}
+
 	if !i.Known() {
 		return nil
 	}
 
 	return []string{
 		"GIT_AUTHOR_NAME=" + i.Name, "GIT_AUTHOR_EMAIL=" + i.Email,
-		"GIT_COMMITTER_NAME=" + i.Name, "GIT_COMMITTER_EMAIL=" + i.Email,
+		"GIT_COMMITTER_NAME=" + committer.Name, "GIT_COMMITTER_EMAIL=" + committer.Email,
 	}
 }
 

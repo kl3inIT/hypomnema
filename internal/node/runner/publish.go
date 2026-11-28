@@ -89,6 +89,7 @@ func (s *Supervisor) freshSource(ctx context.Context, o nodeproto.Offer) (worktr
 func (s *Supervisor) repoSourceWith(o nodeproto.Offer, token string) (worktree.Source, error) {
 	src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo, token)
 	src.Identity = githost.Identity{Name: o.GitName, Email: o.GitEmail}
+	src.Committer = githost.Identity{Name: o.GitCommitterName, Email: o.GitCommitterEmail}
 	if err != nil || o.RepoSSHURL == "" {
 		return src, err
 	}

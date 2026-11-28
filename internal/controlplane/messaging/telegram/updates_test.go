@@ -196,6 +196,18 @@ func TestAMessageIsConvertedAsWhatsAppsAre(t *testing.T) {
 	both.SetReplyToTopID(3)
 	replyInTopic.SetReplyTo(both)
 
+	topicRoot := message(forum, 16, "on the topic's first message")
+	root := &tg.MessageReplyHeader{ForumTopic: true}
+	root.SetReplyToMsgID(3)
+	root.SetReplyToTopID(3)
+	topicRoot.SetReplyTo(root)
+
+	elsewhere := message(forum, 17, "about another chat's message")
+	other := &tg.MessageReplyHeader{}
+	other.SetReplyToMsgID(5)
+	other.SetReplyToPeerID(&tg.PeerUser{UserID: 7})
+	elsewhere.SetReplyTo(other)
+
 	photo := message(forum, 13, "the slide")
 	media := &tg.MessageMediaPhoto{}
 	media.SetPhoto(&tg.Photo{ID: 1})
@@ -213,6 +225,8 @@ func TestAMessageIsConvertedAsWhatsAppsAre(t *testing.T) {
 		reply:        {quotedID: "8", text: "agreed"},
 		inTopic:      {text: "in the topic"},
 		replyInTopic: {quotedID: "10", text: "answer in the topic"},
+		topicRoot:    {text: "on the topic's first message"},
+		elsewhere:    {text: "about another chat's message"},
 		photo:        {mediaType: mediaImage, caption: "the slide", mime: "image/jpeg"},
 		doc:          {mediaType: mediaDocument, fileName: "faq.pdf", mime: "application/pdf"},
 		voice:        {mediaType: mediaAudio, mime: "audio/ogg"},
@@ -247,7 +261,7 @@ func TestAChannelsGapIsFilledFromItsHistory(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.NoError(t, a.recoverGap(ctx, server, updates.ChannelGap{
+	require.NoError(t, a.recoverGap(ctx, server, 10, updates.ChannelGap{
 		ChannelID: 9, AccessHash: 9000, LocalPts: 10, RemotePts: 300, TopMessage: 260,
 		Messages: []tg.MessageClass{message(peer, 260, "x"), message(peer, 259, "x"), message(peer, 258, "x")},
 		Chats:    []tg.ChatClass{channel(9, "VMAP AI")},
@@ -274,7 +288,7 @@ func TestAGapInAChannelNeverKeptFetchesNothing(t *testing.T) {
 	server := newFakeTelegram()
 	server.add(peer, ids(1, 100)...)
 
-	require.NoError(t, a.recoverGap(t.Context(), server, updates.ChannelGap{
+	require.NoError(t, a.recoverGap(t.Context(), server, 0, updates.ChannelGap{
 		ChannelID: 9, AccessHash: 9000, TopMessage: 100, Messages: []tg.MessageClass{message(peer, 100, "x")},
 	}))
 
@@ -302,7 +316,7 @@ func TestATooLongGapCatchesUpEveryDialog(t *testing.T) {
 	}
 
 	page := func(peers []tg.PeerClass, tops []int) *tg.MessagesDialogsSlice {
-		res := &tg.MessagesDialogsSlice{Count: 3, Users: []tg.UserClass{user(7, "Trung")},
+		res := &tg.MessagesDialogsSlice{Count: 101, Users: []tg.UserClass{user(7, "Trung")},
 			Chats: []tg.ChatClass{&tg.Chat{ID: 8, Title: "Team"}, channel(9, "Busy")}}
 		for i, p := range peers {
 			res.Dialogs = append(res.Dialogs, &tg.Dialog{Peer: p, TopMessage: tops[i]})
@@ -324,7 +338,8 @@ func TestATooLongGapCatchesUpEveryDialog(t *testing.T) {
 	first, tops = append(first, trung), append(tops, 20)
 	server.dialogs = []tg.MessagesDialogsClass{page(first, tops), page([]tg.PeerClass{group}, []int{3})}
 
-	require.NoError(t, a.syncDialogs(ctx, server, true))
+	require.NoError(t, a.store.restartDialogs(ctx, a.key, true))
+	require.NoError(t, a.syncDialogs(ctx, server.conn()))
 
 	chats, err := a.Chats(ctx, messaging.MaxChats)
 	require.NoError(t, err)
@@ -358,7 +373,8 @@ func TestTheFirstListingKeepsEveryChatWithoutItsHistory(t *testing.T) {
 		Users:    []tg.UserClass{user(7, "Trung")},
 	}}
 
-	require.NoError(t, a.syncDialogs(t.Context(), server, true))
+	require.NoError(t, a.store.restartDialogs(t.Context(), a.key, true))
+	require.NoError(t, a.syncDialogs(t.Context(), server.conn()))
 
 	assert.Equal(t, []string{"20"}, keptIDs(t, a, "user:7"))
 	assert.Empty(t, server.asked)
