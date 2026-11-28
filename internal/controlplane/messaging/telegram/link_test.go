@@ -139,7 +139,7 @@ func (l *linking) end(t *testing.T) linked {
 
 var (
 	exportQR = &tg.AuthExportLoginTokenRequest{APIID: testAppID, APIHash: testAppHash}
-	owner    = &tg.AuthAuthorization{User: &tg.User{ID: self, Phone: "84912345678", FirstName: "Đạt"}}
+	owner    = &tg.AuthAuthorization{User: &tg.User{ID: self, Phone: "9996612345", FirstName: "Alex"}}
 )
 
 func qrToken() *tg.AuthLoginToken {
@@ -217,13 +217,13 @@ func TestALinkByPhoneAsksTheNumberTheCodeAndThePassword(t *testing.T) {
 
 	sent := &tg.AuthSentCode{Type: &tg.AuthSentCodeTypeApp{Length: 5}, PhoneCodeHash: "hash"}
 	signIn := func(code string) *tg.AuthSignInRequest {
-		return &tg.AuthSignInRequest{PhoneNumber: "+84912345678", PhoneCodeHash: "hash", PhoneCode: code}
+		return &tg.AuthSignInRequest{PhoneNumber: "+9996612345", PhoneCodeHash: "hash", PhoneCode: code}
 	}
 
 	l := startLinking(t, true, func(m *tgmock.Mock) {
 		m.ExpectCall(&tg.AuthSendCodeRequest{PhoneNumber: "84", APIID: testAppID, APIHash: testAppHash}).
 			ThenRPCErr(tgerr.New(400, "PHONE_NUMBER_INVALID"))
-		m.ExpectCall(&tg.AuthSendCodeRequest{PhoneNumber: "+84912345678", APIID: testAppID, APIHash: testAppHash}).
+		m.ExpectCall(&tg.AuthSendCodeRequest{PhoneNumber: "+9996612345", APIID: testAppID, APIHash: testAppHash}).
 			ThenResult(sent)
 		m.ExpectCall(signIn("11111")).ThenRPCErr(tgerr.New(400, "PHONE_CODE_INVALID"))
 		m.ExpectCall(signIn("22222")).ThenRPCErr(tgerr.New(401, "SESSION_PASSWORD_NEEDED"))
@@ -233,7 +233,7 @@ func TestALinkByPhoneAsksTheNumberTheCodeAndThePassword(t *testing.T) {
 	})
 
 	assert.False(t, l.answer(t, messaging.AskPhone, "84").Again)
-	assert.True(t, l.answer(t, messaging.AskPhone, "+84912345678").Again, "a number Telegram refused is asked again")
+	assert.True(t, l.answer(t, messaging.AskPhone, "+9996612345").Again, "a number Telegram refused is asked again")
 
 	asked := l.answer(t, messaging.AskCode, "11111")
 	assert.Equal(t, "the Telegram app", asked.Hint, "where the code was sent")
@@ -250,13 +250,13 @@ func TestALinkByPhoneNeverMakesAnAccount(t *testing.T) {
 	t.Parallel()
 
 	l := startLinking(t, true, func(m *tgmock.Mock) {
-		m.ExpectCall(&tg.AuthSendCodeRequest{PhoneNumber: "+84900000000", APIID: testAppID, APIHash: testAppHash}).
+		m.ExpectCall(&tg.AuthSendCodeRequest{PhoneNumber: "+9996600000", APIID: testAppID, APIHash: testAppHash}).
 			ThenResult(&tg.AuthSentCode{Type: &tg.AuthSentCodeTypeSMS{Length: 5}, PhoneCodeHash: "hash"})
-		m.ExpectCall(&tg.AuthSignInRequest{PhoneNumber: "+84900000000", PhoneCodeHash: "hash", PhoneCode: "12345"}).
+		m.ExpectCall(&tg.AuthSignInRequest{PhoneNumber: "+9996600000", PhoneCodeHash: "hash", PhoneCode: "12345"}).
 			ThenResult(&tg.AuthAuthorizationSignUpRequired{})
 	})
 
-	l.answer(t, messaging.AskPhone, "+84900000000")
+	l.answer(t, messaging.AskPhone, "+9996600000")
 	assert.Equal(t, "an SMS", l.answer(t, messaging.AskCode, "12345").Hint)
 
 	r := l.end(t)
@@ -277,12 +277,12 @@ func TestALinkedAccountKeepsItsSession(t *testing.T) {
 	t.Cleanup(acc.Close)
 
 	assert.Equal(t, "42", acc.ID())
-	assert.Equal(t, "+84912345678", acc.Name())
+	assert.Equal(t, "+9996612345", acc.Name())
 
 	data, name, err := svc.store.session(ctx, "42")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"Version":1}`, string(data))
-	assert.Equal(t, "+84912345678", name)
+	assert.Equal(t, "+9996612345", name)
 }
 
 // Without the owner's api_id in the vault no linking starts, and it says the api_id is missing.
@@ -296,4 +296,33 @@ func TestNoLinkStartsWithoutTheAPIID(t *testing.T) {
 
 	_, err = svc.LinkByPhone(t.Context())
 	require.ErrorIs(t, err, ErrNoAPIID)
+}
+
+// Review of #1333: when Telegram sends the login code to the account's email, the code goes back as the sign-in's
+// email verification (auth.signIn's email_verification), not as a phone code.
+func TestALinkByPhoneSendsAnEmailCodeAsTheEmailVerification(t *testing.T) {
+	t.Parallel()
+
+	l := startLinking(t, true, func(m *tgmock.Mock) {
+		m.ExpectCall(&tg.AuthSendCodeRequest{PhoneNumber: "+9996612345", APIID: testAppID, APIHash: testAppHash}).
+			ThenResult(&tg.AuthSentCode{
+				Type: &tg.AuthSentCodeTypeEmailCode{EmailPattern: "a***@example.com", Length: 6}, PhoneCodeHash: "hash",
+			})
+		m.ExpectFunc(func(b bin.Encoder) {
+			req, ok := b.(*tg.AuthSignInRequest)
+			require.True(t, ok, "%T", b)
+			assert.Empty(t, req.PhoneCode, "an email code is not a phone code")
+
+			email, ok := req.GetEmailVerification()
+			require.True(t, ok, "the code goes as the email verification")
+			assert.Equal(t, &tg.EmailVerificationCode{Code: "654321"}, email)
+		}).ThenResult(owner)
+	})
+
+	l.answer(t, messaging.AskPhone, "+9996612345")
+	assert.Equal(t, "your email a***@example.com", l.answer(t, messaging.AskCode, "654321").Hint)
+
+	r := l.end(t)
+	require.NoError(t, r.err)
+	assert.Equal(t, owner, r.authz)
 }

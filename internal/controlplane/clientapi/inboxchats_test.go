@@ -34,12 +34,14 @@ var keptChats = map[string][]messaging.Chat{
 		{ID: "120363000000000001@g.us", Kind: "group", Name: "Family"},
 		{ID: "status@broadcast", Kind: "broadcast", Name: ""},
 	},
-	// Telegram's kinds from its flags (issue #1184): a person, a group, a forum group, a bot, Telegram's own service
-	// account (verified) and a channel.
+	// Telegram's kinds from its flags alone (issue #1184): a person, a group, a forum group, a group whose name the
+	// Zalo/WhatsApp patterns would take for a newsletter, a bot, Telegram's own service account (verified) and a
+	// channel.
 	"telegram:main": {
-		{ID: "user:5001", Kind: "dm", Name: "Trung"},
+		{ID: "user:5001", Kind: "dm", Name: "Minh Anh"},
 		{ID: "chat:6001", Kind: "group", Name: "Gia đình"},
-		{ID: "channel:7001", Kind: "group", Name: "VMAP AI Foundation"},
+		{ID: "channel:7001", Kind: "group", Name: "Platform Team"},
+		{ID: "channel:7003", Kind: "group", Name: "Engineering Newsletter"},
 		{ID: "user:5002", Kind: "bot", Name: "BotFather"},
 		{ID: "user:777000", Kind: "bot", Name: "Telegram"},
 		{ID: "channel:7002", Kind: "broadcast", Name: "Tech News"},
@@ -102,7 +104,7 @@ func newSecretaryChatsWorldWith(t *testing.T, files botFolder, closed *atomic.Bo
 	for _, c := range []orchestration.Connection{
 		{Integration: "zalo", Label: "main", Account: "Alex Demo", Secret: "test-zalo"},
 		{Integration: "whatsapp", Label: "me", Account: "+84 90 000 0000", Secret: "test-whatsapp"},
-		{Integration: "telegram", Label: "main", Account: "+84 90 000 0001", Secret: "test-telegram"},
+		{Integration: "telegram", Label: "main", Account: "+999 66 1 2345", Secret: "test-telegram"},
 		{Integration: "lark", Label: "me", Secret: "test-lark", AppLabel: "work"},
 		{Integration: "lark", Label: "helper", Secret: "test-lark-helper"},
 	} {
@@ -181,7 +183,7 @@ func TestTheSecretaryReadsDirectChatsAndGroupsAndSkipsBotsOnEverySource(t *testi
 	assert.Equal(t, map[string]openapi.InboxChatCounts{
 		"zalo:main":     {All: 4, Read: 2, Skipped: 2, Direct: 1, Group: 1, Bot: 2},
 		"whatsapp:me":   {All: 3, Read: 2, Skipped: 1, Direct: 1, Group: 1, Bot: 1},
-		"telegram:main": {All: 6, Read: 3, Skipped: 3, Direct: 1, Group: 2, Bot: 3},
+		"telegram:main": {All: 7, Read: 4, Skipped: 3, Direct: 1, Group: 3, Bot: 3},
 		"lark:me":       {All: 4, Read: 2, Skipped: 2, Direct: 1, Group: 1, Bot: 2},
 	}, counts, "lark:helper is an app's bot, not his")
 	assert.Equal(t, openapi.InboxChatDefaults{
@@ -201,7 +203,9 @@ func TestTheSecretaryReadsDirectChatsAndGroupsAndSkipsBotsOnEverySource(t *testi
 		"user:5001": "direct read by default", "chat:6001": "group read by default",
 		"channel:7001": "group read by default", "user:5002": "bot skipped by default",
 		"user:777000": "bot skipped by default", "channel:7002": "bot skipped by default",
-	}, readsByID(w.chatsOf(t, "telegram:main", openapi.ListInboxChatsParams{})))
+		"channel:7003": "group read by default",
+	}, readsByID(w.chatsOf(t, "telegram:main", openapi.ListInboxChatsParams{})),
+		"Telegram's kinds come from its own flags, never from a name: an ordinary group named Newsletter is read")
 	assert.Equal(t, map[string]string{
 		"oc_aaa": "direct read by default", "oc_bbb": "group read by default",
 		"oc_ccc": "bot skipped by default", "oc_ddd": "bot skipped by default",
@@ -376,4 +380,20 @@ func TestTheMoveFailsWhileAnAccountCannotBeListed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, moved.StatusCode(), string(moved.Body))
 	assert.Equal(t, []openapi.InboxChatRef{{Integration: "zalo", Label: "main", Chat: "2002"}}, moved.JSON200.Moved)
+}
+
+// Review of #1333: a Telegram group the owner set and then left (no longer in the kept list) still says it is a
+// group, by its id, not a direct chat.
+func TestATelegramGroupTheOwnerLeftKeepsItsKind(t *testing.T) {
+	t.Parallel()
+
+	w := newSecretaryChatsWorld(t, botFolder{})
+
+	set, err := w.owner.SetInboxChatWithResponse(t.Context(), "telegram", "main", "channel:7999",
+		openapi.InboxChatChoice{Reads: false})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, set.StatusCode(), string(set.Body))
+
+	got := readsByID(w.chatsOf(t, "telegram:main", openapi.ListInboxChatsParams{}))
+	assert.Equal(t, "group skipped by owner", got["channel:7999"])
 }

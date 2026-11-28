@@ -18,9 +18,9 @@ type Chat = {
 }
 
 const telegramChats: Chat[] = [
-  { id: "user:5001", name: "Trung", kind: "direct", reads: true, set_by: "default" },
+  { id: "user:5001", name: "Minh Anh", kind: "direct", reads: true, set_by: "default" },
   { id: "chat:6001", name: "Gia đình", kind: "group", reads: true, set_by: "default" },
-  { id: "channel:7001", name: "VMAP AI Foundation", kind: "group", reads: true, set_by: "default" },
+  { id: "channel:7001", name: "Platform Team", kind: "group", reads: true, set_by: "default" },
   { id: "user:5002", name: "BotFather", kind: "bot", reads: false, set_by: "default" },
   { id: "user:777000", name: "Telegram", kind: "bot", reads: false, set_by: "default" },
   { id: "channel:7002", name: "Tech News", kind: "bot", reads: false, set_by: "default" },
@@ -101,7 +101,7 @@ async function serve(
             {
               integration: "telegram",
               label: "main",
-              account: "+84 90 000 0001",
+              account: "+999 66 1 2345",
               counts: countOf(telegramChats),
             },
           ],
@@ -194,7 +194,7 @@ for (const theme of ["light", "dark"] as const) {
       const dialog = page.getByRole("dialog")
       await dialog.getByRole("button", { name: "Use phone number" }).click()
 
-      await dialog.getByLabel("Phone number").fill("+84912345678")
+      await dialog.getByLabel("Phone number").fill("+9996612345")
       await shot(page, `telegram-link-phone-${theme}`)
       await dialog.getByRole("button", { name: "Continue" }).click()
 
@@ -213,8 +213,8 @@ for (const theme of ["light", "dark"] as const) {
 
       await expect(page.getByRole("tab", { name: /Telegram\s*6/ })).toBeVisible()
       const row = (name: string) => page.getByTestId("secretary-chat").filter({ hasText: name })
-      await expect(row("Trung")).toContainText("Direct · Read · Default")
-      await expect(row("VMAP AI Foundation")).toContainText("Group · Read · Default")
+      await expect(row("Minh Anh")).toContainText("Direct · Read · Default")
+      await expect(row("Platform Team")).toContainText("Group · Read · Default")
       await expect(row("BotFather")).toContainText("Bot · Skipped · Default for bots")
       await expect(row("Tech News")).toContainText("Bot · Skipped · Default for bots")
       await shot(page, `telegram-chats-${theme}`)

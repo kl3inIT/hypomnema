@@ -122,7 +122,7 @@ func (f *fakeFiles) UploadGetFile(_ context.Context, req *tg.UploadGetFileReques
 	return &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Bytes: data[req.Offset:]}, nil
 }
 
-// connectedAccount is a test account connected to a fake Telegram that knows Trung (user:7) and the PMO channel.
+// connectedAccount is a test account connected to a fake Telegram that knows Minh Anh (user:7) and the PMO channel.
 func connectedAccount(t *testing.T) (*Account, *fakeFiles) {
 	t.Helper()
 
@@ -138,7 +138,7 @@ func connectedAccount(t *testing.T) (*Account, *fakeFiles) {
 	return a, server
 }
 
-// Scenario (issue #1184): the owner approved a reply to Trung. It goes as his message, replying to the one it answers,
+// Scenario (issue #1184): the owner approved a reply to Minh Anh. It goes as his message, replying to the one it answers,
 // and is kept as his, so that the next read shows it.
 func TestATextIsSentAsAReplyAndKept(t *testing.T) {
 	t.Parallel()
@@ -246,7 +246,7 @@ func TestASendThatCannotGoSaysWhy(t *testing.T) {
 	assert.Contains(t, err.Error(), "must be connected")
 }
 
-// Scenario (issue #1184): a Bot opens the file of a message Trung sent. Telegram's file references expire, so the
+// Scenario (issue #1184): a Bot opens the file of a message Minh Anh sent. Telegram's file references expire, so the
 // message is asked again for its file, as mautrix's direct download refetches it (directdownload.go:46-90); the file is
 // downloaded once and kept, and the kept one answers next time.
 func TestAMessagesFileIsDownloadedOnceAndKept(t *testing.T) {

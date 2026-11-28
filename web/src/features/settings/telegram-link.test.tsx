@@ -53,7 +53,7 @@ function linking(script: (flow: string, answer: string) => SignInAsk | "linked")
           {
             integration: "telegram",
             label: "main",
-            account: "+84 912 345 678",
+            account: "+999 66 1 2345",
             services: [],
             sign_in_required: false,
             chats: false,
@@ -138,6 +138,8 @@ async function open() {
     </QueryClientProvider>,
   )
   await screen.findByRole("heading", { name: "Integrations", level: 1 })
+
+  return queryClient
 }
 
 const telegramCard = async () =>
@@ -176,7 +178,7 @@ test("Telegram says its api_id is missing until it has one", async () => {
 test("the owner links Telegram by QR code and types his two-step password", async () => {
   const user = userEvent.setup()
   const server = linking(() => "linked")
-  await open()
+  const queryClient = await open()
 
   await user.click((await telegramCard()).getByRole("button", { name: "Link phone" }))
   const dialog = within(await screen.findByRole("dialog"))
@@ -194,6 +196,15 @@ test("the owner links Telegram by QR code and types his two-step password", asyn
   await user.click(dialog.getByRole("button", { name: "Continue" }))
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   expect(await screen.findByLabelText("Telegram account main")).toBeInTheDocument()
+
+  // Review of #1333: nothing the owner typed stays in the browser once the link is done.
+  const kept = JSON.stringify(
+    queryClient
+      .getMutationCache()
+      .getAll()
+      .map((m) => m.state),
+  )
+  expect(kept).not.toContain("hunter2")
 
   expect(server.requests).toEqual([
     { call: "POST /integrations/telegram/sign-ins", body: { label: "main" } },
@@ -218,7 +229,7 @@ test("the owner links Telegram by phone number, and a wrong code is asked again"
   const dialog = within(await screen.findByRole("dialog"))
   await user.click(dialog.getByRole("button", { name: "Use phone number" }))
 
-  await user.type(await dialog.findByLabelText("Phone number"), "+84912345678")
+  await user.type(await dialog.findByLabelText("Phone number"), "+9996612345")
   await user.click(dialog.getByRole("button", { name: "Continue" }))
 
   const code = await dialog.findByLabelText("Code")
@@ -236,9 +247,71 @@ test("the owner links Telegram by phone number, and a wrong code is asked again"
     { call: "POST /integrations/telegram/sign-ins/signin-1", body: {} },
     {
       call: "POST /integrations/telegram/sign-ins/signin-1/answer",
-      body: { value: "+84912345678" },
+      body: { value: "+9996612345" },
     },
     { call: "POST /integrations/telegram/sign-ins/signin-1/answer", body: { value: "11111" } },
     { call: "POST /integrations/telegram/sign-ins/signin-1/answer", body: { value: "22222" } },
   ])
+})
+
+// Review of #1333: once the QR code shows, the owner can still switch to his phone number without closing the
+// dialog; the QR linking is left for the phone one.
+test("the owner switches from the QR code to his phone number in the same dialog", async () => {
+  const user = userEvent.setup()
+  const server = linking(() => "linked")
+  await open()
+
+  await user.click((await telegramCard()).getByRole("button", { name: "Link phone" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  await user.click(dialog.getByRole("button", { name: "Show the code" }))
+  expect(await dialog.findByAltText("QR code to link Telegram")).toBeInTheDocument()
+
+  await user.click(dialog.getByRole("button", { name: "Use phone number" }))
+  expect(await dialog.findByLabelText("Phone number")).toBeInTheDocument()
+  expect(dialog.queryByAltText("QR code to link Telegram")).not.toBeInTheDocument()
+
+  expect(server.requests.filter((r) => r.call === "POST /integrations/telegram/sign-ins")).toEqual([
+    { call: "POST /integrations/telegram/sign-ins", body: { label: "main" } },
+    { call: "POST /integrations/telegram/sign-ins", body: { label: "main", flow: "phone" } },
+  ])
+})
+
+// Review of #1333: an account linked before whose api_id was since removed from the vault cannot be linked again
+// until it is back: its row offers no Link again, as the card offers no Link phone.
+test("a linked Telegram offers no link again while its api_id is missing", async () => {
+  const now = new Date().toISOString()
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const request = input as Request
+    const path = new URL(request.url).pathname.replace("/api/v1", "")
+    if (path === "/integrations") {
+      return json({
+        data: [
+          telegram({
+            unready,
+            connections: [
+              {
+                integration: "telegram",
+                label: "main",
+                account: "+999 66 1 2345",
+                services: [],
+                sign_in_required: true,
+                chats: false,
+                cannot: [],
+                session: { state: "disconnected", reason: unready },
+                created_at: now,
+                updated_at: now,
+              },
+            ],
+          }),
+        ],
+      })
+    }
+
+    return json({ data: [] })
+  })
+  await open()
+
+  const account = within(await screen.findByLabelText("Telegram account main"))
+  expect(account.queryByRole("button", { name: "Link again" })).not.toBeInTheDocument()
+  expect((await telegramCard()).getByText(/api_id is missing/)).toBeInTheDocument()
 })

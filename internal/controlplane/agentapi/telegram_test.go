@@ -27,7 +27,7 @@ func TestTheOwnersTelegramIsReadAndWrittenAsHisWhatsAppIs(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
-		Integration: "telegram", Label: "me", Account: "+84 900 000 001", Secret: "conn-telegram-me",
+		Integration: "telegram", Label: "me", Account: "+999 66 1 2345", Secret: "conn-telegram-me",
 	})
 	require.NoError(t, err)
 	_, err = w.svc.SetConnectionChats(ctx, "telegram", "me", true)
@@ -43,7 +43,7 @@ func TestTheOwnersTelegramIsReadAndWrittenAsHisWhatsAppIs(t *testing.T) {
 	require.NoError(t, err)
 	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
 	require.NoError(t, err)
-	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what did anh Trung say on Telegram today?")
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what did Minh Anh say on Telegram today?")
 	require.NoError(t, err)
 
 	names := toolNames(w.tools(pi))

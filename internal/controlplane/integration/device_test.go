@@ -423,14 +423,14 @@ func TestALinkByQRAsksForThePasswordOfTheAccount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "my cat", got.Ask.Hint)
 
-	_, heard := answer(t, w, p, started.ID, " hunter2", func() { p.scan("user:42", "+84912345678") })
+	_, heard := answer(t, w, p, started.ID, " hunter2", func() { p.scan("user:42", "+9996612345") })
 	assert.Equal(t, "password= hunter2", heard, "a password is given as typed")
 	require.NoError(t, <-done)
 
 	all, err := w.svc.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, all[0].Connections, 1)
-	assert.Equal(t, "+84912345678", all[0].Connections[0].Account)
+	assert.Equal(t, "+9996612345", all[0].Connections[0].Account)
 }
 
 // Scenario: issue #1184, the QR code cannot be scanned, so the owner links by his phone number: the link asks for
@@ -455,9 +455,9 @@ func TestALinkByPhoneAsksTheNumberThenTheCodeAgainWhenWrong(t *testing.T) {
 		done <- err
 	}()
 
-	next, heard := answer(t, w, p, started.ID, " +84912345678 ",
+	next, heard := answer(t, w, p, started.ID, " +9996612345 ",
 		func() { p.ask(messaging.AskCode, "Telegram app", false) })
-	assert.Equal(t, "phone=+84912345678", heard)
+	assert.Equal(t, "phone=+9996612345", heard)
 	require.NotNil(t, next.Ask, "the answer brings the next step")
 	assert.Equal(t, messaging.AskCode, next.Ask.Field)
 	assert.Equal(t, "Telegram app", next.Ask.Hint)
@@ -466,7 +466,7 @@ func TestALinkByPhoneAsksTheNumberThenTheCodeAgainWhenWrong(t *testing.T) {
 	require.NotNil(t, next.Ask)
 	assert.True(t, next.Ask.Again, "a wrong code is asked again")
 
-	answer(t, w, p, started.ID, "22222", func() { p.scan("user:42", "+84912345678") })
+	answer(t, w, p, started.ID, "22222", func() { p.scan("user:42", "+9996612345") })
 	require.NoError(t, <-done)
 }
 
