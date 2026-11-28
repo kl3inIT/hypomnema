@@ -494,10 +494,10 @@ func (s *Service) test(ctx context.Context, p Platform, web WebSearch) reading {
 			continue
 		}
 
-		// The widest window: the test asks whether the backend reads, not whether people spoke this month, and
-		// Agent-Reach's live tests name no window (channels/reddit.py:50). Read on 2026-11-28, 30 days left the
+		// No window: the test asks whether the backend reads, not whether people spoke lately, and Agent-Reach's
+		// live tests name none (channels/reddit.py:50). Read on 2026-11-28, 30 days and then 365 left the
 		// archive's route with no Python thread in the window although it filled 15 of 15.
-		req := s.request(p, sq, testQuery, testLimit, now.AddDate(0, 0, -MaxWindowDays), now, web)
+		req := s.request(p, sq, testQuery, testLimit, time.Time{}, now, web)
 		st := s.runStream(ctx, p, b.Name, sq, req)
 		r.tried = append(r.tried, st.report.Tried...)
 

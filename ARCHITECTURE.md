@@ -5039,8 +5039,8 @@ writes no prose (last30days SKILL.md LAW 7).
   success and last error (`listening_sources`), each backend's last answer (`listening_backends`), and per UTC day
   the items real searches read (`listening_readings`, 7 days). API, only the owner's: `GET /gateway/listening`,
   `PUT /gateway/listening/sources/{source}` (`on`), `PUT …/{source}/order` (each backend once), `POST …/{source}/test`.
-- The live test (Agent-Reach's `check`): each backend that is not opt-in is asked `python`, 2 results, over 365
-  days, in turn; the source passes when one reads an item, and a clean zero fails it (`no_results`). The control
+- The live test (Agent-Reach's `check`): each backend that is not opt-in is asked `python`, 2 results, with no
+  date window, in turn; the source passes when one reads an item, and a clean zero fails it (`no_results`). The control
   plane looks every hour, from its start, for a source that is on and not read in 24 hours and tests it; the owner's
   test first ends the source's rests, its backends' and the paths its searches rested. Its web searches go through
   the chain keyless, fresh (`websearch.Fresh`: never answered from the five-minute cache), and are recorded on no
