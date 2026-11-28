@@ -93,7 +93,7 @@ func playBackend(e Endpoints, client *http.Client) Backend {
 			for len(items) < r.Limit {
 				a, err := call{
 					host: host, path: host + "/_/PlayStoreUi/data/batchexecute", method: http.MethodPost, address: address,
-					body: playBody(app, min(r.Limit-len(items), playMaxCount), token),
+					body:        playBody(app, min(r.Limit-len(items), playMaxCount), token),
 					contentType: "application/x-www-form-urlencoded",
 				}.do(ctx, client, r)
 				if err != nil {

@@ -170,7 +170,7 @@ func TestYouTubeFailuresHaveTheirCodes(t *testing.T) {
 	t.Parallel()
 
 	for stderr, code := range map[string]string{
-		"ERROR: [youtube] abc: Sign in to confirm you're not a bot": "refused",
+		"ERROR: [youtube] abc: Sign in to confirm you're not a bot":    "refused",
 		"ERROR: unable to download: HTTP Error 429: Too Many Requests": "rate_limited",
 	} {
 		y := &ytdlp{stderr: stderr}

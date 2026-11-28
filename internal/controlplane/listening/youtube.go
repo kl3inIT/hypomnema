@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -38,7 +38,7 @@ const (
 	youtubeTranscripts = 2
 	// youtubeSearchTimeout bounds a search, youtubeCallTimeout a comments or captions read (last30days
 	// _SEARCH_TIMEOUT 120 s, _COMMENT_TIMEOUT 20 s, _TRANSCRIPT_TIMEOUT 30 s).
-	youtubeSearchTimeout = 120 * time.Second
+	youtubeSearchTimeout  = 120 * time.Second
 	youtubeCommentTimeout = 20 * time.Second
 	youtubeCaptionTimeout = 30 * time.Second
 	// youtubeHost is the host yt-dlp's calls go to, one at a time (pace.go).
