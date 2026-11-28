@@ -68,7 +68,11 @@ type Source struct {
 // WorkerEnv is the environment of the worker's git and host CLI: the token's,
 // then the identities its commits are written with.
 func (src Source) WorkerEnv() []string {
-	return slices.Concat(src.Env, src.Identity.EnvWithCommitter(src.Committer))
+	return slices.Concat(src.Env, src.commitEnv())
+}
+
+func (src Source) commitEnv() []string {
+	return src.Identity.EnvWithCommitter(src.Committer)
 }
 
 // SourceOf is the repository an offer names. It refuses a host, a kind or a
@@ -158,7 +162,7 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 	if err := os.Remove(pending); err != nil {
 		return err
 	}
-	m.setup(ctx, path, lock, src.Identity)
+	m.setup(ctx, path, lock, src.commitEnv())
 	return ctx.Err()
 }
 
