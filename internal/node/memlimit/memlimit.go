@@ -13,9 +13,12 @@
 // (packer/linux/stack/conf/bin/bk-install-elastic-stack.sh:732-777), with
 // the slice's MemoryMax set to the node's allocatable memory, which the
 // control plane computes (Kubernetes' allocatable, issue #731) and sends at
-// hello and with each heartbeat's acknowledgement. MemoryHigh is 90% of it,
-// so the kernel throttles and reclaims before it kills (the owner's margin,
-// 2026-11-28), and MemorySwapMax is 0. A worker's own scope gets a MemoryMax
+// hello and with each heartbeat's acknowledgement. MemoryHigh is the same
+// value, as Buildkite's defaults give both the same (templates/aws-stack.yml:
+// 477-494): a live check found that with MemoryHigh at 90% a worker growing
+// past it stays throttled between the two for 15 minutes and more, never
+// killed, while with both equal the kernel kills it within a second (the
+// owner chose that, 2026-11-28). MemorySwapMax is 0. A worker's own scope gets a MemoryMax
 // only when its profile sets limits.memory, as a Kubernetes or Coder
 // container's limits are optional (Coder
 // examples/templates/kubernetes/main.tf:298-306).
@@ -50,9 +53,6 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
-
-// highShare is MemoryHigh's share of MemoryMax, in percent (the owner, 2026-11-28).
-const highShare = 90
 
 // Limit is whether the node's workers run in WorkerSlice, and how.
 type Limit struct {
@@ -103,21 +103,17 @@ func (l Limit) Scope(dispatchID string, memoryMax int64) []string {
 	return append(args, "--")
 }
 
-// SliceProperties are WorkerSlice's memory properties for a ceiling of memoryMax bytes: MemoryMax, MemoryHigh at
-// 90% of it, and no swap. A ceiling of 0 or less is none: every property is infinity, as before the limit.
+// SliceProperties are WorkerSlice's memory properties for a ceiling of memoryMax bytes: MemoryMax and MemoryHigh at
+// it, so a worker over it is killed rather than throttled without end, and no swap. A ceiling of 0 or less is none:
+// every property is infinity, as before the limit.
 func SliceProperties(memoryMax int64) []string {
 	if memoryMax <= 0 {
 		return []string{"MemoryMax=infinity", "MemoryHigh=infinity", "MemorySwapMax=infinity"}
 	}
 
-	high := memoryMax / 100 * highShare
-	high += memoryMax % 100 * highShare / 100
+	ceiling := strconv.FormatInt(memoryMax, 10)
 
-	return []string{
-		"MemoryMax=" + strconv.FormatInt(memoryMax, 10),
-		"MemoryHigh=" + strconv.FormatInt(high, 10),
-		"MemorySwapMax=0",
-	}
+	return []string{"MemoryMax=" + ceiling, "MemoryHigh=" + ceiling, "MemorySwapMax=0"}
 }
 
 // OOMKills is the oom_kill count of a cgroup's memory.events: how many of its processes, and its descendants',

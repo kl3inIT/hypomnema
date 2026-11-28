@@ -6784,14 +6784,14 @@ Node (`internal/node`):
   hello's answer and in each heartbeat's acknowledgement, so a reserve the owner changes reaches the node within a
   heartbeat; 0 is no ceiling (a node that never said its size), and a control plane that does not say it (an earlier
   release, or one that could not read it) leaves what the node applied last. The node applies a new value with
-  `systemctl --user set-property hypomnema-workers.slice MemoryMax=<ceiling> MemoryHigh=<90 %> MemorySwapMax=0`,
-  which takes effect at once and stays in a drop-in for the next start; no ceiling sets the three to `infinity`. The
-  90 % is the owner's margin (2026-11-28): the kernel throttles and reclaims above `MemoryHigh` before it kills at
-  `MemoryMax`. Checked on 2026-11-28 with the slice at 512 MiB (`TestALiveWorkerOverTheSliceEndsOOMKilled`, behind
-  `HYPOMNEMA_TEST_WORKER_SLICE`): nothing outside the slice was touched, but a worker that took memory a page at a
-  time stayed throttled between `MemoryHigh` and `MemoryMax` for the test's 15 minutes and was not killed; with
-  `MemoryHigh` equal to `MemoryMax` the kernel killed it within a second and it ended `oom_killed`. A Python process
-  allocating 1 GiB at once in a scratch slice of the same size was killed after about 4 minutes.
+  `systemctl --user set-property hypomnema-workers.slice MemoryMax=<ceiling> MemoryHigh=<ceiling> MemorySwapMax=0`,
+  which takes effect at once and stays in a drop-in for the next start; no ceiling sets the three to `infinity`.
+  `MemoryHigh` equals `MemoryMax`, as Buildkite's defaults give both the same (`templates/aws-stack.yml:477-494`;
+  the owner, 2026-11-28): checked on 2026-11-28 on stc-hy-app with the slice at 512 MiB
+  (`TestALiveWorkerOverTheSliceEndsOOMKilled`, behind `HYPOMNEMA_TEST_WORKER_SLICE`), a worker that took memory a
+  page at a time with `MemoryHigh` at 90 % stayed throttled between the two for the test's 15 minutes and was not
+  killed; with both equal the kernel killed it within a second, it ended `oom_killed`, and nothing outside the
+  slice was touched.
 - No worker has a ceiling of its own by default: one build can take 2.7 GiB with a CLI beside it. A profile may set
   one, as a Kubernetes or Coder container sets its limits (`examples/templates/kubernetes/main.tf:298-306`):
   `limits: {memory: 4Gi}` in its YAML, kept in `profile_versions.memory_limit_bytes` and sent in the offer as
