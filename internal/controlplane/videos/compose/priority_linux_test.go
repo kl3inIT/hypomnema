@@ -16,6 +16,7 @@ func TestFFmpegStartsNiced(t *testing.T) {
 	t.Parallel()
 
 	pid := strconv.Itoa(os.Getpid())
+	//nolint:gosec // ps reads the priority of the test's own process.
 	parent, err := exec.CommandContext(t.Context(), "/bin/ps", "-o", "ni=", "-p", pid).Output()
 	require.NoError(t, err)
 	inherited, err := strconv.Atoi(strings.TrimSpace(string(parent)))

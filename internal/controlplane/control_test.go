@@ -51,8 +51,8 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, func() int { return 2 }, begin,
-			slog.New(slog.DiscardHandler))
+		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, func() int { return 2 },
+			func() int { return 1 }, begin, slog.New(slog.DiscardHandler))
 	}()
 
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
@@ -62,10 +62,7 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	}}
 	t.Cleanup(client.CloseIdleConnections)
 
-	var got struct {
-		selfupdate.Turns
-		Renders int `json:"renders"`
-	}
+	var got selfupdate.Turns
 
 	require.Eventually(t, func() bool {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://control"+selfupdate.PathTurns, nil)
@@ -82,8 +79,7 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&got) == nil
 	}, 5*time.Second, 10*time.Millisecond)
 
-	assert.Equal(t, selfupdate.Turns{Chats: []string{"cht_a"}, ToolCalls: 2}, got.Turns)
-	assert.Equal(t, 1, got.Renders)
+	assert.Equal(t, selfupdate.Turns{Chats: []string{"cht_a"}, ToolCalls: 2, Renders: 1}, got)
 
 	// The update names itself: the control plane writes the marker, through the coordinator's lock.
 	body := strings.NewReader(fmt.Sprintf(`{"pid":%d,"start":""}`, os.Getpid()))

@@ -558,10 +558,15 @@ func TestAStoppedRenderStartsAgainWithItsCachedSpeech(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	r.maker.during = cancel
+	assert.Zero(t, r.svc.Renders(), "queued work does not count")
+	r.maker.during = func() {
+		assert.Equal(t, 1, r.svc.Renders())
+		cancel()
+	}
 	r.maker.block = true
 	r.svc.Run(ctx)
 
+	assert.Zero(t, r.svc.Renders(), "stopped work does not count")
 	assert.Equal(t, Composing, r.revision(t, v.ID, rev.Rev).State)
 	require.Len(t, r.speech.spoken, 2)
 

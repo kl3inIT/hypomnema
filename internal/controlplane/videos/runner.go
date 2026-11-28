@@ -21,9 +21,9 @@ import (
 // the queued revisions one at a time, apart from any request. It takes a
 // revision by a conditional update from queued to voicing, so that only one
 // runner ever makes it; at its start, a revision found being made (the
-// control plane stopped meanwhile) is failed as interrupted, for the owner
-// to make again, as no paid speech is asked again on its own. A revision has
-// 20 minutes; it does not start with less than 400 MB free. Its files are
+// control plane stopped meanwhile) starts again at voicing, reusing cached
+// speech, until its third stop fails it as interrupted (issue #1328).
+// A revision has 20 minutes; it does not start with less than 400 MB free. Its files are
 // made in videos/<video>/<rev>/.work/ and renamed into place only when the
 // whole MP4 is made, so a failure leaves no MP4. The references keep their
 // jobs in memory and run one (aidemo src/mcp/jobs.ts:91, autodemo
@@ -50,7 +50,16 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
-// interrupt fails the revisions a control plane that stopped was making.
+// Renders is how many revisions the runner is making. The control socket uses it to drain work before an update.
+func (s *Service) Renders() int {
+	if s.rendering.Load() {
+		return 1
+	}
+
+	return 0
+}
+
+// interrupt recovers the revisions a control plane that stopped was making.
 func (s *Service) interrupt(ctx context.Context) {
 	var rows []store.InterruptRevisionsRow
 
@@ -61,7 +70,7 @@ func (s *Service) interrupt(ctx context.Context) {
 		return err
 	})
 	if err != nil {
-		s.cfg.Logger.ErrorContext(ctx, "failing the revisions a stop interrupted",
+		s.cfg.Logger.ErrorContext(ctx, "recovering the revisions a stop interrupted",
 			slog.String("event", "videos.interrupt_failed"), slog.String("error", err.Error()))
 
 		return
@@ -72,7 +81,7 @@ func (s *Service) interrupt(ctx context.Context) {
 
 		s.cfg.Logger.WarnContext(ctx, "a revision being made was interrupted",
 			slog.String("event", "videos.revision_interrupted"), slog.String("video", r.VideoID),
-			slog.Int64("rev", r.Rev))
+			slog.Int64("rev", r.Rev), slog.Int64("attempts", r.Attempts), slog.String("state", r.State))
 	}
 }
 
@@ -95,6 +104,9 @@ func (s *Service) next(ctx context.Context) bool {
 
 		return false
 	}
+
+	s.rendering.Store(true)
+	defer s.rendering.Store(false)
 
 	n, err := q.ClaimRevision(ctx, store.ClaimRevisionParams{
 		VideoID: r.VideoID, Rev: r.Rev, Now: s.cfg.Clock.Now().UnixMilli(),
@@ -126,6 +138,11 @@ func (s *Service) make(parent context.Context, r store.VideoRevision) {
 	defer cancel()
 
 	rev := revisionOf(r)
+	if r.Attempts > 0 && r.Provider != "" {
+		// Keep the voice chosen before the stop, so the clips already in .voice still match.
+		rev.pin = &voicePin{provider: r.Provider, model: r.Model, voice: r.UsedVoice}
+	}
+
 	log := s.cfg.Logger.With(slog.String("video", r.VideoID), slog.Int("rev", rev.Rev))
 	dir := s.revDir(r.VideoID, rev.Rev)
 	started := time.Now()
@@ -147,8 +164,7 @@ func (s *Service) make(parent context.Context, r store.VideoRevision) {
 	_ = os.RemoveAll(dir)
 
 	if parent.Err() != nil {
-		// The control plane is stopping: the revision stays where it was, and is failed as interrupted at the next
-		// start.
+		// Leave the stage recorded so startup can count the interruption and recover the revision.
 		return
 	}
 
