@@ -295,10 +295,10 @@ func TestTheModelScoresTheShortlistInOneCall(t *testing.T) {
 
 	calls := m.Calls("rerank")
 	require.Len(t, calls, 1, "one batched call")
-	assert.Len(t, candidates(calls[0].User), 12, "quick's shortlist is 12 of its pool of 15")
+	assert.Len(t, candidates(calls[0].User), 14, "quick's shortlist is its pool, 15, as the issue's design has it")
 	assert.Equal(t, listening.DefaultReviewModel, calls[0].Model)
 
-	assert.Equal(t, listening.Limits{Depth: listening.DepthQuick, Pool: 15, Shortlist: 12, Read: 8}, a.Limits)
+	assert.Equal(t, listening.Limits{Depth: listening.DepthQuick, Pool: 15, Shortlist: 15, Read: 8}, a.Limits)
 	assert.Equal(t, listening.StepModel, a.Pass.Rerank.State)
 	assert.Equal(t, 1, a.Pass.Rerank.Calls)
 
@@ -315,7 +315,7 @@ func TestTheModelScoresTheShortlistInOneCall(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 12, llm, "the two past the shortlist keep the local score")
+	assert.Equal(t, 14, llm, "every item of the pool is scored")
 	assert.Equal(t, distinct(5), a.Items[0].Title, "the model's best leads")
 	assert.Equal(t, distinct(0), a.Items[len(a.Items)-1].Title,
 		"the item the model scored 12 falls under every other, the freshest of all though it is")
@@ -440,6 +440,12 @@ func TestTheConfiguredModelsAreAskedAndAStaleOneFallsBack(t *testing.T) {
 	last := temps.Calls("rerank")[len(temps.Calls("rerank"))-1]
 	require.NotNil(t, last.Temperature)
 	assert.Zero(t, *last.Temperature)
+
+	_, err = withModel(newClock(), "claude-subscription/claude-opus-5-5", listening.ModelOff, forum("forum", items...)).
+		Search(t.Context(), p, listening.Caller{Model: temps.Model})
+	require.NoError(t, err)
+	last = temps.Calls("rerank")[len(temps.Calls("rerank"))-1]
+	assert.Nil(t, last.Temperature, "Claude Opus 5.5 refuses temperature (Anthropic's migration guide)")
 }
 
 // Design row "Evidence": the model is given a bounded, sanitized payload: id, a title of 220 and a text of 420
@@ -861,7 +867,8 @@ func TestJudgmentsAreKeptForALaterSearch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, m.Calls("rerank"), 1, "the scores are kept")
 	assert.Len(t, m.Calls("read"), 1, "the readings are kept")
-	assert.Len(t, m.Calls("clusters"), 2, "the review of the whole set is asked again")
+	assert.Len(t, m.Calls("clusters"), 1, "the same set's review is kept, by the hash of what the model was given")
+	assert.Equal(t, 2, again.Pass.Clusters.Cached)
 	assert.Equal(t, 2, again.Pass.Rerank.Cached)
 	assert.Equal(t, 2, again.Pass.Read.Cached)
 	assert.Zero(t, again.Pass.Rerank.Calls)
@@ -876,6 +883,7 @@ func TestJudgmentsAreKeptForALaterSearch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, m.Calls("rerank"), 2)
 	assert.Len(t, candidates(m.Calls("rerank")[1].User), 1, "only the changed item is asked")
+	assert.Len(t, m.Calls("clusters"), 2, "a changed set is reviewed again")
 
 	// A day later the scores are asked again.
 	c.Advance(25 * time.Hour)
@@ -936,7 +944,7 @@ func TestTheDepthSetsTheBoundsAndThePlanMayOverrideThem(t *testing.T) {
 		want       listening.Limits
 	}{
 		{"", 0, 0, listening.Limits{Depth: listening.DepthStandard, Pool: 40, Shortlist: 40, Read: 18}},
-		{listening.DepthQuick, 0, 0, listening.Limits{Depth: listening.DepthQuick, Pool: 15, Shortlist: 12, Read: 8}},
+		{listening.DepthQuick, 0, 0, listening.Limits{Depth: listening.DepthQuick, Pool: 15, Shortlist: 15, Read: 8}},
 		{listening.DepthDeep, 0, 0, listening.Limits{Depth: listening.DepthDeep, Pool: 60, Shortlist: 60, Read: 20}},
 		{listening.DepthQuick, 30, 3, listening.Limits{Depth: listening.DepthQuick, Pool: 30, Shortlist: 30, Read: 3}},
 	} {
