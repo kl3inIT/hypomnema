@@ -148,28 +148,38 @@ var chatState = fmt.Sprintf(`(() => {
   };
 })()`, q(selMessage), q(selBubble), q(selApproval), q(selError), q(selComposer), q(selStop), jsList(stallHints))
 
-// readAnswer reads the last answer: its text, and the links and media inside
-// it (MCP's readChat at muse-driver.mjs:539-555, www's LAST_BUBBLE_MEDIA),
-// saying which selector found it.
-var readAnswer = fmt.Sprintf(`(() => {
+// readAnswer reads the answer a question got: every message from the from-th
+// on, from being how many the thread showed before the send, their texts joined and the links and
+// media inside them in order (MCP's readChat at muse-driver.mjs:539-555 and
+// www's LAST_BUBBLE_MEDIA read the last message only; Muse may end a list
+// with a link card of its own, which alone is not the answer: owner,
+// 2026-11-28, issue #1292), saying which selector found it. At least the
+// last message is read, for an answer that grew in place.
+func readAnswer(from int) string {
+	return fmt.Sprintf(`(() => {
   let matched = 'message-item';
   let answers = [...document.querySelectorAll(%[1]s)];
   if (!answers.length) { matched = 'bubble'; answers = [...document.querySelectorAll(%[2]s)]; }
   if (!answers.length) return {matched: 'none', text: '', links: [], media: []};
-  const b = answers[answers.length - 1];
-  const links = [], media = [], seen = new Set();
-  b.querySelectorAll('a[href]').forEach(a => {
-    if (/^https?:/i.test(a.href) && !seen.has(a.href)) {
-      seen.add(a.href);
-      links.push({url: a.href, text: (a.innerText || '').trim().slice(0, 300)});
-    }
+  const from = Math.min(%[3]d, answers.length - 1);
+  const texts = [], links = [], media = [], seen = new Set();
+  answers.slice(from).forEach(b => {
+    const t = (b.innerText || '').trim();
+    if (t) texts.push(t);
+    b.querySelectorAll('a[href]').forEach(a => {
+      if (/^https?:/i.test(a.href) && !seen.has(a.href)) {
+        seen.add(a.href);
+        links.push({url: a.href, text: (a.innerText || '').trim().slice(0, 300)});
+      }
+    });
+    b.querySelectorAll('img, video, source').forEach(m => {
+      const u = m.currentSrc || m.src || '';
+      if (/^(https?:|blob:)/i.test(u) && !seen.has(u)) { seen.add(u); media.push(u); }
+    });
   });
-  b.querySelectorAll('img, video, source').forEach(m => {
-    const u = m.currentSrc || m.src || '';
-    if (/^(https?:|blob:)/i.test(u) && !seen.has(u)) { seen.add(u); media.push(u); }
-  });
-  return {matched: matched, text: (b.innerText || '').trim(), links: links, media: media};
-})()`, q(selMessage), q(selBubble))
+  return {matched: matched, text: texts.join('\n\n'), links: links, media: media};
+})()`, q(selMessage), q(selBubble), max(from, 0))
+}
 
 // threadPath is the page's path.
 const threadPath = `location.pathname`
