@@ -1055,18 +1055,33 @@ func TestStopEndsTheChatsPi(t *testing.T) {
 	t.Parallel()
 
 	keys := &fakeKeys{}
-	svc, sup := newSupervisorWith(t, keys)
+	svc, _ := newStore(t)
+	sup := New(svc, Config{Command: []string{os.Args[0], "fake-pi"}, Keys: keys})
 	ctx := t.Context()
 
 	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
+	t.Cleanup(func() { sup.Stop(chat.ID) })
 
 	sup.Stop(chat.ID)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
 	require.NoError(t, err)
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: hello")
-	require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 10*time.Second, 20*time.Millisecond)
+	require.NoError(t, sup.deliver(ctx, chat.ID))
+
+	// The test drives delivery, so it receives the wake sent after agent_settled.
+	select {
+	case <-sup.kick:
+	case <-time.After(10 * time.Second):
+		t.Fatal("pi did not signal a settled turn")
+	}
+	require.True(t, sup.Idle(chat.ID), "pi settled its turn and is still running")
+
+	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+	require.True(t, slices.ContainsFunc(msgs, func(m orchestration.ChatMessage) bool {
+		return m.Role == orchestration.ChatCoordinator && m.Text == "echo: hello"
+	}), "pi replied before settling")
 
 	sup.Stop(chat.ID)
 
