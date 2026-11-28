@@ -1302,6 +1302,7 @@ type VideoRevision struct {
 	PinVoice    string
 	PinModel    string
 	Speed       float64
+	Attempts    int64
 }
 
 type VideoSetting struct {

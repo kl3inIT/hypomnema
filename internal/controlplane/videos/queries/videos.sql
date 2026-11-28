@@ -68,11 +68,16 @@ WHERE video_id = @video_id AND rev = @rev AND state IN ('composing', 'captioning
 UPDATE video_revisions SET state = 'failed', failed_stage = @stage, failed_cause = @cause, updated_at = @now
 WHERE video_id = @video_id AND rev = @rev AND state IN ('queued', 'voicing', 'composing', 'captioning');
 
--- A revision being made when the control plane stopped is failed, at the stage it was in.
+-- Count a stop once. The third stop fails the revision at the stage it was in.
 -- name: InterruptRevisions :many
-UPDATE video_revisions SET failed_stage = state, state = 'failed', failed_cause = 'interrupted', updated_at = @now
+UPDATE video_revisions
+SET attempts = attempts + 1,
+    failed_stage = CASE WHEN attempts + 1 >= 3 THEN state ELSE '' END,
+    failed_cause = CASE WHEN attempts + 1 >= 3 THEN 'interrupted' ELSE '' END,
+    state = CASE WHEN attempts + 1 >= 3 THEN 'failed' ELSE 'queued' END,
+    updated_at = @now
 WHERE state IN ('voicing', 'composing', 'captioning')
-RETURNING video_id, rev;
+RETURNING video_id, rev, state, attempts;
 
 -- name: UnapproveOthers :exec
 UPDATE video_revisions SET state = 'review', updated_at = @now

@@ -217,7 +217,7 @@ func (q *Queries) GetMusic(ctx context.Context, id string) (VideoMusic, error) {
 }
 
 const getRevision = `-- name: GetRevision :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE video_id = ?1 AND rev = ?2
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed, attempts FROM video_revisions WHERE video_id = ?1 AND rev = ?2
 `
 
 type GetRevisionParams struct {
@@ -255,6 +255,7 @@ func (q *Queries) GetRevision(ctx context.Context, arg GetRevisionParams) (Video
 		&i.PinVoice,
 		&i.PinModel,
 		&i.Speed,
+		&i.Attempts,
 	)
 	return i, err
 }
@@ -413,17 +414,24 @@ func (q *Queries) InsertVideo(ctx context.Context, arg InsertVideoParams) error 
 }
 
 const interruptRevisions = `-- name: InterruptRevisions :many
-UPDATE video_revisions SET failed_stage = state, state = 'failed', failed_cause = 'interrupted', updated_at = ?1
+UPDATE video_revisions
+SET attempts = attempts + 1,
+    failed_stage = CASE WHEN attempts + 1 >= 3 THEN state ELSE '' END,
+    failed_cause = CASE WHEN attempts + 1 >= 3 THEN 'interrupted' ELSE '' END,
+    state = CASE WHEN attempts + 1 >= 3 THEN 'failed' ELSE 'queued' END,
+    updated_at = ?1
 WHERE state IN ('voicing', 'composing', 'captioning')
-RETURNING video_id, rev
+RETURNING video_id, rev, state, attempts
 `
 
 type InterruptRevisionsRow struct {
-	VideoID string
-	Rev     int64
+	VideoID  string
+	Rev      int64
+	State    string
+	Attempts int64
 }
 
-// A revision being made when the control plane stopped is failed, at the stage it was in.
+// Count a stop once. The third stop fails the revision at the stage it was in.
 func (q *Queries) InterruptRevisions(ctx context.Context, now int64) ([]InterruptRevisionsRow, error) {
 	rows, err := q.db.QueryContext(ctx, interruptRevisions, now)
 	if err != nil {
@@ -433,7 +441,12 @@ func (q *Queries) InterruptRevisions(ctx context.Context, now int64) ([]Interrup
 	items := []InterruptRevisionsRow{}
 	for rows.Next() {
 		var i InterruptRevisionsRow
-		if err := rows.Scan(&i.VideoID, &i.Rev); err != nil {
+		if err := rows.Scan(
+			&i.VideoID,
+			&i.Rev,
+			&i.State,
+			&i.Attempts,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -494,7 +507,7 @@ func (q *Queries) ListMusic(ctx context.Context) ([]VideoMusic, error) {
 }
 
 const listRevisions = `-- name: ListRevisions :many
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE video_id = ?1 ORDER BY rev
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed, attempts FROM video_revisions WHERE video_id = ?1 ORDER BY rev
 `
 
 func (q *Queries) ListRevisions(ctx context.Context, videoID string) ([]VideoRevision, error) {
@@ -533,6 +546,7 @@ func (q *Queries) ListRevisions(ctx context.Context, videoID string) ([]VideoRev
 			&i.PinVoice,
 			&i.PinModel,
 			&i.Speed,
+			&i.Attempts,
 		); err != nil {
 			return nil, err
 		}
@@ -582,7 +596,7 @@ func (q *Queries) ListVideos(ctx context.Context) ([]Video, error) {
 }
 
 const nextQueued = `-- name: NextQueued :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE state = 'queued' ORDER BY created_at, video_id, rev LIMIT 1
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed, attempts FROM video_revisions WHERE state = 'queued' ORDER BY created_at, video_id, rev LIMIT 1
 `
 
 func (q *Queries) NextQueued(ctx context.Context) (VideoRevision, error) {
@@ -615,6 +629,7 @@ func (q *Queries) NextQueued(ctx context.Context) (VideoRevision, error) {
 		&i.PinVoice,
 		&i.PinModel,
 		&i.Speed,
+		&i.Attempts,
 	)
 	return i, err
 }
@@ -645,7 +660,7 @@ func (q *Queries) RequestChanges(ctx context.Context, arg RequestChangesParams) 
 }
 
 const revisionByRequest = `-- name: RevisionByRequest :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE requested_by = ?1 AND request_id = ?2
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed, attempts FROM video_revisions WHERE requested_by = ?1 AND request_id = ?2
 `
 
 type RevisionByRequestParams struct {
@@ -683,6 +698,7 @@ func (q *Queries) RevisionByRequest(ctx context.Context, arg RevisionByRequestPa
 		&i.PinVoice,
 		&i.PinModel,
 		&i.Speed,
+		&i.Attempts,
 	)
 	return i, err
 }

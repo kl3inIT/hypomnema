@@ -58,8 +58,7 @@ func (r runner) ffmpeg(ctx context.Context, args ...string) error {
 func (r runner) ffmpegLog(ctx context.Context, args ...string) (string, error) {
 	var stderr bytes.Buffer
 
-	//nolint:gosec // The installed program, by its absolute path.
-	cmd := exec.CommandContext(ctx, r.tools.FFmpeg, append([]string{"-hide_banner", "-nostats", "-loglevel", "info", "-y"},
+	cmd := r.tools.Command(ctx, append([]string{"-hide_banner", "-nostats", "-loglevel", "info", "-y"},
 		args...)...)
 	cmd.Dir = r.dir
 	cmd.Stderr = &stderr
@@ -80,7 +79,12 @@ func (r runner) ffmpegLog(ctx context.Context, args ...string) (string, error) {
 func (r runner) run(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // The installed program, by its absolute path.
+	var cmd *exec.Cmd
+	if bin == r.tools.FFmpeg {
+		cmd = r.tools.Command(ctx, args...)
+	} else {
+		cmd = exec.CommandContext(ctx, bin, args...) //nolint:gosec // The installed ffprobe, by its absolute path.
+	}
 	cmd.Dir = r.dir
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
