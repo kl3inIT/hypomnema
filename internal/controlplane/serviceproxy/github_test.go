@@ -152,6 +152,20 @@ func TestWhatGhAsksGitHubIsAnActionOfTheCatalog(t *testing.T) {
 	}
 }
 
+// The coordinator's CodeRabbit trigger reaches GitHub with the Connection token without an approval (issue #1339).
+func TestCoordinatorRequestsCodeRabbitWithoutApproval(t *testing.T) {
+	t.Parallel()
+
+	w, gh := githubWorld(t, 100*time.Millisecond)
+	got := gh.do(http.MethodPost, "/repos/example/project/issues/7/comments", "application/json",
+		[]byte(`{"body":"@coderabbitai review"}`))
+	require.Equal(t, http.StatusOK, got.Status)
+	received := w.service.received()
+	require.Len(t, received, 1)
+	assert.Equal(t, "Bearer "+realToken, received[0].Authorization)
+	assert.Empty(t, w.approvals(""))
+}
+
 // Scenario: a Bot's pi reads an issue with gh, given the git host's Connection github.com:default, the token
 // workers use. gh holds a placeholder; GitHub receives the host's token. A comment waits for the owner and reaches
 // GitHub only once he approves. gh's feature detection, a query of the schema, runs on its own (#706). A log's

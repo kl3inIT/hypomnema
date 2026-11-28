@@ -75,15 +75,21 @@ func agentAPI(t *testing.T, token string) (*httptest.Server, *atomic.Int32) {
 	var asked atomic.Int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != agenttool.PathGitHubToken ||
-			r.Header.Get("Authorization") != "Bearer the-dispatch-key" {
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer the-dispatch-key" {
 			http.NotFound(w, r)
 
 			return
 		}
 
-		asked.Add(1)
-		_ = json.NewEncoder(w).Encode(agenttool.GitHubToken{Token: token, ExpiresAt: time.Now().Add(time.Hour)})
+		switch r.URL.Path {
+		case "/agent/v1/github/pr-create-token":
+			_ = json.NewEncoder(w).Encode(agenttool.GitHubToken{Token: "owner-connection-token"})
+		case agenttool.PathGitHubToken:
+			asked.Add(1)
+			_ = json.NewEncoder(w).Encode(agenttool.GitHubToken{Token: token, ExpiresAt: time.Now().Add(time.Hour)})
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	t.Cleanup(srv.Close)
 
@@ -127,9 +133,9 @@ func run(t *testing.T, env []string, stdin string, name string, args ...string) 
 }
 
 // Scenario (issue #1262): a worker on a repository the owner's GitHub App is installed on runs gh and git; each call
-// carries a fresh token of the App's installation, asked of the control plane with the Dispatch's key, and never the
-// owner's token nor the one its offer carried an hour ago.
-func TestAWorkersGhAndGitCarryTheAppsFreshTokenNotTheOwners(t *testing.T) {
+// carries a fresh token of the App's installation, asked of the control plane with the Dispatch's key. Only opening
+// a pull request uses the owner's GitHub Connection (issue #1339).
+func TestAWorkerUsesTheOwnerTokenOnlyToOpenPullRequests(t *testing.T) {
 	t.Parallel()
 
 	api, asked := agentAPI(t, "ghs_a_fresh_installation_token")
@@ -148,12 +154,18 @@ func TestAWorkersGhAndGitCarryTheAppsFreshTokenNotTheOwners(t *testing.T) {
 	assert.Equal(t, "GH_TOKEN=ghs_a_fresh_installation_token args=pr checks https://github.com/kl3inIT/hypomnema/pull/1\n",
 		out)
 
+	out = run(t, env, "", "sh", "-c", "gh pr create --base main --head hyp/test")
+	assert.Equal(t, "GH_TOKEN=owner-connection-token args=pr create --base main --head hyp/test\n", out)
+
+	out = run(t, env, "", "sh", "-c", "gh api repos/example/project/pulls")
+	assert.Equal(t, "GH_TOKEN=ghs_a_fresh_installation_token args=api repos/example/project/pulls\n", out)
+
 	// git asks its credential helper for github.com.
 	out = run(t, env, "protocol=https\nhost=github.com\n\n", "git", "credential", "fill")
 	assert.Contains(t, out, "username=x-access-token\n")
 	assert.Contains(t, out, "password=ghs_a_fresh_installation_token\n")
 
-	assert.Equal(t, int32(2), asked.Load(), "one ask a call")
+	assert.Equal(t, int32(3), asked.Load(), "the three remaining calls ask for the App token")
 }
 
 // Scenario (issue #1262, review rounds 1 and 2): the node reconnected to a control plane of an earlier release, which

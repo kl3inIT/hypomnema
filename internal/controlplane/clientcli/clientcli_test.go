@@ -934,6 +934,15 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	require.NoError(t, err)
 	assert.Contains(t, out, "# Coordinating Hypomnema workers")
 
+	for _, want := range []string{
+		"On every `narrow` and `broad` pull request",
+		"before creating the reviewer Task",
+		"without asking for approval",
+		"Nothing waits on a CodeRabbit refusal",
+	} {
+		assert.Contains(t, out, want, "the coordinator's CodeRabbit rules (issue #1339)")
+	}
+
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--references")
 	require.NoError(t, err)
 	assert.Equal(t, "investigate\nrecovery\nreview\n", out)
@@ -961,8 +970,8 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	}
 	assert.Contains(t, out, "how it answers CodeRabbit",
 		"a review answers CodeRabbit's findings, as the reviewer profile says (issues #766, #1051)")
-	assert.Contains(t, out, `gh pr comment <url> --body
-   "@coderabbitai review"`, "the coordinator may ask CodeRabbit on an important pull request")
+	assert.Contains(t, out, `gh api --method POST repos/<repo>/issues/<number>/comments -f body='@coderabbitai review'`,
+		"the coordinator triggers an incremental CodeRabbit review (issue #1339)")
 	assert.Contains(t, out, "CodeRabbit is never a condition of its own")
 	assert.Contains(t, out, "Do not rerun a failing test to get a green check.", "flake policy (issue #1281)")
 	assert.Contains(t, out, "the test is quarantined with an issue and a note visible to the owner",
