@@ -243,10 +243,10 @@ func reviewAfterTask(ctx context.Context, q *store.Queries, now int64, task stor
 // The coordinator's review reference uses this same recommendation and reply path (issue #1331).
 func (s *Service) reportReviewStall(ctx context.Context, q *store.Queries, now int64, task store.Task,
 	review ReviewStall, result string,
-) error {
+) (string, error) {
 	run, err := q.GetRun(ctx, task.RunID)
 	if err != nil {
-		return fmt.Errorf("reading the review stall's Run: %w", err)
+		return "", fmt.Errorf("reading the review stall's Run: %w", err)
 	}
 
 	head, specHead := reviewHead(result), reviewHead(task.Spec)
@@ -261,8 +261,8 @@ func (s *Service) reportReviewStall(ctx context.Context, q *store.Queries, now i
 		// InboxMarkdown links chat IDs to the existing chat.
 		replyTo += " in " + run.ChatID.String
 	}
-	notes += "**Recommendation:** Fix the remaining blockers in one more round before merging.\n\n" +
-		"Reply to " + replyTo + " with “one more round”, “merge as is and open an issue for the rest”, or “stop”."
+	notes += "The coordinator’s recommendation follows in the comments.\n\n" +
+		"Reply here or to " + replyTo + " with “one more round”, “merge as is and open an issue for the rest”, or “stop”."
 
 	return s.inbox.AddReviewStallTx(ctx, q, now, run.ID, run.ChatID.String, head, review.PullRequest, notes, result)
 }

@@ -3,6 +3,7 @@ package inboxstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"unicode/utf8"
 
@@ -15,13 +16,17 @@ var reviewStallActor = Actor{Kind: System, ID: "review-stall"}
 // A closed report keeps its identity, so another review of the same head cannot open a second one.
 func (s *Store) AddReviewStallTx(ctx context.Context, q *store.Queries, now int64, runID, chatID, head, pr, notes,
 	report string,
-) error {
-	n, err := q.CountReviewStallTodosOfHead(ctx, store.CountReviewStallTodosOfHeadParams{RunID: runID, HeadSha: head})
-	if err != nil {
-		return fmt.Errorf("checking for an existing review stall to-do: %w", err)
-	}
-	if n > 0 {
-		return nil
+) (string, error) {
+	if head != "" {
+		n, err := q.CountReviewStallTodosOfHead(ctx, store.CountReviewStallTodosOfHeadParams{
+			RunID: runID, HeadSha: head,
+		})
+		if err != nil {
+			return "", fmt.Errorf("checking for an existing review stall to-do: %w", err)
+		}
+		if n > 0 {
+			return "", nil
+		}
 	}
 
 	source, sourceID := FromChat, chatID
@@ -30,13 +35,13 @@ func (s *Store) AddReviewStallTx(ctx context.Context, q *store.Queries, now int6
 	}
 	ref, err := optionalJSON(&Link{Kind: LinkURL, Ref: pr, Label: "Pull request"})
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	// Keep the review verbatim. Longer reports go in the item's history, which the Inbox renders below the notes.
-	longReport := utf8.RuneCountInString(notes)+2+utf8.RuneCountInString(report) > MaxNotes
-	if longReport {
-		notes += "\n\nThe full review is in the item thread below."
+	// Keep the notes limit for user edits. Overflow from a review is still rendered as part of the body.
+	longReport := ""
+	if utf8.RuneCountInString(notes)+2+utf8.RuneCountInString(report) > MaxNotes {
+		longReport = report
 	} else {
 		notes += "\n\n" + report
 	}
@@ -47,26 +52,24 @@ func (s *Store) AddReviewStallTx(ctx context.Context, q *store.Queries, now int6
 		SourceKind: source, SourceID: sourceID, SourceRef: ref,
 		CreatedByKind: reviewStallActor.Kind, CreatedBy: reviewStallActor.ID, Now: now,
 	}); err != nil {
-		return fmt.Errorf("adding the review stall to-do: %w", err)
+		return "", fmt.Errorf("adding the review stall to-do: %w", err)
 	}
 	if err := q.InsertReviewStallTodo(ctx, store.InsertReviewStallTodoParams{
-		RunID: runID, HeadSha: head, PullRequest: pr, TodoID: id,
+		RunID: runID, HeadSha: nullString(head), PullRequest: pr, TodoID: id, LongReport: longReport,
 	}); err != nil {
-		return fmt.Errorf("linking the review stall to-do: %w", err)
+		return "", fmt.Errorf("linking the review stall to-do: %w", err)
 	}
 	row, err := q.GetTodo(ctx, id)
 	if err != nil {
-		return fmt.Errorf("reading the review stall to-do: %w", err)
+		return "", fmt.Errorf("reading the review stall to-do: %w", err)
 	}
 	if err := addEvent(ctx, q, id, now, 1, reviewStallActor, EventCreated, map[string]any{}, fields(row)); err != nil {
-		return err
+		return "", err
 	}
-	if longReport {
-		if err := commentTx(ctx, q, now, reviewStallActor, id, 1, map[string]any{"text": report}); err != nil {
-			return err
-		}
+	if err := queuePush(ctx, q, now, reviewStallActor, id); err != nil {
+		return "", err
 	}
-	return queuePush(ctx, q, now, reviewStallActor, id)
+	return id, nil
 }
 
 // CloseRunReviewStallsTx retires the Run's reports when its work or status changes.
@@ -92,14 +95,7 @@ func (s *Store) closeReviewStalls(ctx context.Context, q *store.Queries, now int
 	for _, item := range items {
 		change := Change{Actor: reviewStallActor, ID: item.ID, Revision: int(item.Revision)}
 		if _, err := s.changeTx(ctx, q, now, change, EventState,
-			func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
-				if cur.State == Review {
-					if _, err := q.ExpireApproval(ctx, store.ExpireApprovalParams{
-						ID: cur.ApprovalID.String, Now: sql.NullInt64{Int64: now, Valid: true},
-					}); err != nil {
-						return nil, fmt.Errorf("ending Approval %s: %w", cur.ApprovalID.String, err)
-					}
-				}
+			func(_ *store.Queries, _ store.Todo, next *store.Todo, now int64) (map[string]any, error) {
 				next.State = Dropped
 				closeFields(next, reviewStallActor, "", reason, "[]", now)
 				return reasonOf(reason), nil
@@ -108,4 +104,25 @@ func (s *Store) closeReviewStalls(ctx context.Context, q *store.Queries, now int
 		}
 	}
 	return nil
+}
+
+// reviewStallCoordinator resolves the Run's current chat without treating it as an item-specific Bot chat.
+func reviewStallCoordinator(ctx context.Context, q *store.Queries, item store.Todo,
+) (store.ReviewStallCoordinatorRow, error) {
+	if item.State != Open || item.AssigneeKind != Me ||
+		item.CreatedByKind != reviewStallActor.Kind || item.CreatedBy != reviewStallActor.ID {
+		return store.ReviewStallCoordinatorRow{}, nil
+	}
+
+	coordinator, err := q.ReviewStallCoordinator(ctx, item.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return coordinator, fmt.Errorf("reading the review stall's coordinator: %w", err)
+	}
+	return coordinator, nil
+}
+
+func appendReviewReport(t *Todo, report string) {
+	if report != "" {
+		t.Notes += "\n\n" + report
+	}
 }

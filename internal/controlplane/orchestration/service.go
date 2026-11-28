@@ -706,8 +706,12 @@ func (s *Service) completeTask(ctx context.Context, q *store.Queries, now int64,
 		event.payload["review"] = review
 	}
 	if review.WaitingForOwner {
-		if err := s.reportReviewStall(ctx, q, now, current, review, result); err != nil {
+		item, err := s.reportReviewStall(ctx, q, now, current, review, result)
+		if err != nil {
 			return err
+		}
+		if item != "" {
+			event.payload["review_inbox_item"] = item
 		}
 	}
 	if err := keepNoReview(ctx, q, now, current); err != nil {

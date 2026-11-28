@@ -1237,7 +1237,7 @@ func wakeText(e store.Event) string {
 		switch to := str("to"); to {
 		case "succeeded", "failed", "blocked", "canceled":
 			if review, ok := p["review"].(map[string]any); ok {
-				return reviewWakeText(e, review)
+				return reviewWakeText(e, review, str("review_inbox_item"))
 			}
 
 			if to == "blocked" && str("reason") != "" {
@@ -1269,10 +1269,14 @@ func wakeText(e store.Event) string {
 	return ""
 }
 
-func reviewWakeText(e store.Event, review map[string]any) string {
+func reviewWakeText(e store.Event, review map[string]any, item string) string {
 	action := "Run stalled after review; follow the coordinator's review reference."
 	if review["waiting_for_owner"] == true {
-		action = "Review limit reached. The verdict and findings are in the owner Inbox. Leave the Run open and add no Task."
+		action = "Review limit reached. Leave the Run open and add no Task."
+		if item != "" {
+			action += fmt.Sprintf(" Post your own recommendation and reason on Inbox item %s with inbox_comment, "+
+				"then end your turn without waiting for a reply.", item)
+		}
 	}
 
 	return fmt.Sprintf("Review Task %s of run %s: %s on %s (mergeable: %s, merge state: %s, required checks: %s). "+

@@ -7,13 +7,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
 const countReviewStallTodosOfHead = `-- name: CountReviewStallTodosOfHead :one
 SELECT count(*) FROM review_stall_todos
 WHERE run_id = ?1
-  AND (head_sha = ?2 OR (head_sha <> '' AND ?2 <> '' AND
-        (substr(head_sha, 1, length(?2)) = ?2 OR substr(?2, 1, length(head_sha)) = head_sha)))
+  AND (substr(head_sha, 1, length(CAST(?2 AS TEXT))) = CAST(?2 AS TEXT) OR substr(CAST(?2 AS TEXT), 1, length(head_sha)) = head_sha)
 `
 
 type CountReviewStallTodosOfHeadParams struct {
@@ -30,15 +30,16 @@ func (q *Queries) CountReviewStallTodosOfHead(ctx context.Context, arg CountRevi
 }
 
 const insertReviewStallTodo = `-- name: InsertReviewStallTodo :exec
-INSERT INTO review_stall_todos (run_id, head_sha, pull_request, todo_id)
-VALUES (?1, ?2, ?3, ?4)
+INSERT INTO review_stall_todos (run_id, head_sha, pull_request, todo_id, long_report)
+VALUES (?1, ?2, ?3, ?4, ?5)
 `
 
 type InsertReviewStallTodoParams struct {
 	RunID       string
-	HeadSha     string
+	HeadSha     sql.NullString
 	PullRequest string
 	TodoID      string
+	LongReport  string
 }
 
 func (q *Queries) InsertReviewStallTodo(ctx context.Context, arg InsertReviewStallTodoParams) error {
@@ -47,6 +48,7 @@ func (q *Queries) InsertReviewStallTodo(ctx context.Context, arg InsertReviewSta
 		arg.HeadSha,
 		arg.PullRequest,
 		arg.TodoID,
+		arg.LongReport,
 	)
 	return err
 }
@@ -54,7 +56,7 @@ func (q *Queries) InsertReviewStallTodo(ctx context.Context, arg InsertReviewSta
 const openReviewStallRequests = `-- name: OpenReviewStallRequests :many
 SELECT DISTINCT s.pull_request FROM review_stall_todos s
 JOIN todos t ON t.id = s.todo_id
-WHERE t.closed_at IS NULL
+WHERE t.state = 'open' AND t.assignee_kind = 'me'
 ORDER BY s.pull_request
 `
 
@@ -83,7 +85,7 @@ func (q *Queries) OpenReviewStallRequests(ctx context.Context) ([]string, error)
 
 const openReviewStallTodosOfRequest = `-- name: OpenReviewStallTodosOfRequest :many
 SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id FROM review_stall_todos s JOIN todos t ON t.id = s.todo_id
-WHERE s.pull_request = ?1 AND t.closed_at IS NULL
+WHERE s.pull_request = ?1 AND t.state = 'open' AND t.assignee_kind = 'me'
 `
 
 func (q *Queries) OpenReviewStallTodosOfRequest(ctx context.Context, pullRequest string) ([]Todo, error) {
@@ -159,7 +161,7 @@ func (q *Queries) OpenReviewStallTodosOfRequest(ctx context.Context, pullRequest
 
 const openReviewStallTodosOfRun = `-- name: OpenReviewStallTodosOfRun :many
 SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id FROM review_stall_todos s JOIN todos t ON t.id = s.todo_id
-WHERE s.run_id = ?1 AND t.closed_at IS NULL
+WHERE s.run_id = ?1 AND t.state = 'open' AND t.assignee_kind = 'me'
 `
 
 func (q *Queries) OpenReviewStallTodosOfRun(ctx context.Context, runID string) ([]Todo, error) {
@@ -231,4 +233,33 @@ func (q *Queries) OpenReviewStallTodosOfRun(ctx context.Context, runID string) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const reviewStallCoordinator = `-- name: ReviewStallCoordinator :one
+SELECT c.id AS chat_id, c.bot_id FROM review_stall_todos s
+JOIN runs r ON r.id = s.run_id JOIN chats c ON c.id = r.chat_id
+WHERE s.todo_id = ?1 AND r.status = 'open'
+`
+
+type ReviewStallCoordinatorRow struct {
+	ChatID string
+	BotID  string
+}
+
+func (q *Queries) ReviewStallCoordinator(ctx context.Context, todoID string) (ReviewStallCoordinatorRow, error) {
+	row := q.db.QueryRowContext(ctx, reviewStallCoordinator, todoID)
+	var i ReviewStallCoordinatorRow
+	err := row.Scan(&i.ChatID, &i.BotID)
+	return i, err
+}
+
+const reviewStallLongReport = `-- name: ReviewStallLongReport :one
+SELECT long_report FROM review_stall_todos WHERE todo_id = ?1
+`
+
+func (q *Queries) ReviewStallLongReport(ctx context.Context, todoID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, reviewStallLongReport, todoID)
+	var long_report string
+	err := row.Scan(&long_report)
+	return long_report, err
 }

@@ -24,8 +24,7 @@ type move struct{ from, to string }
 
 // transitions lists every change of state and the kinds of Actor that may make it, in one place (issue #845,
 // Transitions; docs/conventions.md, "Transitions are guarded writes"). Each operation below adds its own condition.
-// Review cannot move to done, dropped or duplicate while its Approval is pending. The system's retirement of
-// a review stall report expires its Approval in the same transaction.
+// Review cannot move to done, dropped or duplicate while its Approval is pending.
 var transitions = map[move][]string{
 	// The owner accepts, drops or marks duplicate a proposal; nothing accepts one by itself (Plane, Omi). A Bot
 	// opens one only through WaitOn, when a message shows the owner waits on a person for it (issue #1142; owner,
@@ -56,8 +55,8 @@ var transitions = map[move][]string{
 // allowed says whether actor may move a to-do from one state to another: a conflict when the move is not one of the
 // transitions, forbidden when it is but not for this actor.
 func allowed(from, to string, actor Actor) error {
-	// The review stall ended. Its closing transaction also expires any Approval the item was waiting on.
-	if actor == reviewStallActor && to == Dropped && !Closed(from) {
+	// A review stall can retire its open report while it belongs to the owner.
+	if actor == reviewStallActor && from == Open && to == Dropped {
 		return nil
 	}
 

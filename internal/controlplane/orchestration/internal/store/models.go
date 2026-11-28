@@ -955,9 +955,10 @@ type RestartBoot struct {
 
 type ReviewStallTodo struct {
 	RunID       string
-	HeadSha     string
+	HeadSha     sql.NullString
 	PullRequest string
 	TodoID      string
+	LongReport  string
 }
 
 type ReviewStatus struct {

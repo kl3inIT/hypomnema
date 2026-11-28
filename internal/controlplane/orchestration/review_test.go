@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,8 +74,10 @@ func TestReviewWithNoWorkLeftWakesItsCoordinatorOnce(t *testing.T) {
 func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 	t.Parallel()
 
-	for _, resolution := range []string{"new work", "merge webhook", "merge poll", "finished"} {
+	for _, resolution := range []string{"new work", "merge webhook", "merge poll", "finished", "handed to Bot"} {
 		t.Run(resolution, func(t *testing.T) {
+			t.Parallel()
+
 			w := newWorld(t)
 			ctx := t.Context()
 			chat, err := w.s.CreateChat(ctx, "", "Review a PR")
@@ -82,7 +85,10 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 			w.run, err = w.s.CreateRun(ctx, NewRun{Objective: "Review a PR", CreatedBy: "pi", ChatID: chat.ID})
 			require.NoError(t, err)
 
-			const blockers = "- [P1] Retry drops the original row.\n- [P0] Cancel clears **all** pending work."
+			blockers := "- [P1] Retry drops the original row.\n- [P0] Cancel clears **all** pending work."
+			if resolution == "merge poll" {
+				blockers += "\n" + strings.Repeat("Affected records include this row.\n", 600)
+			}
 			headOf := func(round int) string { return fmt.Sprintf("%08x%032x", round, round) }
 			review := func(t *testing.T, round int, spec, head string) {
 				t.Helper()
@@ -117,10 +123,11 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 				item := page.Items[0]
 				assert.Equal(t, inboxstore.Open, item.State)
 				assert.Equal(t, inboxstore.Me, item.Assignee.Kind)
+				assert.True(t, item.ReplyToCoordinator)
 				assert.Equal(t, inboxstore.FromChat, item.Source.Kind)
 				assert.Equal(t, chat.ID, item.Source.ID)
 				for _, text := range []string{reviewPR, headOf(round), "Verdict: incorrect", blockers, chat.ID,
-					"Recommendation", "one more round", "merge as is and open an issue for the rest", "stop"} {
+					"recommendation follows", "one more round", "merge as is and open an issue for the rest", "stop"} {
 					assert.Contains(t, item.Notes, text)
 				}
 
@@ -128,6 +135,12 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 			}
 
 			item := report(3)
+			if resolution == "merge poll" {
+				detail, err := w.s.Inbox().Get(ctx, item.ID)
+				require.NoError(t, err)
+				assert.Contains(t, detail.Notes, blockers)
+				require.Len(t, detail.Events, 1, "the long review belongs in the body, without a synthetic comment")
+			}
 			_, err = w.s.WakeChats(ctx)
 			require.NoError(t, err)
 			_, err = w.s.WakeChats(ctx)
@@ -143,14 +156,22 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 
 				coordinator := inboxstore.Actor{Kind: inboxstore.Bot, ID: chat.Bot}
 				const recommendation = "Recommendation: Stop. The retry change is superseded."
+				unrelated, err := w.s.CreateChat(ctx, chat.Bot, "Unrelated")
+				require.NoError(t, err)
+				_, err = w.s.Inbox().CommentWith(ctx, coordinator, item.ID, recommendation,
+					inboxstore.Attached{From: unrelated.ID})
+				require.ErrorIs(t, err, ErrForbidden)
+
 				_, err = w.s.Inbox().CommentWith(ctx, coordinator, item.ID, recommendation,
 					inboxstore.Attached{From: chat.ID})
-				assert.NoError(t, err)
+				require.NoError(t, err)
 
 				const reply = "one more round, focused on retry"
 				commented, err := w.s.Inbox().Comment(ctx, inboxstore.Actor{Kind: inboxstore.Owner}, item.ID, reply)
 				require.NoError(t, err)
-				assert.Contains(t, fmt.Sprint(commented.Events), recommendation)
+				require.Len(t, commented.Events, 3)
+				assert.Equal(t, coordinator, commented.Events[1].Actor)
+				assert.JSONEq(t, `{"text":"`+recommendation+`"}`, string(commented.Events[1].After))
 				wakes, err = w.s.Undelivered(ctx, chat.ID)
 				require.NoError(t, err)
 				assert.Len(t, wakes, 4, "only the owner's reply adds a wake")
@@ -182,11 +203,24 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 				}, true))
 			case "finished":
 				require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
+			case "handed to Bot":
+				_, err := w.s.Inbox().Hand(ctx, inboxstore.Change{
+					Actor: inboxstore.Actor{Kind: inboxstore.Owner}, ID: item.ID, Revision: item.Revision,
+				}, chat.Bot, "Track this separately")
+				require.NoError(t, err)
+				require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
 			}
 
 			closed, err := w.s.Inbox().Get(ctx, item.ID)
 			require.NoError(t, err)
+			if resolution == "handed to Bot" {
+				assert.Equal(t, inboxstore.Open, closed.State)
+				assert.Equal(t, inboxstore.Assignee{Kind: inboxstore.ABot, Name: chat.Bot}, closed.Assignee)
+				assert.False(t, closed.ReplyToCoordinator)
+				return
+			}
 			assert.True(t, inboxstore.Closed(closed.State))
+			assert.False(t, closed.ReplyToCoordinator)
 
 			if resolution == "new work" {
 				review(t, 3, reviewSpec, headOf(3)[:8])
@@ -197,6 +231,12 @@ func TestReviewLimitReportsToTheOwnerInbox(t *testing.T) {
 
 				review(t, 4, reviewSpec, headOf(4))
 				assert.NotEqual(t, item.ID, report(4).ID)
+				for range 2 {
+					review(t, 5, reviewSpec, "")
+				}
+				history, err := w.s.Inbox().List(ctx, inboxstore.Filter{WithClosed: true}, "", 10)
+				require.NoError(t, err)
+				assert.Len(t, history.Items, 4, "each headless stall gets its own report")
 				require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
 			}
 			if resolution == "new work" || resolution == "finished" {

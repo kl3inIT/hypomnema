@@ -110,9 +110,9 @@ wait at least one minute before resuming. Report the limit and the wait in your 
    or wording needs only a review of that diff, at `"effort": "medium"`, for its `review` status. Every verdict
    names the head it covers.
    After round 3, if any blocking finding remains, the control plane reports the verdict and remaining blockers in
-   the owner's Inbox (issues #871 and #1331). The report recommends fixing them in one more round before merging.
-   The owner can open this coordinator chat from the item and reply “one more round”, “merge as is and open an issue
-   for the rest”, or “stop”. Stop without waiting for a reply. Leave the Run and pull request open with auto-merge
-   off and add no Task.
+   the owner's Inbox (issues #871 and #1331). Use `inbox_comment` on the item named in the wake-up to post your own
+   recommendation and why. The owner can reply in the item's comments or in this chat with “one more round”,
+   “merge as is and open an issue for the rest”, or “stop”. End your turn without waiting for a reply. Leave the
+   Run and pull request open with auto-merge off and add no Task.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.
