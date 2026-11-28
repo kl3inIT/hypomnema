@@ -12,8 +12,9 @@ import (
 )
 
 // Scenario: the control plane sends a node's allocatable memory; the workers' slice gets it as MemoryMax, and as
-// MemoryHigh too, so a worker over it is killed rather than throttled without end, with no swap. No ceiling, or one
-// of 0, leaves the slice unlimited, as before (issue #1313 rows 2, 3; the owner, 2026-11-28, after the live check).
+// MemoryHigh too, so a worker over it is killed rather than throttled without end, with no swap. A ceiling of 0 has
+// no properties: it never lifts the one applied (issue #1313 rows 2, 3; the owner, 2026-11-28, after the live check;
+// review round 1).
 func TestSlicePropertiesAreTheCeilingAsMaxAndHighAndNoSwap(t *testing.T) {
 	t.Parallel()
 
@@ -23,10 +24,8 @@ func TestSlicePropertiesAreTheCeilingAsMaxAndHighAndNoSwap(t *testing.T) {
 	assert.Equal(t, []string{"MemoryMax=536870912", "MemoryHigh=536870912", "MemorySwapMax=0"},
 		SliceProperties(512<<20))
 	assert.Equal(t, []string{"MemoryMax=100", "MemoryHigh=100", "MemorySwapMax=0"}, SliceProperties(100))
-	assert.Equal(t, []string{"MemoryMax=infinity", "MemoryHigh=infinity", "MemorySwapMax=infinity"},
-		SliceProperties(0))
-	assert.Equal(t, []string{"MemoryMax=infinity", "MemoryHigh=infinity", "MemorySwapMax=infinity"},
-		SliceProperties(-1))
+	assert.Nil(t, SliceProperties(0), "a ceiling of 0 is none to apply, never infinity")
+	assert.Nil(t, SliceProperties(-1))
 }
 
 // Scenario: the shim reads its scope's memory.events when its worker exits; the oom_kill line says how many of its
@@ -117,9 +116,15 @@ func TestCeilingIsAppliedWhenItChanges(t *testing.T) {
 	c.Apply(t.Context(), 6<<30)
 	require.Len(t, calls, 3, "a ceiling that failed is tried again")
 
+	// An Allocatable of 0 (the owner reserved all the node's memory) never lifts the ceiling: the last one stays
+	// (issue #1313, review round 1).
 	c.Apply(t.Context(), 0)
-	require.Len(t, calls, 4)
-	assert.Equal(t, "MemoryMax=infinity", calls[3][4])
+	c.Apply(t.Context(), -1)
+	require.Len(t, calls, 3, "no ceiling of 0 or infinity is applied")
+
+	fresh := &Ceiling{Limit: c.Limit, Run: c.Run}
+	fresh.Apply(t.Context(), 0)
+	require.Len(t, calls, 3, "a node that never had a ceiling is not given infinity either")
 
 	off := &Ceiling{Limit: Limit{Reason: "no systemd"}, Run: func(context.Context, ...string) ([]byte, error) {
 		t.Fatal("a node without the limit sets nothing")

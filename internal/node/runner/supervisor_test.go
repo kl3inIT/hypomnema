@@ -978,13 +978,17 @@ func TestAWorkerKilledForMemoryEndsOOMKilled(t *testing.T) {
 }
 
 // Scenario: the kernel killed one of the worker's test binaries for memory, and the worker went on and finished
-// (issue #1313 row 4). Its report stands, and the kill is said after its summary and as the exit's reason.
-func TestAFinishedWorkerSaysAKillForMemory(t *testing.T) {
+// (issue #1313 row 4, review round 1). A process killed for memory fails the Dispatch whatever the worker reported,
+// as Kubernetes takes an OOMKilled container for a failure even when it exited 0 (pkg/kubelet/kuberuntime/
+// helpers.go:170-177): the kill comes first in the summary, the worker's report after it, its evidence kept.
+func TestAFinishedWorkerKilledForMemoryFails(t *testing.T) {
 	t.Parallel()
 
 	report := newReporter()
 	dir := t.TempDir()
-	require.NoError(t, bridge.Finish(bridge.Dir(dir), bridge.Final{Summary: "the tests pass"}))
+	require.NoError(t, bridge.Finish(bridge.Dir(dir), bridge.Final{
+		Summary: "the tests pass", Evidence: []nodeproto.Evidence{{Kind: "commit", Ref: "abc"}},
+	}))
 
 	sup := &Supervisor{}
 	sup.ended(t.Context(), &Worker{id: "dsp_1", dir: dir, r: report, turn: &fakeTurn{done: true}, started: true},
@@ -992,10 +996,99 @@ func TestAFinishedWorkerSaysAKillForMemory(t *testing.T) {
 
 	require.Len(t, report.finished, 1)
 	f := report.finished[0]
-	assert.Empty(t, f.Class)
+	assert.Equal(t, "worker_error", f.Class)
 	assert.Equal(t, "oom_killed", f.Exit.Reason)
-	assert.Equal(t, "the tests pass\n\noom_killed: the kernel killed 2 processes of this worker for memory, at the "+
-		"limit of the node's workers (hypomnema-workers.slice) or of its profile's limits.memory", f.Summary)
+	assert.Equal(t, "oom_killed: the kernel killed 2 processes of this worker for memory, at the limit of the node's "+
+		"workers (hypomnema-workers.slice) or of its profile's limits.memory\n\nthe tests pass", f.Summary)
+	assert.Equal(t, []nodeproto.Evidence{{Kind: "commit", Ref: "abc"}}, f.Evidence)
+	assert.Nil(t, f.Gate)
+}
+
+// Scenario: the kernel killed the worker for memory before its CLI said it started (issue #1313 row 4, review round
+// 1). It ran, so it is reported started and then failed for memory, as it is after a start, not as a start that
+// failed.
+func TestAWorkerKilledForMemoryBeforeItStartedFailsTheSame(t *testing.T) {
+	t.Parallel()
+
+	report := newReporter()
+	sup := &Supervisor{}
+	sup.ended(t.Context(), &Worker{id: "dsp_1", dir: t.TempDir(), r: report, turn: &fakeTurn{}, pid: 42},
+		shim.Exit{Code: -1, Signal: "killed", OOMKills: 1})
+
+	assert.Equal(t, 1, report.startedCount(), "the worker ran: it is reported started first")
+	require.Len(t, report.finished, 1)
+	f := report.finished[0]
+	assert.Equal(t, "worker_error", f.Class)
+	assert.Equal(t, nodeproto.Exit{Kind: "signaled", Signal: "killed", Reason: "oom_killed"}, f.Exit)
+	assert.True(t, strings.HasPrefix(f.Summary, "oom_killed: the kernel killed a process of this worker"), f.Summary)
+}
+
+// Scenario: the node updated itself while a worker ran, and the new daemon adopts it (issue #1313 row 1, review round
+// 1). The worker, which an earlier daemon started in its own cgroup, is moved into its Dispatch's scope inside the
+// workers' slice, with its shim and the CLI under it, so no worker runs outside the ceiling. A stand-in for busctl
+// records the transient scope it is asked for; with HYPOMNEMA_TEST_SYSTEMD_SCOPE set, the user's real systemd does
+// it and the processes' cgroups are read.
+func TestAnAdoptedWorkerIsMovedIntoItsScope(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd is Linux's")
+	}
+
+	g := newRig(t, "hang")
+	first := newReporter()
+	g.start(first)
+
+	again := g.restart()
+
+	bin := t.TempDir()
+	args := filepath.Join(bin, "args")
+	limit := memlimit.Limit{SystemdRun: "systemd-run", Systemctl: "systemctl", Busctl: filepath.Join(bin, "busctl")}
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + args + "\n"
+	require.NoError(t, os.WriteFile(limit.Busctl, []byte(script), 0o700)) //nolint:gosec // a private stand-in
+
+	onSystemd := os.Getenv("HYPOMNEMA_TEST_SYSTEMD_SCOPE") != ""
+	if onSystemd {
+		limit = memlimit.Probe(t.Context())
+		require.True(t, limit.On(), limit.Reason)
+	}
+
+	again.sup.Memory = limit
+	second := newReporter()
+	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
+
+	pid, err := shim.PID(again.sup.dir("dsp_1"))
+	require.NoError(t, err)
+
+	tree := shim.Tree(pid)
+	require.GreaterOrEqual(t, len(tree), 2, "the shim and the fake CLI under it")
+
+	if onSystemd {
+		for _, p := range tree {
+			require.Eventually(t, func() bool {
+				raw, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(p), "cgroup")) //nolint:gosec // /proc
+				return strings.Contains(string(raw), "/hypomnema-workers.slice/hypomnema-worker-dsp_1.scope")
+			}, 5*time.Second, 50*time.Millisecond, "process %d is in the worker's scope", p)
+		}
+	} else {
+		require.Eventually(t, func() bool { _, err := os.Stat(args); return err == nil }, 5*time.Second,
+			20*time.Millisecond)
+		raw, err := os.ReadFile(args) //nolint:gosec // the stand-in's own file
+		require.NoError(t, err)
+		got := strings.Split(strings.TrimSpace(string(raw)), "\n")
+		assert.Equal(t, []string{
+			"--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
+			"StartTransientUnit", "ssa(sv)a(sa(sv))", "hypomnema-worker-dsp_1.scope", "fail",
+		}, got[:9])
+		joined := " " + strings.Join(got, " ") + " "
+		assert.Contains(t, joined, " Slice s hypomnema-workers.slice ")
+		assert.Contains(t, joined, " PIDs au "+strconv.Itoa(len(tree))+" ")
+		for _, p := range tree {
+			assert.Contains(t, joined, " "+strconv.Itoa(p)+" ")
+		}
+	}
+
+	again.sup.Stop("dsp_1")
+	second.wait(t)
+	assert.Equal(t, 1, second.stopped)
 }
 
 // Scenario: on a node that limits its workers' memory, the shim is started through systemd-run in the Dispatch's
