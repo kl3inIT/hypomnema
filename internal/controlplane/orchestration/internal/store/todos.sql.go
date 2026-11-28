@@ -392,7 +392,7 @@ func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoCha
 }
 
 const getTodoGitHubCall = `-- name: GetTodoGitHubCall :one
-SELECT delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url, replied_at, reply_url, created_at FROM todo_github_calls WHERE delivery = ?1
+SELECT delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url, replied_at, reply_url, created_at, closed_state, closed_reason, closed_evidence FROM todo_github_calls WHERE delivery = ?1
 `
 
 // A call of the GitHub App by its delivery (issue #1232): one delivered again is handled once.
@@ -412,6 +412,9 @@ func (q *Queries) GetTodoGitHubCall(ctx context.Context, delivery string) (TodoG
 		&i.RepliedAt,
 		&i.ReplyUrl,
 		&i.CreatedAt,
+		&i.ClosedState,
+		&i.ClosedReason,
+		&i.ClosedEvidence,
 	)
 	return i, err
 }
@@ -709,6 +712,31 @@ func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) 
 	return err
 }
 
+const keepGitHubReplyClose = `-- name: KeepGitHubReplyClose :exec
+UPDATE todo_github_calls
+SET closed_state = ?1, closed_reason = ?2, closed_evidence = ?3
+WHERE todo_id = ?4 AND replied_at IS NULL AND closed_state IS NULL
+`
+
+type KeepGitHubReplyCloseParams struct {
+	ClosedState    sql.NullString
+	ClosedReason   sql.NullString
+	ClosedEvidence sql.NullString
+	TodoID         string
+}
+
+// A call reopens an item whose earlier close is still to be answered on GitHub: the calls waiting keep that close,
+// so the reopen drops no reply (review of PR #1323).
+func (q *Queries) KeepGitHubReplyClose(ctx context.Context, arg KeepGitHubReplyCloseParams) error {
+	_, err := q.db.ExecContext(ctx, keepGitHubReplyClose,
+		arg.ClosedState,
+		arg.ClosedReason,
+		arg.ClosedEvidence,
+		arg.TodoID,
+	)
+	return err
+}
+
 const latestTodoOfSource = `-- name: LatestTodoOfSource :one
 SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE source_kind = ?1 AND source_id = ?2
 ORDER BY created_at DESC, id DESC
@@ -777,15 +805,15 @@ func (q *Queries) LatestTodoOfSource(ctx context.Context, arg LatestTodoOfSource
 }
 
 const listGitHubCallsToReply = `-- name: ListGitHubCallsToReply :many
-SELECT c.delivery, c.todo_id, c.repository, c.number, c.kind, c.comment_id, c.reply_to, c.login, c.url, c.replied_at, c.reply_url, c.created_at FROM todo_github_calls c
+SELECT c.delivery, c.todo_id, c.repository, c.number, c.kind, c.comment_id, c.reply_to, c.login, c.url, c.replied_at, c.reply_url, c.created_at, c.closed_state, c.closed_reason, c.closed_evidence FROM todo_github_calls c
 JOIN todos t ON t.id = c.todo_id
-WHERE c.replied_at IS NULL AND t.state IN ('done', 'dropped', 'duplicate')
+WHERE c.replied_at IS NULL AND (c.closed_state IS NOT NULL OR t.state IN ('done', 'dropped', 'duplicate'))
 ORDER BY c.created_at, c.delivery
 LIMIT ?1
 `
 
-// The calls not answered yet whose item closed (issue #1232), oldest first: the control plane answers each item's on
-// GitHub with its outcome.
+// The calls not answered yet whose item closed, or whose close a reopen kept (closed_state), oldest first (issue
+// #1232): the control plane answers each close of an item's on GitHub with its outcome.
 func (q *Queries) ListGitHubCallsToReply(ctx context.Context, lim int64) ([]TodoGithubCall, error) {
 	rows, err := q.db.QueryContext(ctx, listGitHubCallsToReply, lim)
 	if err != nil {
@@ -808,6 +836,9 @@ func (q *Queries) ListGitHubCallsToReply(ctx context.Context, lim int64) ([]Todo
 			&i.RepliedAt,
 			&i.ReplyUrl,
 			&i.CreatedAt,
+			&i.ClosedState,
+			&i.ClosedReason,
+			&i.ClosedEvidence,
 		); err != nil {
 			return nil, err
 		}

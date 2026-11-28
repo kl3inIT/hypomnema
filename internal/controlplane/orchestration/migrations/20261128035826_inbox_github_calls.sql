@@ -156,7 +156,8 @@ DROP TABLE todos_kept;
 -- pull request, the comment or review by its id and kind, and for a review comment the first comment of its thread,
 -- reply_to, which GitHub takes replies to) and by whom, as GitHub's signed delivery says (sender),
 -- never its words, which are the item's thread. replied_at is when the control plane answered it on GitHub with the
--- outcome, once the item closed (claude-code-action's tracking comment, src/github/operations/comments). todo_id has
+-- outcome, once the item closed (claude-code-action's tracking comment, src/github/operations/comments); a reopen keeps
+-- the close a waiting reply answers in closed_state, closed_reason and closed_evidence. todo_id has
 -- no foreign key, as todo_chat_departments has none, so that a later rebuild of todos keeps the calls.
 CREATE TABLE todo_github_calls (
     delivery   TEXT    NOT NULL PRIMARY KEY CHECK (length(delivery) BETWEEN 1 AND 128),
@@ -170,7 +171,12 @@ CREATE TABLE todo_github_calls (
     url        TEXT    NOT NULL,
     replied_at INTEGER,
     reply_url  TEXT    NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- The close a reply still waiting answers, kept when a later call reopens the item before the reply went: its
+    -- state, reason and evidence (JSON), NULL while the item's own close is the one to answer.
+    closed_state    TEXT CHECK (closed_state IS NULL OR closed_state IN ('done', 'dropped', 'duplicate')),
+    closed_reason   TEXT,
+    closed_evidence TEXT
 ) STRICT;
 
 CREATE INDEX todo_github_calls_todo ON todo_github_calls (todo_id, created_at);

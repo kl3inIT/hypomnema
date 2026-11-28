@@ -2688,7 +2688,9 @@ flowchart LR
       closed item is reopened by the call (`reopenTx`, its close cleared as `Reopen` clears it, a `state` event by
       the caller, the owner or the system as `github:<login>`, with `after.github` the login and the call's address),
       the owner's one exception to "only the owner reopens" (owner, 2026-11-28; design row 4, Omnara
-      `github.mdx:298`), which `allowed` grants a system actor `github:<login>` only. The
+      `github.mdx:298`), which only `reopenTx` can make (`Change.byCall`, unexported: `Reopen` with any system actor
+      is refused); the calls whose reply still waits keep the close they answer (`closed_state`, `closed_reason`,
+      `closed_evidence`), so each close gets its own reply where its calls were made. The
       words go into the thread as a `commented` event with `after.github` (login, address, kind), by the owner for
       his own account (the login that registered the App, `Credential.Owner`, and its id `OwnerUserID`
       when known, #1312), else by the system as `github:<login>`, which the web shows as "<login> on

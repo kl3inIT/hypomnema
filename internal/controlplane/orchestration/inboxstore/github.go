@@ -311,7 +311,18 @@ func onIt(row store.Todo, bot string, work Work) bool {
 func (s *Store) reopenTx(ctx context.Context, q *store.Queries, now int64, c GitHubCall, row store.Todo) error {
 	main := Assignee{Kind: ABot, Name: s.mainBot}
 
-	_, err := s.changeTx(ctx, q, now, Change{Actor: c.Actor(), ID: row.ID, Revision: int(row.Revision)}, EventState,
+	// The calls whose reply still waits keep the close they answer, which the reopen clears from the item (review of
+	// PR #1323): each close is answered with its own outcome.
+	if err := q.KeepGitHubReplyClose(ctx, store.KeepGitHubReplyCloseParams{
+		ClosedState: nullString(row.State), ClosedReason: sql.NullString{String: row.CloseReason, Valid: true},
+		ClosedEvidence: sql.NullString{String: row.Evidence, Valid: true}, TodoID: row.ID,
+	}); err != nil {
+		return fmt.Errorf("keeping the close of to-do %s for its replies: %w", row.ID, err)
+	}
+
+	change := Change{Actor: c.Actor(), ID: row.ID, Revision: int(row.Revision), byCall: true}
+
+	_, err := s.changeTx(ctx, q, now, change, EventState,
 		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
 			if err := retake(ctx, q, cur); err != nil {
 				return nil, err
@@ -426,7 +437,8 @@ type CallOf struct {
 	URL        string
 }
 
-// Reply is an item that closed with the calls of it not answered yet on GitHub, oldest first.
+// Reply is one close of an item with the calls it answers not answered yet on GitHub, oldest first: Todo is the item
+// as that close left it (a close a reopen kept, review of PR #1323, or its current one).
 type Reply struct {
 	Todo  Todo
 	Calls []CallOf
@@ -446,18 +458,29 @@ func (s *Store) Replies(ctx context.Context) ([]Reply, error) {
 			return fmt.Errorf("reading GitHub's calls to answer: %w", err)
 		}
 
+		// One reply a close: the item's current close, or a close a reopen kept for the calls waiting then.
 		at := map[string]int{}
 
 		for _, r := range rows {
-			n, ok := at[r.TodoID]
+			key := r.TodoID + "\x00" + r.ClosedState.String + "\x00" + r.ClosedReason.String + "\x00" +
+				r.ClosedEvidence.String
+
+			n, ok := at[key]
 			if !ok {
 				t, err := s.get(ctx, q, r.TodoID)
 				if err != nil {
 					return err
 				}
 
+				if r.ClosedState.Valid {
+					t.State, t.CloseReason, t.Evidence = r.ClosedState.String, r.ClosedReason.String, nil
+					if json.Unmarshal([]byte(r.ClosedEvidence.String), &t.Evidence) != nil {
+						t.Evidence = nil
+					}
+				}
+
 				n = len(out)
-				at[r.TodoID] = n
+				at[key] = n
 				out = append(out, Reply{Todo: t})
 			}
 

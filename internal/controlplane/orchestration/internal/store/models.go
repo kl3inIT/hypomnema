@@ -1242,18 +1242,21 @@ type TodoEvent struct {
 }
 
 type TodoGithubCall struct {
-	Delivery   string
-	TodoID     string
-	Repository string
-	Number     int64
-	Kind       string
-	CommentID  int64
-	ReplyTo    int64
-	Login      string
-	Url        string
-	RepliedAt  sql.NullInt64
-	ReplyUrl   string
-	CreatedAt  int64
+	Delivery       string
+	TodoID         string
+	Repository     string
+	Number         int64
+	Kind           string
+	CommentID      int64
+	ReplyTo        int64
+	Login          string
+	Url            string
+	RepliedAt      sql.NullInt64
+	ReplyUrl       string
+	CreatedAt      int64
+	ClosedState    sql.NullString
+	ClosedReason   sql.NullString
+	ClosedEvidence sql.NullString
 }
 
 type User struct {

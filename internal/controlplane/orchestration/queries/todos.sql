@@ -250,11 +250,11 @@ INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comm
 VALUES (@delivery, @todo_id, @repository, @number, @kind, @comment_id, @reply_to, @login, @url, @now);
 
 -- name: ListGitHubCallsToReply :many
--- The calls not answered yet whose item closed (issue #1232), oldest first: the control plane answers each item's on
--- GitHub with its outcome.
+-- The calls not answered yet whose item closed, or whose close a reopen kept (closed_state), oldest first (issue
+-- #1232): the control plane answers each close of an item's on GitHub with its outcome.
 SELECT c.* FROM todo_github_calls c
 JOIN todos t ON t.id = c.todo_id
-WHERE c.replied_at IS NULL AND t.state IN ('done', 'dropped', 'duplicate')
+WHERE c.replied_at IS NULL AND (c.closed_state IS NOT NULL OR t.state IN ('done', 'dropped', 'duplicate'))
 ORDER BY c.created_at, c.delivery
 LIMIT @lim;
 
@@ -262,3 +262,10 @@ LIMIT @lim;
 -- The calls a reply on GitHub answered, by their deliveries (a JSON array), with the reply's address.
 UPDATE todo_github_calls SET replied_at = CAST(@now AS INTEGER), reply_url = @reply_url
 WHERE replied_at IS NULL AND delivery IN (SELECT value FROM json_each(CAST(@deliveries AS TEXT)));
+
+-- name: KeepGitHubReplyClose :exec
+-- A call reopens an item whose earlier close is still to be answered on GitHub: the calls waiting keep that close,
+-- so the reopen drops no reply (review of PR #1323).
+UPDATE todo_github_calls
+SET closed_state = @closed_state, closed_reason = @closed_reason, closed_evidence = @closed_evidence
+WHERE todo_id = @todo_id AND replied_at IS NULL AND closed_state IS NULL;

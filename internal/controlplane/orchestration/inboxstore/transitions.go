@@ -56,12 +56,6 @@ var transitions = map[move][]string{
 // allowed says whether actor may move a to-do from one state to another: a conflict when the move is not one of the
 // transitions, forbidden when it is but not for this actor.
 func allowed(from, to string, actor Actor) error {
-	// A call of the owner's GitHub App reopens its closed item (owner, 2026-11-28, issue #1232): by the system as the
-	// caller, github:<login>, which only the App's call path writes (reopenTx); the owner's own call is his.
-	if Closed(from) && to == Open && actor.Kind == System && strings.HasPrefix(actor.ID, "github:") {
-		return nil
-	}
-
 	who, ok := transitions[move{from, to}]
 	if !ok {
 		return fmt.Errorf("%w: a %s to-do cannot become %s", storeerr.ErrConflict, from, to)
@@ -86,6 +80,9 @@ type Change struct {
 	// Actor is, never from a field the Bot sends; empty when it acts elsewhere. The owner's message in it is evidence
 	// when the Bot records for him.
 	Chat string
+	// byCall says the change is a call of the GitHub App reopening its closed item (owner, 2026-11-28, issue
+	// #1232): the one exception to "only the owner reopens", which only reopenTx, in this package, can set.
+	byCall bool
 }
 
 // change is one guarded write of a to-do: it reads the row, checks the revision and the attempt, lets apply make
@@ -164,7 +161,8 @@ func (s *Store) changeTx(
 		}
 
 		if stateful || next.State != cur.State {
-			if err := allowed(cur.State, next.State, c.Actor); err != nil {
+			reopenByCall := c.byCall && Closed(cur.State) && next.State == Open
+			if err := allowed(cur.State, next.State, c.Actor); err != nil && !reopenByCall {
 				return err
 			}
 

@@ -286,7 +286,7 @@ func (a *App) reply(ctx context.Context, retry map[string]time.Time) time.Time {
 	var next time.Time
 
 	for _, r := range replies {
-		if due, ok := retry[r.Todo.ID]; ok && time.Now().Before(due) {
+		if due, ok := retry[r.Calls[0].Delivery]; ok && time.Now().Before(due) {
 			if next.IsZero() || due.Before(next) {
 				next = due
 			}
@@ -298,7 +298,7 @@ func (a *App) reply(ctx context.Context, retry map[string]time.Time) time.Time {
 			a.replyFailed(ctx, r.Todo.ID, err)
 
 			due := time.Now().Add(replyRetry)
-			retry[r.Todo.ID] = due
+			retry[r.Calls[0].Delivery] = due
 
 			if next.IsZero() || due.Before(next) {
 				next = due
@@ -307,7 +307,7 @@ func (a *App) reply(ctx context.Context, retry map[string]time.Time) time.Time {
 			continue
 		}
 
-		delete(retry, r.Todo.ID)
+		delete(retry, r.Calls[0].Delivery)
 	}
 
 	return next

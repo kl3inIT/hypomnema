@@ -78,7 +78,9 @@ saying how it ended, quoting Hypo's reason as plain text (its handles are not me
 and linking the review or the pull request. A reply GitHub refuses is tried again a minute later without holding
 back other items' replies. A valid call after the item closed reopens that same item (the owner's exception to "only
 the owner reopens", 2026-11-28): its history shows who called and when, the new line is the request, and a
-teammate's call is still not your turn. A call by a reader or a bot reopens nothing.
+teammate's call is still not your turn. A call by a reader or a bot reopens nothing. A reply still waiting to be
+sent for the earlier close is kept with that close's outcome and still goes where its call was made; the next close
+gets its own reply.
 
 **What Hypo is told.** The item's chat gets this wake-up (here a teammate's call on a pull request; the owner's
 says "The owner (<login> on GitHub)" and "This call is the owner's own, as his words in the Inbox are."; an issue's
