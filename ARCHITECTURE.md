@@ -4317,8 +4317,11 @@ capabilities do not exist yet.
   no code names (`unknown`) does not move on, nor does a refusal of the request itself (a 400, 413 or 422 without
   a throttle's words), as Bifrost rotates on its failure classes but not on `caller_fault` or `unknown`
   (`docs/features/retries-and-fallbacks.mdx`). A refusal of the request's content ends the turn: it reads
-  `unknown` whatever its status, a 403 included (OpenRouter's moderation 403 with `flagged_input`, the codes and
-  words LiteLLM maps to `ContentPolicyViolationError`), while a 403 that refuses the key moves on. A target that is
+  `unknown` whatever its status, a 403 included (OpenRouter's moderation 403 with `flagged_input`, its typed
+  refusal with `error_type: "refusal"` and the provider's `bio_policy` or `cyber_policy` in `error.metadata`, read
+  before the status, and the codes and words LiteLLM maps to `ContentPolicyViolationError`), while a 403 that
+  refuses the key moves on. Such a refusal is not tried on the subscription's next account either, and rests no
+  account: a 4xx that reads `unknown` costs the account nothing. A target that is
   skipped because none of its accounts exists keeps the code of the move before it in the record. Any other answer
   of a provider reaches the client with its status and body. When no target can be reached
   the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
@@ -4377,8 +4380,9 @@ capabilities do not exist yet.
     `usage_limit_reached`, Google's `QUOTA_EXHAUSTED`), an auth code, or a server code on no 4xx decides; then
     401/403, a 429 (its words say a spent balance or a used-up plan, else a rate limit), a generic throttle code
     (`rate_limit_error`, read after a 429's words since Anthropic-shaped endpoints put it on every 429), a 5xx;
-    then the words alone. A Claude 429 is `usage_limit` only with `anthropic-ratelimit-unified-status: rejected`
-    (OmniRoute `isClaudeUsageWall`); an Antigravity model that waits on a used-up quota is `usage_limit`, one that
+    then the words alone. A Claude 429 is `usage_limit` with `anthropic-ratelimit-unified-status: rejected`
+    (OmniRoute `isClaudeUsageWall`) or when its words name its 5-hour or weekly limit (issue #1335), else
+    `rate_limit`; an Antigravity model that waits on a used-up quota is `usage_limit`, one that
     waits on a throttle `rate_limit`, either `billing` when Google says the credits balance is spent; a suspended
     account or one to verify is `auth`. The waits are unchanged, a Go 402 `GoUsageLimitError` keeping the used-up
     allowance's hour (since #1335 the waits follow the code, above). The reset a refusal names is read from its headers first

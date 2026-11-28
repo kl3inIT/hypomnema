@@ -104,6 +104,11 @@ var (
 	contentCodes = map[string]bool{
 		"content_policy_violation": true, "content_filter": true, "content_filter_policy": true,
 		"responsibleaipolicyviolation": true,
+		// OpenRouter's typed refusal, a safety policy block: error_type "refusal" (in error.metadata, or in
+		// error.error_type on its Messages skin) with the provider's code, OpenAI's bio_policy or cyber_policy, in
+		// error.metadata.provider_code (openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/gpt-6,
+		// "Safety Policy Blocks"; review round 2 of PR #1342).
+		"refusal": true, "bio_policy": true, "cyber_policy": true,
 	}
 	contentText = regexp.MustCompile(`(?i)content[-_\s]?polic(?:y|ies)[-_\s]?violation|responsibleaipolicyviolation|` +
 		`content[-_\s]?filter|content (?:management|filtering) policy|result of (?:our|the) safety system|` +
@@ -210,7 +215,9 @@ func classifyFailure(status int, codes []string, text string) CoolingCode {
 }
 
 // providerCodes are the codes an error body carries where opencode reads them (utils/provider-codes.ts
-// providerCodes: code, error_type, error.code, error.type, error.error_type, error.status), and the `[code]` label
+// providerCodes: code, error_type, error.code, error.type, error.error_type, error.status), OpenRouter's typed
+// error_type and the provider's code in error.metadata (openrouter.ai/docs/api_reference/errors-and-debugging,
+// "Provider errors": "error_type is the field to rely on"; review round 2 of PR #1342), and the `[code]` label
 // OpenCode keeps at the start of a message whose upstream code it rewrote (provider-error.ts GATEWAY_CODE_LABEL).
 func providerCodes(body []byte) []string {
 	var codes []string
@@ -254,6 +261,11 @@ func providerCodes(body []byte) []string {
 		str(inner["error_type"])
 		str(inner["status"])
 		label(inner["message"])
+
+		if metadata, ok := inner["metadata"].(map[string]any); ok {
+			str(metadata["error_type"])
+			str(metadata["provider_code"])
+		}
 	}
 
 	return codes

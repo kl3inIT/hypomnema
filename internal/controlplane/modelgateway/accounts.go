@@ -233,6 +233,13 @@ func (s *Server) tryAccounts(
 			return resp, true, err
 		}
 
+		// A refusal of the request's content (it reads unknown on these statuses) is the request's, not the
+		// account's: another account would refuse it the same (review round 2 of PR #1342; Bifrost rotates no key
+		// on a caller_fault, docs/features/retries-and-fallbacks.mdx).
+		if code, _ := targetMovesOn(resp); code == CoolingUnknown {
+			return resp, true, nil
+		}
+
 		if refusal != nil {
 			_ = refusal.Body.Close()
 		}
@@ -412,6 +419,11 @@ func (s *Server) coolingUntil(
 	var wait time.Duration
 
 	switch {
+	case code == CoolingUnknown && status >= http.StatusBadRequest && status < http.StatusInternalServerError:
+		// A refusal no code names, such as one of the request's content, says nothing of the account: it rests
+		// nothing (OpenRouter: a policy block "does not count against the provider's health",
+		// openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/gpt-6; review round 2 of PR #1342).
+		return time.Time{}, false
 	case ownersToFix(code):
 		wait = ownersWait(now, reset)
 	case reset.After(now) && reset.Sub(now) <= maxProviderReset:
