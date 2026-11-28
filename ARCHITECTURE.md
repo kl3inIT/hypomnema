@@ -4949,7 +4949,7 @@ not checked against the live site in the change that wrote them.
 - Not built: Muse's images and videos as tools (#781, step 3), a history screen for `muse.db`, watching an account's
   tab live, Muse Spark through `api.meta.ai`.
 
-Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issue #1287, step 2 of #781,
+Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issues #1287 and #1289, step 2 of #781,
 [research](docs/research/2026-11-27-social-listening.md)): the tool `listen_search` finds what people say about a
 topic. The calling model writes the plan; the tool answers with items, clusters and each source's coverage, and
 writes no prose (last30days SKILL.md LAW 7).
@@ -4969,6 +4969,45 @@ writes no prose (last30days SKILL.md LAW 7).
   none of the threads the search showed, `web_arctic` fails with the archive's code: not read, never a clean zero. That failure rests the archive's path only, not
   `web_arctic`: the next subquery still searches the web and keeps its threads as the search showed them. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
   `web_arctic` was added for that (owner, 2026-11-27).
+- The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
+  - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
+    and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the
+    videos read with their metadata, and with fewer than 3 in the window the results page asked again for recent
+    uploads (YouTube's upload-date filter); then the top comments (top-level, not the channel's, 5 each) of the 3 most
+    watched and the captions (`vi-orig,en-orig,vi,en`) of the 2 most watched, a video's text being its transcript's
+    most quotable sentences. A bot check is `refused`, a 429 `rate_limited`; a failed comment or caption read is named
+    in the detail.
+  - `google_play` (`play_reviews`, `stores.go`): the app the query names by its package, else the first app of Play's
+    search; google-play-scraper's batchexecute call, `hl=vi`, `gl=vn`, newest first, page after page until the
+    stream's limit or a review older than the window; an error on any page fails the stream, Play's gateway error is
+    `rate_limited`, a review's date is Play's epoch in UTC, TLS verified.
+  - `app_store` (`rss_reviews`): the app named by its id, else the first of Apple's search in Vietnam's store; its
+    public reviews feed (JSON, the first page's four spellings), at most 10 pages 300 ms apart, until the window ends.
+    A review's `engagement` holds its `rating` (and Play's `thumbs_up`), which no score is made of.
+  - `hackernews` (`algolia`, `apis.go`), `github` (`issues_search`), `arxiv` (`arxiv_api`), `techmeme`
+    (`techmeme_search`), `devto` (`forem_api`), `bluesky` (`appview`): Algolia's stories and comments in the window
+    (a story of 2 points or fewer, and a hit naming no query word, left out; a comment's `parent` is its story);
+    GitHub's keyless issue search by title, 10 at most, kept when its title or repository names the topic, a 403 with
+    no requests left `rate_limited` until GitHub's reset; arXiv's Atom API, the phrase quoted then its words, one call
+    every 3 s (arXiv's terms); Techmeme's archive search with its `date:[…]` operator, pages of 10; DEV.to's search
+    kept at relevance 0.25; Bluesky's searchPosts on `api.bsky.app` without a session.
+  - `careers` (`careers_page`, `careers.go`, `signals.go`): the web search `<company> careers jobs`, its first careers
+    address read, its roles from the schema.org JobPosting of the page or of the role pages it links on its own site;
+    an item's `signals` mark a role out of character (`founding`, `leadership`, `specialized`, `new-geo`).
+  - `voz`, `tinhte`, `otofun` (`web_thread`, `forums.go`, `robots.go`): the web search `site:<forum> <query>`, its
+    thread links, each read (title, first post, date, author) only where the forum's robots.txt, the group naming
+    `hypomnema` else `*`, allows the path and its Content-Signal allows an AI's input and not only reference use; else
+    the search's excerpt and link. voz.vn says `use=reference`, so it is excerpts only. robots.txt is kept 24 hours; a
+    4xx is no rules, a 5xx or no answer disallows all (RFC 9309).
+  - A page a search named (a careers page, a role, a thread, a robots.txt) is read through the web fetch's client
+    (`websearch.PageClient`: public addresses only, each redirect checked), as `hypomnema/1 (+…)`.
+- Ranking per source: engagement weights and references, YouTube on its view scale, a comment scored on its votes
+  alone, and each source's quality from last30days' `signals.py`; arXiv, Techmeme, careers, forums and the app stores
+  have no engagement score.
+- Health (`health.go`, `Service.Health`): per source `working` after a search read it (in full or empty),
+  `unverified` before any or after one read in part, `not_working` after one that could not read it, with the last
+  success, the last failure, its code and detail; in memory. Each source names the query its live test reads
+  (`Platform.LiveQuery`); `TestLiveEverySource` (`HYPOMNEMA_LISTENING_LIVE=1`, yt-dlp on PATH) reads every source.
 - A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
   refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
   first with items serves. An opt-in backend is asked only when pinned. After `need_login`, `refused`,
@@ -5006,10 +5045,11 @@ writes no prose (last30days SKILL.md LAW 7).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
-  search page has (owner, 2026-11-27: no paid services). Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
-  with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
-- Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
-  (issues #1288 to #1295).
+  search page has (owner, 2026-11-27: no paid services). Every source is read without an account or a key. `go test
+  ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources.
+- Not built: the Sources screen and its daily run of the live tests, the keyed and signed-in sources, the hosted job
+  boards' APIs, and saved topics (issues #1288, #1290 to #1295). yt-dlp is not on the PATH of zm's control plane user (`command -v yt-dlp`, 2026-11-28):
+  until it is, `youtube` answers `broken`.
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
