@@ -267,7 +267,7 @@ func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID s
 		return err
 	}
 
-	has, err := workerHas(ctx, q, run, switches.AllowsFamily("phone"))
+	has, err := workerHas(ctx, q, run, switches)
 	if err != nil {
 		return err
 	}
@@ -324,10 +324,11 @@ func givenSkills(ctx context.Context, q *store.Queries, add, off []string, has m
 
 // workerHas is what a worker of a Run has for a skill's requirements: the
 // Integrations of the Connections its Run was given, whose commands the node
-// prepares for it (agenttool.ForDispatch), and the phone while a node holds
-// one, as each offer then names it.
-func workerHas(ctx context.Context, q *store.Queries, run store.Run, phoneAllowed bool) (map[string]bool, error) {
-	has := map[string]bool{}
+// prepares for it (agenttool.ForDispatch), its allowed gateway tools, and
+// the phone while a node holds one.
+func workerHas(ctx context.Context, q *store.Queries, run store.Run, switches agenttool.ToolSwitches,
+) (map[string]bool, error) {
+	has := skillToolCapabilities(switches)
 
 	for _, use := range splitUses(run.Uses) {
 		if integration, _, ok := SplitUse(use); ok {
@@ -335,7 +336,7 @@ func workerHas(ctx context.Context, q *store.Queries, run store.Run, phoneAllowe
 		}
 	}
 
-	return has, phoneHas(ctx, q, has, phoneAllowed)
+	return has, phoneHas(ctx, q, has, switches.AllowsFamily("phone"))
 }
 
 // botHas is what a Bot has for a skill's requirements: the Integrations of
@@ -345,7 +346,7 @@ func workerHas(ctx context.Context, q *store.Queries, run store.Run, phoneAllowe
 // A Connection of a git host is of its kind too: a Bot given one of a GitLab
 // host has gitlab, whose tool acts on any of them (issue #740).
 func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, error) {
-	return skillCapabilities(ctx, q, b.MayUse, b.ToolSwitches().AllowsFamily("phone"))
+	return skillCapabilities(ctx, q, b.MayUse, b.ToolSwitches())
 }
 
 // SkillCapabilities describes the requirements a Bot meets or a profile could meet on a Run.
@@ -355,17 +356,18 @@ func (s *Service) SkillCapabilities(ctx context.Context, bot *Bot, switches agen
 		return botHas(ctx, s.read(), *bot)
 	}
 
-	return skillCapabilities(ctx, s.read(), nil, switches.AllowsFamily("phone"))
+	return skillCapabilities(ctx, s.read(), nil, switches)
 }
 
-func skillCapabilities(ctx context.Context, q *store.Queries, mayUse func(Connection) bool, phoneAllowed bool,
+func skillCapabilities(
+	ctx context.Context, q *store.Queries, mayUse func(Connection) bool, switches agenttool.ToolSwitches,
 ) (map[string]bool, error) {
 	conns, err := q.ListConnections(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading the connections: %w", err)
 	}
 
-	has := map[string]bool{}
+	has := skillToolCapabilities(switches)
 
 	for _, row := range conns {
 		c := connectionFromRow(row)
@@ -384,7 +386,14 @@ func skillCapabilities(ctx context.Context, q *store.Queries, mayUse func(Connec
 		}
 	}
 
-	return has, phoneHas(ctx, q, has, phoneAllowed)
+	return has, phoneHas(ctx, q, has, switches.AllowsFamily("phone"))
+}
+
+// listen_search is configured by serve for every worker runtime and for Bots.
+func skillToolCapabilities(switches agenttool.ToolSwitches) map[string]bool {
+	listening := skillpack.Requirement(skillpack.RequiresTool, agenttool.ToolListenSearch)
+
+	return map[string]bool{listening: switches.Allows(agenttool.ToolListenSearch)}
 }
 
 // phoneHas adds the phone when a node holds one, the node the control plane

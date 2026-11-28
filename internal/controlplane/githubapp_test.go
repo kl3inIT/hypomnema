@@ -3,6 +3,7 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/ciwait"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -45,6 +47,8 @@ type appWorld struct {
 	owner string
 	logs  *lockedBuffer
 }
+
+const appPublicURL = "https://hypomnema.example"
 
 type lockedBuffer struct {
 	mu sync.Mutex
@@ -82,13 +86,14 @@ func newAppWorld(t *testing.T) *appWorld {
 	w.vault = vault.New(db, platform.SystemClock{}, platform.NewID, keys, w.svc.Profiles().ProvidersUsingKeyRef)
 
 	logger := slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	w.app = githubapp.New(w.svc, w.vault, "https://hypomnema.example", w.gh.Client(), logger)
+	w.app = githubapp.New(w.svc, w.vault, appPublicURL, w.gh.Client(), logger)
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 
 	mux := http.NewServeMux()
-	require.NoError(t, clientapi.New(w.svc, logger, stop).WithGitHubApp(clientGitHubApp{w.app}).Register(mux))
+	api := clientapi.New(w.svc, logger, stop).WithGitHubApp(clientGitHubApp{w.app}, appPublicURL)
+	require.NoError(t, api.Register(mux))
 	mux.HandleFunc("POST "+githubapp.EventsPath, w.app.ServeEvents)
 
 	hs := httptest.NewServer(mux)
@@ -201,6 +206,12 @@ func TestTheManifestCallbackKeepsTheCredentialInTheVaultAndShowsNoSecret(t *test
 	cred, err := githubapp.DecodeCredential(opened.Payload[vault.KeyValue])
 	require.NoError(t, err)
 	assert.Equal(t, int64(githubapptest.AppID), cred.AppID)
+
+	var record struct {
+		BotUserID int64 `json:"bot_user_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(opened.Payload[vault.KeyValue]), &record))
+	assert.Equal(t, int64(githubapptest.BotUserID), record.BotUserID, "the bot user ID is kept beside the App ID")
 	assert.Equal(t, w.gh.PEM, cred.PrivateKey)
 	assert.Equal(t, w.gh.Secret, cred.WebhookSecret)
 
@@ -218,6 +229,82 @@ func TestTheManifestCallbackKeepsTheCredentialInTheVaultAndShowsNoSecret(t *test
 	// A state is good once: the same code sent back again changes nothing.
 	again, _ := w.get(githubapp.CallbackPath + "?code=the-manifest-code&state=" + "not-a-state")
 	assert.Contains(t, again.Header.Get("Location"), "done=expired")
+}
+
+// An existing installation can use the bot without re-registering, and later control planes reuse the ID.
+func TestAnExistingGitHubAppKeepsItsBotUserAfterTheFirstOffer(t *testing.T) {
+	t.Parallel()
+
+	w := newAppWorld(t)
+	ctx := t.Context()
+	legacy := githubapp.Credential{
+		AppID: githubapptest.AppID, Slug: githubapptest.Slug, Owner: "kl3inIT",
+		PrivateKey: w.gh.PEM, WebhookSecret: w.gh.Secret,
+	}
+	encoded, err := legacy.Encode()
+	require.NoError(t, err)
+	_, err = w.vault.Create(ctx, vault.NewSecret{
+		Name: githubapp.AppSecret, Kind: vault.KindGeneric, Payload: vault.Payload{vault.KeyValue: encoded},
+	})
+	require.NoError(t, err)
+	w.install()
+
+	bot, owner := w.app.OfferIdentity(ctx, githost.GitHubHost, "kl3inIT/hypomnema")
+	assert.Equal(t, githost.Identity{
+		Name: "hypomnema-owner[bot]", Email: "4343+hypomnema-owner[bot]@users.noreply.github.com",
+	}, bot)
+	assert.Equal(t, githost.Identity{Name: "kl3inIT", Email: "164090677+kl3inIT@users.noreply.github.com"}, owner)
+	require.Equal(t, 1, w.gh.BotReads())
+
+	restarted := githubapp.New(w.svc, w.vault, appPublicURL, w.gh.Client(), slog.Default())
+	restartedBot, restartedOwner := restarted.OfferIdentity(ctx, githost.GitHubHost, "kl3inIT/hypomnema")
+	assert.Equal(t, bot, restartedBot)
+	assert.Equal(t, owner, restartedOwner)
+	assert.Equal(t, 1, w.gh.BotReads())
+}
+
+// The owner's form works when a proxy forwards it with a loopback Host (issue #1308).
+func TestGitHubAppSetupFormChecksRequestOrigin(t *testing.T) {
+	w := newAppWorld(t)
+	registered, _ := w.register()
+	require.Equal(t, githubapp.SetupPath+"?done=registered", registered.Header.Get("Location"))
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	for _, tc := range []struct {
+		name   string
+		origin string
+		site   string
+		want   string
+	}{
+		{name: "public origin through proxy", origin: appPublicURL, want: "installed"},
+		{name: "request host", origin: w.url, want: "installed"},
+		{name: "foreign origin", origin: "https://foreign.example", want: "not_same_site"},
+		{name: "same-origin takes precedence", origin: "https://foreign.example", site: "same-origin", want: "installed"},
+		{name: "cross-site with request host", origin: w.url, site: "cross-site", want: "not_same_site"},
+		{name: "cross-site with public origin", origin: appPublicURL, site: "cross-site", want: "not_same_site"},
+		{name: "neither header", want: "installed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.url+githubapp.SetupPath,
+				strings.NewReader("action=sync"))
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+w.owner)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			if tc.site != "" {
+				req.Header.Set("Sec-Fetch-Site", tc.site)
+			}
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+			assert.Equal(t, githubapp.SetupPath+"?done="+tc.want, resp.Header.Get("Location"))
+		})
+	}
 }
 
 // Scenario (issue #1262): a worker waits for its pull request's CI with `hypomnema ci wait`; a signed workflow_run
