@@ -94,6 +94,22 @@ var (
 		`provider returned (?:an )?error|resource[-_\s]?exhausted|upstream (?:connect|connection|request))\b`)
 )
 
+// A refusal of the request's content, which ends the turn (the owner chose that over a fallback, 2026-11-22; issue
+// #1335 "Left out"): the codes and words LiteLLM maps to its ContentPolicyViolationError
+// (litellm/litellm_core_utils/exception_mapping_utils.py:150-167 is_azure_content_policy_violation_error, :541-544,
+// :807 Anthropic's "content filtering policy"), and OpenRouter's moderation 403, whose error.metadata carries
+// flagged_input and whose message says the input was flagged (openrouter.ai/docs/api_reference/errors-and-debugging,
+// "Moderation errors"). It reads unknown, so it neither moves on nor says "Sign in again" (review of PR #1342).
+var (
+	contentCodes = map[string]bool{
+		"content_policy_violation": true, "content_filter": true, "content_filter_policy": true,
+		"responsibleaipolicyviolation": true,
+	}
+	contentText = regexp.MustCompile(`(?i)content[-_\s]?polic(?:y|ies)[-_\s]?violation|responsibleaipolicyviolation|` +
+		`content[-_\s]?filter|content (?:management|filtering) policy|result of (?:our|the) safety system|` +
+		`violating our usage polic|input was flagged|"flagged_input"`)
+)
+
 // hasCode reports whether any of codes, lowercased, is in set.
 func hasCode(codes []string, set map[string]bool) bool {
 	for _, c := range codes {
@@ -159,6 +175,8 @@ func classifyFailure(status int, codes []string, text string) CoolingCode {
 	throttleCode := contains("rate_limit") || has(map[string]bool{"too_many_requests": true, "throttlingexception": true})
 
 	switch {
+	case has(contentCodes) || contentText.MatchString(text):
+		return CoolingUnknown
 	case status == http.StatusPaymentRequired:
 		return CoolingBilling
 	// The provider's structured code.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -180,6 +181,9 @@ func (s *Server) claudeCool(ctx context.Context, token AccountToken, failure *cl
 	s.cool(ctx, claudeAccountRuntime, token, failure.Status, usageLimit, failure.ResetsAt, code, failure.Message)
 }
 
+// claudeWindowText is a Claude refusal naming one of its subscription's windows: the 5-hour or the weekly limit.
+var claudeWindowText = regexp.MustCompile(`(?i)\b(?:5-hour|five[- ]hour|weekly|7-day|seven[- ]day)\s+(?:usage\s+)?limit`)
+
 // claudeCode is why an Anthropic refusal rests the account: its 5-hour or weekly window used up when the 429 says
 // `anthropic-ratelimit-unified-status: rejected` (OmniRoute open-sse/services/claudeLowPriority.ts:241-246
 // isClaudeUsageWall), else what classifyFailure reads of its type, status and message. h is nil for a failure inside
@@ -187,6 +191,12 @@ func (s *Server) claudeCool(ctx context.Context, token AccountToken, failure *cl
 func claudeCode(failure *claude.Failure, h http.Header) CoolingCode {
 	if failure.Status == http.StatusTooManyRequests && h != nil &&
 		strings.EqualFold(strings.TrimSpace(h.Get("Anthropic-Ratelimit-Unified-Status")), "rejected") {
+		return CoolingUsageLimit
+	}
+
+	// A 429 whose words name the window it used up, its 5-hour or weekly limit (issue #1335, row 3, "or a named
+	// window"; review of PR #1342).
+	if failure.Status == http.StatusTooManyRequests && claudeWindowText.MatchString(failure.Message) {
 		return CoolingUsageLimit
 	}
 

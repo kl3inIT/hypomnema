@@ -383,8 +383,7 @@ func (s *Server) cool(
 	ctx context.Context, runtime string, token AccountToken, status int, quotaUsedUp bool, reset time.Time,
 	code CoolingCode, reason string,
 ) {
-	quotaUsedUp = quotaUsedUp || ownersToFix(code)
-	if until, ok := s.coolingUntil(token, status, quotaUsedUp, reset); ok {
+	if until, ok := s.coolingUntil(token, status, quotaUsedUp, reset, code); ok {
 		s.park(ctx, runtime, token, until, code, reason)
 	}
 }
@@ -395,16 +394,26 @@ func ownersToFix(code CoolingCode) bool {
 	return code == CoolingAuth || code == CoolingBilling
 }
 
+// ownersWait is how long a rest the owner ends (ownersToFix) lasts: the usage wait, or the reset the provider names
+// when that is later, at most maxProviderReset. A shorter Retry-After is not trusted: a used-up balance comes back
+// only when the owner adds credit (opencode_adapter.go's Zen rest, "an hour whatever Retry-After says"; review of
+// PR #1342).
+func ownersWait(now, reset time.Time) time.Duration {
+	return max(quotaCooldown, min(reset.Sub(now), maxProviderReset))
+}
+
 // coolingUntil is until when a failure keeps an account, or one model of it, out of use (cool); false when the
 // failure costs it nothing.
 func (s *Server) coolingUntil(
-	token AccountToken, status int, quotaUsedUp bool, reset time.Time,
+	token AccountToken, status int, quotaUsedUp bool, reset time.Time, code CoolingCode,
 ) (time.Time, bool) {
 	now := s.svc.clock.Now()
 
 	var wait time.Duration
 
 	switch {
+	case ownersToFix(code):
+		wait = ownersWait(now, reset)
 	case reset.After(now) && reset.Sub(now) <= maxProviderReset:
 		// The provider's own moment, kept as it was given.
 		return reset, true

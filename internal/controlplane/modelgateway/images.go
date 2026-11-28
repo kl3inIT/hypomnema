@@ -420,10 +420,13 @@ func (r *imageRests) rest(
 	var wait time.Duration
 
 	switch {
+	case ownersToFix(code):
+		// A refused key or spent credits rest for the usage wait, whatever shorter wait a 429 names, as an account
+		// does (cool; issue #1335, row 4; review of PR #1342).
+		wait = ownersWait(now, reset)
 	case reset.After(now):
 		wait = min(reset.Sub(now), maxProviderReset)
-	case quotaUsedUp || ownersToFix(code):
-		// A refused key or spent credits rest for the usage wait, as an account does (cool; issue #1335, row 4).
+	case quotaUsedUp:
 		wait = quotaCooldown
 	case status == http.StatusTooManyRequests || status == http.StatusBadGateway ||
 		status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout:

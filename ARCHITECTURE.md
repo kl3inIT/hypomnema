@@ -4316,8 +4316,11 @@ capabilities do not exist yet.
   chat route (`/chat/completions`, `/responses`, `/messages`, and the control plane's own completions). A failure
   no code names (`unknown`) does not move on, nor does a refusal of the request itself (a 400, 413 or 422 without
   a throttle's words), as Bifrost rotates on its failure classes but not on `caller_fault` or `unknown`
-  (`docs/features/retries-and-fallbacks.mdx`). Any other answer of a provider reaches the client with its status
-  and body. When no target can be reached
+  (`docs/features/retries-and-fallbacks.mdx`). A refusal of the request's content ends the turn: it reads
+  `unknown` whatever its status, a 403 included (OpenRouter's moderation 403 with `flagged_input`, the codes and
+  words LiteLLM maps to `ContentPolicyViolationError`), while a 403 that refuses the key moves on. A target that is
+  skipped because none of its accounts exists keeps the code of the move before it in the record. Any other answer
+  of a provider reaches the client with its status and body. When no target can be reached
   the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
   is not declared, or the body is wrong) and 413.
 - A provider is of one of two sorts. An `openai_compatible` one is data the owner declares (a base URL, a key in the
@@ -4356,11 +4359,14 @@ capabilities do not exist yet.
   - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 1 hour, the usage
-    wait, after a refused key or sign-in (`auth`) or spent credits (`billing`), since nothing changes until the
-    owner signs in again or pays (issue #1335; OpenClaw's billing off-time), and the Models page's account card
+    wait, after a refused key or sign-in (`auth`) or spent credits (`billing`), or the provider's reset when later
+    (at most 2 hours), never a shorter `Retry-After`, since nothing changes until the owner signs in again or pays
+    (issue #1335; OpenClaw's billing off-time; the same for an image model's rest and an Antigravity model's wait on
+    a spent credits balance), and the Models page's account card
     says what to do, "Sign in again" ("Add a new key" for an OpenCode key) or "Add credits"; 2 minutes after
     another 401, 402 or 403; 30 seconds after another 5xx. A Claude account rests by its code (issue #1335):
-    `usage_limit` until Anthropic's unified reset, or the hour when none is named; `rate_limit` the short doubling
+    `usage_limit` (the unified status `rejected`, or a 429 whose words name its 5-hour or weekly limit) until
+    Anthropic's unified reset, or the hour when none is named; `rate_limit` the short doubling
     wait, or the `Retry-After` it names, never the window's reset that every answer carries.
   - Why an account rests is one closed set for every adapter (issue #1305, `modelgateway/cooling_code.go`):
     `usage_limit` (a plan's window or allowance used up), `rate_limit`, `billing` (credits, a balance or a budget

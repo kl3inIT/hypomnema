@@ -258,6 +258,11 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 				return
 			}
 			if cooling.add(err) {
+				// The code of a target whose accounts all rest is kept as a move's (issue #1335, row 6).
+				if !last {
+					record.movedOn(restCode(err))
+				}
+
 				continue
 			}
 
@@ -283,7 +288,7 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 
 		// The code decides whether the next target is tried, and the record keeps it (issue #1335, rows 1 and 6).
 		if code, moves := targetMovesOn(resp); moves && !last {
-			record.CoolingCode = code
+			record.movedOn(code)
 			drain(resp)
 
 			continue

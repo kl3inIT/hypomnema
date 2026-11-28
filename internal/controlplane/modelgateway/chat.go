@@ -384,7 +384,8 @@ func (s *Server) serveChat(
 			if resp != nil {
 				drain(resp)
 			}
-			record.Model, record.CoolingCode = fallback.Name, code
+			record.Model = fallback.Name
+			record.movedOn(code)
 			resp, exhausted, code = s.tryChat(ctx, req, fallback, key.ID, record)
 			if !exhausted {
 				break
@@ -464,9 +465,13 @@ func (s *Server) tryChat(
 			}
 			if cooling.add(err) {
 				// Every account of the target rests, or none serves the model: the next target is tried, as before.
-				exhausted, code = true, restCode(err)
+				// A skip that names no code keeps the code of the move before it (review of PR #1342).
+				exhausted = true
+				if c := restCode(err); c != "" {
+					code = c
+				}
 				if !last {
-					record.CoolingCode = code
+					record.movedOn(code)
 				}
 
 				continue
@@ -485,7 +490,7 @@ func (s *Server) tryChat(
 
 		var moves bool
 		if code, moves = targetMovesOn(resp); moves && !last {
-			record.CoolingCode = code
+			record.movedOn(code)
 			drain(resp)
 
 			continue
@@ -495,6 +500,14 @@ func (s *Server) tryChat(
 	}
 
 	return s.coolingResponse(ctx, "/v1/chat/completions", cooling, record), exhausted, code
+}
+
+// movedOn keeps in the record the code the request moved on for (issue #1335, row 6); a move that names none, such
+// as a target with no account at all, keeps the last one (review of PR #1342).
+func (u *Usage) movedOn(code CoolingCode) {
+	if code != "" {
+		u.CoolingCode = code
+	}
 }
 
 // restCode is the code a target's resting accounts give (modelCooling.add): why the account free first rests, or
