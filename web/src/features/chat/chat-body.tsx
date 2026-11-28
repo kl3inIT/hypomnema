@@ -7,6 +7,7 @@ import { getChatQueryKey, listChatsQueryKey } from "@/api/generated/@tanstack/re
 import {
   abortChat,
   createChat,
+  getChat,
   removeQueuedChatMessage,
   sendChatMessage,
   sendQueuedChatMessage,
@@ -131,7 +132,10 @@ export function ChatBody({
   // /new starts a new chat with the chat's Bot, which becomes its main chat, and opens it (issue #471), as Lark's
   // /new and `hypomnema chat /new`: the message is not sent, and this chat stays as it is.
   async function startNew() {
-    const { data } = await createChat({ body: { bot } })
+    // The composer can submit before the chat has loaded (issue #1208).
+    const source = chat.data ?? (await getChat({ path: { chat_id: chatId } })).data
+    if (!source.bot) throw new Error("Could not determine this chat's Bot.")
+    const { data } = await createChat({ body: { bot: source.bot } })
     void refreshBots()
     void queryClient.invalidateQueries({ queryKey: everyCall(listChatsQueryKey()) })
     await navigate({ to: "/chats/$chatId", params: { chatId: data.id } })

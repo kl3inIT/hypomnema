@@ -61,7 +61,7 @@ func TestTheCoordinatorSkillHoldsEachReviewRuleOnce(t *testing.T) {
 	for _, once := range []string{
 		"Copy an owner's acceptance condition into the spec word for word, as one line.",
 		"Never restate it as a general property for the reviewer to hunt",
-		"a `make migration-fix` rename of the change's migrations or wording needs green CI only, no new review.",
+		"a `make migration-fix` rename of the change's migrations or wording needs only a review of that diff",
 		"Do not restate the reviewer's rules in the spec",
 	} {
 		assert.Equal(t, 1, strings.Count(all, once), once)
@@ -71,9 +71,10 @@ func TestTheCoordinatorSkillHoldsEachReviewRuleOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	for rule, from := range map[string]string{
-		`"Copy an owner's acceptance condition into the spec …"`: "pstack skills/poteto-mode/worker.md:4",
-		`"Size the review to the change. Round 1 …"`:             "departs from pstack's single verifier for a rebase",
-		`"Do not restate the reviewer's rules in …"`:             "references/handoffs.md:130-140",
+		`"Copy an owner's acceptance condition into the spec …"`:           "pstack skills/poteto-mode/worker.md:4",
+		`"Size the review to the change. Round 1 …"`:                       "pstack's single verifier for a rebase",
+		`"The control plane posts the commit status ` + "`review`" + ` …"`: "agent-approval-check",
+		`"Do not restate the reviewer's rules in …"`:                       "references/handoffs.md:130-140",
 	} {
 		row := sourceRow(string(raw), rule)
 		assert.Contains(t, row, from, rule)

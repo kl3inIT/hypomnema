@@ -59,7 +59,8 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			"(need_login, refused, rate_limited, limit_reached, not_found, timeout, broken), the one step that fixes " +
 			"it (`fix`), and each backend tried. The sources listed are those the owner keeps on, on Settings → " +
 			"Gateway → Social listening. " +
-			"Write your report from these; quote the text and give the link and date. " + listeningData,
+			"When available, use the social-listening skill for discovery, planning and the evidence report. " +
+			"Write your report from the results, with verbatim quotes and their links and dates. " + listeningData,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 			`"topic":{"type":"string","description":"What the plan is about, in a few words; its words are not ` +
 			`counted when items are clustered."},` +

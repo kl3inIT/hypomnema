@@ -78,7 +78,8 @@ availability: these depend on the kind and the accounts. Do not dispatch a retir
   owner sees it. Load `investigate` and `review`.
 - `explorer` answers standalone questions when the relevant files are not known. Load `investigate`.
 - `reviewer` checks from another vendor. `quick` needs green CI and no worker review. For `narrow` and `broad`,
-  load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec.
+  load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec. The
+  control plane posts the commit status `review` on the head a verdict covers (`review` reference).
 - For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
   a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
   the owner approves like any other. Nothing waits for CodeRabbit when it is rate-limited or does not answer, and it
@@ -124,6 +125,8 @@ its branch does not hold another Task's unmerged changes. So:
   Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
 - For a bug fix, ask for a test that fails without the fix, committed before the fix, so a disputed finding is
   settled by running that test at either commit.
+- For a Task about a flaky test or a Task that asks for repeated test runs, load the `recovery` reference and
+  copy its [test repeat rules](references/recovery.md#flaky-tests-and-repeat-runs) into the worker's spec.
 
 Make each spec self-contained: the goal, decisions already made, what it may change, the deliverable and the
 evidence that proves it is done.

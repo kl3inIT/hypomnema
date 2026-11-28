@@ -952,6 +952,10 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 		if review.TaskID != "" {
 			payload["review"] = review
 		}
+
+		if err := keepNoReview(ctx, q, now, current); err != nil {
+			return err
+		}
 	}
 
 	return emit(ctx, q, now, event{
