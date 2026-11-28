@@ -1189,9 +1189,12 @@ sequenceDiagram
     a change request on one is refused. A make of a take with a video adds a revision with the latest one's lines;
     requested_by and request_id make a make, change request, look change or retry safe to repeat. One
     **runner** goroutine makes the queued revisions one at a time, the oldest first, claiming each by a conditional
-    update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
-    failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
-    10 revisions wait; one has 20 minutes and does not start with less than 400 MB free. Voicing goes through
+    update from `queued` to `voicing`. A stop cancels the render and leaves its stage in the row. At startup,
+    a revision found `voicing`, `composing` or `captioning` has its `attempts` incremented and its revision files
+    removed (issue #1328). It starts again at voicing with the voice already chosen and reuses cached clips. The
+    third stop fails it as `interrupted` at that stage. A stage error fails it immediately. At most 10 new revisions
+    may be queued; each run has 20 minutes and does not start with less than 400 MB free. On Linux video ffmpeg
+    processes start with a nice adjustment of 10. Voicing goes through
     `speech.Service` in Vietnamese (`vi`), one clip per scene, at the revision's speed (`speed`, 0.7-1.3 or 0 for the
     provider's own, chosen in the make dialog or `hypomnema videos make --speed`, which refuses one out of range, and
     kept by a look change, a retry and a revision of changed lines; issue #1285, the owner 2026-11-27): the first
@@ -5982,7 +5985,8 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
     `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
     TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
-    `{"chats": [...], "tool_calls": N}`. It also waits, within the same bound, until no agent's call of the control
+    `{"chats": [...], "tool_calls": N, "renders": N}`. It also waits, within the same bound, for an active video
+    revision (issue #1328) and until no agent's call of the control
     plane's tools runs (`tool_calls`, a worker's too: the calls on the tools', the browser's and the phone's routes,
     issue #1060), as OpenClaw's update drains a Gateway's requests in flight for at most 5 minutes before it
     restarts. Each question on the socket gets 5 s or what is left of the bound, whichever is less, and none is
