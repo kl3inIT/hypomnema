@@ -122,12 +122,13 @@ type world struct {
 func newWorld(t *testing.T, hold time.Duration) *world {
 	t.Helper()
 
-	return newWorldWith(t, hold, nil)
+	return newWorldWith(t, hold, nil, nil)
 }
 
-// newWorldWith is newWorld whose proxy reads the store through wrap, so that a test can act between two of its
-// reads.
-func newWorldWith(t *testing.T, hold time.Duration, wrap func(serviceproxy.Store) serviceproxy.Store) *world {
+// newWorldWith lets a test wrap the proxy's store or supply GitHub App tokens.
+func newWorldWith(t *testing.T, hold time.Duration, wrap func(serviceproxy.Store) serviceproxy.Store,
+	repoToken serviceproxy.RepoToken,
+) *world {
 	t.Helper()
 
 	ctx := t.Context()
@@ -171,7 +172,8 @@ func newWorldWith(t *testing.T, hold time.Duration, wrap func(serviceproxy.Store
 
 	w.proxy, err = serviceproxy.New(serviceproxy.Config{
 		Agents: agents, Store: store, Logger: logger, Upstream: w.service, Hold: hold, RunHold: runHold,
-		Token: func(context.Context, string, string) (string, error) { return realToken, nil },
+		Token:     func(context.Context, string, string) (string, error) { return realToken, nil },
+		RepoToken: repoToken,
 		AWS: func(context.Context, string, string) (aws.Credentials, error) {
 			return aws.Credentials{AccessKeyID: roleKeyID, SecretAccessKey: roleSecret, SessionToken: roleSession}, nil
 		},

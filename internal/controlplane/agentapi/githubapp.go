@@ -20,6 +20,8 @@ type GitHubApp interface {
 	// TokenOfDispatch is a fresh token of the App's installation on the Dispatch's repository, and false when the
 	// App does not cover it.
 	TokenOfDispatch(ctx context.Context, dispatchID string) (agenttool.GitHubToken, bool, error)
+	// PRCreateTokenOfDispatch uses the repository's owner Connection for gh pr create (issue #1339).
+	PRCreateTokenOfDispatch(ctx context.Context, dispatchID string) (agenttool.GitHubToken, bool, error)
 	// WaitCI waits at most hold for the CI of a pull request and returns it.
 	WaitCI(ctx context.Context, ref string, hold time.Duration) (ciwait.State, error)
 }
@@ -32,10 +34,11 @@ func (s *Server) WithGitHubApp(app GitHubApp) *Server {
 	return s
 }
 
-// githubToken gives a worker a token of the App's installation on its Run's repository, and no other agent: as the
+// githubToken gives a worker a credential for its Run's repository, and no other agent: as the
 // host's token goes only with the offer of a Dispatch on that host (nodeapi), as the SSH key does (gitSSHKeyFor).
 // `hypomnema-node gh` and `hypomnema-node git-credential` ask it at each call, as Omnara's agents ask their daemon
-// for a fresh installation token (machinedaemon/git_credential_helper.go).
+// for a fresh installation token (machinedaemon/git_credential_helper.go). The same Dispatch authentication
+// applies to the Connection token read for gh pr create.
 func (s *Server) githubToken(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {
@@ -51,12 +54,21 @@ func (s *Server) githubToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a.dispatchID == "" {
-		refuse(w, http.StatusForbidden, "only a worker on a repository the GitHub App is installed on gets its token")
+		refuse(w, http.StatusForbidden, "only a worker on an App-backed repository gets a GitHub token here")
 
 		return
 	}
 
-	token, ok, err := s.githubApp.TokenOfDispatch(r.Context(), a.dispatchID)
+	read := s.githubApp.TokenOfDispatch
+	source := "GitHub App"
+	missing := "the GitHub App is not installed on this worker's repository"
+	if r.URL.Path == agenttool.PathGitHubPRCreateToken {
+		read = s.githubApp.PRCreateTokenOfDispatch
+		source = "GitHub Connection for pull request creation"
+		missing = "this App-backed repository has no GitHub Connection of the App owner"
+	}
+
+	token, ok, err := read(r.Context(), a.dispatchID)
 	if err != nil {
 		s.fail(w, r, err)
 
@@ -64,14 +76,15 @@ func (s *Server) githubToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !ok {
-		refuse(w, http.StatusConflict, "the GitHub App is not installed on this worker's repository")
+		refuse(w, http.StatusConflict, missing)
 
 		return
 	}
 
 	// Who got a token, and never the token.
-	s.logger.DebugContext(r.Context(), "a worker got a token of the GitHub App",
-		slog.String("event", "agentapi.github_token"), slog.String("agent", a.name))
+	s.logger.DebugContext(r.Context(), "a worker got a GitHub token",
+		slog.String("event", "agentapi.github_token"), slog.String("agent", a.name),
+		slog.String("source", source))
 
 	w.Header().Set("Cache-Control", "no-store")
 	answer(w, token)

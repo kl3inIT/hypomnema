@@ -2599,7 +2599,8 @@ flowchart LR
     [docs/github-app.md](docs/github-app.md)). Workers and the coordinator act on the repositories it is installed
     on with its installations' tokens, which count against the App's own rate limit, not the owner's token's
     (GitHub's "Rate limits for GitHub Apps"); GitHub's events end the waits for CI. The owner's token stays for his
-    own actions and for the repositories the App does not cover, so nothing changes before the App exists.
+    own actions and for the repositories the App does not cover. Opening pull requests and the coordinator's
+    CodeRabbit trigger use the owner's GitHub Connection (#1339).
     - **Registering it** from a manifest (GitHub's "Registering a GitHub App from a manifest"; Omnara's guided
       setup, `docs/integrations/github.mdx:20-75`, `internal/httpapi/github_app_setup_routes.go:88-107`): the page
       `/api/v1/integrations/github/app/setup`, which only the owner's session or token opens, posts the manifest to
@@ -2649,6 +2650,9 @@ flowchart LR
       gives none (the App no longer covers the repository, or the node reconnected to a control plane of an earlier
       release, without the route), gh and git fail closed, saying why, as Omnara's `RunGitHubCLI` returns its
       credential error: no token is kept on the node, and the machine's own login may reach more than the owner's.
+      For `gh pr create` the shim asks `POST /agent/v1/github/pr-create-token` with the same Dispatch key. The
+      control plane selects the repository's Connection, with the same owner identity match as commit attribution.
+      The shim uses that token for the create command. See [the GitHub App guide](docs/github-app.md).
       A Bot's gh through the service proxy goes with the App's token
       when its request names a repository the App covers (a REST path under `/repos/{owner}/{repo}`, or GraphQL
       variables `owner` with `repo` or `name`, as gh sends them); the control plane's own reads of a followed pull
@@ -6373,11 +6377,14 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told the verdict and findings, without adding a Task; the reviewer first reads
-  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1
-  of its own) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
-  permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
-  nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  and the owner told the verdict and findings, without adding a Task. Once an important GitHub pull request's
+  author Task succeeds, the coordinator requests a CodeRabbit review through `gh api` at most once an hour
+  across the owner's repositories (#1339). The service proxy sends this REST comment with the GitHub Connection
+  token and the owner's standing approval. The coordinator waits for a completed review on the head before
+  dispatching the reviewer, except on a CodeRabbit rate limit or its own hourly limit. A failed or cancelled
+  review gets one retry under the same limit. A fix head gets an incremental request only if a Critical or Major
+  finding was fixed. The reviewer answers findings against the head. CodeRabbit is never a merge condition.
+  The model is the profile's unless the owner names one, and a profile or model that cannot be served is
   reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
   each rule's source is in `docs/role-routing.md` (issue #1051).
   A worker that turned auto-merge on finishes without waiting for CI, and the control plane follows its pull
