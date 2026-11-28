@@ -1,7 +1,17 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import type { Listening, ListeningSource } from "../src/api/generated/types.gen.js"
 import { shot } from "./shot.js"
+
+// shotOf keeps a picture of one element when UI_CHECK names a folder, as shot keeps the page's.
+async function shotOf(element: Locator, name: string) {
+  const dir = process.env.UI_CHECK
+  if (!dir) return
+
+  const size = element.page().viewportSize()
+  const device = size && size.width < 600 ? "phone" : "desktop"
+  await element.screenshot({ path: `${dir}/${name}-${device}.png`, animations: "disabled" })
+}
 
 // The Social listening page of Settings → Gateway (issue #1290), built, against a fake client API, on a phone and a
 // desktop. UI_THEME picks the theme of the pictures UI_CHECK keeps. The fake lists the web and Reddit, the sources
@@ -28,6 +38,14 @@ function start(): Listening {
     checked_at: iso(now - 2 * hour),
     last_success_at: iso(now - 2 * hour),
     items_this_week: 184,
+    // It failed yesterday and works again: the card still shows that last error (issue #1290's card row).
+    last_error: {
+      code: "timeout",
+      detail: "every keyless provider answered 504",
+      backend: "web_search",
+      at: iso(now - 20 * hour),
+      fix: "The web did not answer in time, which is no sign that it is broken. It is asked again in a minute.",
+    },
     backends: [
       { name: "web_search", opt_in: false, state: "ready", last_ok_at: iso(now - 2 * hour) },
     ],
@@ -100,7 +118,10 @@ function start(): Listening {
     on: false,
     group: "could_be_on",
     regressed: false,
-    items_this_week: 0,
+    // Read before the owner switched it off: the table still says when.
+    checked_at: iso(now - 72 * hour),
+    last_success_at: iso(now - 72 * hour),
+    items_this_week: 5,
     backends: [{ name: "muse_ask", opt_in: false, state: "ready" }],
   }
 
@@ -116,7 +137,15 @@ function count(world: Listening) {
   world.counts = counts
 }
 
-async function fakeServer(page: Page, options: { failTest?: boolean } = {}) {
+async function fakeServer(
+  page: Page,
+  options: {
+    failTest?: boolean
+    hold?: Promise<void>
+    holdTest?: Promise<void>
+    failLoad?: boolean
+  } = {},
+) {
   const world = start()
   const calls: string[] = []
 
@@ -140,6 +169,7 @@ async function fakeServer(page: Page, options: { failTest?: boolean } = {}) {
         source.backends = backends.map((b) => source.backends.find((x) => x.name === b)!)
       } else if (what === "/test") {
         calls.push(call)
+        if (options.holdTest) await options.holdTest
         if (options.failTest)
           return json(
             { code: "invalid_request", message: "reddit is switched off; switch it on to test it" },
@@ -173,6 +203,13 @@ async function fakeServer(page: Page, options: { failTest?: boolean } = {}) {
       case "GET /me":
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "GET /gateway/listening":
+        if (options.hold) await options.hold
+        if (options.failLoad)
+          return json(
+            { code: "unavailable", message: "this control plane has no social listening" },
+            503,
+          )
+
         return json(world)
       case "GET /events/stream":
         return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
@@ -239,8 +276,8 @@ test("the owner sees each source in one of four counted groups", async ({ page }
 
   expect(await fits(page)).toBe(true)
   await shot(page, "listening-grid")
-  await reddit.scrollIntoViewIfNeeded()
-  await shot(page, "listening-broken-card")
+  // The broken card alone, not the page again (review round 1: it was the grid's picture twice on a desktop).
+  await shotOf(reddit, "listening-broken-card")
 })
 
 // Scenario: a press anywhere on the broken card tests Reddit again (postiz: click to reconnect); it works again.
@@ -317,4 +354,78 @@ test("the owner shows one group, and the table", async ({ page }) => {
 
   await page.reload()
   await expect(page.getByRole("table")).toBeVisible()
+})
+
+// Scenario: the page while the sources load, and when they cannot be read.
+test("the page loading, and a load error", async ({ page }) => {
+  let release = () => {}
+  const hold = new Promise<void>((done) => (release = done))
+  await fakeServer(page, { hold })
+  await page.goto("/settings/social-listening")
+
+  await expect(page.getByText("Loading…")).toBeVisible()
+  await shot(page, "listening-loading")
+  release()
+  await expect(card(page, "Reddit")).toBeVisible()
+})
+
+test("a load error says why", async ({ page }) => {
+  await fakeServer(page, { failLoad: true })
+  await page.goto("/settings/social-listening")
+
+  // The read is tried again a few times first, as every query of the app is.
+  await expect(page.getByRole("alert")).toContainText("no social listening", { timeout: 20_000 })
+  await shot(page, "listening-load-error")
+})
+
+// Scenario: the owner switches Muse on, then chooses Could be on: no source is in it.
+test("an empty group says so", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/settings/social-listening")
+
+  await card(page, "Muse").getByRole("switch").click()
+  await expect(card(page, "Muse")).toContainText("On but unverified")
+  await page.getByRole("button", { name: /Could be on/ }).click()
+  await expect(page.getByText("No source is could be on.")).toBeVisible()
+  await shot(page, "listening-empty-group")
+})
+
+// Scenario: a test in progress: the card's button spins and cannot be pressed again.
+test("a test in progress", async ({ page }) => {
+  let release = () => {}
+  const holdTest = new Promise<void>((done) => (release = done))
+  await fakeServer(page, { holdTest })
+  await page.goto("/settings/social-listening")
+
+  const reddit = card(page, "Reddit")
+  await reddit.getByRole("button", { name: "Test again", exact: true }).click()
+  await expect(reddit.getByRole("button", { name: /Test again$/ })).toBeDisabled()
+  await shot(page, "listening-test-pending")
+  release()
+  await expect(reddit).toContainText("Working")
+})
+
+// Scenario: the web works again after yesterday's timeout: its card still shows that last error, marked as before
+// its recovery; the table says when an off source was last read and links Muse's accounts.
+test("a recovered source keeps its last error, and the table shows an off source", async ({
+  page,
+}) => {
+  await fakeServer(page)
+  await page.goto("/settings/social-listening")
+
+  const web = card(page, "The web").getByRole("note", { name: "Last error" })
+  await expect(web).toContainText("Timed out")
+  await expect(web).toContainText("Before it worked again")
+
+  await page.getByRole("button", { name: "table" }).click()
+  const muse = page.getByRole("row", { name: "Muse" })
+  await expect(muse).toContainText("Could be on")
+  await expect(muse).toContainText("Read")
+  await expect(muse).toContainText("5")
+  await expect(muse.getByRole("link", { name: "Its accounts" })).toHaveAttribute(
+    "href",
+    "/settings/muse",
+  )
+  await expect(page.getByRole("row", { name: "The web" })).toContainText("Timed out")
+  await shot(page, "listening-table-off")
 })

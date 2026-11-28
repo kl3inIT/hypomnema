@@ -14,6 +14,9 @@ const (
 	StatePartial   = "partial"
 	StateNoResults = "no_results"
 	StateNotRead   = "not_read"
+	// StateOff: the owner switched the source off while the search ran; no read of it started after, and nothing of
+	// it is answered (issue #1290, review round 1).
+	StateOff = "off"
 )
 
 // Coverage is one source's line of the answer.

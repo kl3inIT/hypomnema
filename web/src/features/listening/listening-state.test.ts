@@ -58,7 +58,7 @@ describe("a card", () => {
   })
 
   it("says when it was read and how many items it read", () => {
-    expect(readLine(source({ on: false }))).toBe("Off")
+    expect(readLine(source({ on: false }))).toBe("Not read yet")
     expect(readLine(source())).toBe("Not read yet")
     expect(readLine(source({ checked_at: "2026-11-28T08:00:00Z" }), now)).toBe(
       `Read ${new Intl.RelativeTimeFormat(undefined, { style: "narrow" }).format(-1, "hour")}`,
@@ -67,14 +67,19 @@ describe("a card", () => {
     expect(itemsLine(source({ items_this_week: 12 }))).toBe("12 items this week")
   })
 
-  it("shows the last error while it is not working, or when it is newer than the last success", () => {
+  it("always shows the last error, marked when the source worked again after it", () => {
     const old = "2026-11-27T09:00:00Z"
     const recent = "2026-11-28T08:00:00Z"
 
-    expect(failureShown(source())).toBe(false)
-    expect(failureShown(source({ group: "broken", last_error: failure(old) }))).toBe(true)
-    expect(failureShown(source({ last_error: failure(old), last_success_at: recent }))).toBe(false)
-    expect(failureShown(source({ last_error: failure(recent), last_success_at: old }))).toBe(true)
+    expect(failureShown(source())).toBeNull()
+    expect(failureShown(source({ group: "broken", last_error: failure(old) }))).toBe("now")
+    expect(failureShown(source({ last_error: failure(old), last_success_at: recent }))).toBe(
+      "before",
+    )
+    expect(failureShown(source({ last_error: failure(recent), last_success_at: old }))).toBe("now")
+    expect(
+      failureShown(source({ group: "could_be_on", on: false, last_error: failure(old) })),
+    ).toBe("now")
   })
 
   it("names a code and a backend's rest in words", () => {
