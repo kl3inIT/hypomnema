@@ -42,6 +42,7 @@ var botPatterns = func() []*regexp.Regexp {
 
 // ChatKind sorts a chat by the kind its service gives (Zalo's and WhatsApp's dm, group or broadcast; Lark's p2p,
 // group or topic), its name and its id: a bot's or an official account's by BotPatterns, a broadcast list as one.
+// Telegram's chats take FlagKind instead.
 func ChatKind(serviceKind, name, id string) string {
 	if serviceKind == "broadcast" {
 		return ChatBot
@@ -59,6 +60,30 @@ func ChatKind(serviceKind, name, id string) string {
 	default:
 		return ChatDirect
 	}
+}
+
+// FlagKind sorts a chat by the kind its service gives alone, with no pattern on its name or id: Telegram's, whose
+// kinds come from its own flags (issue #1184; a bot, an account Telegram marks verified, support, scam or fake, and a
+// channel are bot or broadcast), so that an ordinary group named "Engineering Newsletter" stays a group.
+func FlagKind(serviceKind string) string {
+	switch serviceKind {
+	case "broadcast", ChatBot:
+		return ChatBot
+	case "group", "topic":
+		return ChatGroup
+	default:
+		return ChatDirect
+	}
+}
+
+// TelegramIDKind is the kind of a Telegram chat by its id alone, for one no longer listed (a group the owner left):
+// a person's (user:<id>) is direct, a basic group's or a channel's (chat:<id>, channel:<id>) a group.
+func TelegramIDKind(id string) string {
+	if strings.HasPrefix(id, "chat:") || strings.HasPrefix(id, "channel:") {
+		return ChatGroup
+	}
+
+	return ChatDirect
 }
 
 // DefaultReads says whether the secretary reads a chat of that kind the owner never set: direct chats and groups

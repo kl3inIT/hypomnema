@@ -10,11 +10,8 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// ToolSwitches are the tool switches of a Bot's pi: its Bot's, read now, so
-// a change reaches a pi already running at its next call.
-func (b Bot) ToolSwitches() agenttool.ToolSwitches {
-	return agenttool.ToolSwitches{Preset: b.Preset, On: b.Tools, Off: b.ToolsOff}
-}
+// A Bot's pi's tool switches are its Bot's (AgentSpec.ToolSwitches), read now, so a change reaches a pi already
+// running at its next call.
 
 // ToolSwitchesOfDispatch reads the immutable profile policy and, for a Bot Run, caps it by the Bot's current policy.
 func (s *Service) ToolSwitchesOfDispatch(ctx context.Context, dispatchID string) (agenttool.ToolSwitches, error) {

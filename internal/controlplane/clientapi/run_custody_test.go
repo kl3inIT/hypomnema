@@ -152,3 +152,81 @@ func TestOnlyTheAssignedBotChatCanContinueAnAdoptedRun(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, followed.StatusCode(), string(followed.Body))
 }
+
+// Scenario: issue #1334. The owner gives a project Bot its repository; the main Bot's pi, the main Bot's chat
+// coordinator, cannot. The main Bot's pi creating a Run on it with no chat gets the Run in the project Bot's main
+// chat, routed by repo_owner, and may not plan it there; the project Bot's pi does. Naming its own chat keeps a Run;
+// a second Bot's claim on the repository is refused with the holder's name; the owner's Run on a repository no Bot
+// owns goes to the main Bot, routed by default.
+func TestARunGoesToTheBotThatOwnsItsRepository(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	main, _, err := w.svc.OpenMainChat(ctx, "", "", "", orchestration.ChatModel{})
+	require.NoError(t, err)
+	atlas, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "Atlas"})
+	require.NoError(t, err)
+	orbit, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "Orbit"})
+	require.NoError(t, err)
+	hypo := w.piToken(testRunCoordinator, main.ID, orchestration.DefaultBotID)
+	claim := openapi.BotRepos{Repos: []string{"acme/atlas"}}
+
+	denied, err := hypo.SetBotReposWithResponse(ctx, atlas.ID, claim)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, denied.StatusCode(), "only the owner sets a Bot's repositories")
+	set, err := owner.SetBotReposWithResponse(ctx, atlas.ID, claim)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, set.StatusCode(), string(set.Body))
+	assert.Equal(t, []string{"acme/atlas"}, val(set.JSON200.Repos))
+	taken, err := owner.SetBotReposWithResponse(ctx, orbit.ID, claim)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, taken.StatusCode())
+	assert.Contains(t, string(taken.Body), "Atlas")
+
+	routed, err := hypo.CreateRunWithResponse(ctx, nil, openapi.NewRun{
+		Objective: "Fix the report", Repo: ptr("acme/atlas"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, routed.StatusCode(), string(routed.Body))
+	run := routed.JSON201
+	owned, err := w.svc.GetBot(ctx, atlas.ID)
+	require.NoError(t, err)
+	assert.Equal(t, owned.MainChat, val(run.ChatId))
+	assert.Equal(t, atlas.ID, val(run.Bot))
+	assert.Equal(t, openapi.RoutedByRepoOwner, val(run.RoutedBy))
+
+	tasks := openapi.NewTasks{Tasks: []openapi.NewTask{{Ref: "fix", Spec: "fix the report"}}}
+	refused, err := hypo.CreateTasksWithResponse(ctx, run.Id, nil, tasks)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode(), "the Run is the owning Bot's to plan")
+	planned, err := w.piToken(testRunCoordinator, owned.MainChat, atlas.ID).CreateTasksWithResponse(ctx, run.Id, nil,
+		tasks)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusCreated, planned.StatusCode(), string(planned.Body))
+
+	kept, err := hypo.CreateRunWithResponse(ctx, nil, openapi.NewRun{
+		Objective: "Look here", Repo: ptr("acme/atlas"), ChatId: ptr(main.ID),
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, kept.StatusCode(), string(kept.Body))
+	assert.Equal(t, main.ID, val(kept.JSON201.ChatId), "a chat named is kept")
+	assert.Equal(t, openapi.RoutedByChat, val(kept.JSON201.RoutedBy))
+
+	unowned, err := owner.CreateRunWithResponse(ctx, nil, openapi.NewRun{
+		Objective: "Fix the tool", Repo: ptr("acme/tooling"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, unowned.StatusCode(), string(unowned.Body))
+	assert.Equal(t, main.ID, val(unowned.JSON201.ChatId))
+	assert.Equal(t, openapi.RoutedByDefault, val(unowned.JSON201.RoutedBy))
+
+	repos, err := owner.ListBotsWithResponse(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, repos.JSON200)
+	for _, b := range repos.JSON200.Data {
+		if b.Id == atlas.ID {
+			assert.Equal(t, []string{"acme/atlas"}, val(b.Repos), "the Bots list carries each one's repositories")
+		}
+	}
+}

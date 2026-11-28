@@ -98,7 +98,7 @@ func toolAccessItem(name, family string, bot *orchestration.Bot, switches agentt
 	}
 
 	item.State = "available"
-	if bot == nil && (family == "routines" || family == "whatsapp" || family == "zalo") {
+	if bot == nil && (family == "routines" || family == "whatsapp" || family == "zalo" || family == "telegram") {
 		item.State, item.Reason = "unavailable", "Workers do not get this tool"
 
 		return item
@@ -108,7 +108,7 @@ func toolAccessItem(name, family string, bot *orchestration.Bot, switches agentt
 		item.State, item.Reason = "on", "Requires a Run linked to a chat"
 	}
 
-	if family == "superset" || family == "whatsapp" || family == "zalo" {
+	if family == "superset" || family == "whatsapp" || family == "zalo" || family == "telegram" {
 		item.Source = "connection"
 		title := connectionTitle(family)
 		if !slices.ContainsFunc(connections, func(conn orchestration.Connection) bool {
@@ -139,6 +139,8 @@ func connectionTitle(integration string) string {
 		return "WhatsApp"
 	case "zalo":
 		return "Zalo"
+	case "telegram":
+		return "Telegram"
 	case "superset":
 		return "Superset"
 	default:

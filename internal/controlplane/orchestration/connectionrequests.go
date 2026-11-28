@@ -314,7 +314,7 @@ func (s *Service) DecideConnectionRequest(ctx context.Context, id string, grant 
 		state, why := want, ""
 
 		if grant {
-			why, err = grantConnection(ctx, q, row, now)
+			why, err = s.grantConnection(ctx, q, row, now)
 			if err != nil {
 				return err
 			}
@@ -354,9 +354,9 @@ func (s *Service) DecideConnectionRequest(ctx context.Context, id string, grant 
 
 // grantConnection appends a request's Connection to its Bot's list, after the checks of Always; why is the check
 // that failed, when one did, and nothing was granted.
-func grantConnection(ctx context.Context, q *store.Queries, r store.ConnectionRequest, now int64) (why string,
-	err error,
-) {
+func (s *Service) grantConnection(
+	ctx context.Context, q *store.Queries, r store.ConnectionRequest, now int64,
+) (why string, err error) {
 	use := Use(r.Integration, r.Label)
 
 	bot, found, err := botIfAny(ctx, q, r.BotID)
@@ -404,7 +404,11 @@ func grantConnection(ctx context.Context, q *store.Queries, r store.ConnectionRe
 		return "", fmt.Errorf("giving bot %s connection %s: %w", r.BotID, use, err)
 	}
 
-	return "", nil
+	// The owner's grant saves the Bot's list, kept as a version (issue #1336).
+	granted := bot
+	granted.Connections = AllowList{Limited: true, Names: names}
+
+	return "", s.keepBotVersion(ctx, q, now, "", &bot, granted, botSave{source: BotVersionSave})
 }
 
 // connectionRequestNotice is the chat's line of the owner's answer, which pi is given: what it may do now.

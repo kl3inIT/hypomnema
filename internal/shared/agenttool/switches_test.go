@@ -111,7 +111,7 @@ func TestThePhonesSwitchTakesItsVideoTools(t *testing.T) {
 func TestAReadRunKeepsTheInboxAndNoSend(t *testing.T) {
 	t.Parallel()
 
-	sends := []string{ToolZaloSend, ToolWhatsAppSend}
+	sends := []string{ToolZaloSend, ToolWhatsAppSend, ToolTelegramSend}
 
 	for _, tool := range InboxTools {
 		assert.True(t, ReadRunAllows(tool), tool)
@@ -131,7 +131,8 @@ func TestAReadRunReadsMeetingsAndNothingThatWrites(t *testing.T) {
 
 	reads := []string{ToolMeetingList, ToolMeetingGet, ToolMemory, ToolSupersetDashboards, ToolSupersetDashboard,
 		ToolSupersetChartData, ToolSupersetFilterValues, ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia,
-		ToolWhatsAppHistory, ToolZaloChats, ToolZaloMessages, ToolZaloMedia, ToolZaloHistory}
+		ToolWhatsAppHistory, ToolZaloChats, ToolZaloMessages, ToolZaloMedia, ToolZaloHistory, ToolTelegramChats,
+		ToolTelegramMessages, ToolTelegramMedia, ToolTelegramHistory}
 
 	var allowed []string
 
@@ -146,8 +147,8 @@ func TestAReadRunReadsMeetingsAndNothingThatWrites(t *testing.T) {
 	assert.ElementsMatch(t, reads, allowed)
 	assert.True(t, ReadRunAllows(ToolAccountRead))
 
-	for _, tool := range []string{ToolZaloSend, ToolWhatsAppSend, ToolSupersetAPI, ToolShowArtifact, ToolRoutines,
-		ToolWebFetch, ToolNodeExec, ToolGenerateImage, ToolAudioSpeak} {
+	for _, tool := range []string{ToolZaloSend, ToolWhatsAppSend, ToolTelegramSend, ToolSupersetAPI, ToolShowArtifact,
+		ToolRoutines, ToolWebFetch, ToolNodeExec, ToolGenerateImage, ToolAudioSpeak} {
 		assert.False(t, ReadRunAllows(tool), tool)
 	}
 }

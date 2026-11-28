@@ -263,6 +263,8 @@ func CatalogOf(integration string) (Catalog, bool) {
 		return whatsappCatalog(), true
 	case ZaloID:
 		return zaloCatalog(), true
+	case TelegramID:
+		return telegramCatalog(), true
 	case GitHubID:
 		return githubCatalog(), true
 	}

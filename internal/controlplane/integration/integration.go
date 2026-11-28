@@ -188,6 +188,9 @@ type Integration struct {
 	// of its Connections is an app of its own.
 	ClientID    string
 	Connections []Connection
+	// Unready says what the owner must set up before an account is linked, for a device whose service needs more
+	// than his phone (Telegram's api_id, issue #1184); empty when nothing is missing.
+	Unready string
 }
 
 // SignIn is a sign-in in progress. The owner opens URL in a browser on any
@@ -206,6 +209,18 @@ type SignIn struct {
 	// CodeImage is the QR code as a picture, a data URL, for a service that gives no code to draw (Zalo).
 	CodeImage   string
 	CodeExpires time.Time
+	// Ask is what the linking waits for the owner to type instead of a code (Telegram, issue #1184), which Answer
+	// gives; nil when it asks nothing.
+	Ask *Asked
+}
+
+// Asked is a question a linking waits on: messaging.Ask without its answer.
+type Asked struct {
+	// Field is messaging.AskPhone, AskCode or AskPassword.
+	Field string
+	Hint  string
+	// Again says the last answer was refused.
+	Again bool
 }
 
 func (s *Service) definition(id string) (Definition, error) {
@@ -253,6 +268,7 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 		}
 
 		in.Connections = make([]Connection, 0, len(conns))
+		in.Unready = s.unready(ctx, d)
 
 		for _, c := range conns {
 			in.Connections = append(in.Connections, s.view(ctx, d, c))

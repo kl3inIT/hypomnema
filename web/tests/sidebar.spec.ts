@@ -24,7 +24,7 @@ const bot = (name: string, position: number) => ({
   main: name === "coordinator",
   name,
   position,
-  persona: "",
+  instructions: "",
   memory: "",
   memory_limit: 2200,
   skills: [],

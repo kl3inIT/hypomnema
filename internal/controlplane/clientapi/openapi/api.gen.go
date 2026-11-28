@@ -360,6 +360,48 @@ func (e BlockedReason) Valid() bool {
 	}
 }
 
+// Defines values for BotVersionSavedBy.
+const (
+	SavedByMainBot BotVersionSavedBy = "main_bot"
+	SavedByOwner   BotVersionSavedBy = "owner"
+)
+
+// Valid indicates whether the value is a known member of the BotVersionSavedBy enum.
+func (e BotVersionSavedBy) Valid() bool {
+	switch e {
+	case SavedByMainBot:
+		return true
+	case SavedByOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BotVersionSource.
+const (
+	BotVersionBeforeVersions BotVersionSource = "before_versions"
+	BotVersionRestore        BotVersionSource = "restore"
+	BotVersionSave           BotVersionSource = "save"
+	BotVersionUndo           BotVersionSource = "undo"
+)
+
+// Valid indicates whether the value is a known member of the BotVersionSource enum.
+func (e BotVersionSource) Valid() bool {
+	switch e {
+	case BotVersionBeforeVersions:
+		return true
+	case BotVersionRestore:
+		return true
+	case BotVersionSave:
+		return true
+	case BotVersionUndo:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BrowserTabKind.
 const (
 	BrowserTabKindCoordinator BrowserTabKind = "coordinator"
@@ -1536,6 +1578,24 @@ func (e NewNodeDevice) Valid() bool {
 	}
 }
 
+// Defines values for NewSignInFlow.
+const (
+	NewSignInFlowPhone NewSignInFlow = "phone"
+	NewSignInFlowQr    NewSignInFlow = "qr"
+)
+
+// Valid indicates whether the value is a known member of the NewSignInFlow enum.
+func (e NewSignInFlow) Valid() bool {
+	switch e {
+	case NewSignInFlowPhone:
+		return true
+	case NewSignInFlowQr:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NewTaskPrBase.
 const (
 	RunBase   NewTaskPrBase = "run_base"
@@ -1721,22 +1781,46 @@ func (e PhoneSyncStage) Valid() bool {
 
 // Defines values for ProfileUnavailableReason.
 const (
-	AccountsCooling ProfileUnavailableReason = "accounts_cooling"
-	NeedsGateway    ProfileUnavailableReason = "needs_gateway"
-	NoAccount       ProfileUnavailableReason = "no_account"
-	NoNode          ProfileUnavailableReason = "no_node"
+	ProfileUnavailableReasonAccountsCooling ProfileUnavailableReason = "accounts_cooling"
+	ProfileUnavailableReasonNeedsGateway    ProfileUnavailableReason = "needs_gateway"
+	ProfileUnavailableReasonNoAccount       ProfileUnavailableReason = "no_account"
+	ProfileUnavailableReasonNoNode          ProfileUnavailableReason = "no_node"
 )
 
 // Valid indicates whether the value is a known member of the ProfileUnavailableReason enum.
 func (e ProfileUnavailableReason) Valid() bool {
 	switch e {
-	case AccountsCooling:
+	case ProfileUnavailableReasonAccountsCooling:
 		return true
-	case NeedsGateway:
+	case ProfileUnavailableReasonNeedsGateway:
 		return true
-	case NoAccount:
+	case ProfileUnavailableReasonNoAccount:
 		return true
-	case NoNode:
+	case ProfileUnavailableReasonNoNode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProfileOwnUnavailableReason.
+const (
+	ProfileOwnUnavailableReasonAccountsCooling ProfileOwnUnavailableReason = "accounts_cooling"
+	ProfileOwnUnavailableReasonNeedsGateway    ProfileOwnUnavailableReason = "needs_gateway"
+	ProfileOwnUnavailableReasonNoAccount       ProfileOwnUnavailableReason = "no_account"
+	ProfileOwnUnavailableReasonNoNode          ProfileOwnUnavailableReason = "no_node"
+)
+
+// Valid indicates whether the value is a known member of the ProfileOwnUnavailableReason enum.
+func (e ProfileOwnUnavailableReason) Valid() bool {
+	switch e {
+	case ProfileOwnUnavailableReasonAccountsCooling:
+		return true
+	case ProfileOwnUnavailableReasonNeedsGateway:
+		return true
+	case ProfileOwnUnavailableReasonNoAccount:
+		return true
+	case ProfileOwnUnavailableReasonNoNode:
 		return true
 	default:
 		return false
@@ -1884,6 +1968,30 @@ func (e ReviewStallVerdict) Valid() bool {
 	case ReviewStallVerdictIncorrect:
 		return true
 	case ReviewStallVerdictUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RoutedBy.
+const (
+	RoutedByChat      RoutedBy = "chat"
+	RoutedByDefault   RoutedBy = "default"
+	RoutedByOwnChat   RoutedBy = "own_chat"
+	RoutedByRepoOwner RoutedBy = "repo_owner"
+)
+
+// Valid indicates whether the value is a known member of the RoutedBy enum.
+func (e RoutedBy) Valid() bool {
+	switch e {
+	case RoutedByChat:
+		return true
+	case RoutedByDefault:
+		return true
+	case RoutedByOwnChat:
+		return true
+	case RoutedByRepoOwner:
 		return true
 	default:
 		return false
@@ -2043,6 +2151,27 @@ func (e SetupChangeKind) Valid() bool {
 	case SetupChangeKindBot:
 		return true
 	case SetupChangeKindProfile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignInAskField.
+const (
+	SignInAskFieldCode     SignInAskField = "code"
+	SignInAskFieldPassword SignInAskField = "password"
+	SignInAskFieldPhone    SignInAskField = "phone"
+)
+
+// Valid indicates whether the value is a known member of the SignInAskField enum.
+func (e SignInAskField) Valid() bool {
+	switch e {
+	case SignInAskFieldCode:
+		return true
+	case SignInAskFieldPassword:
+		return true
+	case SignInAskFieldPhone:
 		return true
 	default:
 		return false
@@ -2403,6 +2532,7 @@ func (e TodoLinkKind) Valid() bool {
 // Defines values for TodoSourceKind.
 const (
 	TodoSourceKindChat     TodoSourceKind = "chat"
+	TodoSourceKindGithub   TodoSourceKind = "github"
 	TodoSourceKindGmail    TodoSourceKind = "gmail"
 	TodoSourceKindLark     TodoSourceKind = "lark"
 	TodoSourceKindMeeting  TodoSourceKind = "meeting"
@@ -2416,6 +2546,8 @@ const (
 func (e TodoSourceKind) Valid() bool {
 	switch e {
 	case TodoSourceKindChat:
+		return true
+	case TodoSourceKindGithub:
 		return true
 	case TodoSourceKindGmail:
 		return true
@@ -3317,6 +3449,37 @@ type ActionPolicyChange struct {
 // Addressee defines model for Addressee.
 type Addressee string
 
+// AgentSpec What a Bot and a Profile have in common (issue #1336): what the agent is told, the model it runs, the models it falls back to, its skills and its tool switches. Each embeds it, as OpenClaw has one agent entry for the main agent and its sub-agents (src/config/zod-schema.agent-entry-base.ts) and Paperclip one agents table.
+type AgentSpec struct {
+	Effort *string `json:"effort,omitempty"`
+
+	// Fallbacks Ordered models, each provider/model, tried in turn when the agent's own model cannot be served now, as OpenClaw's model fallbacks (src/config/zod-schema.agent-model.ts). A Bot's are served by the gateway, tried when the inherited model's last target refuses with a cooling code that moves on (usage_limit, rate_limit, billing, auth, overloaded) or its accounts all rest; a Profile's run on its own runtime.
+	Fallbacks []string `json:"fallbacks"`
+
+	// Instructions What the agent is and how it works, written by the owner; it follows the runtime's built-in instructions. A Bot's was its persona and a Profile's its instruction until 2026-11-28.
+	Instructions string  `json:"instructions"`
+	Model        *string `json:"model,omitempty"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   ToolPreset `json:"preset"`
+	Provider *string    `json:"provider,omitempty"`
+
+	// Skills The skills the agent gets beside those given to everyone.
+	Skills []string `json:"skills"`
+
+	// SkillsOff The skills given to everyone that the agent does not get.
+	SkillsOff []string `json:"skills_off"`
+
+	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+	ToolAccess *ToolAccess `json:"tool_access,omitempty"`
+
+	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
+	Tools []string `json:"tools"`
+
+	// ToolsOff The Hypomnema tools the agent never gets, each a name or a family; it wins over tools.
+	ToolsOff []string `json:"tools_off"`
+}
+
 // AllowList What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
 type AllowList struct {
 	Limited bool     `json:"limited"`
@@ -3689,7 +3852,7 @@ type Bot struct {
 	Department *string `json:"department,omitempty"`
 	Effort     *string `json:"effort,omitempty"`
 
-	// Fallbacks Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+	// Fallbacks Ordered models, each provider/model, tried in turn when the agent's own model cannot be served now, as OpenClaw's model fallbacks (src/config/zod-schema.agent-model.ts). A Bot's are served by the gateway, tried when the inherited model's last target refuses with a cooling code that moves on (usage_limit, rate_limit, billing, auth, overloaded) or its accounts all rest; a Profile's run on its own runtime.
 	Fallbacks []string `json:"fallbacks"`
 
 	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
@@ -3697,6 +3860,9 @@ type Bot struct {
 
 	// Id The Bot's id, which never changes; every record that names the Bot names this.
 	Id string `json:"id"`
+
+	// Instructions What the agent is and how it works, written by the owner; it follows the runtime's built-in instructions. A Bot's was its persona and a Profile's its instruction until 2026-11-28.
+	Instructions string `json:"instructions"`
 
 	// Main The main Bot: always there, never removed, a chat that names no Bot talks with it, and it alone changes Bots and profiles from its chat.
 	Main bool `json:"main"`
@@ -3717,8 +3883,9 @@ type Bot struct {
 	// OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
 	OwnerAccounts *OwnerAccounts `json:"owner_accounts,omitempty"`
 
-	// Persona What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
-	Persona string `json:"persona"`
+	// Persona The Bot's instructions under their name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	Persona *string `json:"persona,omitempty"`
 
 	// Position The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
 	Position int `json:"position"`
@@ -3727,13 +3894,16 @@ type Bot struct {
 	Preset   ToolPreset `json:"preset"`
 	Provider *string    `json:"provider,omitempty"`
 
+	// Repos The repositories whose work the Bot owns (issue #1334), owner/name on github.com and an https URL on another host: a Run created on one goes to the Bot's chat. A repository has at most one owning Bot; the main Bot owns none. Set with PUT /bots/{bot_id}/repos.
+	Repos *[]string `json:"repos,omitempty"`
+
 	// Scopes What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
 	Scopes map[string]ConnectionScope `json:"scopes"`
 
-	// Skills The skills the Bot gets beside those given to everyone.
+	// Skills The skills the agent gets beside those given to everyone.
 	Skills []string `json:"skills"`
 
-	// SkillsOff The skills given to everyone that the Bot does not get.
+	// SkillsOff The skills given to everyone that the agent does not get.
 	SkillsOff []string `json:"skills_off"`
 
 	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
@@ -3745,7 +3915,7 @@ type Bot struct {
 	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
-	// ToolsOff The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
+	// ToolsOff The Hypomnema tools the agent never gets, each a name or a family; it wins over tools.
 	ToolsOff  []string  `json:"tools_off"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -3776,6 +3946,66 @@ type BotOrder struct {
 	BotIds []string `json:"bot_ids"`
 }
 
+// BotOwn What a Bot has that a Profile does not.
+type BotOwn struct {
+	// Connections What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
+	Connections AllowList `json:"connections"`
+	CreatedAt   time.Time `json:"created_at"`
+
+	// Department The id of the department the sidebar lists the Bot in (issue #471); absent when it is in none. The main Bot is in none.
+	Department *string `json:"department,omitempty"`
+
+	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
+	GuaranteedDispatches int `json:"guaranteed_dispatches"`
+
+	// Id The Bot's id, which never changes; every record that names the Bot names this.
+	Id string `json:"id"`
+
+	// Main The main Bot: always there, never removed, a chat that names no Bot talks with it, and it alone changes Bots and profiles from its chat.
+	Main bool `json:"main"`
+
+	// MainChat The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
+	MainChat *string `json:"main_chat,omitempty"`
+
+	// Memory What the Bot keeps across chats, one entry per line.
+	Memory string `json:"memory"`
+
+	// MemoryLimit The most characters the memory holds.
+	MemoryLimit int `json:"memory_limit"`
+
+	// Name What the Bot is called; shown, and changed with a rename.
+	Name string `json:"name"`
+
+	// OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
+	OwnerAccounts *OwnerAccounts `json:"owner_accounts,omitempty"`
+
+	// Persona The Bot's instructions under their name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	Persona *string `json:"persona,omitempty"`
+
+	// Position The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
+	Position int `json:"position"`
+
+	// Repos The repositories whose work the Bot owns (issue #1334), owner/name on github.com and an https URL on another host: a Run created on one goes to the Bot's chat. A repository has at most one owning Bot; the main Bot owns none. Set with PUT /bots/{bot_id}/repos.
+	Repos *[]string `json:"repos,omitempty"`
+
+	// Scopes What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
+	Scopes map[string]ConnectionScope `json:"scopes"`
+
+	// ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
+	ToolDisplay ToolDisplay `json:"tool_display"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+
+	// Workers What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
+	Workers AllowList `json:"workers"`
+}
+
+// BotRepos defines model for BotRepos.
+type BotRepos struct {
+	// Repos The repositories, each as NewRun.repo takes it; empty for none.
+	Repos []string `json:"repos"`
+}
+
 // BotSettings defines model for BotSettings.
 type BotSettings struct {
 	// Connections What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
@@ -3786,12 +4016,18 @@ type BotSettings struct {
 	Fallbacks *[]string `json:"fallbacks,omitempty"`
 
 	// GuaranteedDispatches The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
-	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
-	Model                *string `json:"model,omitempty"`
+	GuaranteedDispatches *int `json:"guaranteed_dispatches,omitempty"`
+
+	// Instructions What the Bot is and how it behaves; left out, with persona left out too, it is cleared.
+	Instructions *string `json:"instructions,omitempty"`
+	Model        *string `json:"model,omitempty"`
 
 	// OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
 	OwnerAccounts *OwnerAccounts `json:"owner_accounts,omitempty"`
-	Persona       *string        `json:"persona,omitempty"`
+
+	// Persona The instructions under their name until 2026-11-28 (issue #1336), read for one release when instructions is left out.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	Persona *string `json:"persona,omitempty"`
 
 	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
 	Preset   *ToolPreset `json:"preset,omitempty"`
@@ -3817,6 +4053,36 @@ type BotSettings struct {
 
 	// Workers What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
 	Workers *AllowList `json:"workers,omitempty"`
+}
+
+// BotVersion defines model for BotVersion.
+type BotVersion struct {
+	// ChatId With main_bot, the chat it was saved from.
+	ChatId    *string   `json:"chat_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Id        string    `json:"id"`
+
+	// RestoredFrom With restore, the id of the version it brought back.
+	RestoredFrom *string `json:"restored_from,omitempty"`
+
+	// SavedBy Who saved it; absent for before_versions.
+	SavedBy  *BotVersionSavedBy `json:"saved_by,omitempty"`
+	Settings BotSettings        `json:"settings"`
+
+	// Source How it was saved: a save of the settings, a restore of another version, the undo of a setup change, or what a Bot had when its first save after versions began kept it.
+	Source  BotVersionSource `json:"source"`
+	Version int              `json:"version"`
+}
+
+// BotVersionSavedBy Who saved it; absent for before_versions.
+type BotVersionSavedBy string
+
+// BotVersionSource How it was saved: a save of the settings, a restore of another version, the undo of a setup change, or what a Bot had when its first save after versions began kept it.
+type BotVersionSource string
+
+// BotVersionList defines model for BotVersionList.
+type BotVersionList struct {
+	Data []BotVersion `json:"data"`
 }
 
 // Browser defines model for Browser.
@@ -4374,7 +4640,7 @@ type Dispatch struct {
 	Epoch        int       `json:"epoch"`
 	FailureClass *string   `json:"failure_class,omitempty"`
 
-	// FallbackFor The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+	// FallbackFor The profile the Task asked for, when this Dispatch ran with one of its fallbacks, a later entry of its chain, because every account of the first waited for a limit to reset. Dispatches from before 2026-11-28 (issue #1336) may have run under a backup profile, whose version `profile_version_id` then names.
 	FallbackFor *string `json:"fallback_for,omitempty"`
 
 	// FallbackUntil With `fallback_for`, when the first of those accounts was to be free again.
@@ -4705,6 +4971,9 @@ type GatewayRequest struct {
 	// Characters The characters an audio speech request spoke; absent for other requests.
 	Characters       *int64 `json:"characters,omitempty"`
 	CompletionTokens int64  `json:"completion_tokens"`
+
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
 
 	// CostMicros The cost at the vendor's API price, in micro-dollars: its tokens, searches, seconds or characters, at the price of each (LiteLLM's price map for those not counted in tokens); absent when there is none.
 	CostMicros *int64    `json:"cost_micros,omitempty"`
@@ -5240,6 +5509,9 @@ type Integration struct {
 
 	// Services The services a Connection can be granted, such as gmail; none for an app, which may do what the service allows the app.
 	Services []string `json:"services"`
+
+	// Unready For an Integration of kind device whose service needs more than the owner's phone (Telegram, issue #1184): what is missing before an account can be linked, such as the api_id and api_hash in the vault. Absent when nothing is.
+	Unready *string `json:"unready,omitempty"`
 }
 
 // IntegrationKind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans.
@@ -5881,16 +6153,23 @@ type MeetingWordsUpdate struct {
 	Words []string `json:"words"`
 }
 
-// Memory defines model for Memory.
+// Memory A memory, one shape for a Bot's, a profile's and the one about the owner (issue #1336): a Bot's is kept on the Bot, a profile's in the notes store, beside the notes each has.
 type Memory struct {
-	// Agent The agent whose memory it is; left out for the memory about the owner.
+	// Agent The profile under its name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Agent *string `json:"agent,omitempty"`
+
+	// Bot The id of the Bot whose memory it is.
+	Bot *string `json:"bot,omitempty"`
 
 	// Memory The entries, one per line.
 	Memory string `json:"memory"`
 
 	// MemoryLimit The most characters the memory holds.
 	MemoryLimit int `json:"memory_limit"`
+
+	// Profile The profile whose memory it is.
+	Profile *string `json:"profile,omitempty"`
 
 	// UpdatedAt When it last changed; left out for a memory never written.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
@@ -6290,7 +6569,7 @@ type NewRepo struct {
 type NewRun struct {
 	Base *string `json:"base,omitempty"`
 
-	// ChatId The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat. A Bot request uses its own chat; a script Routine's Run has no chat.
+	// ChatId The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses its own chat when its Bot owns the repository, or owns none and no Bot owns the repository; else the Run goes to the main chat of the Bot that owns the repository, or of the main Bot when none does, and the creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
 	ChatId    *string `json:"chat_id,omitempty"`
 	Objective string  `json:"objective"`
 
@@ -6310,12 +6589,18 @@ type NewSecretValue struct {
 // NewSignIn defines model for NewSignIn.
 type NewSignIn struct {
 	// App For an app Integration: the label of the app Connection the owner signs in as himself through, by device code.
-	App   *string `json:"app,omitempty"`
-	Label string  `json:"label"`
+	App *string `json:"app,omitempty"`
+
+	// Flow For an Integration of kind device: qr (the default) links by a QR code the phone scans; phone, for a service that also links by phone number (Telegram, issue #1184), asks for the number first, then the code sent to it.
+	Flow  *NewSignInFlow `json:"flow,omitempty"`
+	Label string         `json:"label"`
 
 	// Services A service alone to read and write, or with ":read" to read only. Needed for an Integration that signs in with OAuth.
 	Services *[]string `json:"services,omitempty"`
 }
+
+// NewSignInFlow For an Integration of kind device: qr (the default) links by a QR code the phone scans; phone, for a service that also links by phone number (Telegram, issue #1184), asks for the number first, then the code sent to it.
+type NewSignInFlow string
 
 // NewTask defines model for NewTask.
 type NewTask struct {
@@ -6399,7 +6684,7 @@ type NewTodoSource struct {
 	// Id The chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting's; those only.
 	Id *string `json:"id,omitempty"`
 
-	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
 	Kind  *TodoSourceKind `json:"kind,omitempty"`
 	Quote *string         `json:"quote,omitempty"`
 
@@ -6650,9 +6935,15 @@ type Profile struct {
 	Description string  `json:"description"`
 	Effort      *string `json:"effort,omitempty"`
 
-	// Fallbacks The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
-	Fallbacks   []string `json:"fallbacks"`
-	Instruction *string  `json:"instruction,omitempty"`
+	// Fallbacks Ordered models, each provider/model, tried in turn when the agent's own model cannot be served now, as OpenClaw's model fallbacks (src/config/zod-schema.agent-model.ts). A Bot's are served by the gateway, tried when the inherited model's last target refuses with a cooling code that moves on (usage_limit, rate_limit, billing, auth, overloaded) or its accounts all rest; a Profile's run on its own runtime.
+	Fallbacks []string `json:"fallbacks"`
+
+	// Instruction The profile's instructions under their name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	Instruction *string `json:"instruction,omitempty"`
+
+	// Instructions What the agent is and how it works, written by the owner; it follows the runtime's built-in instructions. A Bot's was its persona and a Profile's its instruction until 2026-11-28.
+	Instructions string `json:"instructions"`
 
 	// MemoryLimitBytes The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
 	MemoryLimitBytes *int64 `json:"memory_limit_bytes,omitempty"`
@@ -6667,10 +6958,10 @@ type Profile struct {
 	Provider *string    `json:"provider,omitempty"`
 	Runtime  string     `json:"runtime"`
 
-	// Skills The skills its workers get beside those given to everyone.
+	// Skills The skills the agent gets beside those given to everyone.
 	Skills []string `json:"skills"`
 
-	// SkillsOff The skills given to everyone that its workers do not get.
+	// SkillsOff The skills given to everyone that the agent does not get.
 	SkillsOff []string `json:"skills_off"`
 	Source    string   `json:"source"`
 
@@ -6680,7 +6971,7 @@ type Profile struct {
 	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
-	// ToolsOff The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
+	// ToolsOff The Hypomnema tools the agent never gets, each a name or a family; it wins over tools.
 	ToolsOff []string `json:"tools_off"`
 
 	// UnavailableReason Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; every account of the runtime cools down; or the profile is Claude Code's and names neither a subscription nor a provider of kind `model_gateway`: a Claude Code worker runs only through the gateway.
@@ -6696,6 +6987,43 @@ type ProfileUnavailableReason string
 type ProfileList struct {
 	Data []Profile `json:"data"`
 }
+
+// ProfileOwn What a Profile has that a Bot does not.
+type ProfileOwn struct {
+	// Available Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A Claude Code profile must name a subscription or a provider of kind `model_gateway`, both served by the gateway. A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
+	Available *bool `json:"available,omitempty"`
+
+	// AvailableAt With `accounts_cooling`, when the first account is free again.
+	AvailableAt *time.Time `json:"available_at,omitempty"`
+
+	// CpuRequestMillis What a worker of the profile asks of a node's CPU, in thousandths of a core, from its YAML's requests.cpu (issue #731); left out, the default for building work, 1000.
+	CpuRequestMillis *int64    `json:"cpu_request_millis,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+
+	// Description What the profile is for; empty for versions applied before descriptions.
+	Description string `json:"description"`
+
+	// Instruction The profile's instructions under their name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	Instruction *string `json:"instruction,omitempty"`
+
+	// MemoryLimitBytes The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
+	MemoryLimitBytes *int64 `json:"memory_limit_bytes,omitempty"`
+
+	// MemoryRequestBytes What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
+	MemoryRequestBytes *int64 `json:"memory_request_bytes,omitempty"`
+	Name               string `json:"name"`
+	Runtime            string `json:"runtime"`
+	Source             string `json:"source"`
+
+	// UnavailableReason Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; every account of the runtime cools down; or the profile is Claude Code's and names neither a subscription nor a provider of kind `model_gateway`: a Claude Code worker runs only through the gateway.
+	UnavailableReason *ProfileOwnUnavailableReason `json:"unavailable_reason,omitempty"`
+	Version           int                          `json:"version"`
+	VersionId         string                       `json:"version_id"`
+}
+
+// ProfileOwnUnavailableReason Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; every account of the runtime cools down; or the profile is Claude Code's and names neither a subscription nor a provider of kind `model_gateway`: a Claude Code worker runs only through the gateway.
+type ProfileOwnUnavailableReason string
 
 // Provider defines model for Provider.
 type Provider struct {
@@ -6829,6 +7157,9 @@ type Repo struct {
 	// Base The branch worktrees start from when a Run names none.
 	Base *string `json:"base,omitempty"`
 
+	// Bot The id of the Bot that owns the repository's work (Bot.repos, issue #1334); absent when none does and its Runs go to the main Bot.
+	Bot *string `json:"bot,omitempty"`
+
 	// Connection The label of the host's Connection work on it uses; absent for the host's only one.
 	Connection *string   `json:"connection,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -6887,6 +7218,9 @@ type RoleMetric struct {
 	Succeeded  int64    `json:"succeeded"`
 	Unpriced   int64    `json:"unpriced"`
 }
+
+// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
+type RoutedBy string
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
 type Routine struct {
@@ -7117,8 +7451,11 @@ type Run struct {
 
 	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
 	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
-	Status      RunStatus    `json:"status"`
-	UpdatedAt   time.Time    `json:"updated_at"`
+
+	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
+	RoutedBy  *RoutedBy `json:"routed_by,omitempty"`
+	Status    RunStatus `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Uses The Connections the Run's workers may use, each as integration:label.
 	Uses *[]string `json:"uses,omitempty"`
@@ -7159,9 +7496,12 @@ type RunDetail struct {
 
 	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
 	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
-	Status      RunStatus    `json:"status"`
-	Tasks       []TaskDetail `json:"tasks"`
-	UpdatedAt   time.Time    `json:"updated_at"`
+
+	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
+	RoutedBy  *RoutedBy    `json:"routed_by,omitempty"`
+	Status    RunStatus    `json:"status"`
+	Tasks     []TaskDetail `json:"tasks"`
+	UpdatedAt time.Time    `json:"updated_at"`
 
 	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
 	Usage *WorkUsage `json:"usage,omitempty"`
@@ -7334,8 +7674,10 @@ type SheetList struct {
 
 // SignIn defines model for SignIn.
 type SignIn struct {
-	ExpiresInSeconds int    `json:"expires_in_seconds"`
-	Id               string `json:"id"`
+	// Ask What a linking waits for the owner to type instead of a QR code (Telegram, issue #1184), which answering the sign-in gives. Absent when it asks nothing.
+	Ask              *SignInAsk `json:"ask,omitempty"`
+	ExpiresInSeconds int        `json:"expires_in_seconds"`
+	Id               string     `json:"id"`
 
 	// QrCode For an Integration of kind device, what the QR code the phone scans shows; the url is then empty. A new one comes about every 20 seconds: read the sign-in again for it. Absent once the linking ended; completing it answers how.
 	QrCode *string `json:"qr_code,omitempty"`
@@ -7352,6 +7694,26 @@ type SignIn struct {
 	// UserCode The code the owner enters on the page the link opens, for a sign-in by device code; completing it then takes no callback.
 	UserCode *string `json:"user_code,omitempty"`
 }
+
+// SignInAnswer defines model for SignInAnswer.
+type SignInAnswer struct {
+	Value *string `json:"value,omitempty"`
+}
+
+// SignInAsk What a linking waits for the owner to type instead of a QR code (Telegram, issue #1184), which answering the sign-in gives. Absent when it asks nothing.
+type SignInAsk struct {
+	// Again The last answer was refused (a wrong code or password); type it again.
+	Again bool `json:"again"`
+
+	// Field His phone number, the code sent to it, or his account's two-step password.
+	Field SignInAskField `json:"field"`
+
+	// Hint Where the code was sent, or the hint he set for his password.
+	Hint *string `json:"hint,omitempty"`
+}
+
+// SignInAskField His phone number, the code sent to it, or his account's two-step password.
+type SignInAskField string
 
 // SignInCallback defines model for SignInCallback.
 type SignInCallback struct {
@@ -7907,7 +8269,10 @@ type Todo struct {
 	Events   *[]TodoEvent `json:"events,omitempty"`
 	Evidence []TodoLink   `json:"evidence"`
 	Id       string       `json:"id"`
-	Notes    string       `json:"notes"`
+
+	// NotPassed The main Bot's reason it passed the item, which it has, to no project Bot (issue #1334): the Inbox shows it as "Not passed". Left out when it gave none; cleared when the item is given to someone else.
+	NotPassed *string `json:"not_passed,omitempty"`
+	Notes     string  `json:"notes"`
 
 	// PassedBy The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
 	PassedBy *string `json:"passed_by,omitempty"`
@@ -8152,10 +8517,10 @@ type TodoSource struct {
 	// Account The owner's account the chat or thread is in; zalo, whatsapp and gmail, and lark when given.
 	Account *string `json:"account,omitempty"`
 
-	// Id The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting.
+	// Id The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, the meeting, or a GitHub issue's or pull request's owner/name#number.
 	Id *string `json:"id,omitempty"`
 
-	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
 	Kind TodoSourceKind `json:"kind"`
 
 	// Quote The words it came from.
@@ -8165,7 +8530,7 @@ type TodoSource struct {
 	Ref *TodoLink `json:"ref,omitempty"`
 }
 
-// TodoSourceKind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
+// TodoSourceKind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or pull request by someone who may write to its repository, only the control plane makes one.
 type TodoSourceKind string
 
 // TodoState proposed waits for the owner; open is to be done; doing, a Bot is on it; review, the Bot's action waits for an Approval; done, dropped and duplicate are closed.
@@ -9120,6 +9485,9 @@ type MemoryOfAgent = string
 // MemoryOfBot defines model for MemoryOfBot.
 type MemoryOfBot = string
 
+// MemoryOfProfile defines model for MemoryOfProfile.
+type MemoryOfProfile = string
+
 // MusicID defines model for MusicID.
 type MusicID = string
 
@@ -9574,19 +9942,27 @@ type NameMeetingSpeakerParams struct {
 
 // ListMemoryNotesParams defines parameters for ListMemoryNotes.
 type ListMemoryNotesParams struct {
-	// Bot A Bot's memory, by its id; give this or agent.
+	// Bot A Bot's memory, by its id; give this or profile.
 	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
 
-	// Agent An agent's memory, by its Profile's name; give this or bot.
+	// Profile A profile's memory, by its name; give this or bot.
+	Profile *MemoryOfProfile `form:"profile,omitempty" json:"profile,omitempty"`
+
+	// Agent The profile under its name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
 }
 
 // DeleteMemoryNoteParams defines parameters for DeleteMemoryNote.
 type DeleteMemoryNoteParams struct {
-	// Bot A Bot's memory, by its id; give this or agent.
+	// Bot A Bot's memory, by its id; give this or profile.
 	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
 
-	// Agent An agent's memory, by its Profile's name; give this or bot.
+	// Profile A profile's memory, by its name; give this or bot.
+	Profile *MemoryOfProfile `form:"profile,omitempty" json:"profile,omitempty"`
+
+	// Agent The profile under its name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
 
 	// Path The note's path, under /memories.
@@ -9595,10 +9971,14 @@ type DeleteMemoryNoteParams struct {
 
 // GetMemoryNoteParams defines parameters for GetMemoryNote.
 type GetMemoryNoteParams struct {
-	// Bot A Bot's memory, by its id; give this or agent.
+	// Bot A Bot's memory, by its id; give this or profile.
 	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
 
-	// Agent An agent's memory, by its Profile's name; give this or bot.
+	// Profile A profile's memory, by its name; give this or bot.
+	Profile *MemoryOfProfile `form:"profile,omitempty" json:"profile,omitempty"`
+
+	// Agent The profile under its name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
 
 	// Path The note's path, under /memories.
@@ -9607,10 +9987,14 @@ type GetMemoryNoteParams struct {
 
 // PutMemoryNoteParams defines parameters for PutMemoryNote.
 type PutMemoryNoteParams struct {
-	// Bot A Bot's memory, by its id; give this or agent.
+	// Bot A Bot's memory, by its id; give this or profile.
 	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
 
-	// Agent An agent's memory, by its Profile's name; give this or bot.
+	// Profile A profile's memory, by its name; give this or bot.
+	Profile *MemoryOfProfile `form:"profile,omitempty" json:"profile,omitempty"`
+
+	// Agent The profile under its name until 2026-11-28 (issue
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
 
 	// Path The note's path, under /memories.
@@ -9830,6 +10214,9 @@ type ChangeBotMemoryJSONRequestBody = MemoryChange
 // SetBotMemoryJSONRequestBody defines body for SetBotMemory for application/json ContentType.
 type SetBotMemoryJSONRequestBody = MemoryText
 
+// SetBotReposJSONRequestBody defines body for SetBotRepos for application/json ContentType.
+type SetBotReposJSONRequestBody = BotRepos
+
 // PutRoutineJSONRequestBody defines body for PutRoutine for application/json ContentType.
 type PutRoutineJSONRequestBody = RoutineSettings
 
@@ -10034,6 +10421,9 @@ type BeginIntegrationSignInJSONRequestBody = NewSignIn
 // CompleteIntegrationSignInJSONRequestBody defines body for CompleteIntegrationSignIn for application/json ContentType.
 type CompleteIntegrationSignInJSONRequestBody = SignInCallback
 
+// AnswerIntegrationSignInJSONRequestBody defines body for AnswerIntegrationSignIn for application/json ContentType.
+type AnswerIntegrationSignInJSONRequestBody = SignInAnswer
+
 // SetMeetingSettingsJSONRequestBody defines body for SetMeetingSettings for application/json ContentType.
 type SetMeetingSettingsJSONRequestBody = MeetingSettingsUpdate
 
@@ -10079,11 +10469,11 @@ type SetOwnerMemoryJSONRequestBody = MemoryText
 // ApplyProfileJSONRequestBody defines body for ApplyProfile for application/json ContentType.
 type ApplyProfileJSONRequestBody = Source
 
-// ChangeAgentMemoryJSONRequestBody defines body for ChangeAgentMemory for application/json ContentType.
-type ChangeAgentMemoryJSONRequestBody = MemoryChange
+// ChangeProfileMemoryJSONRequestBody defines body for ChangeProfileMemory for application/json ContentType.
+type ChangeProfileMemoryJSONRequestBody = MemoryChange
 
-// SetAgentMemoryJSONRequestBody defines body for SetAgentMemory for application/json ContentType.
-type SetAgentMemoryJSONRequestBody = MemoryText
+// SetProfileMemoryJSONRequestBody defines body for SetProfileMemory for application/json ContentType.
+type SetProfileMemoryJSONRequestBody = MemoryText
 
 // ApplyProviderJSONRequestBody defines body for ApplyProvider for application/json ContentType.
 type ApplyProviderJSONRequestBody = Source
@@ -10705,7 +11095,7 @@ type ClientInterface interface {
 
 	// ListBots Every Bot, the oldest first
 	//
-	// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+	// A Bot is a long-lived agent of the control plane: its model, its instructions and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
 	//
 	// Corresponds with GET /bots (the `ListBots` operationId).
 	ListBots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -10753,7 +11143,7 @@ type ClientInterface interface {
 	// Corresponds with DELETE /bots/{bot_id} (the `DeleteBot` operationId).
 	DeleteBot(ctx context.Context, botId BotID, params *DeleteBotParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetBot A Bot, with its persona and memory
+	// GetBot A Bot, with its instructions and memory
 	//
 	// Corresponds with GET /bots/{bot_id} (the `GetBot` operationId).
 	GetBot(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -10794,6 +11184,13 @@ type ClientInterface interface {
 	// Corresponds with PUT /bots/{bot_id} (the `PutBot` operationId).
 	PutBot(ctx context.Context, botId BotID, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetBotMemory A Bot's memory, the same in every chat with it
+	//
+	// The same Memory as a profile's (issue #1336): the Bot's entries, one per line. Its notes are read through /memory-notes. A Bot's token reads its own Bot's.
+	//
+	// Corresponds with GET /bots/{bot_id}/memory (the `GetBotMemory` operationId).
+	GetBotMemory(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ChangeBotMemoryWithBody Add, replace or remove one entry of a Bot's memory
 	//
 	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
@@ -10830,6 +11227,24 @@ type ClientInterface interface {
 	// Corresponds with PUT /bots/{bot_id}/memory (the `SetBotMemory` operationId).
 	SetBotMemory(ctx context.Context, botId BotID, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SetBotReposWithBody Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotReposWithBody(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotRepos(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PutRoutineWithBody Make a Routine of a Bot, or change the one of that name
 	//
 	// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
@@ -10861,6 +11276,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
 	ListBotTools(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListBotVersions A Bot's saved settings, newest first
+	//
+	// Each save of a Bot's settings keeps a version with who saved it and when (issue #1336), as a profile's apply does and Paperclip keeps an agent's config revisions (packages/db/src/schema/agent_config_revisions.ts). Its name and memory are not part of a version. A Bot saved before versions has none until its next save, which keeps what it had as its first.
+	//
+	// Corresponds with GET /bots/{bot_id}/versions (the `ListBotVersions` operationId).
+	ListBotVersions(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RestoreBotVersion Save one of a Bot's versions again; the owner, or the main Bot from its chat
+	//
+	// Saves that version's settings as PutBot does, which keeps a new version restored from it, as Paperclip's rollback saves a revision's config again (server/src/services/agents.ts, rollbackConfigRevision). What it names that is gone since, such as a model no provider offers, is refused and changes nothing.
+	//
+	// Corresponds with POST /bots/{bot_id}/versions/{version_id}/restore (the `RestoreBotVersion` operationId).
+	RestoreBotVersion(ctx context.Context, botId BotID, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	//
@@ -12493,6 +12922,24 @@ type ClientInterface interface {
 	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
 	CompleteIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// AnswerIntegrationSignInWithBody Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	//
 	// Corresponds with GET /machine-providers (the `ListMachineProviders` operationId).
@@ -12701,7 +13148,7 @@ type ClientInterface interface {
 
 	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 	//
-	// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+	// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or profile. Every token reads them; a Bot's token reads its own Bot's.
 	//
 	// Corresponds with GET /memory-notes (the `ListMemoryNotes` operationId).
 	ListMemoryNotes(ctx context.Context, params *ListMemoryNotesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -12869,7 +13316,7 @@ type ClientInterface interface {
 
 	// DeleteProfile Delete a profile; only the owner
 	//
-	// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile, another profile names it as a backup, or a Bot's workers list names it.
+	// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile or a Bot's workers list names it.
 	//
 	// Corresponds with DELETE /profiles/{name} (the `DeleteProfile` operationId).
 	DeleteProfile(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -12897,48 +13344,48 @@ type ClientInterface interface {
 	// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
 	ApplyProfile(ctx context.Context, name Name, body ApplyProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetAgentMemory An agent's memory, shared by all its workers
+	// GetProfileMemory A profile's memory, shared by all its workers
 	//
-	// What the agent's workers keep across their tasks, entries one per line. Every worker of the agent gets it in its first message, as it is when the work is offered. It is not part of the profile's versions.
+	// What the profile's workers keep across their tasks, entries one per line. Every worker of the profile gets it in its first message, as it is when the work is offered. It is not part of the profile's versions. Called GetAgentMemory until 2026-11-28 (issue #1336).
 	//
-	// Corresponds with GET /profiles/{name}/memory (the `GetAgentMemory` operationId).
-	GetAgentMemory(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with GET /profiles/{name}/memory (the `GetProfileMemory` operationId).
+	GetProfileMemory(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ChangeAgentMemoryWithBody Add, replace or remove one entry of an agent's memory; only the owner
+	// ChangeProfileMemoryWithBody Add, replace or remove one entry of a profile's memory; only the owner
 	//
-	// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+	// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 	//
 	// Takes any type of body and a specified content type.
 	//
-	// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-	ChangeAgentMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+	ChangeProfileMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ChangeAgentMemory Add, replace or remove one entry of an agent's memory; only the owner
+	// ChangeProfileMemory Add, replace or remove one entry of a profile's memory; only the owner
 	//
-	// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+	// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 	//
 	// Takes a body of the `application/json` content type.
 	//
-	// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-	ChangeAgentMemory(ctx context.Context, name Name, body ChangeAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+	ChangeProfileMemory(ctx context.Context, name Name, body ChangeProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetAgentMemoryWithBody Replace an agent's whole memory with the owner's text; only the owner
+	// SetProfileMemoryWithBody Replace a profile's whole memory with the owner's text; only the owner
 	//
 	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 	//
 	// Takes any type of body and a specified content type.
 	//
-	// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-	SetAgentMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+	SetProfileMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetAgentMemory Replace an agent's whole memory with the owner's text; only the owner
+	// SetProfileMemory Replace a profile's whole memory with the owner's text; only the owner
 	//
 	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 	//
 	// Takes a body of the `application/json` content type.
 	//
-	// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-	SetAgentMemory(ctx context.Context, name Name, body SetAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+	SetProfileMemory(ctx context.Context, name Name, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListProfileVersions A profile's versions, newest first
 	//
@@ -14342,7 +14789,7 @@ func (c *Client) TranscribeAudio(ctx context.Context, body TranscribeAudioJSONRe
 
 // ListBots Every Bot, the oldest first
 //
-// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+// A Bot is a long-lived agent of the control plane: its model, its instructions and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
 //
 // Corresponds with GET /bots (the `ListBots` operationId).
 func (c *Client) ListBots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -14450,7 +14897,7 @@ func (c *Client) DeleteBot(ctx context.Context, botId BotID, params *DeleteBotPa
 	return c.Client.Do(req)
 }
 
-// GetBot A Bot, with its persona and memory
+// GetBot A Bot, with its instructions and memory
 //
 // Corresponds with GET /bots/{bot_id} (the `GetBot` operationId).
 func (c *Client) GetBot(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -14541,6 +14988,23 @@ func (c *Client) PutBot(ctx context.Context, botId BotID, body PutBotJSONRequest
 	return c.Client.Do(req)
 }
 
+// GetBotMemory A Bot's memory, the same in every chat with it
+//
+// The same Memory as a profile's (issue #1336): the Bot's entries, one per line. Its notes are read through /memory-notes. A Bot's token reads its own Bot's.
+//
+// Corresponds with GET /bots/{bot_id}/memory (the `GetBotMemory` operationId).
+func (c *Client) GetBotMemory(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetBotMemoryRequest(c.Server, botId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ChangeBotMemoryWithBody Add, replace or remove one entry of a Bot's memory
 //
 // The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
@@ -14617,6 +15081,44 @@ func (c *Client) SetBotMemory(ctx context.Context, botId BotID, body SetBotMemor
 	return c.Client.Do(req)
 }
 
+// SetBotReposWithBody Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *Client) SetBotReposWithBody(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotReposRequestWithBody(c.Server, botId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *Client) SetBotRepos(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotReposRequest(c.Server, botId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // PutRoutineWithBody Make a Routine of a Bot, or change the one of that name
 //
 // A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
@@ -14679,6 +15181,40 @@ func (c *Client) ListBotSkills(ctx context.Context, botId BotID, reqEditors ...R
 // Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
 func (c *Client) ListBotTools(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListBotToolsRequest(c.Server, botId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListBotVersions A Bot's saved settings, newest first
+//
+// Each save of a Bot's settings keeps a version with who saved it and when (issue #1336), as a profile's apply does and Paperclip keeps an agent's config revisions (packages/db/src/schema/agent_config_revisions.ts). Its name and memory are not part of a version. A Bot saved before versions has none until its next save, which keeps what it had as its first.
+//
+// Corresponds with GET /bots/{bot_id}/versions (the `ListBotVersions` operationId).
+func (c *Client) ListBotVersions(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBotVersionsRequest(c.Server, botId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RestoreBotVersion Save one of a Bot's versions again; the owner, or the main Bot from its chat
+//
+// Saves that version's settings as PutBot does, which keeps a new version restored from it, as Paperclip's rollback saves a revision's config again (server/src/services/agents.ts, rollbackConfigRevision). What it names that is gone since, such as a model no provider offers, is refused and changes nothing.
+//
+// Corresponds with POST /bots/{bot_id}/versions/{version_id}/restore (the `RestoreBotVersion` operationId).
+func (c *Client) RestoreBotVersion(ctx context.Context, botId BotID, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestoreBotVersionRequest(c.Server, botId, versionId)
 	if err != nil {
 		return nil, err
 	}
@@ -18470,6 +19006,44 @@ func (c *Client) CompleteIntegrationSignIn(ctx context.Context, integration Inte
 	return c.Client.Do(req)
 }
 
+// AnswerIntegrationSignInWithBody Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *Client) AnswerIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerIntegrationSignInRequestWithBody(c.Server, integration, signInId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *Client) AnswerIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerIntegrationSignInRequest(c.Server, integration, signInId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListMachineProviders The providers a machine can be created at (owner only)
 //
 // Corresponds with GET /machine-providers (the `ListMachineProviders` operationId).
@@ -18958,7 +19532,7 @@ func (c *Client) OpenMeetingTrack(ctx context.Context, meetingId MeetingID, body
 
 // ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 //
-// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or profile. Every token reads them; a Bot's token reads its own Bot's.
 //
 // Corresponds with GET /memory-notes (the `ListMemoryNotes` operationId).
 func (c *Client) ListMemoryNotes(ctx context.Context, params *ListMemoryNotesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -19386,7 +19960,7 @@ func (c *Client) ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn
 
 // DeleteProfile Delete a profile; only the owner
 //
-// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile, another profile names it as a backup, or a Bot's workers list names it.
+// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile or a Bot's workers list names it.
 //
 // Corresponds with DELETE /profiles/{name} (the `DeleteProfile` operationId).
 func (c *Client) DeleteProfile(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -19454,13 +20028,13 @@ func (c *Client) ApplyProfile(ctx context.Context, name Name, body ApplyProfileJ
 	return c.Client.Do(req)
 }
 
-// GetAgentMemory An agent's memory, shared by all its workers
+// GetProfileMemory A profile's memory, shared by all its workers
 //
-// What the agent's workers keep across their tasks, entries one per line. Every worker of the agent gets it in its first message, as it is when the work is offered. It is not part of the profile's versions.
+// What the profile's workers keep across their tasks, entries one per line. Every worker of the profile gets it in its first message, as it is when the work is offered. It is not part of the profile's versions. Called GetAgentMemory until 2026-11-28 (issue #1336).
 //
-// Corresponds with GET /profiles/{name}/memory (the `GetAgentMemory` operationId).
-func (c *Client) GetAgentMemory(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentMemoryRequest(c.Server, name)
+// Corresponds with GET /profiles/{name}/memory (the `GetProfileMemory` operationId).
+func (c *Client) GetProfileMemory(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetProfileMemoryRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -19471,15 +20045,15 @@ func (c *Client) GetAgentMemory(ctx context.Context, name Name, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// ChangeAgentMemoryWithBody Add, replace or remove one entry of an agent's memory; only the owner
+// ChangeProfileMemoryWithBody Add, replace or remove one entry of a profile's memory; only the owner
 //
-// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 //
 // Takes any type of body and a specified content type.
 //
-// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-func (c *Client) ChangeAgentMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewChangeAgentMemoryRequestWithBody(c.Server, name, contentType, body)
+// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+func (c *Client) ChangeProfileMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeProfileMemoryRequestWithBody(c.Server, name, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -19490,15 +20064,15 @@ func (c *Client) ChangeAgentMemoryWithBody(ctx context.Context, name Name, conte
 	return c.Client.Do(req)
 }
 
-// ChangeAgentMemory Add, replace or remove one entry of an agent's memory; only the owner
+// ChangeProfileMemory Add, replace or remove one entry of a profile's memory; only the owner
 //
-// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 //
 // Takes a body of the `application/json` content type.
 //
-// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-func (c *Client) ChangeAgentMemory(ctx context.Context, name Name, body ChangeAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewChangeAgentMemoryRequest(c.Server, name, body)
+// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+func (c *Client) ChangeProfileMemory(ctx context.Context, name Name, body ChangeProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeProfileMemoryRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -19509,15 +20083,15 @@ func (c *Client) ChangeAgentMemory(ctx context.Context, name Name, body ChangeAg
 	return c.Client.Do(req)
 }
 
-// SetAgentMemoryWithBody Replace an agent's whole memory with the owner's text; only the owner
+// SetProfileMemoryWithBody Replace a profile's whole memory with the owner's text; only the owner
 //
 // Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 //
 // Takes any type of body and a specified content type.
 //
-// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-func (c *Client) SetAgentMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetAgentMemoryRequestWithBody(c.Server, name, contentType, body)
+// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+func (c *Client) SetProfileMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequestWithBody(c.Server, name, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -19528,15 +20102,15 @@ func (c *Client) SetAgentMemoryWithBody(ctx context.Context, name Name, contentT
 	return c.Client.Do(req)
 }
 
-// SetAgentMemory Replace an agent's whole memory with the owner's text; only the owner
+// SetProfileMemory Replace a profile's whole memory with the owner's text; only the owner
 //
 // Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 //
 // Takes a body of the `application/json` content type.
 //
-// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-func (c *Client) SetAgentMemory(ctx context.Context, name Name, body SetAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetAgentMemoryRequest(c.Server, name, body)
+// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+func (c *Client) SetProfileMemory(ctx context.Context, name Name, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -22918,6 +23492,40 @@ func NewPutBotRequestWithBody(server string, botId BotID, contentType string, bo
 	return req, nil
 }
 
+// NewGetBotMemoryRequest constructs an http.Request for the GetBotMemory method
+func NewGetBotMemoryRequest(server string, botId BotID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "bot_id", botId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewChangeBotMemoryRequest calls the generic ChangeBotMemory builder with application/json body
 func NewChangeBotMemoryRequest(server string, botId BotID, body ChangeBotMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -22993,6 +23601,53 @@ func NewSetBotMemoryRequestWithBody(server string, botId BotID, contentType stri
 	}
 
 	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSetBotReposRequest calls the generic SetBotRepos builder with application/json body
+func NewSetBotReposRequest(server string, botId BotID, body SetBotReposJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetBotReposRequestWithBody(server, botId, "application/json", bodyReader)
+}
+
+// NewSetBotReposRequestWithBody constructs an http.Request for the SetBotRepos method, with any body, and a specified content type
+func NewSetBotReposRequestWithBody(server string, botId BotID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "bot_id", botId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/repos", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -23127,6 +23782,81 @@ func NewListBotToolsRequest(server string, botId BotID) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListBotVersionsRequest constructs an http.Request for the ListBotVersions method
+func NewListBotVersionsRequest(server string, botId BotID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "bot_id", botId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/versions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRestoreBotVersionRequest constructs an http.Request for the RestoreBotVersion method
+func NewRestoreBotVersionRequest(server string, botId BotID, versionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "bot_id", botId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "version_id", versionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/versions/%s/restore", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -30529,6 +31259,60 @@ func NewCompleteIntegrationSignInRequestWithBody(server string, integration Inte
 	return req, nil
 }
 
+// NewAnswerIntegrationSignInRequest calls the generic AnswerIntegrationSignIn builder with application/json body
+func NewAnswerIntegrationSignInRequest(server string, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAnswerIntegrationSignInRequestWithBody(server, integration, signInId, "application/json", bodyReader)
+}
+
+// NewAnswerIntegrationSignInRequestWithBody constructs an http.Request for the AnswerIntegrationSignIn method, with any body, and a specified content type
+func NewAnswerIntegrationSignInRequestWithBody(server string, integration IntegrationID, signInId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sign_in_id", signInId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/sign-ins/%s/answer", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListMachineProvidersRequest constructs an http.Request for the ListMachineProviders method
 func NewListMachineProvidersRequest(server string) (*http.Request, error) {
 	var err error
@@ -31482,6 +32266,18 @@ func NewListMemoryNotesRequest(server string, params *ListMemoryNotesParams) (*h
 
 		}
 
+		if params.Profile != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "profile", *params.Profile, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if params.Agent != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent", *params.Agent, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
@@ -31539,6 +32335,18 @@ func NewDeleteMemoryNoteRequest(server string, params *DeleteMemoryNoteParams) (
 		if params.Bot != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Profile != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "profile", *params.Profile, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -31613,6 +32421,18 @@ func NewGetMemoryNoteRequest(server string, params *GetMemoryNoteParams) (*http.
 		if params.Bot != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Profile != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "profile", *params.Profile, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -31698,6 +32518,18 @@ func NewPutMemoryNoteRequestWithBody(server string, params *PutMemoryNoteParams,
 		if params.Bot != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Profile != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "profile", *params.Profile, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -32418,8 +33250,8 @@ func NewApplyProfileRequestWithBody(server string, name Name, contentType string
 	return req, nil
 }
 
-// NewGetAgentMemoryRequest constructs an http.Request for the GetAgentMemory method
-func NewGetAgentMemoryRequest(server string, name Name) (*http.Request, error) {
+// NewGetProfileMemoryRequest constructs an http.Request for the GetProfileMemory method
+func NewGetProfileMemoryRequest(server string, name Name) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -32452,19 +33284,19 @@ func NewGetAgentMemoryRequest(server string, name Name) (*http.Request, error) {
 	return req, nil
 }
 
-// NewChangeAgentMemoryRequest calls the generic ChangeAgentMemory builder with application/json body
-func NewChangeAgentMemoryRequest(server string, name Name, body ChangeAgentMemoryJSONRequestBody) (*http.Request, error) {
+// NewChangeProfileMemoryRequest calls the generic ChangeProfileMemory builder with application/json body
+func NewChangeProfileMemoryRequest(server string, name Name, body ChangeProfileMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewChangeAgentMemoryRequestWithBody(server, name, "application/json", bodyReader)
+	return NewChangeProfileMemoryRequestWithBody(server, name, "application/json", bodyReader)
 }
 
-// NewChangeAgentMemoryRequestWithBody constructs an http.Request for the ChangeAgentMemory method, with any body, and a specified content type
-func NewChangeAgentMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+// NewChangeProfileMemoryRequestWithBody constructs an http.Request for the ChangeProfileMemory method, with any body, and a specified content type
+func NewChangeProfileMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -32499,19 +33331,19 @@ func NewChangeAgentMemoryRequestWithBody(server string, name Name, contentType s
 	return req, nil
 }
 
-// NewSetAgentMemoryRequest calls the generic SetAgentMemory builder with application/json body
-func NewSetAgentMemoryRequest(server string, name Name, body SetAgentMemoryJSONRequestBody) (*http.Request, error) {
+// NewSetProfileMemoryRequest calls the generic SetProfileMemory builder with application/json body
+func NewSetProfileMemoryRequest(server string, name Name, body SetProfileMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSetAgentMemoryRequestWithBody(server, name, "application/json", bodyReader)
+	return NewSetProfileMemoryRequestWithBody(server, name, "application/json", bodyReader)
 }
 
-// NewSetAgentMemoryRequestWithBody constructs an http.Request for the SetAgentMemory method, with any body, and a specified content type
-func NewSetAgentMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+// NewSetProfileMemoryRequestWithBody constructs an http.Request for the SetProfileMemory method, with any body, and a specified content type
+func NewSetProfileMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -36671,7 +37503,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListBotsWithResponse Every Bot, the oldest first
 	//
-	// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+	// A Bot is a long-lived agent of the control plane: its model, its instructions and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -36723,7 +37555,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /bots/{bot_id} (the `DeleteBot` operationId).
 	DeleteBotWithResponse(ctx context.Context, botId BotID, params *DeleteBotParams, reqEditors ...RequestEditorFn) (*DeleteBotResponse, error)
 
-	// GetBotWithResponse A Bot, with its persona and memory
+	// GetBotWithResponse A Bot, with its instructions and memory
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -36766,6 +37598,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /bots/{bot_id} (the `PutBot` operationId).
 	PutBotWithResponse(ctx context.Context, botId BotID, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutBotResponse, error)
 
+	// GetBotMemoryWithResponse A Bot's memory, the same in every chat with it
+	//
+	// The same Memory as a profile's (issue #1336): the Bot's entries, one per line. Its notes are read through /memory-notes. A Bot's token reads its own Bot's.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /bots/{bot_id}/memory (the `GetBotMemory` operationId).
+	GetBotMemoryWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*GetBotMemoryResponse, error)
+
 	// ChangeBotMemoryWithBodyWithResponse Add, replace or remove one entry of a Bot's memory
 	//
 	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
@@ -36802,6 +37643,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /bots/{bot_id}/memory (the `SetBotMemory` operationId).
 	SetBotMemoryWithResponse(ctx context.Context, botId BotID, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
 
+	// SetBotReposWithBodyWithResponse Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotReposWithBodyWithResponse(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error)
+
+	// SetBotReposWithResponse Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotReposWithResponse(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error)
+
 	// PutRoutineWithBodyWithResponse Make a Routine of a Bot, or change the one of that name
 	//
 	// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
@@ -36837,6 +37696,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
 	ListBotToolsWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*ListBotToolsResponse, error)
+
+	// ListBotVersionsWithResponse A Bot's saved settings, newest first
+	//
+	// Each save of a Bot's settings keeps a version with who saved it and when (issue #1336), as a profile's apply does and Paperclip keeps an agent's config revisions (packages/db/src/schema/agent_config_revisions.ts). Its name and memory are not part of a version. A Bot saved before versions has none until its next save, which keeps what it had as its first.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /bots/{bot_id}/versions (the `ListBotVersions` operationId).
+	ListBotVersionsWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*ListBotVersionsResponse, error)
+
+	// RestoreBotVersionWithResponse Save one of a Bot's versions again; the owner, or the main Bot from its chat
+	//
+	// Saves that version's settings as PutBot does, which keeps a new version restored from it, as Paperclip's rollback saves a revision's config again (server/src/services/agents.ts, rollbackConfigRevision). What it names that is gone since, such as a model no provider offers, is refused and changes nothing.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /bots/{bot_id}/versions/{version_id}/restore (the `RestoreBotVersion` operationId).
+	RestoreBotVersionWithResponse(ctx context.Context, botId BotID, versionId string, reqEditors ...RequestEditorFn) (*RestoreBotVersionResponse, error)
 
 	// GetBrowserWithResponse The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	//
@@ -38631,6 +39508,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
 	CompleteIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteIntegrationSignInResponse, error)
 
+	// AnswerIntegrationSignInWithBodyWithResponse Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error)
+
+	// AnswerIntegrationSignInWithResponse Answer what a linking in progress asks; only the owner
+	//
+	// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+	AnswerIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error)
+
 	// ListMachineProvidersWithResponse The providers a machine can be created at (owner only)
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -38861,7 +39756,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
 	//
-	// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+	// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or profile. Every token reads them; a Bot's token reads its own Bot's.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -39057,7 +39952,7 @@ type ClientWithResponsesInterface interface {
 
 	// DeleteProfileWithResponse Delete a profile; only the owner
 	//
-	// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile, another profile names it as a backup, or a Bot's workers list names it.
+	// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile or a Bot's workers list names it.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -39089,50 +39984,50 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
 	ApplyProfileWithResponse(ctx context.Context, name Name, body ApplyProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyProfileResponse, error)
 
-	// GetAgentMemoryWithResponse An agent's memory, shared by all its workers
+	// GetProfileMemoryWithResponse A profile's memory, shared by all its workers
 	//
-	// What the agent's workers keep across their tasks, entries one per line. Every worker of the agent gets it in its first message, as it is when the work is offered. It is not part of the profile's versions.
+	// What the profile's workers keep across their tasks, entries one per line. Every worker of the profile gets it in its first message, as it is when the work is offered. It is not part of the profile's versions. Called GetAgentMemory until 2026-11-28 (issue #1336).
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with GET /profiles/{name}/memory (the `GetAgentMemory` operationId).
-	GetAgentMemoryWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetAgentMemoryResponse, error)
+	// Corresponds with GET /profiles/{name}/memory (the `GetProfileMemory` operationId).
+	GetProfileMemoryWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetProfileMemoryResponse, error)
 
-	// ChangeAgentMemoryWithBodyWithResponse Add, replace or remove one entry of an agent's memory; only the owner
+	// ChangeProfileMemoryWithBodyWithResponse Add, replace or remove one entry of a profile's memory; only the owner
 	//
-	// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+	// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-	ChangeAgentMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeAgentMemoryResponse, error)
+	// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+	ChangeProfileMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeProfileMemoryResponse, error)
 
-	// ChangeAgentMemoryWithResponse Add, replace or remove one entry of an agent's memory; only the owner
+	// ChangeProfileMemoryWithResponse Add, replace or remove one entry of a profile's memory; only the owner
 	//
-	// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+	// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-	ChangeAgentMemoryWithResponse(ctx context.Context, name Name, body ChangeAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeAgentMemoryResponse, error)
+	// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+	ChangeProfileMemoryWithResponse(ctx context.Context, name Name, body ChangeProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeProfileMemoryResponse, error)
 
-	// SetAgentMemoryWithBodyWithResponse Replace an agent's whole memory with the owner's text; only the owner
+	// SetProfileMemoryWithBodyWithResponse Replace a profile's whole memory with the owner's text; only the owner
 	//
 	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-	SetAgentMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAgentMemoryResponse, error)
+	// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+	SetProfileMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
 
-	// SetAgentMemoryWithResponse Replace an agent's whole memory with the owner's text; only the owner
+	// SetProfileMemoryWithResponse Replace a profile's whole memory with the owner's text; only the owner
 	//
 	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-	SetAgentMemoryWithResponse(ctx context.Context, name Name, body SetAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAgentMemoryResponse, error)
+	// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+	SetProfileMemoryWithResponse(ctx context.Context, name Name, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
 
 	// ListProfileVersionsWithResponse A profile's versions, newest first
 	//
@@ -41592,17 +42487,65 @@ func (r PutBotResponse) ContentType() string {
 	return ""
 }
 
-type ChangeBotMemoryResponse struct {
+type GetBotMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *Bot
+	JSON200 *Memory
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ChangeBotMemoryResponse) GetJSON200() *Bot {
+func (r GetBotMemoryResponse) GetJSON200() *Memory {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetBotMemoryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetBotMemoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetBotMemoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetBotMemoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetBotMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ChangeBotMemoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Memory
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ChangeBotMemoryResponse) GetJSON200() *Memory {
 	return r.JSON200
 }
 
@@ -41644,13 +42587,13 @@ type SetBotMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *Bot
+	JSON200 *Memory
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r SetBotMemoryResponse) GetJSON200() *Bot {
+func (r SetBotMemoryResponse) GetJSON200() *Memory {
 	return r.JSON200
 }
 
@@ -41682,6 +42625,54 @@ func (r SetBotMemoryResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetBotMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetBotReposResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetBotReposResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetBotReposResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetBotReposResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetBotReposResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetBotReposResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetBotReposResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -41826,6 +42817,102 @@ func (r ListBotToolsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListBotToolsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListBotVersionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BotVersionList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListBotVersionsResponse) GetJSON200() *BotVersionList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListBotVersionsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListBotVersionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBotVersionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBotVersionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBotVersionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RestoreBotVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RestoreBotVersionResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RestoreBotVersionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RestoreBotVersionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RestoreBotVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RestoreBotVersionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RestoreBotVersionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -48858,6 +49945,54 @@ func (r CompleteIntegrationSignInResponse) ContentType() string {
 	return ""
 }
 
+type AnswerIntegrationSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SignIn
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AnswerIntegrationSignInResponse) GetJSON200() *SignIn {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AnswerIntegrationSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AnswerIntegrationSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AnswerIntegrationSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AnswerIntegrationSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AnswerIntegrationSignInResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListMachineProvidersResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -50894,7 +52029,7 @@ func (r ApplyProfileResponse) ContentType() string {
 	return ""
 }
 
-type GetAgentMemoryResponse struct {
+type GetProfileMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
@@ -50904,22 +52039,22 @@ type GetAgentMemoryResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r GetAgentMemoryResponse) GetJSON200() *Memory {
+func (r GetProfileMemoryResponse) GetJSON200() *Memory {
 	return r.JSON200
 }
 
 // GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r GetAgentMemoryResponse) GetJSONDefault() *Error {
+func (r GetProfileMemoryResponse) GetJSONDefault() *Error {
 	return r.JSONDefault
 }
 
 // GetBody returns the raw response body bytes
-func (r GetAgentMemoryResponse) GetBody() []byte {
+func (r GetProfileMemoryResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r GetAgentMemoryResponse) Status() string {
+func (r GetProfileMemoryResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -50927,7 +52062,7 @@ func (r GetAgentMemoryResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetAgentMemoryResponse) StatusCode() int {
+func (r GetProfileMemoryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -50935,14 +52070,14 @@ func (r GetAgentMemoryResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetAgentMemoryResponse) ContentType() string {
+func (r GetProfileMemoryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type ChangeAgentMemoryResponse struct {
+type ChangeProfileMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
@@ -50952,22 +52087,22 @@ type ChangeAgentMemoryResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ChangeAgentMemoryResponse) GetJSON200() *Memory {
+func (r ChangeProfileMemoryResponse) GetJSON200() *Memory {
 	return r.JSON200
 }
 
 // GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r ChangeAgentMemoryResponse) GetJSONDefault() *Error {
+func (r ChangeProfileMemoryResponse) GetJSONDefault() *Error {
 	return r.JSONDefault
 }
 
 // GetBody returns the raw response body bytes
-func (r ChangeAgentMemoryResponse) GetBody() []byte {
+func (r ChangeProfileMemoryResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r ChangeAgentMemoryResponse) Status() string {
+func (r ChangeProfileMemoryResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -50975,7 +52110,7 @@ func (r ChangeAgentMemoryResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ChangeAgentMemoryResponse) StatusCode() int {
+func (r ChangeProfileMemoryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -50983,14 +52118,14 @@ func (r ChangeAgentMemoryResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ChangeAgentMemoryResponse) ContentType() string {
+func (r ChangeProfileMemoryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type SetAgentMemoryResponse struct {
+type SetProfileMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
@@ -51000,22 +52135,22 @@ type SetAgentMemoryResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r SetAgentMemoryResponse) GetJSON200() *Memory {
+func (r SetProfileMemoryResponse) GetJSON200() *Memory {
 	return r.JSON200
 }
 
 // GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r SetAgentMemoryResponse) GetJSONDefault() *Error {
+func (r SetProfileMemoryResponse) GetJSONDefault() *Error {
 	return r.JSONDefault
 }
 
 // GetBody returns the raw response body bytes
-func (r SetAgentMemoryResponse) GetBody() []byte {
+func (r SetProfileMemoryResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r SetAgentMemoryResponse) Status() string {
+func (r SetProfileMemoryResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -51023,7 +52158,7 @@ func (r SetAgentMemoryResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r SetAgentMemoryResponse) StatusCode() int {
+func (r SetProfileMemoryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -51031,7 +52166,7 @@ func (r SetAgentMemoryResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r SetAgentMemoryResponse) ContentType() string {
+func (r SetProfileMemoryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -55716,7 +56851,7 @@ func (c *ClientWithResponses) TranscribeAudioWithResponse(ctx context.Context, b
 
 // ListBotsWithResponse Every Bot, the oldest first
 //
-// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+// A Bot is a long-lived agent of the control plane: its model, its instructions and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -55804,7 +56939,7 @@ func (c *ClientWithResponses) DeleteBotWithResponse(ctx context.Context, botId B
 	return ParseDeleteBotResponse(rsp)
 }
 
-// GetBotWithResponse A Bot, with its persona and memory
+// GetBotWithResponse A Bot, with its instructions and memory
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -55877,6 +57012,21 @@ func (c *ClientWithResponses) PutBotWithResponse(ctx context.Context, botId BotI
 	return ParsePutBotResponse(rsp)
 }
 
+// GetBotMemoryWithResponse A Bot's memory, the same in every chat with it
+//
+// The same Memory as a profile's (issue #1336): the Bot's entries, one per line. Its notes are read through /memory-notes. A Bot's token reads its own Bot's.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /bots/{bot_id}/memory (the `GetBotMemory` operationId).
+func (c *ClientWithResponses) GetBotMemoryWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*GetBotMemoryResponse, error) {
+	rsp, err := c.GetBotMemory(ctx, botId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetBotMemoryResponse(rsp)
+}
+
 // ChangeBotMemoryWithBodyWithResponse Add, replace or remove one entry of a Bot's memory
 //
 // The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
@@ -55937,6 +57087,36 @@ func (c *ClientWithResponses) SetBotMemoryWithResponse(ctx context.Context, botI
 	return ParseSetBotMemoryResponse(rsp)
 }
 
+// SetBotReposWithBodyWithResponse Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *ClientWithResponses) SetBotReposWithBodyWithResponse(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error) {
+	rsp, err := c.SetBotReposWithBody(ctx, botId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotReposResponse(rsp)
+}
+
+// SetBotReposWithResponse Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *ClientWithResponses) SetBotReposWithResponse(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error) {
+	rsp, err := c.SetBotRepos(ctx, botId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotReposResponse(rsp)
+}
+
 // PutRoutineWithBodyWithResponse Make a Routine of a Bot, or change the one of that name
 //
 // A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
@@ -55995,6 +57175,36 @@ func (c *ClientWithResponses) ListBotToolsWithResponse(ctx context.Context, botI
 		return nil, err
 	}
 	return ParseListBotToolsResponse(rsp)
+}
+
+// ListBotVersionsWithResponse A Bot's saved settings, newest first
+//
+// Each save of a Bot's settings keeps a version with who saved it and when (issue #1336), as a profile's apply does and Paperclip keeps an agent's config revisions (packages/db/src/schema/agent_config_revisions.ts). Its name and memory are not part of a version. A Bot saved before versions has none until its next save, which keeps what it had as its first.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /bots/{bot_id}/versions (the `ListBotVersions` operationId).
+func (c *ClientWithResponses) ListBotVersionsWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*ListBotVersionsResponse, error) {
+	rsp, err := c.ListBotVersions(ctx, botId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBotVersionsResponse(rsp)
+}
+
+// RestoreBotVersionWithResponse Save one of a Bot's versions again; the owner, or the main Bot from its chat
+//
+// Saves that version's settings as PutBot does, which keeps a new version restored from it, as Paperclip's rollback saves a revision's config again (server/src/services/agents.ts, rollbackConfigRevision). What it names that is gone since, such as a model no provider offers, is refused and changes nothing.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /bots/{bot_id}/versions/{version_id}/restore (the `RestoreBotVersion` operationId).
+func (c *ClientWithResponses) RestoreBotVersionWithResponse(ctx context.Context, botId BotID, versionId string, reqEditors ...RequestEditorFn) (*RestoreBotVersionResponse, error) {
+	rsp, err := c.RestoreBotVersion(ctx, botId, versionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestoreBotVersionResponse(rsp)
 }
 
 // GetBrowserWithResponse The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
@@ -59080,6 +60290,36 @@ func (c *ClientWithResponses) CompleteIntegrationSignInWithResponse(ctx context.
 	return ParseCompleteIntegrationSignInResponse(rsp)
 }
 
+// AnswerIntegrationSignInWithBodyWithResponse Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *ClientWithResponses) AnswerIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error) {
+	rsp, err := c.AnswerIntegrationSignInWithBody(ctx, integration, signInId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerIntegrationSignInResponse(rsp)
+}
+
+// AnswerIntegrationSignInWithResponse Answer what a linking in progress asks; only the owner
+//
+// For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184): his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the sign-in at its next step, once the service took the answer: the next question, the same one again when it was refused, or no question once the account is linked, which completing the sign-in answers. The answer is never kept or logged. Invalid when the linking asks nothing now.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id}/answer (the `AnswerIntegrationSignIn` operationId).
+func (c *ClientWithResponses) AnswerIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body AnswerIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerIntegrationSignInResponse, error) {
+	rsp, err := c.AnswerIntegrationSignIn(ctx, integration, signInId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerIntegrationSignInResponse(rsp)
+}
+
 // ListMachineProvidersWithResponse The providers a machine can be created at (owner only)
 //
 // Returns a wrapper object for the known response body format(s).
@@ -59478,7 +60718,7 @@ func (c *ClientWithResponses) OpenMeetingTrackWithResponse(ctx context.Context, 
 
 // ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
 //
-// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or profile. Every token reads them; a Bot's token reads its own Bot's.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -59830,7 +61070,7 @@ func (c *ClientWithResponses) ListProfilesWithResponse(ctx context.Context, reqE
 
 // DeleteProfileWithResponse Delete a profile; only the owner
 //
-// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile, another profile names it as a backup, or a Bot's workers list names it.
+// A profile no Task and no Dispatch ever used goes with its versions. One used before is marked deleted: it is hidden from the lists, reads as not found and no new Task names it, while its versions stay for the Dispatches that ran them; applying its name again brings it back as a new version. Refused for `implementer`, and while an unfinished Task names the profile or a Bot's workers list names it.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -59886,79 +61126,79 @@ func (c *ClientWithResponses) ApplyProfileWithResponse(ctx context.Context, name
 	return ParseApplyProfileResponse(rsp)
 }
 
-// GetAgentMemoryWithResponse An agent's memory, shared by all its workers
+// GetProfileMemoryWithResponse A profile's memory, shared by all its workers
 //
-// What the agent's workers keep across their tasks, entries one per line. Every worker of the agent gets it in its first message, as it is when the work is offered. It is not part of the profile's versions.
+// What the profile's workers keep across their tasks, entries one per line. Every worker of the profile gets it in its first message, as it is when the work is offered. It is not part of the profile's versions. Called GetAgentMemory until 2026-11-28 (issue #1336).
 //
 // Returns a wrapper object for the known response body format(s).
 //
-// Corresponds with GET /profiles/{name}/memory (the `GetAgentMemory` operationId).
-func (c *ClientWithResponses) GetAgentMemoryWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetAgentMemoryResponse, error) {
-	rsp, err := c.GetAgentMemory(ctx, name, reqEditors...)
+// Corresponds with GET /profiles/{name}/memory (the `GetProfileMemory` operationId).
+func (c *ClientWithResponses) GetProfileMemoryWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetProfileMemoryResponse, error) {
+	rsp, err := c.GetProfileMemory(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetAgentMemoryResponse(rsp)
+	return ParseGetProfileMemoryResponse(rsp)
 }
 
-// ChangeAgentMemoryWithBodyWithResponse Add, replace or remove one entry of an agent's memory; only the owner
+// ChangeProfileMemoryWithBodyWithResponse Add, replace or remove one entry of a profile's memory; only the owner
 //
-// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-func (c *ClientWithResponses) ChangeAgentMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeAgentMemoryResponse, error) {
-	rsp, err := c.ChangeAgentMemoryWithBody(ctx, name, contentType, body, reqEditors...)
+// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+func (c *ClientWithResponses) ChangeProfileMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeProfileMemoryResponse, error) {
+	rsp, err := c.ChangeProfileMemoryWithBody(ctx, name, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseChangeAgentMemoryResponse(rsp)
+	return ParseChangeProfileMemoryResponse(rsp)
 }
 
-// ChangeAgentMemoryWithResponse Add, replace or remove one entry of an agent's memory; only the owner
+// ChangeProfileMemoryWithResponse Add, replace or remove one entry of a profile's memory; only the owner
 //
-// A worker changes its own agent's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
+// A worker changes its own profile's memory through the agent API. A change that would pass the memory's limit is refused and changes nothing.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /profiles/{name}/memory (the `ChangeAgentMemory` operationId).
-func (c *ClientWithResponses) ChangeAgentMemoryWithResponse(ctx context.Context, name Name, body ChangeAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeAgentMemoryResponse, error) {
-	rsp, err := c.ChangeAgentMemory(ctx, name, body, reqEditors...)
+// Corresponds with POST /profiles/{name}/memory (the `ChangeProfileMemory` operationId).
+func (c *ClientWithResponses) ChangeProfileMemoryWithResponse(ctx context.Context, name Name, body ChangeProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeProfileMemoryResponse, error) {
+	rsp, err := c.ChangeProfileMemory(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseChangeAgentMemoryResponse(rsp)
+	return ParseChangeProfileMemoryResponse(rsp)
 }
 
-// SetAgentMemoryWithBodyWithResponse Replace an agent's whole memory with the owner's text; only the owner
+// SetProfileMemoryWithBodyWithResponse Replace a profile's whole memory with the owner's text; only the owner
 //
 // Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-func (c *ClientWithResponses) SetAgentMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAgentMemoryResponse, error) {
-	rsp, err := c.SetAgentMemoryWithBody(ctx, name, contentType, body, reqEditors...)
+// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+func (c *ClientWithResponses) SetProfileMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemoryWithBody(ctx, name, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseSetAgentMemoryResponse(rsp)
+	return ParseSetProfileMemoryResponse(rsp)
 }
 
-// SetAgentMemoryWithResponse Replace an agent's whole memory with the owner's text; only the owner
+// SetProfileMemoryWithResponse Replace a profile's whole memory with the owner's text; only the owner
 //
 // Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with PUT /profiles/{name}/memory (the `SetAgentMemory` operationId).
-func (c *ClientWithResponses) SetAgentMemoryWithResponse(ctx context.Context, name Name, body SetAgentMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAgentMemoryResponse, error) {
-	rsp, err := c.SetAgentMemory(ctx, name, body, reqEditors...)
+// Corresponds with PUT /profiles/{name}/memory (the `SetProfileMemory` operationId).
+func (c *ClientWithResponses) SetProfileMemoryWithResponse(ctx context.Context, name Name, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemory(ctx, name, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseSetAgentMemoryResponse(rsp)
+	return ParseSetProfileMemoryResponse(rsp)
 }
 
 // ListProfileVersionsWithResponse A profile's versions, newest first
@@ -62598,6 +63838,39 @@ func ParsePutBotResponse(rsp *http.Response) (*PutBotResponse, error) {
 	return response, nil
 }
 
+// ParseGetBotMemoryResponse parses an HTTP response from a GetBotMemoryWithResponse call
+func ParseGetBotMemoryResponse(rsp *http.Response) (*GetBotMemoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetBotMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Memory
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseChangeBotMemoryResponse parses an HTTP response from a ChangeBotMemoryWithResponse call
 func ParseChangeBotMemoryResponse(rsp *http.Response) (*ChangeBotMemoryResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -62613,7 +63886,7 @@ func ParseChangeBotMemoryResponse(rsp *http.Response) (*ChangeBotMemoryResponse,
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Bot
+		var dest Memory
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -62640,6 +63913,39 @@ func ParseSetBotMemoryResponse(rsp *http.Response) (*SetBotMemoryResponse, error
 	}
 
 	response := &SetBotMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Memory
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetBotReposResponse parses an HTTP response from a SetBotReposWithResponse call
+func ParseSetBotReposResponse(rsp *http.Response) (*SetBotReposResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetBotReposResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -62746,6 +64052,72 @@ func ParseListBotToolsResponse(rsp *http.Response) (*ListBotToolsResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest ToolNames
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListBotVersionsResponse parses an HTTP response from a ListBotVersionsWithResponse call
+func ParseListBotVersionsResponse(rsp *http.Response) (*ListBotVersionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBotVersionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BotVersionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRestoreBotVersionResponse parses an HTTP response from a RestoreBotVersionWithResponse call
+func ParseRestoreBotVersionResponse(rsp *http.Response) (*RestoreBotVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RestoreBotVersionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -67629,6 +69001,39 @@ func ParseCompleteIntegrationSignInResponse(rsp *http.Response) (*CompleteIntegr
 	return response, nil
 }
 
+// ParseAnswerIntegrationSignInResponse parses an HTTP response from a AnswerIntegrationSignInWithResponse call
+func ParseAnswerIntegrationSignInResponse(rsp *http.Response) (*AnswerIntegrationSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AnswerIntegrationSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SignIn
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListMachineProvidersResponse parses an HTTP response from a ListMachineProvidersWithResponse call
 func ParseListMachineProvidersResponse(rsp *http.Response) (*ListMachineProvidersResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -69032,15 +70437,15 @@ func ParseApplyProfileResponse(rsp *http.Response) (*ApplyProfileResponse, error
 	return response, nil
 }
 
-// ParseGetAgentMemoryResponse parses an HTTP response from a GetAgentMemoryWithResponse call
-func ParseGetAgentMemoryResponse(rsp *http.Response) (*GetAgentMemoryResponse, error) {
+// ParseGetProfileMemoryResponse parses an HTTP response from a GetProfileMemoryWithResponse call
+func ParseGetProfileMemoryResponse(rsp *http.Response) (*GetProfileMemoryResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetAgentMemoryResponse{
+	response := &GetProfileMemoryResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -69065,15 +70470,15 @@ func ParseGetAgentMemoryResponse(rsp *http.Response) (*GetAgentMemoryResponse, e
 	return response, nil
 }
 
-// ParseChangeAgentMemoryResponse parses an HTTP response from a ChangeAgentMemoryWithResponse call
-func ParseChangeAgentMemoryResponse(rsp *http.Response) (*ChangeAgentMemoryResponse, error) {
+// ParseChangeProfileMemoryResponse parses an HTTP response from a ChangeProfileMemoryWithResponse call
+func ParseChangeProfileMemoryResponse(rsp *http.Response) (*ChangeProfileMemoryResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ChangeAgentMemoryResponse{
+	response := &ChangeProfileMemoryResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -69098,15 +70503,15 @@ func ParseChangeAgentMemoryResponse(rsp *http.Response) (*ChangeAgentMemoryRespo
 	return response, nil
 }
 
-// ParseSetAgentMemoryResponse parses an HTTP response from a SetAgentMemoryWithResponse call
-func ParseSetAgentMemoryResponse(rsp *http.Response) (*SetAgentMemoryResponse, error) {
+// ParseSetProfileMemoryResponse parses an HTTP response from a SetProfileMemoryWithResponse call
+func ParseSetProfileMemoryResponse(rsp *http.Response) (*SetProfileMemoryResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &SetAgentMemoryResponse{
+	response := &SetProfileMemoryResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -72108,7 +73513,7 @@ type ServerInterface interface {
 	// DeleteBot Remove a Bot that has no chats and no memory; the owner, or the main Bot from its chat
 	// (DELETE /bots/{bot_id})
 	DeleteBot(w http.ResponseWriter, r *http.Request, botId BotID, params DeleteBotParams)
-	// GetBot A Bot, with its persona and memory
+	// GetBot A Bot, with its instructions and memory
 	// (GET /bots/{bot_id})
 	GetBot(w http.ResponseWriter, r *http.Request, botId BotID)
 	// RenameBot Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
@@ -72117,12 +73522,18 @@ type ServerInterface interface {
 	// PutBot Change a Bot's settings; the owner, or the main Bot from its chat
 	// (PUT /bots/{bot_id})
 	PutBot(w http.ResponseWriter, r *http.Request, botId BotID)
+	// GetBotMemory A Bot's memory, the same in every chat with it
+	// (GET /bots/{bot_id}/memory)
+	GetBotMemory(w http.ResponseWriter, r *http.Request, botId BotID)
 	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
 	// (POST /bots/{bot_id}/memory)
 	ChangeBotMemory(w http.ResponseWriter, r *http.Request, botId BotID)
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{bot_id}/memory)
 	SetBotMemory(w http.ResponseWriter, r *http.Request, botId BotID)
+	// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+	// (PUT /bots/{bot_id}/repos)
+	SetBotRepos(w http.ResponseWriter, r *http.Request, botId BotID)
 	// PutRoutine Make a Routine of a Bot, or change the one of that name
 	// (PUT /bots/{bot_id}/routines/{routine})
 	PutRoutine(w http.ResponseWriter, r *http.Request, botId BotID, routine string)
@@ -72132,6 +73543,12 @@ type ServerInterface interface {
 	// ListBotTools The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 	// (GET /bots/{bot_id}/tools)
 	ListBotTools(w http.ResponseWriter, r *http.Request, botId BotID)
+	// ListBotVersions A Bot's saved settings, newest first
+	// (GET /bots/{bot_id}/versions)
+	ListBotVersions(w http.ResponseWriter, r *http.Request, botId BotID)
+	// RestoreBotVersion Save one of a Bot's versions again; the owner, or the main Bot from its chat
+	// (POST /bots/{bot_id}/versions/{version_id}/restore)
+	RestoreBotVersion(w http.ResponseWriter, r *http.Request, botId BotID, versionId string)
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	// (GET /browser)
 	GetBrowser(w http.ResponseWriter, r *http.Request)
@@ -72576,6 +73993,9 @@ type ServerInterface interface {
 	// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
 	// (POST /integrations/{integration}/sign-ins/{sign_in_id})
 	CompleteIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string)
+	// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+	// (POST /integrations/{integration}/sign-ins/{sign_in_id}/answer)
+	AnswerIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string)
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	// (GET /machine-providers)
 	ListMachineProviders(w http.ResponseWriter, r *http.Request)
@@ -72705,15 +74125,15 @@ type ServerInterface interface {
 	// ApplyProfile Store a profile's YAML; the owner, or the main Bot from its chat
 	// (PUT /profiles/{name})
 	ApplyProfile(w http.ResponseWriter, r *http.Request, name Name)
-	// GetAgentMemory An agent's memory, shared by all its workers
+	// GetProfileMemory A profile's memory, shared by all its workers
 	// (GET /profiles/{name}/memory)
-	GetAgentMemory(w http.ResponseWriter, r *http.Request, name Name)
-	// ChangeAgentMemory Add, replace or remove one entry of an agent's memory; only the owner
+	GetProfileMemory(w http.ResponseWriter, r *http.Request, name Name)
+	// ChangeProfileMemory Add, replace or remove one entry of a profile's memory; only the owner
 	// (POST /profiles/{name}/memory)
-	ChangeAgentMemory(w http.ResponseWriter, r *http.Request, name Name)
-	// SetAgentMemory Replace an agent's whole memory with the owner's text; only the owner
+	ChangeProfileMemory(w http.ResponseWriter, r *http.Request, name Name)
+	// SetProfileMemory Replace a profile's whole memory with the owner's text; only the owner
 	// (PUT /profiles/{name}/memory)
-	SetAgentMemory(w http.ResponseWriter, r *http.Request, name Name)
+	SetProfileMemory(w http.ResponseWriter, r *http.Request, name Name)
 	// ListProfileVersions A profile's versions, newest first
 	// (GET /profiles/{name}/versions)
 	ListProfileVersions(w http.ResponseWriter, r *http.Request, name Name)
@@ -73916,6 +75336,32 @@ func (siw *ServerInterfaceWrapper) PutBot(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// GetBotMemory operation middleware
+func (siw *ServerInterfaceWrapper) GetBotMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bot_id" -------------
+	var botId BotID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bot_id", r.PathValue("bot_id"), &botId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBotMemory(w, r, botId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ChangeBotMemory operation middleware
 func (siw *ServerInterfaceWrapper) ChangeBotMemory(w http.ResponseWriter, r *http.Request) {
 
@@ -73959,6 +75405,32 @@ func (siw *ServerInterfaceWrapper) SetBotMemory(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetBotMemory(w, r, botId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetBotRepos operation middleware
+func (siw *ServerInterfaceWrapper) SetBotRepos(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bot_id" -------------
+	var botId BotID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bot_id", r.PathValue("bot_id"), &botId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetBotRepos(w, r, botId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -74046,6 +75518,67 @@ func (siw *ServerInterfaceWrapper) ListBotTools(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListBotTools(w, r, botId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBotVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListBotVersions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bot_id" -------------
+	var botId BotID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bot_id", r.PathValue("bot_id"), &botId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBotVersions(w, r, botId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreBotVersion operation middleware
+func (siw *ServerInterfaceWrapper) RestoreBotVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bot_id" -------------
+	var botId BotID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bot_id", r.PathValue("bot_id"), &botId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreBotVersion(w, r, botId, versionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -79097,6 +80630,41 @@ func (siw *ServerInterfaceWrapper) CompleteIntegrationSignIn(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// AnswerIntegrationSignIn operation middleware
+func (siw *ServerInterfaceWrapper) AnswerIntegrationSignIn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sign_in_id" -------------
+	var signInId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sign_in_id", r.PathValue("sign_in_id"), &signInId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sign_in_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AnswerIntegrationSignIn(w, r, integration, signInId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMachineProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListMachineProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -79697,6 +81265,19 @@ func (siw *ServerInterfaceWrapper) ListMemoryNotes(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// ------------- Optional query parameter "profile" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "profile", r.URL.Query(), &params.Profile, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "profile"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profile", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "agent" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent", r.URL.Query(), &params.Agent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -79739,6 +81320,19 @@ func (siw *ServerInterfaceWrapper) DeleteMemoryNote(w http.ResponseWriter, r *ht
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "profile" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "profile", r.URL.Query(), &params.Profile, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "profile"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profile", Err: err})
 		}
 		return
 	}
@@ -79802,6 +81396,19 @@ func (siw *ServerInterfaceWrapper) GetMemoryNote(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// ------------- Optional query parameter "profile" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "profile", r.URL.Query(), &params.Profile, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "profile"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profile", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "agent" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent", r.URL.Query(), &params.Agent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -79857,6 +81464,19 @@ func (siw *ServerInterfaceWrapper) PutMemoryNote(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "profile" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "profile", r.URL.Query(), &params.Profile, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "profile"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profile", Err: err})
 		}
 		return
 	}
@@ -80308,8 +81928,8 @@ func (siw *ServerInterfaceWrapper) ApplyProfile(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
-// GetAgentMemory operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentMemory(w http.ResponseWriter, r *http.Request) {
+// GetProfileMemory operation middleware
+func (siw *ServerInterfaceWrapper) GetProfileMemory(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -80324,7 +81944,7 @@ func (siw *ServerInterfaceWrapper) GetAgentMemory(w http.ResponseWriter, r *http
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentMemory(w, r, name)
+		siw.Handler.GetProfileMemory(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -80334,8 +81954,8 @@ func (siw *ServerInterfaceWrapper) GetAgentMemory(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
-// ChangeAgentMemory operation middleware
-func (siw *ServerInterfaceWrapper) ChangeAgentMemory(w http.ResponseWriter, r *http.Request) {
+// ChangeProfileMemory operation middleware
+func (siw *ServerInterfaceWrapper) ChangeProfileMemory(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -80350,7 +81970,7 @@ func (siw *ServerInterfaceWrapper) ChangeAgentMemory(w http.ResponseWriter, r *h
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ChangeAgentMemory(w, r, name)
+		siw.Handler.ChangeProfileMemory(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -80360,8 +81980,8 @@ func (siw *ServerInterfaceWrapper) ChangeAgentMemory(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
-// SetAgentMemory operation middleware
-func (siw *ServerInterfaceWrapper) SetAgentMemory(w http.ResponseWriter, r *http.Request) {
+// SetProfileMemory operation middleware
+func (siw *ServerInterfaceWrapper) SetProfileMemory(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -80376,7 +81996,7 @@ func (siw *ServerInterfaceWrapper) SetAgentMemory(w http.ResponseWriter, r *http
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetAgentMemory(w, r, name)
+		siw.Handler.SetProfileMemory(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -83259,6 +84879,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins", wrapper.BeginIntegrationSignIn)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.GetIntegrationSignIn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.CompleteIntegrationSignIn)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}/answer", wrapper.AnswerIntegrationSignIn)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.DeleteIntegrationConnection)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PatchIntegrationConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PutIntegrationConnection)
@@ -83366,8 +84987,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}", wrapper.PutBot)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/skills", wrapper.ListBotSkills)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/tools", wrapper.ListBotTools)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}/repos", wrapper.SetBotRepos)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.GetBotMemory)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.ChangeBotMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.SetBotMemory)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/versions", wrapper.ListBotVersions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots/{bot_id}/versions/{version_id}/restore", wrapper.RestoreBotVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts", wrapper.ListArtifacts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts", wrapper.ShowArtifact)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}", wrapper.GetArtifact)
@@ -83415,9 +85040,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}", wrapper.ApplyProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/versions", wrapper.ListProfileVersions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/versions/{version_id}/restore", wrapper.RestoreProfileVersion)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.GetAgentMemory)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.ChangeAgentMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.SetAgentMemory)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.GetProfileMemory)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.ChangeProfileMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.SetProfileMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/memory-notes", wrapper.ListMemoryNotes)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/memory-notes/note", wrapper.DeleteMemoryNote)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/memory-notes/note", wrapper.GetMemoryNote)
@@ -84821,6 +86446,45 @@ func (response PutBotdefaultJSONResponse) VisitPutBotResponse(w http.ResponseWri
 	return err
 }
 
+type GetBotMemoryRequestObject struct {
+	BotId BotID `json:"bot_id"`
+}
+
+type GetBotMemoryResponseObject interface {
+	VisitGetBotMemoryResponse(w http.ResponseWriter) error
+}
+
+type GetBotMemory200JSONResponse Memory
+
+func (response GetBotMemory200JSONResponse) VisitGetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBotMemorydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetBotMemorydefaultJSONResponse) VisitGetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ChangeBotMemoryRequestObject struct {
 	BotId BotID `json:"bot_id"`
 	Body  *ChangeBotMemoryJSONRequestBody
@@ -84830,7 +86494,7 @@ type ChangeBotMemoryResponseObject interface {
 	VisitChangeBotMemoryResponse(w http.ResponseWriter) error
 }
 
-type ChangeBotMemory200JSONResponse Bot
+type ChangeBotMemory200JSONResponse Memory
 
 func (response ChangeBotMemory200JSONResponse) VisitChangeBotMemoryResponse(w http.ResponseWriter) error {
 
@@ -84870,7 +86534,7 @@ type SetBotMemoryResponseObject interface {
 	VisitSetBotMemoryResponse(w http.ResponseWriter) error
 }
 
-type SetBotMemory200JSONResponse Bot
+type SetBotMemory200JSONResponse Memory
 
 func (response SetBotMemory200JSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
 
@@ -84890,6 +86554,46 @@ type SetBotMemorydefaultJSONResponse struct {
 }
 
 func (response SetBotMemorydefaultJSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotReposRequestObject struct {
+	BotId BotID `json:"bot_id"`
+	Body  *SetBotReposJSONRequestBody
+}
+
+type SetBotReposResponseObject interface {
+	VisitSetBotReposResponse(w http.ResponseWriter) error
+}
+
+type SetBotRepos200JSONResponse Bot
+
+func (response SetBotRepos200JSONResponse) VisitSetBotReposResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotReposdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetBotReposdefaultJSONResponse) VisitSetBotReposResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -85009,6 +86713,85 @@ type ListBotToolsdefaultJSONResponse struct {
 }
 
 func (response ListBotToolsdefaultJSONResponse) VisitListBotToolsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotVersionsRequestObject struct {
+	BotId BotID `json:"bot_id"`
+}
+
+type ListBotVersionsResponseObject interface {
+	VisitListBotVersionsResponse(w http.ResponseWriter) error
+}
+
+type ListBotVersions200JSONResponse BotVersionList
+
+func (response ListBotVersions200JSONResponse) VisitListBotVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotVersionsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListBotVersionsdefaultJSONResponse) VisitListBotVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreBotVersionRequestObject struct {
+	BotId     BotID  `json:"bot_id"`
+	VersionId string `json:"version_id"`
+}
+
+type RestoreBotVersionResponseObject interface {
+	VisitRestoreBotVersionResponse(w http.ResponseWriter) error
+}
+
+type RestoreBotVersion200JSONResponse Bot
+
+func (response RestoreBotVersion200JSONResponse) VisitRestoreBotVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreBotVersiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RestoreBotVersiondefaultJSONResponse) VisitRestoreBotVersionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -90978,6 +92761,47 @@ func (response CompleteIntegrationSignIndefaultJSONResponse) VisitCompleteIntegr
 	return err
 }
 
+type AnswerIntegrationSignInRequestObject struct {
+	Integration IntegrationID `json:"integration"`
+	SignInId    string        `json:"sign_in_id"`
+	Body        *AnswerIntegrationSignInJSONRequestBody
+}
+
+type AnswerIntegrationSignInResponseObject interface {
+	VisitAnswerIntegrationSignInResponse(w http.ResponseWriter) error
+}
+
+type AnswerIntegrationSignIn200JSONResponse SignIn
+
+func (response AnswerIntegrationSignIn200JSONResponse) VisitAnswerIntegrationSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnswerIntegrationSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AnswerIntegrationSignIndefaultJSONResponse) VisitAnswerIntegrationSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMachineProvidersRequestObject struct {
 }
 
@@ -92657,17 +94481,17 @@ func (response ApplyProfiledefaultJSONResponse) VisitApplyProfileResponse(w http
 	return err
 }
 
-type GetAgentMemoryRequestObject struct {
+type GetProfileMemoryRequestObject struct {
 	Name Name `json:"name"`
 }
 
-type GetAgentMemoryResponseObject interface {
-	VisitGetAgentMemoryResponse(w http.ResponseWriter) error
+type GetProfileMemoryResponseObject interface {
+	VisitGetProfileMemoryResponse(w http.ResponseWriter) error
 }
 
-type GetAgentMemory200JSONResponse Memory
+type GetProfileMemory200JSONResponse Memory
 
-func (response GetAgentMemory200JSONResponse) VisitGetAgentMemoryResponse(w http.ResponseWriter) error {
+func (response GetProfileMemory200JSONResponse) VisitGetProfileMemoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -92679,12 +94503,12 @@ func (response GetAgentMemory200JSONResponse) VisitGetAgentMemoryResponse(w http
 	return err
 }
 
-type GetAgentMemorydefaultJSONResponse struct {
+type GetProfileMemorydefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response GetAgentMemorydefaultJSONResponse) VisitGetAgentMemoryResponse(w http.ResponseWriter) error {
+func (response GetProfileMemorydefaultJSONResponse) VisitGetProfileMemoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -92696,18 +94520,18 @@ func (response GetAgentMemorydefaultJSONResponse) VisitGetAgentMemoryResponse(w 
 	return err
 }
 
-type ChangeAgentMemoryRequestObject struct {
+type ChangeProfileMemoryRequestObject struct {
 	Name Name `json:"name"`
-	Body *ChangeAgentMemoryJSONRequestBody
+	Body *ChangeProfileMemoryJSONRequestBody
 }
 
-type ChangeAgentMemoryResponseObject interface {
-	VisitChangeAgentMemoryResponse(w http.ResponseWriter) error
+type ChangeProfileMemoryResponseObject interface {
+	VisitChangeProfileMemoryResponse(w http.ResponseWriter) error
 }
 
-type ChangeAgentMemory200JSONResponse Memory
+type ChangeProfileMemory200JSONResponse Memory
 
-func (response ChangeAgentMemory200JSONResponse) VisitChangeAgentMemoryResponse(w http.ResponseWriter) error {
+func (response ChangeProfileMemory200JSONResponse) VisitChangeProfileMemoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -92719,12 +94543,12 @@ func (response ChangeAgentMemory200JSONResponse) VisitChangeAgentMemoryResponse(
 	return err
 }
 
-type ChangeAgentMemorydefaultJSONResponse struct {
+type ChangeProfileMemorydefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response ChangeAgentMemorydefaultJSONResponse) VisitChangeAgentMemoryResponse(w http.ResponseWriter) error {
+func (response ChangeProfileMemorydefaultJSONResponse) VisitChangeProfileMemoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -92736,18 +94560,18 @@ func (response ChangeAgentMemorydefaultJSONResponse) VisitChangeAgentMemoryRespo
 	return err
 }
 
-type SetAgentMemoryRequestObject struct {
+type SetProfileMemoryRequestObject struct {
 	Name Name `json:"name"`
-	Body *SetAgentMemoryJSONRequestBody
+	Body *SetProfileMemoryJSONRequestBody
 }
 
-type SetAgentMemoryResponseObject interface {
-	VisitSetAgentMemoryResponse(w http.ResponseWriter) error
+type SetProfileMemoryResponseObject interface {
+	VisitSetProfileMemoryResponse(w http.ResponseWriter) error
 }
 
-type SetAgentMemory200JSONResponse Memory
+type SetProfileMemory200JSONResponse Memory
 
-func (response SetAgentMemory200JSONResponse) VisitSetAgentMemoryResponse(w http.ResponseWriter) error {
+func (response SetProfileMemory200JSONResponse) VisitSetProfileMemoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -92759,12 +94583,12 @@ func (response SetAgentMemory200JSONResponse) VisitSetAgentMemoryResponse(w http
 	return err
 }
 
-type SetAgentMemorydefaultJSONResponse struct {
+type SetProfileMemorydefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response SetAgentMemorydefaultJSONResponse) VisitSetAgentMemoryResponse(w http.ResponseWriter) error {
+func (response SetProfileMemorydefaultJSONResponse) VisitSetProfileMemoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -96455,7 +98279,7 @@ type StrictServerInterface interface {
 	// DeleteBot Remove a Bot that has no chats and no memory; the owner, or the main Bot from its chat
 	// (DELETE /bots/{bot_id})
 	DeleteBot(ctx context.Context, request DeleteBotRequestObject) (DeleteBotResponseObject, error)
-	// GetBot A Bot, with its persona and memory
+	// GetBot A Bot, with its instructions and memory
 	// (GET /bots/{bot_id})
 	GetBot(ctx context.Context, request GetBotRequestObject) (GetBotResponseObject, error)
 	// RenameBot Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
@@ -96464,12 +98288,18 @@ type StrictServerInterface interface {
 	// PutBot Change a Bot's settings; the owner, or the main Bot from its chat
 	// (PUT /bots/{bot_id})
 	PutBot(ctx context.Context, request PutBotRequestObject) (PutBotResponseObject, error)
+	// GetBotMemory A Bot's memory, the same in every chat with it
+	// (GET /bots/{bot_id}/memory)
+	GetBotMemory(ctx context.Context, request GetBotMemoryRequestObject) (GetBotMemoryResponseObject, error)
 	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
 	// (POST /bots/{bot_id}/memory)
 	ChangeBotMemory(ctx context.Context, request ChangeBotMemoryRequestObject) (ChangeBotMemoryResponseObject, error)
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{bot_id}/memory)
 	SetBotMemory(ctx context.Context, request SetBotMemoryRequestObject) (SetBotMemoryResponseObject, error)
+	// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+	// (PUT /bots/{bot_id}/repos)
+	SetBotRepos(ctx context.Context, request SetBotReposRequestObject) (SetBotReposResponseObject, error)
 	// PutRoutine Make a Routine of a Bot, or change the one of that name
 	// (PUT /bots/{bot_id}/routines/{routine})
 	PutRoutine(ctx context.Context, request PutRoutineRequestObject) (PutRoutineResponseObject, error)
@@ -96479,6 +98309,12 @@ type StrictServerInterface interface {
 	// ListBotTools The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 	// (GET /bots/{bot_id}/tools)
 	ListBotTools(ctx context.Context, request ListBotToolsRequestObject) (ListBotToolsResponseObject, error)
+	// ListBotVersions A Bot's saved settings, newest first
+	// (GET /bots/{bot_id}/versions)
+	ListBotVersions(ctx context.Context, request ListBotVersionsRequestObject) (ListBotVersionsResponseObject, error)
+	// RestoreBotVersion Save one of a Bot's versions again; the owner, or the main Bot from its chat
+	// (POST /bots/{bot_id}/versions/{version_id}/restore)
+	RestoreBotVersion(ctx context.Context, request RestoreBotVersionRequestObject) (RestoreBotVersionResponseObject, error)
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	// (GET /browser)
 	GetBrowser(ctx context.Context, request GetBrowserRequestObject) (GetBrowserResponseObject, error)
@@ -96923,6 +98759,9 @@ type StrictServerInterface interface {
 	// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
 	// (POST /integrations/{integration}/sign-ins/{sign_in_id})
 	CompleteIntegrationSignIn(ctx context.Context, request CompleteIntegrationSignInRequestObject) (CompleteIntegrationSignInResponseObject, error)
+	// AnswerIntegrationSignIn Answer what a linking in progress asks; only the owner
+	// (POST /integrations/{integration}/sign-ins/{sign_in_id}/answer)
+	AnswerIntegrationSignIn(ctx context.Context, request AnswerIntegrationSignInRequestObject) (AnswerIntegrationSignInResponseObject, error)
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	// (GET /machine-providers)
 	ListMachineProviders(ctx context.Context, request ListMachineProvidersRequestObject) (ListMachineProvidersResponseObject, error)
@@ -97052,15 +98891,15 @@ type StrictServerInterface interface {
 	// ApplyProfile Store a profile's YAML; the owner, or the main Bot from its chat
 	// (PUT /profiles/{name})
 	ApplyProfile(ctx context.Context, request ApplyProfileRequestObject) (ApplyProfileResponseObject, error)
-	// GetAgentMemory An agent's memory, shared by all its workers
+	// GetProfileMemory A profile's memory, shared by all its workers
 	// (GET /profiles/{name}/memory)
-	GetAgentMemory(ctx context.Context, request GetAgentMemoryRequestObject) (GetAgentMemoryResponseObject, error)
-	// ChangeAgentMemory Add, replace or remove one entry of an agent's memory; only the owner
+	GetProfileMemory(ctx context.Context, request GetProfileMemoryRequestObject) (GetProfileMemoryResponseObject, error)
+	// ChangeProfileMemory Add, replace or remove one entry of a profile's memory; only the owner
 	// (POST /profiles/{name}/memory)
-	ChangeAgentMemory(ctx context.Context, request ChangeAgentMemoryRequestObject) (ChangeAgentMemoryResponseObject, error)
-	// SetAgentMemory Replace an agent's whole memory with the owner's text; only the owner
+	ChangeProfileMemory(ctx context.Context, request ChangeProfileMemoryRequestObject) (ChangeProfileMemoryResponseObject, error)
+	// SetProfileMemory Replace a profile's whole memory with the owner's text; only the owner
 	// (PUT /profiles/{name}/memory)
-	SetAgentMemory(ctx context.Context, request SetAgentMemoryRequestObject) (SetAgentMemoryResponseObject, error)
+	SetProfileMemory(ctx context.Context, request SetProfileMemoryRequestObject) (SetProfileMemoryResponseObject, error)
 	// ListProfileVersions A profile's versions, newest first
 	// (GET /profiles/{name}/versions)
 	ListProfileVersions(ctx context.Context, request ListProfileVersionsRequestObject) (ListProfileVersionsResponseObject, error)
@@ -98315,6 +100154,32 @@ func (sh *strictHandler) PutBot(w http.ResponseWriter, r *http.Request, botId Bo
 	}
 }
 
+// GetBotMemory operation middleware
+func (sh *strictHandler) GetBotMemory(w http.ResponseWriter, r *http.Request, botId BotID) {
+	var request GetBotMemoryRequestObject
+
+	request.BotId = botId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBotMemory(ctx, request.(GetBotMemoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBotMemory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBotMemoryResponseObject); ok {
+		if err := validResponse.VisitGetBotMemoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ChangeBotMemory operation middleware
 func (sh *strictHandler) ChangeBotMemory(w http.ResponseWriter, r *http.Request, botId BotID) {
 	var request ChangeBotMemoryRequestObject
@@ -98374,6 +100239,39 @@ func (sh *strictHandler) SetBotMemory(w http.ResponseWriter, r *http.Request, bo
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetBotMemoryResponseObject); ok {
 		if err := validResponse.VisitSetBotMemoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetBotRepos operation middleware
+func (sh *strictHandler) SetBotRepos(w http.ResponseWriter, r *http.Request, botId BotID) {
+	var request SetBotReposRequestObject
+
+	request.BotId = botId
+
+	var body SetBotReposJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetBotRepos(ctx, request.(SetBotReposRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetBotRepos")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetBotReposResponseObject); ok {
+		if err := validResponse.VisitSetBotReposResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -98460,6 +100358,59 @@ func (sh *strictHandler) ListBotTools(w http.ResponseWriter, r *http.Request, bo
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListBotToolsResponseObject); ok {
 		if err := validResponse.VisitListBotToolsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBotVersions operation middleware
+func (sh *strictHandler) ListBotVersions(w http.ResponseWriter, r *http.Request, botId BotID) {
+	var request ListBotVersionsRequestObject
+
+	request.BotId = botId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBotVersions(ctx, request.(ListBotVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBotVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBotVersionsResponseObject); ok {
+		if err := validResponse.VisitListBotVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreBotVersion operation middleware
+func (sh *strictHandler) RestoreBotVersion(w http.ResponseWriter, r *http.Request, botId BotID, versionId string) {
+	var request RestoreBotVersionRequestObject
+
+	request.BotId = botId
+	request.VersionId = versionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreBotVersion(ctx, request.(RestoreBotVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreBotVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreBotVersionResponseObject); ok {
+		if err := validResponse.VisitRestoreBotVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -102793,6 +104744,40 @@ func (sh *strictHandler) CompleteIntegrationSignIn(w http.ResponseWriter, r *htt
 	}
 }
 
+// AnswerIntegrationSignIn operation middleware
+func (sh *strictHandler) AnswerIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string) {
+	var request AnswerIntegrationSignInRequestObject
+
+	request.Integration = integration
+	request.SignInId = signInId
+
+	var body AnswerIntegrationSignInJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AnswerIntegrationSignIn(ctx, request.(AnswerIntegrationSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AnswerIntegrationSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AnswerIntegrationSignInResponseObject); ok {
+		if err := validResponse.VisitAnswerIntegrationSignInResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListMachineProviders operation middleware
 func (sh *strictHandler) ListMachineProviders(w http.ResponseWriter, r *http.Request) {
 	var request ListMachineProvidersRequestObject
@@ -103994,25 +105979,25 @@ func (sh *strictHandler) ApplyProfile(w http.ResponseWriter, r *http.Request, na
 	}
 }
 
-// GetAgentMemory operation middleware
-func (sh *strictHandler) GetAgentMemory(w http.ResponseWriter, r *http.Request, name Name) {
-	var request GetAgentMemoryRequestObject
+// GetProfileMemory operation middleware
+func (sh *strictHandler) GetProfileMemory(w http.ResponseWriter, r *http.Request, name Name) {
+	var request GetProfileMemoryRequestObject
 
 	request.Name = name
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetAgentMemory(ctx, request.(GetAgentMemoryRequestObject))
+		return sh.ssi.GetProfileMemory(ctx, request.(GetProfileMemoryRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetAgentMemory")
+		handler = middleware(handler, "GetProfileMemory")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetAgentMemoryResponseObject); ok {
-		if err := validResponse.VisitGetAgentMemoryResponse(w); err != nil {
+	} else if validResponse, ok := response.(GetProfileMemoryResponseObject); ok {
+		if err := validResponse.VisitGetProfileMemoryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -104020,13 +106005,13 @@ func (sh *strictHandler) GetAgentMemory(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-// ChangeAgentMemory operation middleware
-func (sh *strictHandler) ChangeAgentMemory(w http.ResponseWriter, r *http.Request, name Name) {
-	var request ChangeAgentMemoryRequestObject
+// ChangeProfileMemory operation middleware
+func (sh *strictHandler) ChangeProfileMemory(w http.ResponseWriter, r *http.Request, name Name) {
+	var request ChangeProfileMemoryRequestObject
 
 	request.Name = name
 
-	var body ChangeAgentMemoryJSONRequestBody
+	var body ChangeProfileMemoryJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
@@ -104034,18 +106019,18 @@ func (sh *strictHandler) ChangeAgentMemory(w http.ResponseWriter, r *http.Reques
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ChangeAgentMemory(ctx, request.(ChangeAgentMemoryRequestObject))
+		return sh.ssi.ChangeProfileMemory(ctx, request.(ChangeProfileMemoryRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ChangeAgentMemory")
+		handler = middleware(handler, "ChangeProfileMemory")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ChangeAgentMemoryResponseObject); ok {
-		if err := validResponse.VisitChangeAgentMemoryResponse(w); err != nil {
+	} else if validResponse, ok := response.(ChangeProfileMemoryResponseObject); ok {
+		if err := validResponse.VisitChangeProfileMemoryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -104053,13 +106038,13 @@ func (sh *strictHandler) ChangeAgentMemory(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// SetAgentMemory operation middleware
-func (sh *strictHandler) SetAgentMemory(w http.ResponseWriter, r *http.Request, name Name) {
-	var request SetAgentMemoryRequestObject
+// SetProfileMemory operation middleware
+func (sh *strictHandler) SetProfileMemory(w http.ResponseWriter, r *http.Request, name Name) {
+	var request SetProfileMemoryRequestObject
 
 	request.Name = name
 
-	var body SetAgentMemoryJSONRequestBody
+	var body SetProfileMemoryJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
@@ -104067,18 +106052,18 @@ func (sh *strictHandler) SetAgentMemory(w http.ResponseWriter, r *http.Request, 
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SetAgentMemory(ctx, request.(SetAgentMemoryRequestObject))
+		return sh.ssi.SetProfileMemory(ctx, request.(SetProfileMemoryRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SetAgentMemory")
+		handler = middleware(handler, "SetProfileMemory")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SetAgentMemoryResponseObject); ok {
-		if err := validResponse.VisitSetAgentMemoryResponse(w); err != nil {
+	} else if validResponse, ok := response.(SetProfileMemoryResponseObject); ok {
+		if err := validResponse.VisitSetProfileMemoryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

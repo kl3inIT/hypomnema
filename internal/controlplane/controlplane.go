@@ -35,6 +35,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/telegram"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/zalo"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
@@ -361,7 +362,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	})
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),
-		integration.Zalo())
+		integration.Zalo(), integration.Telegram())
 
 	// The owner's WhatsApp, linked as a device of his (issue #615): its sessions are whatsmeow's, in a database
 	// of their own beside this one, and are opened again as the control plane starts.
@@ -382,6 +383,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 		integrations.WithDevices(integration.ZaloID, zl)
 	}
+
+	// The owner's Telegram (issue #1184): gotd's user client in process, its session and chats in telegram.db; it
+	// links once his api_id and api_hash are in the vault.
+	tgm, err := telegram.Open(ctx, filepath.Join(filepath.Dir(cfg.Database.Path), "telegram.db"), secrets, logger)
+	if err != nil {
+		return err
+	}
+	defer tgm.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
+
+	integrations.WithDevices(integration.TelegramID, tgm.Device())
 
 	if err := integrations.OpenDevices(ctx); err != nil {
 		logger.WarnContext(ctx, "a linked account's session could not be opened", slog.String("error", err.Error()))
@@ -561,6 +572,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 			return token.Value, err == nil && ok
 		},
+		// A review the App makes through it is its Bot's attempt's work (issue #1232).
+		AppReviews: appReviews{svc: svc, logger: logger},
 		// A request to AWS is signed again with the session of the role it was made for (issue #331).
 		AWS: integrations.RoleCredentials,
 		// A Connection that has its own address (Superset) is sent a relayed request by the service that signs
@@ -968,6 +981,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		pusher.Run(ctx)
 	}()
 
+	// The GitHub App's calls are answered on GitHub once their Inbox item closes (issue #1232).
+	callsDone := make(chan struct{})
+
+	go func() {
+		defer close(callsDone)
+
+		app.Run(ctx)
+	}()
+
 	// `hypomnema update` waits for Bots' turns, tool calls and video renders (issues #716, #1060, #1328).
 	controlDone := make(chan struct{})
 
@@ -984,6 +1006,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	cancel(nil)
 	<-controlDone
 	<-pushDone
+	<-callsDone
 	<-pprofDone
 	<-browserDone
 	<-meetingsDone
@@ -1245,4 +1268,30 @@ func backgroundBeside(coordinator []string) []string {
 	out[len(out)-1] = filepath.Join(filepath.Dir(coordinator[len(coordinator)-1]), "hypomnema-background")
 
 	return out
+}
+
+// appReviews ties a review the owner's GitHub App makes through the service proxy to the Inbox attempt it is made in,
+// as its Bot's work (issue #1232, review rounds 2 and 3 of PR #1323). A review it cannot record is only logged: GitHub
+// has it, and the Bot is told that inbox_done refuses it.
+type appReviews struct {
+	svc    *orchestration.Service
+	logger *slog.Logger
+}
+
+func (a appReviews) AppReviewAttempt(ctx context.Context, chat, bot, repository string, number int) (string, error) {
+	return a.svc.AppReviewAttempt(ctx, chat, bot, repository, number)
+}
+
+func (a appReviews) AppReviewed(ctx context.Context, r serviceproxy.AppReview) {
+	recorded, err := a.svc.RecordAppReview(ctx, r.Chat, r.Bot, r.Attempt, r.Repository, r.Number, r.ID, r.URL)
+	if err != nil {
+		a.logger.WarnContext(ctx, "a review the GitHub App made could not be recorded",
+			slog.String("event", "githubapp.review_failed"), slog.String("repository", r.Repository),
+			slog.String("error", err.Error()))
+
+		return
+	}
+
+	a.logger.InfoContext(ctx, "the GitHub App made a review", slog.String("event", "githubapp.reviewed"),
+		slog.String("repository", r.Repository), slog.Int("number", r.Number), slog.Bool("recorded", recorded))
 }

@@ -30,7 +30,7 @@ SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_w
     done_by = @done_by, recorded_by_kind = @recorded_by_kind, recorded_by = @recorded_by, closed_how = @closed_how,
     close_reason = @close_reason, evidence = @evidence, closed_at = @closed_at, duplicate_of = @duplicate_of,
     priority = @priority, priority_reason = @priority_reason, project_id = @project_id, why_open = @why_open,
-    updated_at = @now
+    not_passed = @not_passed, updated_at = @now
 WHERE id = @id AND revision = @revision AND state = @from_state;
 
 -- name: GetTodoOfApproval :one
@@ -239,3 +239,40 @@ SET department_id = excluded.department_id, todo_id = excluded.todo_id, updated_
 -- The owner took an item read in a chat out of any department: the chat is in none.
 DELETE FROM todo_chat_departments
 WHERE source_kind = @source_kind AND source_account = @source_account AND source_id = @source_id;
+
+-- name: LatestTodoOfSource :one
+-- The newest item of a source, closed or not (issue #1232): the item of an issue's or pull request's calls.
+SELECT * FROM todos WHERE source_kind = @source_kind AND source_id = @source_id
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
+-- name: GetTodoGitHubCall :one
+-- A call of the GitHub App by its delivery (issue #1232): one delivered again is handled once.
+SELECT * FROM todo_github_calls WHERE delivery = @delivery;
+
+-- name: InsertTodoGitHubCall :exec
+INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url,
+                               created_at)
+VALUES (@delivery, @todo_id, @repository, @number, @kind, @comment_id, @reply_to, @login, @url, @now);
+
+-- name: ListGitHubCallsToReply :many
+-- The calls not answered yet whose item closed, or whose close a reopen kept (closed_state), oldest first (issue
+-- #1232): the control plane answers each close of an item's on GitHub with its outcome.
+SELECT c.* FROM todo_github_calls c
+JOIN todos t ON t.id = c.todo_id
+WHERE c.replied_at IS NULL AND (c.closed_state IS NOT NULL OR t.state IN ('done', 'dropped', 'duplicate'))
+ORDER BY c.created_at, c.delivery
+LIMIT @lim;
+
+-- name: SetGitHubCallsReplied :execrows
+-- The calls a reply on GitHub answered, by their deliveries (a JSON array), with the reply's address.
+UPDATE todo_github_calls SET replied_at = CAST(@now AS INTEGER), reply_url = @reply_url
+WHERE replied_at IS NULL AND delivery IN (SELECT value FROM json_each(CAST(@deliveries AS TEXT)));
+
+-- name: KeepGitHubReplyClose :exec
+-- A call reopens an item whose earlier close is still to be answered on GitHub: the calls waiting keep that close,
+-- so the reopen drops no reply (review of PR #1323).
+UPDATE todo_github_calls
+SET closed_revision = @closed_revision, closed_state = @closed_state, closed_reason = @closed_reason,
+    closed_evidence = @closed_evidence
+WHERE todo_id = @todo_id AND replied_at IS NULL AND closed_state IS NULL;

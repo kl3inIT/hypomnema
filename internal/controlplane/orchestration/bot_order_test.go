@@ -48,7 +48,7 @@ func TestTheOwnerOrdersHisBots(t *testing.T) {
 
 	assert.Equal(t, []string{main, c, d, a, b}, botOrder(t, w), "a refused reorder changes nothing")
 
-	changed, err := w.s.PutBot(ctx, Bot{ID: d, Persona: "You keep the maps."})
+	changed, err := w.s.PutBot(ctx, Bot{ID: d, AgentSpec: AgentSpec{Instructions: "You keep the maps."}})
 	require.NoError(t, err)
 	assert.Equal(t, 2, changed.Position, "a change of its settings keeps its place")
 

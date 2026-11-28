@@ -224,6 +224,10 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 				"pass_to": map[string]any{"type": "string", "description": "Give it to this Bot, by its id; it is " +
 					"woken with it. The main Bot passes it to the project Bot whose accounts or context the work " +
 					"needs; a project Bot gives it back only to the main Bot."},
+				"not_passed": map[string]any{"type": "string", "maxLength": inboxstore.MaxReason, "description": "" +
+					"The main Bot only, on an item it has: why it passes it to no project Bot, when the work needs " +
+					"one and none fits; the item stays with it and the Inbox shows it as not passed, with this " +
+					"reason. Not with pass_to or hand_back."},
 				"waiting_on": waitingOnSchema(true),
 				// One item from the ask to the work to done (issue #1206).
 				"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.Promised}, "description": "" +
@@ -238,8 +242,9 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
 		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did on it in this attempt, " +
 			"only for your own work (the Run you started from the item's chat, that Run's pull request, your " +
-			"comment on it with the file you made, comment by its revision, or the message you sent for it with " +
-			"its account and chat), never his answer or a link he gave; with for_owner, his own message that he " +
+			"comment on it with the file you made, comment by its revision, the message you sent for it with " +
+			"its account and chat, or the review the GitHub App left on its pull request, url by its address), " +
+			"never his answer or a link he gave; with for_owner, his own message that he " +
 			"did it (his comment on the item, comment by its " +
 			"revision; in this chat; or one he sent after it was made in the item's Zalo, " +
 			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
@@ -349,6 +354,7 @@ type inboxArgs struct {
 	Timezone       string  `json:"timezone"`
 	HandBack       bool    `json:"hand_back"`
 	PassTo         string  `json:"pass_to"`
+	NotPassed      string  `json:"not_passed"`
 	// inbox_add.
 	AssigneeKind string `json:"assignee_kind"`
 	Assignee     string `json:"assignee"`
@@ -881,6 +887,10 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 
 		pass := strings.TrimSpace(in.PassTo)
 
+		if in.NotPassed != "" {
+			e.NotPassed = &in.NotPassed
+		}
+
 		switch {
 		case in.HandBack && pass != "":
 			return nil, fmt.Errorf("%w: hand_back or pass_to, not both", orchestration.ErrInvalid)
@@ -1005,6 +1015,7 @@ type todoOut struct {
 	Due         string            `json:"due,omitempty"`
 	Assignee    string            `json:"assignee"`
 	PassedBy    string            `json:"passed_by,omitempty"`
+	NotPassed   string            `json:"not_passed,omitempty"`
 	Priority    string            `json:"priority,omitempty"`
 	PriorityWhy string            `json:"priority_reason,omitempty"`
 	Project     string            `json:"project,omitempty"`
@@ -1067,6 +1078,8 @@ func todoView(t inboxstore.Todo, events bool, projects map[string]string) todoOu
 		out.PassedBy = who(inboxstore.Bot, t.PassedBy)
 	}
 
+	out.NotPassed = t.NotPassed
+
 	if t.Priority > inboxstore.NoPriority && t.Priority < len(inboxstore.PriorityNames) {
 		out.Priority, out.PriorityWhy = inboxstore.PriorityNames[t.Priority], t.PriorityReason
 	}
@@ -1113,7 +1126,7 @@ func val[T any](p *T) T {
 }
 
 // chatsOfInboxChats are the services whose chats inbox_chats names, those the triage's check reads.
-var chatsOfInboxChats = []string{"zalo", "whatsapp", "lark"}
+var chatsOfInboxChats = []string{"zalo", "whatsapp", "telegram", "lark"}
 
 // readsChatChoices says whether the agent is given inbox_chats (issue #1270): a Bot's pi, and the check of its
 // Routine, which has no chat and so none of the Inbox's other tools; never a worker.
@@ -1128,7 +1141,8 @@ func inboxChatsTool(a agent) []agenttool.BrowserTool {
 	return []agenttool.BrowserTool{{
 		Name: agenttool.ToolInboxChats,
 		Description: "List the owner's choices of which of his chats the secretary reads: each chat of his " +
-			"accounts you may read (zalo:<label>, whatsapp:<label>, lark:<label>) that he switched off or on, and " +
+			"accounts you may read (zalo:<label>, whatsapp:<label>, telegram:<label>, lark:<label>) that he switched " +
+			"off or on, and " +
 			"the default of every other chat (direct chats and groups read; a bot's or an official account's, by " +
 			"bot_patterns on its name or id, skipped). Use it in the triage's check to leave out the chats he " +
 			"switched off; such a chat is still read with your tools when he asks.",

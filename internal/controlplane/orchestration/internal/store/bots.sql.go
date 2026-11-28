@@ -30,6 +30,17 @@ func (q *Queries) CloseDepartmentPosition(ctx context.Context, position int64) e
 	return err
 }
 
+const countBotVersions = `-- name: CountBotVersions :one
+SELECT count(*) FROM bot_versions WHERE bot_id = ?1
+`
+
+func (q *Queries) CountBotVersions(ctx context.Context, botID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countBotVersions, botID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countRepliesOfBotSince = `-- name: CountRepliesOfBotSince :one
 SELECT count(*) FROM chat_messages m JOIN chats c ON c.id = m.chat_id
 WHERE c.bot_id = ?1 AND m.role = 'coordinator' AND m.created_at >= ?2 AND m.chat_id <> ?3
@@ -68,6 +79,15 @@ func (q *Queries) DeleteDepartment(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteReposOfBot = `-- name: DeleteReposOfBot :exec
+DELETE FROM bot_repos WHERE bot_id = ?1
+`
+
+func (q *Queries) DeleteReposOfBot(ctx context.Context, botID string) error {
+	_, err := q.db.ExecContext(ctx, deleteReposOfBot, botID)
+	return err
+}
+
 const forgetRemovedBotName = `-- name: ForgetRemovedBotName :exec
 DELETE FROM removed_bots WHERE id = ?1
 `
@@ -79,7 +99,7 @@ func (q *Queries) ForgetRemovedBotName(ctx context.Context, id string) error {
 }
 
 const getBot = `-- name: GetBot :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots WHERE id = ?1
+SELECT id, provider, model, effort, instructions, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots WHERE id = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -90,7 +110,7 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.Provider,
 		&i.Model,
 		&i.Effort,
-		&i.Persona,
+		&i.Instructions,
 		&i.Memory,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -110,6 +130,32 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.MainChat,
 		&i.Department,
 		&i.OwnerAccounts,
+	)
+	return i, err
+}
+
+const getBotVersion = `-- name: GetBotVersion :one
+SELECT id, bot_id, version, settings, source, saved_by, chat_id, restored_from, created_at FROM bot_versions WHERE id = ?1 AND bot_id = ?2
+`
+
+type GetBotVersionParams struct {
+	ID    string
+	BotID string
+}
+
+func (q *Queries) GetBotVersion(ctx context.Context, arg GetBotVersionParams) (BotVersion, error) {
+	row := q.db.QueryRowContext(ctx, getBotVersion, arg.ID, arg.BotID)
+	var i BotVersion
+	err := row.Scan(
+		&i.ID,
+		&i.BotID,
+		&i.Version,
+		&i.Settings,
+		&i.Source,
+		&i.SavedBy,
+		&i.ChatID,
+		&i.RestoredFrom,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -152,7 +198,7 @@ func (q *Queries) GetSetupChange(ctx context.Context, id string) (SetupChange, e
 }
 
 const insertBot = `-- name: InsertBot :exec
-INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, tools, tools_off, connections,
+INSERT INTO bots (id, name, provider, model, effort, instructions, skills, skills_off, tools, tools_off, connections,
                   workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at, fallbacks,
                   owner_accounts)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
@@ -166,7 +212,7 @@ type InsertBotParams struct {
 	Provider             sql.NullString
 	Model                sql.NullString
 	Effort               sql.NullString
-	Persona              string
+	Instructions         string
 	Skills               string
 	SkillsOff            string
 	Tools                string
@@ -190,7 +236,7 @@ func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
 		arg.Provider,
 		arg.Model,
 		arg.Effort,
-		arg.Persona,
+		arg.Instructions,
 		arg.Skills,
 		arg.SkillsOff,
 		arg.Tools,
@@ -204,6 +250,60 @@ func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
 		arg.Now,
 		arg.Fallbacks,
 		arg.OwnerAccounts,
+	)
+	return err
+}
+
+const insertBotRepo = `-- name: InsertBotRepo :exec
+INSERT INTO bot_repos (host, path, bot_id, created_at) VALUES (?1, ?2, ?3, ?4)
+`
+
+type InsertBotRepoParams struct {
+	Host  string
+	Path  string
+	BotID string
+	Now   int64
+}
+
+// A repository has at most one owning Bot: a second claim breaks the key.
+func (q *Queries) InsertBotRepo(ctx context.Context, arg InsertBotRepoParams) error {
+	_, err := q.db.ExecContext(ctx, insertBotRepo,
+		arg.Host,
+		arg.Path,
+		arg.BotID,
+		arg.Now,
+	)
+	return err
+}
+
+const insertBotVersion = `-- name: InsertBotVersion :exec
+INSERT INTO bot_versions (id, bot_id, version, settings, source, saved_by, chat_id, restored_from, created_at)
+VALUES (?1, ?2, (SELECT coalesce(max(version), 0) + 1 FROM bot_versions WHERE bot_id = ?2), ?3,
+        ?4, ?5, ?6, ?7, ?8)
+`
+
+type InsertBotVersionParams struct {
+	ID           string
+	BotID        string
+	Settings     string
+	Source       string
+	SavedBy      sql.NullString
+	ChatID       sql.NullString
+	RestoredFrom sql.NullString
+	Now          int64
+}
+
+// One save of a Bot's settings (issue #1336); its number follows the Bot's last.
+func (q *Queries) InsertBotVersion(ctx context.Context, arg InsertBotVersionParams) error {
+	_, err := q.db.ExecContext(ctx, insertBotVersion,
+		arg.ID,
+		arg.BotID,
+		arg.Settings,
+		arg.Source,
+		arg.SavedBy,
+		arg.ChatID,
+		arg.RestoredFrom,
+		arg.Now,
 	)
 	return err
 }
@@ -361,8 +461,78 @@ func (q *Queries) ListBotModels(ctx context.Context) ([]ListBotModelsRow, error)
 	return items, nil
 }
 
+const listBotRepos = `-- name: ListBotRepos :many
+SELECT host, path, bot_id, created_at FROM bot_repos ORDER BY bot_id, host, path
+`
+
+// Every repository a Bot owns (issue #1334), by Bot and then by repository.
+func (q *Queries) ListBotRepos(ctx context.Context) ([]BotRepo, error) {
+	rows, err := q.db.QueryContext(ctx, listBotRepos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BotRepo{}
+	for rows.Next() {
+		var i BotRepo
+		if err := rows.Scan(
+			&i.Host,
+			&i.Path,
+			&i.BotID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBotVersions = `-- name: ListBotVersions :many
+SELECT id, bot_id, version, settings, source, saved_by, chat_id, restored_from, created_at FROM bot_versions WHERE bot_id = ?1 ORDER BY version DESC
+`
+
+func (q *Queries) ListBotVersions(ctx context.Context, botID string) ([]BotVersion, error) {
+	rows, err := q.db.QueryContext(ctx, listBotVersions, botID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BotVersion{}
+	for rows.Next() {
+		var i BotVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.BotID,
+			&i.Version,
+			&i.Settings,
+			&i.Source,
+			&i.SavedBy,
+			&i.ChatID,
+			&i.RestoredFrom,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBots = `-- name: ListBots :many
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots ORDER BY created_at, name
+SELECT id, provider, model, effort, instructions, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -379,7 +549,7 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.Provider,
 			&i.Model,
 			&i.Effort,
-			&i.Persona,
+			&i.Instructions,
 			&i.Memory,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -472,6 +642,38 @@ func (q *Queries) ListRemovedBots(ctx context.Context) ([]RemovedBot, error) {
 	return items, nil
 }
 
+const listReposOfBot = `-- name: ListReposOfBot :many
+SELECT host, path, bot_id, created_at FROM bot_repos WHERE bot_id = ?1 ORDER BY host, path
+`
+
+func (q *Queries) ListReposOfBot(ctx context.Context, botID string) ([]BotRepo, error) {
+	rows, err := q.db.QueryContext(ctx, listReposOfBot, botID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BotRepo{}
+	for rows.Next() {
+		var i BotRepo
+		if err := rows.Scan(
+			&i.Host,
+			&i.Path,
+			&i.BotID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSetupChangesOfChat = `-- name: ListSetupChangesOfChat :many
 SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE chat_id = ?1 ORDER BY created_at, rowid
 `
@@ -522,6 +724,28 @@ type MarkSetupChangeUndoneParams struct {
 func (q *Queries) MarkSetupChangeUndone(ctx context.Context, arg MarkSetupChangeUndoneParams) error {
 	_, err := q.db.ExecContext(ctx, markSetupChangeUndone, arg.Now, arg.ID)
 	return err
+}
+
+const ownerOfRepo = `-- name: OwnerOfRepo :one
+SELECT r.bot_id, b.name FROM bot_repos r JOIN bots b ON b.id = r.bot_id WHERE r.host = ?1 AND r.path = ?2
+`
+
+type OwnerOfRepoParams struct {
+	Host string
+	Path string
+}
+
+type OwnerOfRepoRow struct {
+	BotID string
+	Name  string
+}
+
+// The Bot that owns a repository, with its name; the path compares without case.
+func (q *Queries) OwnerOfRepo(ctx context.Context, arg OwnerOfRepoParams) (OwnerOfRepoRow, error) {
+	row := q.db.QueryRowContext(ctx, ownerOfRepo, arg.Host, arg.Path)
+	var i OwnerOfRepoRow
+	err := row.Scan(&i.BotID, &i.Name)
+	return i, err
 }
 
 const renameBot = `-- name: RenameBot :execrows
@@ -650,7 +874,7 @@ func (q *Queries) ToolDisplayOfChat(ctx context.Context, chatID string) (string,
 }
 
 const updateBot = `-- name: UpdateBot :exec
-UPDATE bots SET provider = ?1, model = ?2, effort = ?3, persona = ?4, skills = ?5,
+UPDATE bots SET provider = ?1, model = ?2, effort = ?3, instructions = ?4, skills = ?5,
     skills_off = ?6, tools = ?7, tools_off = ?8, connections = ?9, workers = ?10, tool_display = ?11,
     connection_scopes = ?12, guaranteed_dispatches = ?13, preset = ?14, updated_at = ?15,
     fallbacks = ?16
@@ -661,7 +885,7 @@ type UpdateBotParams struct {
 	Provider             sql.NullString
 	Model                sql.NullString
 	Effort               sql.NullString
-	Persona              string
+	Instructions         string
 	Skills               string
 	SkillsOff            string
 	Tools                string
@@ -683,7 +907,7 @@ func (q *Queries) UpdateBot(ctx context.Context, arg UpdateBotParams) error {
 		arg.Provider,
 		arg.Model,
 		arg.Effort,
-		arg.Persona,
+		arg.Instructions,
 		arg.Skills,
 		arg.SkillsOff,
 		arg.Tools,

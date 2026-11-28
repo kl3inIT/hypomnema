@@ -7,14 +7,18 @@ import {
   getBotQueryKey,
   listBotsOptions,
   listBotsQueryKey,
+  listBotVersionsOptions,
+  listBotVersionsQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
 import {
   createBot,
   deleteBot,
   putBot,
   renameBot,
+  restoreBotVersion,
   reorderBots as putBotOrder,
   setBotMemory,
+  setBotRepos,
 } from "@/api/generated/sdk.gen"
 import type { Bot, BotList, BotSettings } from "@/api/generated/types.gen"
 import { callsOf } from "@/lib/query-keys"
@@ -27,7 +31,7 @@ import { botNameOf, mainBotOf } from "./bots-state"
 // chat, without an event.
 const whileOpen = 10_000
 
-// useBots reads every Bot, with its persona and memory.
+// useBots reads every Bot, with its instructions and memory.
 export function useBots() {
   return useQuery({
     ...listBotsOptions(),
@@ -81,12 +85,17 @@ function useSaved() {
 
   return (bot: Bot) => {
     queryClient.setQueryData(getBotQueryKey({ path: { bot_id: bot.id } }), bot)
+    // A save that changed the settings kept a version (issue #1336).
+    void queryClient.invalidateQueries({
+      queryKey: listBotVersionsQueryKey({ path: { bot_id: bot.id } }),
+    })
 
     return refresh()
   }
 }
 
-// usePutBot makes a Bot, when it has no id, or replaces its model, effort and persona; its name and memory stay.
+// usePutBot makes a Bot, when it has no id, or replaces its model, effort and instructions; its name and memory
+// stay.
 // putBotKey marks every save of a Bot, so that one part of its page waits while another part saves: each PUT
 // carries the whole of the Bot's settings.
 export const putBotKey = ["put-bot"] as const
@@ -184,13 +193,33 @@ export function useSetMainChat() {
   )
 }
 
-// useSetBotMemory replaces a Bot's whole memory with the owner's text, a line an entry.
+// useSetBotMemory replaces a Bot's whole memory with the owner's text, a line an entry. The server answers with the
+// memory as kept, in the shape a profile's has (issue #1336), which goes into the cached Bot.
 export function useSetBotMemory() {
-  const saved = useSaved()
+  const queryClient = useQueryClient()
+  const refresh = useRefreshBots()
 
   return useMutation({
     mutationFn: async ({ id, memory }: { id: string; memory: string }) =>
       (await setBotMemory({ path: { bot_id: id }, body: { memory } })).data,
+    onSuccess: (kept, { id }) => {
+      queryClient.setQueryData(getBotQueryKey({ path: { bot_id: id } }), (bot: Bot | undefined) =>
+        bot ? { ...bot, memory: kept.memory } : bot,
+      )
+
+      return refresh()
+    },
+  })
+}
+
+// useSetBotRepos replaces the repositories whose work a Bot owns (issue #1334): a Run created on one goes to its chat.
+// The server refuses a repository another Bot owns, naming that Bot.
+export function useSetBotRepos() {
+  const saved = useSaved()
+
+  return useMutation({
+    mutationFn: async ({ id, repos }: { id: string; repos: string[] }) =>
+      (await setBotRepos({ path: { bot_id: id }, body: { repos } })).data,
     onSuccess: saved,
   })
 }
@@ -202,5 +231,25 @@ export function useDeleteBot() {
     mutationFn: async ({ id, force = false }: { id: string; force?: boolean }) => {
       await deleteBot({ path: { bot_id: id }, query: force ? { force } : undefined })
     },
+  })
+}
+
+// useBotVersions reads a Bot's saved settings, newest first (issue #1336).
+export function useBotVersions(id: string) {
+  return useQuery({
+    ...listBotVersionsOptions({ path: { bot_id: id } }),
+    select: (page) => page.data,
+  })
+}
+
+// useRestoreBotVersion saves one of a Bot's versions again, as a new version restored from it; the server answers
+// with the Bot, which goes in the cache as a save's does.
+export function useRestoreBotVersion() {
+  const saved = useSaved()
+
+  return useMutation({
+    mutationFn: async ({ id, versionId }: { id: string; versionId: string }) =>
+      (await restoreBotVersion({ path: { bot_id: id, version_id: versionId } })).data,
+    onSuccess: saved,
   })
 }

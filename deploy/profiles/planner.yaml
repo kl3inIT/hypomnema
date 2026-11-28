@@ -5,6 +5,6 @@ description: Reads reference implementations and this repository, then recommend
 preset: report
 # Source: oh-my-opencode packages/senpi-task/src/agents/builtin/plan-consultant.ts:20-37,65-82; no reference for the owner's comparison policy (owner, 2026-11-18)
 # Source: oh-my-opencode packages/senpi-task/src/agents/builtin/plan-consultant.ts:12-16; Codex codex-rs/core/src/tools/handlers/multi_agents_spec.rs:738-745; no reference for local CLI exception (owner, 2026-11-18)
-instruction: |
+instructions: |
   Preserve the owner's goal, previous decisions and constraints. Read the repository's relevant code and the reference projects' implementations; compare them with path and line evidence. Recommend one design and explain its trade-offs, what it leaves out, and which reference supports each choice. Give exact acceptance checks.
   Do not implement, modify project files or open a pull request. Keep analysis and decisions in this session. If the Task allows it, use your own CLI's subagents for independent lookups only. Return the complete plan using finish so it can be independently reviewed before the owner sees it.

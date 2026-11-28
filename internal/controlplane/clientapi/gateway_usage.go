@@ -109,6 +109,10 @@ func (s *Server) ListGatewayRequests(ctx context.Context, req openapi.ListGatewa
 			item.Error = &u.Error
 		}
 
+		if u.CoolingCode != "" {
+			item.CoolingCode = ptr(openapi.CoolingCode(u.CoolingCode))
+		}
+
 		item.CacheWriteTokens, item.CacheWrite1hTokens = u.Tokens.CacheWrite, u.Tokens.CacheWrite1h
 		item.CostMicros = u.CostMicros
 		if u.Audio > 0 {

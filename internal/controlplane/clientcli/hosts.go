@@ -1,6 +1,7 @@
 package clientcli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -230,10 +231,23 @@ func reposList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("listing repositories", resp.StatusCode(), resp.JSONDefault)
 	}
 
+	// Each repository's Bot (issue #1334), by its name when the Bots can be read, else by its id.
+	bots := map[string]string{}
+	if listed, err := e.api.ListBotsWithResponse(ctx); err == nil && listed.JSON200 != nil {
+		for _, b := range listed.JSON200.Data {
+			bots[b.Id] = b.Name
+		}
+	}
+
 	return e.print(fs, resp.JSON200, func() {
 		for _, r := range resp.JSON200.Data {
-			e.printf("%s\t%s\t%s\t%s\t%s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String(), val(r.Base),
-				val(r.Connection), val(r.SshUrl))
+			bot := "main bot"
+			if id := val(r.Bot); id != "" {
+				bot = cmp.Or(bots[id], id)
+			}
+
+			e.printf("%s\t%s\t%s\t%s\t%s\tbot: %s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String(),
+				val(r.Base), val(r.Connection), val(r.SshUrl), bot)
 		}
 	})
 }

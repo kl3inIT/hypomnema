@@ -196,7 +196,10 @@ func newVideoRig(t *testing.T) *videoRig {
 	_, coord, err := svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	bot, err := svc.PutBot(ctx, orchestration.Bot{Name: "filmer", Tools: []string{"phone"}})
+	bot, err := svc.PutBot(ctx, orchestration.Bot{
+		Name:      "filmer",
+		AgentSpec: orchestration.AgentSpec{Tools: []string{"phone"}},
+	})
 	require.NoError(t, err)
 
 	chat, err := svc.CreateChat(ctx, bot.ID, "")

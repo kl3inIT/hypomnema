@@ -1,4 +1,4 @@
-import { Brain, Trash2 } from "lucide-react"
+import { Brain } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 
 import type { Model, Profile, ToolAccess } from "@/api/generated/types.gen"
@@ -24,18 +24,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { AvatarName } from "@/components/agent-avatar"
 import { SkillsField } from "@/features/skills/skills-field"
 import { ToolsField } from "@/features/tools/tools-field"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
+import { FallbackModels } from "./fallback-models"
 import { ModelPicker } from "./model-picker"
 import { errorText } from "@/lib/server-error"
 import {
   efforts,
   emptyDraft,
-  maxFallbacks,
   routingRoles,
   modelKey,
   problem,
@@ -46,7 +45,7 @@ import {
   type Draft,
 } from "./profiles-state"
 import { RuntimeMark } from "@/components/icons/runtime-mark"
-import { useApplyProfile, useProfiles } from "./use-profiles"
+import { useApplyProfile } from "./use-profiles"
 
 type Mode = "builder" | "yaml"
 
@@ -357,13 +356,13 @@ function Builder({
       )}
 
       <Field>
-        <FieldLabel htmlFor="profile-instruction">Instructions</FieldLabel>
+        <FieldLabel htmlFor="profile-instructions">Instructions</FieldLabel>
         <Textarea
-          id="profile-instruction"
+          id="profile-instructions"
           rows={7}
           placeholder="Review the change the task names. Report what is wrong or missing, with file and line."
-          value={draft.instruction}
-          onChange={(event) => set({ instruction: event.target.value })}
+          value={draft.instructions}
+          onChange={(event) => set({ instructions: event.target.value })}
         />
         <FieldDescription>
           Added after the rules every worker gets, which it may not override. Optional.
@@ -390,10 +389,14 @@ function Builder({
       />
 
       {draft.runtime && (
-        <Fallbacks
-          own={draft.name}
+        <FallbackModels
+          id="profile-fallback"
+          primary={draft.model}
           chain={draft.fallbacks}
+          models={models}
           onChange={(fallbacks) => set({ fallbacks })}
+          description="While this model cannot be served, a Task that names no model of its own runs the first of these that can, on the same runtime. None: the Task waits."
+          missing="Choose a model to add fallbacks."
         />
       )}
     </div>
@@ -462,96 +465,6 @@ export function ModelField({
         </ToggleGroup>
       </div>
       <FieldDescription>{known ? description : gone}</FieldDescription>
-    </Field>
-  )
-}
-
-// Fallbacks is the ordered list of agents that take this one's Tasks while it is out of quota (issue #171), after
-// OpenMausBot's backups of a bot (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
-// src/components/bot-panel/BackupAis.tsx): numbered rows, each changed or removed in place, then one control that
-// adds the next. Changed: a row is a native select of the other agents, where OpenMausBot opens its model menu.
-function Fallbacks({
-  own,
-  chain,
-  onChange,
-}: {
-  own: string
-  chain: string[]
-  onChange: (chain: string[]) => void
-}) {
-  // The agents a Task can run under: every one but this one.
-  const workers = (useProfiles().data ?? []).filter((p) => p.name !== own).map((p) => p.name)
-  const free = workers.filter((name) => !chain.includes(name))
-
-  return (
-    <Field>
-      <FieldLabel htmlFor="profile-fallback-add">Fallbacks</FieldLabel>
-      {chain.length > 0 && (
-        <ol aria-label="Fallbacks, in order" className="flex flex-col gap-1.5">
-          {chain.map((name, index) => (
-            <li key={name} className="flex items-center gap-2">
-              <span className="w-3 text-xs text-muted-foreground tabular-nums" aria-hidden>
-                {index + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <Select
-                  value={name}
-                  onValueChange={(picked) =>
-                    picked && onChange(chain.map((n, at) => (at === index ? picked : n)))
-                  }
-                >
-                  <SelectTrigger aria-label={`Fallback ${index + 1}`} width="full">
-                    <SelectValue>{(value: string) => <AvatarName name={value} />}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={name}>
-                      <AvatarName name={name} />
-                    </SelectItem>
-                    {free.map((n) => (
-                      <SelectItem key={n} value={n}>
-                        <AvatarName name={n} />
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Remove fallback ${name}`}
-                onClick={() => onChange(chain.filter((_, at) => at !== index))}
-              >
-                <Trash2 aria-hidden />
-              </Button>
-            </li>
-          ))}
-        </ol>
-      )}
-      {chain.length < maxFallbacks && (
-        <Select
-          value={null}
-          disabled={free.length === 0}
-          onValueChange={(picked) => {
-            if (picked) onChange([...chain, picked])
-          }}
-        >
-          <SelectTrigger id="profile-fallback-add" width="full">
-            <SelectValue placeholder="Add a fallback…" />
-          </SelectTrigger>
-          <SelectContent>
-            {free.map((n) => (
-              <SelectItem key={n} value={n}>
-                <AvatarName name={n} />
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-      <FieldDescription>
-        While this agent&apos;s accounts wait for a limit to reset, a Task that has not started runs
-        under the first of these that can run. None: the Task waits for the reset.
-      </FieldDescription>
     </Field>
   )
 }

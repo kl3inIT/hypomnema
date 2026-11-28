@@ -283,7 +283,7 @@ func (s *Server) claudeSearch(
 
 	if status != http.StatusOK {
 		failure := claude.ParseFailure(status, raw)
-		failure.ResetsAt = claudeResetsAt(resp, raw, now)
+		failure.ResetsAt = claudeResetsAt(resp, raw, now, claudeCode(failure, resp.Header))
 
 		return nil, claudeRefusal(failure, now), nil
 	}

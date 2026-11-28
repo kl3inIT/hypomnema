@@ -29,6 +29,10 @@ type Integrations interface {
 	Complete(ctx context.Context, id, signInID, pasted string) (integration.Connection, error)
 	// Code answers the current QR code of a linking in progress, for an Integration of kind device.
 	Code(ctx context.Context, id, signInID string) (integration.SignIn, error)
+	// LinkByPhone starts linking an account by its phone number, for a service that also links so (Telegram).
+	LinkByPhone(ctx context.Context, id, label string) (integration.SignIn, error)
+	// Answer gives a linking in progress what it asks the owner to type (issue #1184).
+	Answer(ctx context.Context, id, signInID, value string) (integration.SignIn, error)
 	// Connect connects an Integration that is an app: each Connection is an app of its own.
 	Connect(ctx context.Context, id, label string, app integration.App) (integration.Connection, error)
 	// ConnectAccount connects an Integration of kind account: an address, a user name and a password.
@@ -105,6 +109,8 @@ func toIntegration(i integration.Integration) openapi.Integration {
 		out.ClientId = &i.ClientID
 	}
 
+	out.Unready = opt(i.Unready)
+
 	for _, s := range i.Services {
 		out.Services = append(out.Services, s.Name)
 	}
@@ -178,6 +184,8 @@ func (s *Server) BeginIntegrationSignIn(ctx context.Context, req openapi.BeginIn
 
 	if app := val(req.Body.App); app != "" {
 		started, err = s.integrations.BeginAsUser(ctx, req.Integration, req.Body.Label, app)
+	} else if val(req.Body.Flow) == openapi.NewSignInFlowPhone {
+		started, err = s.integrations.LinkByPhone(ctx, req.Integration, req.Body.Label)
 	} else {
 		started, err = s.integrations.Begin(ctx, req.Integration, req.Body.Label, val(req.Body.Services))
 	}
@@ -198,7 +206,29 @@ func toSignIn(in integration.SignIn) openapi.SignIn {
 		out.QrExpiresAt = &in.CodeExpires
 	}
 
+	if in.Ask != nil {
+		out.Ask = &openapi.SignInAsk{
+			Field: openapi.SignInAskField(in.Ask.Field), Hint: opt(in.Ask.Hint), Again: in.Ask.Again,
+		}
+	}
+
 	return out
+}
+
+// AnswerIntegrationSignIn gives a linking in progress what it asks the owner to type (issue #1184): his phone
+// number, the code sent to it, or his two-step password. The answer is not logged.
+func (s *Server) AnswerIntegrationSignIn(ctx context.Context, req openapi.AnswerIntegrationSignInRequestObject,
+) (openapi.AnswerIntegrationSignInResponseObject, error) {
+	if s.integrations == nil {
+		return nil, errNoIntegrations
+	}
+
+	next, err := s.integrations.Answer(ctx, req.Integration, req.SignInId, val(req.Body.Value))
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.AnswerIntegrationSignIn200JSONResponse(toSignIn(next)), nil
 }
 
 // GetIntegrationSignIn answers the current QR code of a linking in progress (issue #615).

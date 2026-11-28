@@ -13,11 +13,21 @@ import (
 // memory (issue #260); only the owner writes or removes one by hand, as he replaces a whole memory. An agent writes
 // its own with the memory's tool, through the agent API.
 
-// memoryDir is the memory a request names: a Bot's, by its id, or an agent's, by its Profile's name.
-func memoryDir(ctx context.Context, bot, agent *string) (memorystore.Dir, error) {
-	switch b, a := val(bot), val(agent); {
-	case (b == "") == (a == ""):
-		return memorystore.Dir{}, fmt.Errorf("%w: name one memory, with bot or agent", orchestration.ErrInvalid)
+// memoryDir is the memory a request names: a Bot's, by its id, or a profile's, by its name. agent is profile under
+// its name until 2026-11-28 (issue #1336), read for one release.
+func memoryDir(ctx context.Context, bot, profile, agent *string) (memorystore.Dir, error) {
+	p := val(profile)
+	if a := val(agent); a != "" {
+		if p != "" && p != a {
+			return memorystore.Dir{}, fmt.Errorf("%w: name the profile once, with profile", orchestration.ErrInvalid)
+		}
+
+		p = a
+	}
+
+	switch b := val(bot); {
+	case (b == "") == (p == ""):
+		return memorystore.Dir{}, fmt.Errorf("%w: name one memory, with bot or profile", orchestration.ErrInvalid)
 	case b != "":
 		if err := botAllowed(principal(ctx), b); err != nil {
 			return memorystore.Dir{}, err
@@ -25,14 +35,14 @@ func memoryDir(ctx context.Context, bot, agent *string) (memorystore.Dir, error)
 
 		return memorystore.BotDir(b), nil
 	default:
-		return memorystore.AgentDir(a), nil
+		return memorystore.AgentDir(p), nil
 	}
 }
 
 // ListMemoryNotes lists a memory's notes.
 func (s *Server) ListMemoryNotes(ctx context.Context, req openapi.ListMemoryNotesRequestObject,
 ) (openapi.ListMemoryNotesResponseObject, error) {
-	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Agent)
+	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Profile, req.Params.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +67,7 @@ func (s *Server) ListMemoryNotes(ctx context.Context, req openapi.ListMemoryNote
 // GetMemoryNote returns one note with its text.
 func (s *Server) GetMemoryNote(ctx context.Context, req openapi.GetMemoryNoteRequestObject,
 ) (openapi.GetMemoryNoteResponseObject, error) {
-	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Agent)
+	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Profile, req.Params.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +83,7 @@ func (s *Server) GetMemoryNote(ctx context.Context, req openapi.GetMemoryNoteReq
 // PutMemoryNote writes one note with the owner's text.
 func (s *Server) PutMemoryNote(ctx context.Context, req openapi.PutMemoryNoteRequestObject,
 ) (openapi.PutMemoryNoteResponseObject, error) {
-	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Agent)
+	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Profile, req.Params.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +99,7 @@ func (s *Server) PutMemoryNote(ctx context.Context, req openapi.PutMemoryNoteReq
 // DeleteMemoryNote removes one note for the owner.
 func (s *Server) DeleteMemoryNote(ctx context.Context, req openapi.DeleteMemoryNoteRequestObject,
 ) (openapi.DeleteMemoryNoteResponseObject, error) {
-	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Agent)
+	dir, err := memoryDir(ctx, req.Params.Bot, req.Params.Profile, req.Params.Agent)
 	if err != nil {
 		return nil, err
 	}

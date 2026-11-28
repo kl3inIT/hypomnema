@@ -245,7 +245,7 @@ func (q *Queries) GetChatDepartment(ctx context.Context, arg GetChatDepartmentPa
 }
 
 const getTodo = `-- name: GetTodo :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE id = ?1
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id, not_passed FROM todos WHERE id = ?1
 `
 
 func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
@@ -299,12 +299,13 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 		&i.Priority,
 		&i.PriorityReason,
 		&i.ProjectID,
+		&i.NotPassed,
 	)
 	return i, err
 }
 
 const getTodoByIdempotencyKey = `-- name: GetTodoByIdempotencyKey :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE idempotency_key = ?1
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id, not_passed FROM todos WHERE idempotency_key = ?1
 `
 
 func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (Todo, error) {
@@ -358,6 +359,7 @@ func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sq
 		&i.Priority,
 		&i.PriorityReason,
 		&i.ProjectID,
+		&i.NotPassed,
 	)
 	return i, err
 }
@@ -392,8 +394,37 @@ func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoCha
 	return i, err
 }
 
+const getTodoGitHubCall = `-- name: GetTodoGitHubCall :one
+SELECT delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url, replied_at, reply_url, created_at, closed_revision, closed_state, closed_reason, closed_evidence FROM todo_github_calls WHERE delivery = ?1
+`
+
+// A call of the GitHub App by its delivery (issue #1232): one delivered again is handled once.
+func (q *Queries) GetTodoGitHubCall(ctx context.Context, delivery string) (TodoGithubCall, error) {
+	row := q.db.QueryRowContext(ctx, getTodoGitHubCall, delivery)
+	var i TodoGithubCall
+	err := row.Scan(
+		&i.Delivery,
+		&i.TodoID,
+		&i.Repository,
+		&i.Number,
+		&i.Kind,
+		&i.CommentID,
+		&i.ReplyTo,
+		&i.Login,
+		&i.Url,
+		&i.RepliedAt,
+		&i.ReplyUrl,
+		&i.CreatedAt,
+		&i.ClosedRevision,
+		&i.ClosedState,
+		&i.ClosedReason,
+		&i.ClosedEvidence,
+	)
+	return i, err
+}
+
 const getTodoOfApproval = `-- name: GetTodoOfApproval :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE approval_id = ?1 AND state = 'review'
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id, not_passed FROM todos WHERE approval_id = ?1 AND state = 'review'
 `
 
 // The item that waits for an Approval.
@@ -448,12 +479,13 @@ func (q *Queries) GetTodoOfApproval(ctx context.Context, approvalID sql.NullStri
 		&i.Priority,
 		&i.PriorityReason,
 		&i.ProjectID,
+		&i.NotPassed,
 	)
 	return i, err
 }
 
 const getTodoOfAttempt = `-- name: GetTodoOfAttempt :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE work_attempt = ?1 AND state IN ('doing', 'review')
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id, not_passed FROM todos WHERE work_attempt = ?1 AND state IN ('doing', 'review')
 `
 
 // The item a Bot's attempt is on.
@@ -508,6 +540,7 @@ func (q *Queries) GetTodoOfAttempt(ctx context.Context, workAttempt sql.NullStri
 		&i.Priority,
 		&i.PriorityReason,
 		&i.ProjectID,
+		&i.NotPassed,
 	)
 	return i, err
 }
@@ -617,6 +650,41 @@ func (q *Queries) InsertTodoEvent(ctx context.Context, arg InsertTodoEventParams
 	return err
 }
 
+const insertTodoGitHubCall = `-- name: InsertTodoGitHubCall :exec
+INSERT INTO todo_github_calls (delivery, todo_id, repository, number, kind, comment_id, reply_to, login, url,
+                               created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+`
+
+type InsertTodoGitHubCallParams struct {
+	Delivery   string
+	TodoID     string
+	Repository string
+	Number     int64
+	Kind       string
+	CommentID  int64
+	ReplyTo    int64
+	Login      string
+	Url        string
+	Now        int64
+}
+
+func (q *Queries) InsertTodoGitHubCall(ctx context.Context, arg InsertTodoGitHubCallParams) error {
+	_, err := q.db.ExecContext(ctx, insertTodoGitHubCall,
+		arg.Delivery,
+		arg.TodoID,
+		arg.Repository,
+		arg.Number,
+		arg.Kind,
+		arg.CommentID,
+		arg.ReplyTo,
+		arg.Login,
+		arg.Url,
+		arg.Now,
+	)
+	return err
+}
+
 const insertTodoWake = `-- name: InsertTodoWake :exec
 INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at, recall, wake_by, wake_todo, attachments)
 VALUES (?1, 'system', 'wake', ?2, 1, ?3, ?4, ?5, ?6, ?7)
@@ -650,8 +718,154 @@ func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) 
 	return err
 }
 
+const keepGitHubReplyClose = `-- name: KeepGitHubReplyClose :exec
+UPDATE todo_github_calls
+SET closed_revision = ?1, closed_state = ?2, closed_reason = ?3,
+    closed_evidence = ?4
+WHERE todo_id = ?5 AND replied_at IS NULL AND closed_state IS NULL
+`
+
+type KeepGitHubReplyCloseParams struct {
+	ClosedRevision sql.NullInt64
+	ClosedState    sql.NullString
+	ClosedReason   sql.NullString
+	ClosedEvidence sql.NullString
+	TodoID         string
+}
+
+// A call reopens an item whose earlier close is still to be answered on GitHub: the calls waiting keep that close,
+// so the reopen drops no reply (review of PR #1323).
+func (q *Queries) KeepGitHubReplyClose(ctx context.Context, arg KeepGitHubReplyCloseParams) error {
+	_, err := q.db.ExecContext(ctx, keepGitHubReplyClose,
+		arg.ClosedRevision,
+		arg.ClosedState,
+		arg.ClosedReason,
+		arg.ClosedEvidence,
+		arg.TodoID,
+	)
+	return err
+}
+
+const latestTodoOfSource = `-- name: LatestTodoOfSource :one
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id, not_passed FROM todos WHERE source_kind = ?1 AND source_id = ?2
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+type LatestTodoOfSourceParams struct {
+	SourceKind string
+	SourceID   string
+}
+
+// The newest item of a source, closed or not (issue #1232): the item of an issue's or pull request's calls.
+func (q *Queries) LatestTodoOfSource(ctx context.Context, arg LatestTodoOfSourceParams) (Todo, error) {
+	row := q.db.QueryRowContext(ctx, latestTodoOfSource, arg.SourceKind, arg.SourceID)
+	var i Todo
+	err := row.Scan(
+		&i.ID,
+		&i.Revision,
+		&i.Title,
+		&i.Notes,
+		&i.DoneWhen,
+		&i.Draft,
+		&i.DueKind,
+		&i.DueDate,
+		&i.DueZone,
+		&i.DueAt,
+		&i.OverdueAt,
+		&i.AssigneeKind,
+		&i.Assignee,
+		&i.State,
+		&i.SnoozedUntil,
+		&i.SourceKind,
+		&i.SourceID,
+		&i.SourceAccount,
+		&i.SourceQuote,
+		&i.SourceRef,
+		&i.CreatedByKind,
+		&i.CreatedBy,
+		&i.WorkAttempt,
+		&i.WorkKind,
+		&i.WorkID,
+		&i.WorkBot,
+		&i.WorkStartedAt,
+		&i.ApprovalID,
+		&i.DoneByKind,
+		&i.DoneBy,
+		&i.RecordedByKind,
+		&i.RecordedBy,
+		&i.ClosedHow,
+		&i.CloseReason,
+		&i.Evidence,
+		&i.ClosedAt,
+		&i.DuplicateOf,
+		&i.IdempotencyKey,
+		&i.IdempotencyHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WhyOpen,
+		&i.ChatID,
+		&i.PassedBy,
+		&i.Priority,
+		&i.PriorityReason,
+		&i.ProjectID,
+		&i.NotPassed,
+	)
+	return i, err
+}
+
+const listGitHubCallsToReply = `-- name: ListGitHubCallsToReply :many
+SELECT c.delivery, c.todo_id, c.repository, c.number, c.kind, c.comment_id, c.reply_to, c.login, c.url, c.replied_at, c.reply_url, c.created_at, c.closed_revision, c.closed_state, c.closed_reason, c.closed_evidence FROM todo_github_calls c
+JOIN todos t ON t.id = c.todo_id
+WHERE c.replied_at IS NULL AND (c.closed_state IS NOT NULL OR t.state IN ('done', 'dropped', 'duplicate'))
+ORDER BY c.created_at, c.delivery
+LIMIT ?1
+`
+
+// The calls not answered yet whose item closed, or whose close a reopen kept (closed_state), oldest first (issue
+// #1232): the control plane answers each close of an item's on GitHub with its outcome.
+func (q *Queries) ListGitHubCallsToReply(ctx context.Context, lim int64) ([]TodoGithubCall, error) {
+	rows, err := q.db.QueryContext(ctx, listGitHubCallsToReply, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TodoGithubCall{}
+	for rows.Next() {
+		var i TodoGithubCall
+		if err := rows.Scan(
+			&i.Delivery,
+			&i.TodoID,
+			&i.Repository,
+			&i.Number,
+			&i.Kind,
+			&i.CommentID,
+			&i.ReplyTo,
+			&i.Login,
+			&i.Url,
+			&i.RepliedAt,
+			&i.ReplyUrl,
+			&i.CreatedAt,
+			&i.ClosedRevision,
+			&i.ClosedState,
+			&i.ClosedReason,
+			&i.ClosedEvidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenTodosOfBot = `-- name: ListOpenTodosOfBot :many
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id, not_passed FROM todos
 WHERE state NOT IN ('done', 'dropped', 'duplicate')
   AND ((created_by_kind = 'bot' AND created_by = ?1) OR (assignee_kind = 'bot' AND assignee = ?1))
 ORDER BY id
@@ -715,6 +929,7 @@ func (q *Queries) ListOpenTodosOfBot(ctx context.Context, bot string) ([]Todo, e
 			&i.Priority,
 			&i.PriorityReason,
 			&i.ProjectID,
+			&i.NotPassed,
 		); err != nil {
 			return nil, err
 		}
@@ -825,7 +1040,7 @@ func (q *Queries) ListTodoEventsBy(ctx context.Context, arg ListTodoEventsByPara
 }
 
 const listTodos = `-- name: ListTodos :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id, CAST(COALESCE(s.long_report, '') AS TEXT) AS long_report,
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id, t.not_passed, CAST(COALESCE(s.long_report, '') AS TEXT) AS long_report,
        CAST((t.state = 'open' AND t.assignee_kind = 'me' AND c.id IS NOT NULL) AS INTEGER) AS reply_to_coordinator
 FROM todos t LEFT JOIN review_stall_todos s ON s.todo_id = t.id
 LEFT JOIN runs r ON r.id = s.run_id AND r.status = 'open'
@@ -981,6 +1196,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]ListTod
 			&i.Todo.Priority,
 			&i.Todo.PriorityReason,
 			&i.Todo.ProjectID,
+			&i.Todo.NotPassed,
 			&i.LongReport,
 			&i.ReplyToCoordinator,
 		); err != nil {
@@ -998,7 +1214,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]ListTod
 }
 
 const listTodosOfWork = `-- name: ListTodosOfWork :many
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE work_kind = ?1 AND work_id = ?2 AND state IN ('doing', 'review') ORDER BY id
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id, not_passed FROM todos WHERE work_kind = ?1 AND work_id = ?2 AND state IN ('doing', 'review') ORDER BY id
 `
 
 type ListTodosOfWorkParams struct {
@@ -1064,6 +1280,7 @@ func (q *Queries) ListTodosOfWork(ctx context.Context, arg ListTodosOfWorkParams
 			&i.Priority,
 			&i.PriorityReason,
 			&i.ProjectID,
+			&i.NotPassed,
 		); err != nil {
 			return nil, err
 		}
@@ -1105,6 +1322,26 @@ func (q *Queries) PutChatDepartment(ctx context.Context, arg PutChatDepartmentPa
 		arg.Now,
 	)
 	return err
+}
+
+const setGitHubCallsReplied = `-- name: SetGitHubCallsReplied :execrows
+UPDATE todo_github_calls SET replied_at = CAST(?1 AS INTEGER), reply_url = ?2
+WHERE replied_at IS NULL AND delivery IN (SELECT value FROM json_each(CAST(?3 AS TEXT)))
+`
+
+type SetGitHubCallsRepliedParams struct {
+	Now        int64
+	ReplyUrl   string
+	Deliveries string
+}
+
+// The calls a reply on GitHub answered, by their deliveries (a JSON array), with the reply's address.
+func (q *Queries) SetGitHubCallsReplied(ctx context.Context, arg SetGitHubCallsRepliedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setGitHubCallsReplied, arg.Now, arg.ReplyUrl, arg.Deliveries)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setTodoChat = `-- name: SetTodoChat :exec
@@ -1205,8 +1442,8 @@ SET revision = revision + 1, title = ?1, notes = ?2, done_when = ?3, draft = ?4,
     done_by = ?27, recorded_by_kind = ?28, recorded_by = ?29, closed_how = ?30,
     close_reason = ?31, evidence = ?32, closed_at = ?33, duplicate_of = ?34,
     priority = ?35, priority_reason = ?36, project_id = ?37, why_open = ?38,
-    updated_at = ?39
-WHERE id = ?40 AND revision = ?41 AND state = ?42
+    not_passed = ?39, updated_at = ?40
+WHERE id = ?41 AND revision = ?42 AND state = ?43
 `
 
 type UpdateTodoParams struct {
@@ -1248,6 +1485,7 @@ type UpdateTodoParams struct {
 	PriorityReason string
 	ProjectID      sql.NullString
 	WhyOpen        sql.NullString
+	NotPassed      sql.NullString
 	Now            int64
 	ID             string
 	Revision       int64
@@ -1296,6 +1534,7 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (int64, 
 		arg.PriorityReason,
 		arg.ProjectID,
 		arg.WhyOpen,
+		arg.NotPassed,
 		arg.Now,
 		arg.ID,
 		arg.Revision,

@@ -3,6 +3,7 @@ import { expect, test } from "vitest"
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
 
 import {
+  actorName,
   alone,
   canSend,
   eventLine,
@@ -362,4 +363,28 @@ test("the message waited on is placed by the item's own source", () => {
   expect(waitingPlace({ kind: "lark", id: "oc_1" }, w("lark_message", "om_1"))).toEqual({
     kind: "name",
   })
+})
+
+// Scenario: issue #1334. The main Bot kept the item and said why it passed it to no Bot: the thread says so in words.
+test("the main Bot's reason for passing to no Bot is a thread line", () => {
+  expect(
+    eventLine(
+      event(5, { actor: bot, after: { not_passed: "No project Bot has the billing account." } }),
+      nameOf,
+    ).words,
+  ).toBe("Hypo passed it to no Bot: No project Bot has the billing account.")
+})
+
+// Scenario: issue #1232. A call of the GitHub App shows in the thread by the caller's login on GitHub, a teammate's
+// as theirs and never as Hypomnema's or the owner's; the owner's own call is his, "You".
+test("a GitHub call is shown by its caller", () => {
+  const botName = (id: string) => (id === "bot_main" ? "Hypo" : id)
+
+  expect(actorName({ kind: "system", id: "github:linh-dev" }, botName)).toBe("linh-dev on GitHub")
+  expect(actorName({ kind: "system", id: "approvals" }, botName)).toBe("Hypomnema")
+  expect(actorName({ kind: "owner" }, botName)).toBe("You")
+  expect(
+    eventLine(event(3, { kind: "reviewed", actor: { kind: "system", id: "github" } }), botName)
+      .words,
+  ).toBe("The GitHub App reviewed the pull request")
 })

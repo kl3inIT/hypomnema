@@ -44,7 +44,7 @@ func (s *Server) ToolUnavailability(ctx context.Context, runtime string) map[str
 				if s.relay != nil {
 					continue
 				}
-			case "whatsapp", "zalo":
+			case "whatsapp", "zalo", "telegram":
 				if s.messaging != nil {
 					continue
 				}

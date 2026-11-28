@@ -464,6 +464,11 @@
       ],
       "type": "object"
      },
+     "not_passed": {
+      "description": "The main Bot only, on an item it has: why it passes it to no project Bot, when the work needs one and none fits; the item stays with it and the Inbox shows it as not passed, with this reason. Not with pass_to or hand_back.",
+      "maxLength": 2000,
+      "type": "string"
+     },
      "notes": {
       "description": "Markdown, which the Inbox shows with the ids of meetings, chats, Runs and Tasks (mtg_…, cht_…, run_…, tsk_…) as links: write an id as it is. When you enrich an item, write them as short sections, a ## heading each, only those that have something: Source, Meeting, Plan (a numbered list); keep every fact.",
       "maxLength": 20000,
@@ -680,7 +685,7 @@
   },
   {
    "name": "inbox_done",
-   "description": "Close a to-do as done, with evidence: what you did on it in this attempt, only for your own work (the Run you started from the item's chat, that Run's pull request, your comment on it with the file you made, comment by its revision, or the message you sent for it with its account and chat), never his answer or a link he gave; with for_owner, his own message that he did it (his comment on the item, comment by its revision; in this chat; or one he sent after it was made in the item's Zalo, WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: zalo_sent, whatsapp_sent, lark_sent); or, with done_by, an open item you added that a person did, with their message that delivers it (zalo_message, whatsapp_message or lark_message with the account and the chat: sent after the item was made, in its chat, in another chat of that account where the person who asked is a member, or, for an item waiting on them, anywhere on that account) and its words in reason. Use it once the work is done or he answered; a promise, \"ok\" or thanks is not done.",
+   "description": "Close a to-do as done, with evidence: what you did on it in this attempt, only for your own work (the Run you started from the item's chat, that Run's pull request, your comment on it with the file you made, comment by its revision, the message you sent for it with its account and chat, or the review the GitHub App left on its pull request, url by its address), never his answer or a link he gave; with for_owner, his own message that he did it (his comment on the item, comment by its revision; in this chat; or one he sent after it was made in the item's Zalo, WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: zalo_sent, whatsapp_sent, lark_sent); or, with done_by, an open item you added that a person did, with their message that delivers it (zalo_message, whatsapp_message or lark_message with the account and the chat: sent after the item was made, in its chat, in another chat of that account where the person who asked is a member, or, for an item waiting on them, anywhere on that account) and its words in reason. Use it once the work is done or he answered; a promise, \"ok\" or thanks is not done.",
    "inputSchema": {
     "properties": {
      "done_by": {
@@ -873,7 +878,7 @@
   },
   {
    "name": "inbox_chats",
-   "description": "List the owner's choices of which of his chats the secretary reads: each chat of his accounts you may read (zalo:\u003clabel\u003e, whatsapp:\u003clabel\u003e, lark:\u003clabel\u003e) that he switched off or on, and the default of every other chat (direct chats and groups read; a bot's or an official account's, by bot_patterns on its name or id, skipped). Use it in the triage's check to leave out the chats he switched off; such a chat is still read with your tools when he asks.",
+   "description": "List the owner's choices of which of his chats the secretary reads: each chat of his accounts you may read (zalo:\u003clabel\u003e, whatsapp:\u003clabel\u003e, telegram:\u003clabel\u003e, lark:\u003clabel\u003e) that he switched off or on, and the default of every other chat (direct chats and groups read; a bot's or an official account's, by bot_patterns on its name or id, skipped). Use it in the triage's check to leave out the chats he switched off; such a chat is still read with your tools when he asks.",
    "inputSchema": {
     "type": "object",
     "properties": {}

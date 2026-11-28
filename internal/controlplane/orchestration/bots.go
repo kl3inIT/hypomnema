@@ -32,11 +32,14 @@ const maxBotName = 64
 const botRuntime = profilestore.BotRuntime
 
 // Limits of a Bot's texts. The memory's is an agent's, memorystore's
-// (Hermes's): the whole memory is in pi's prompt in every chat.
+// (Hermes's): the whole memory is in pi's prompt in every chat. MaxInstructions was MaxPersona until 2026-11-28.
 const (
-	MaxPersona = 16000
-	MaxMemory  = memorystore.MaxMemory
+	MaxInstructions = 16000
+	MaxMemory       = memorystore.MaxMemory
 )
+
+// AgentSpec is what a Bot and a Profile have in common (issue #1336; profilestore.AgentSpec).
+type AgentSpec = profilestore.AgentSpec
 
 // ToolDisplay is what a Bot's chats show of its tool calls (issue #441), to everyone who reads them, after
 // OpenClaw's verboseDefault per agent (src/agents/agent-scope-config.ts, resolveAgentVerboseDefault).
@@ -53,28 +56,17 @@ const (
 	ToolsFull ToolDisplay = "full"
 )
 
-// Bot is a long-lived agent of the control plane (issue #169): its model,
-// what it is (the persona, which only the owner writes) and what it keeps
-// across chats (the memory, which it writes itself). It is apart from a
-// Profile, which is a worker's recipe.
+// Bot is a long-lived agent of the control plane (issue #169): what it has in common with a Profile (AgentSpec: its
+// model, its instructions, which only the owner writes, its skills and tools), and what it keeps across chats (the
+// memory, which it writes itself). It is apart from a Profile, which is a worker's recipe.
 type Bot struct {
+	AgentSpec
+
 	// ID never changes; Name is shown and may change (issue #466).
-	ID        string
-	Name      string
-	Provider  string
-	Model     string
-	Fallbacks []string
-	Effort    string
-	Persona   string
+	ID   string
+	Name string
 	// Memory is the Bot's entries, one per line.
 	Memory string
-	// Skills are the skills the Bot gets beside those given to everyone;
-	// SkillsOff the ones given to everyone it does not get (issue #21).
-	Skills    []string
-	SkillsOff []string
-	Preset    string
-	Tools     []string
-	ToolsOff  []string
 	// Connections are the Connections the Bot may use and Workers the
 	// profiles it may give work to (issue #169, part 3; botaccess.go).
 	Connections AllowList
@@ -101,7 +93,10 @@ type Bot struct {
 	Department string
 	// MainChat is the chat a click on the Bot opens and the web and the CLI write to (issue #471); empty until the
 	// first message from either makes it. Its other chats stay as they are.
-	MainChat  string
+	MainChat string
+	// Repos are the repositories whose work it owns (issue #1334; botrepos.go), as the owner writes them: a Run
+	// created on one goes to its chat. Filled by GetBot and ListBots; not a setting of PutBot: SetBotRepos sets them.
+	Repos     []string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -118,10 +113,13 @@ func (b Bot) ReadsOwnerAccountsOnly() bool { return b.OwnerAccounts == OwnerAcco
 func botFromRow(r store.Bot) Bot {
 	return Bot{
 		OwnerAccounts: r.OwnerAccounts,
-		ID:            r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
-		Fallbacks: splitNames(r.Fallbacks),
-		Persona:   r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
-		Preset: r.Preset, Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff),
+		ID:            r.ID, Name: r.Name, Memory: r.Memory,
+		AgentSpec: AgentSpec{
+			Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
+			Fallbacks: splitNames(r.Fallbacks), Instructions: r.Instructions, Skills: splitNames(r.Skills),
+			SkillsOff: splitNames(r.SkillsOff), Preset: r.Preset, Tools: splitNames(r.Tools),
+			ToolsOff: splitNames(r.ToolsOff),
+		},
 		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		GuaranteedDispatches: int(r.GuaranteedDispatches.Int64),
 		Position:             int(r.Position), Department: r.Department.String, Scopes: scopesOf(r.ConnectionScopes),
@@ -153,10 +151,16 @@ func (s *Service) PutBot(ctx context.Context, b Bot) (Bot, error) {
 // putBot is PutBot; with a chat, the change is the main Bot's from that chat and is recorded with what undoes it
 // (setupchanges.go).
 func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
-	b.Persona = strings.TrimSpace(b.Persona)
+	return s.saveBot(ctx, chat, b, botSave{source: BotVersionSave})
+}
 
-	if utf8.RuneCountInString(b.Persona) > MaxPersona {
-		return Bot{}, fmt.Errorf("%w: a persona is at most %d characters", ErrInvalid, MaxPersona)
+// saveBot is putBot, keeping a version of the settings saved as save says (botversions.go, issue #1336) when they
+// changed.
+func (s *Service) saveBot(ctx context.Context, chat string, b Bot, save botSave) (Bot, error) {
+	b.Instructions = strings.TrimSpace(b.Instructions)
+
+	if utf8.RuneCountInString(b.Instructions) > MaxInstructions {
+		return Bot{}, fmt.Errorf("%w: a bot's instructions are at most %d characters", ErrInvalid, MaxInstructions)
 	}
 
 	if b.ToolDisplay == "" {
@@ -199,7 +203,7 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 		}
 
 		if !found {
-			return s.makeBot(ctx, q, now, chat, b)
+			return s.makeBot(ctx, q, now, chat, b, save)
 		}
 
 		b.Name = stored.Name
@@ -225,7 +229,15 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 			}
 		}
 
-		if chat == "" || botRevision(stored) == botRevision(b) {
+		if botRevision(stored) == botRevision(b) {
+			return nil
+		}
+
+		if err := s.keepBotVersion(ctx, q, now, chat, &stored, b, save); err != nil {
+			return err
+		}
+
+		if chat == "" {
 			return nil
 		}
 
@@ -239,7 +251,7 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 }
 
 // makeBot stores a new Bot; one that names an id that is not there is not made.
-func (s *Service) makeBot(ctx context.Context, q *store.Queries, now int64, chat string, b Bot) error {
+func (s *Service) makeBot(ctx context.Context, q *store.Queries, now int64, chat string, b Bot, save botSave) error {
 	if b.Name == "" {
 		return fmt.Errorf("%w: bot %s", ErrNotFound, b.ID)
 	}
@@ -249,6 +261,10 @@ func (s *Service) makeBot(ctx context.Context, q *store.Queries, now int64, chat
 	}
 
 	if err := insertBot(ctx, q, now, b); err != nil {
+		return err
+	}
+
+	if err := s.keepBotVersion(ctx, q, now, chat, nil, b, save); err != nil {
 		return err
 	}
 
@@ -363,15 +379,15 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 	return checkAllowLists(ctx, q, *b, had)
 }
 
+// checkBotFallbacks checks a Bot's fallbacks as a profile's are checked (profilestore.CheckFallbacksTx, issue
+// #1336), and that each, and the Bot's own model, is a model the gateway serves: the gateway tries them (#877).
 func checkBotFallbacks(ctx context.Context, q *store.Queries, b *Bot) error {
+	if err := profilestore.CheckFallbacksTx(ctx, q, botRuntime, b.Provider, b.Model, b.Fallbacks); err != nil {
+		return fmt.Errorf("bot: %w", err)
+	}
+
 	if len(b.Fallbacks) == 0 {
 		return nil
-	}
-	if len(b.Fallbacks) > profilestore.MaxFallbacks {
-		return fmt.Errorf("%w: a bot can have at most %d fallbacks", ErrInvalid, profilestore.MaxFallbacks)
-	}
-	if b.Model == "" {
-		return fmt.Errorf("%w: choose a primary model before adding fallbacks", ErrInvalid)
 	}
 
 	primary, err := gatewayBotModel(ctx, q, b.Provider, b.Model)
@@ -382,12 +398,6 @@ func checkBotFallbacks(ctx context.Context, q *store.Queries, b *Bot) error {
 	seen := map[string]bool{primary: true}
 	for _, ref := range b.Fallbacks {
 		provider, model, _ := strings.Cut(ref, "/")
-		if provider == "" || model == "" || strings.ContainsAny(ref, ",\r\n") || strings.TrimSpace(ref) != ref {
-			return fmt.Errorf("%w: fallback %q must be provider/model", ErrInvalid, ref)
-		}
-		if _, err := profilestore.CheckModelTx(ctx, q, botRuntime, provider, model, ""); err != nil {
-			return err
-		}
 		name, err := gatewayBotModel(ctx, q, provider, model)
 		if err != nil {
 			return err
@@ -446,7 +456,7 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 	err := q.InsertBot(ctx, store.InsertBotParams{
 		ID: b.ID, Name: b.Name, Provider: nullString(b.Provider), Model: nullString(b.Model),
 		Fallbacks: strings.Join(b.Fallbacks, ","),
-		Effort:    nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
+		Effort:    nullString(b.Effort), Instructions: b.Instructions, Skills: strings.Join(b.Skills, ","),
 		SkillsOff: strings.Join(b.SkillsOff, ","), Tools: strings.Join(b.Tools, ","),
 		Preset: agenttool.DefaultPreset(b.Preset), ToolsOff: strings.Join(b.ToolsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(),
@@ -468,8 +478,8 @@ func updateBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 
 	return q.UpdateBot(ctx, store.UpdateBotParams{
 		Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
-		Fallbacks: strings.Join(b.Fallbacks, ","),
-		Persona:   b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
+		Fallbacks:    strings.Join(b.Fallbacks, ","),
+		Instructions: b.Instructions, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
 		Preset: agenttool.DefaultPreset(b.Preset), Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay),
 		ConnectionScopes: storedScopes(b.Scopes), GuaranteedDispatches: storedLimit(b.GuaranteedDispatches), Now: now,
@@ -534,26 +544,44 @@ func (s *Service) ChatToolDisplay(ctx context.Context, chatID string) (ToolDispl
 	return ToolDisplay(d), nil
 }
 
-// GetBot returns the Bot of an id.
+// GetBot returns the Bot of an id, with its repositories.
 func (s *Service) GetBot(ctx context.Context, id string) (Bot, error) {
-	row, err := s.read().GetBot(ctx, id)
+	q := s.read()
+
+	row, err := q.GetBot(ctx, id)
 	if err != nil {
 		return Bot{}, notFound(err, "bot", id)
 	}
 
-	return botFromRow(row), nil
+	repos, err := q.ListReposOfBot(ctx, id)
+	if err != nil {
+		return Bot{}, fmt.Errorf("listing the repositories of bot %s: %w", id, err)
+	}
+
+	b := botFromRow(row)
+	b.Repos = botRepoNames(repos)
+
+	return b, nil
 }
 
 // ListBots returns the Bots, the oldest first.
 func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
-	rows, err := s.read().ListBots(ctx)
+	q := s.read()
+
+	rows, err := q.ListBots(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing bots: %w", err)
+	}
+
+	repos, err := reposOfBots(ctx, q)
+	if err != nil {
+		return nil, err
 	}
 
 	out := make([]Bot, len(rows))
 	for i, r := range rows {
 		out[i] = botFromRow(r)
+		out[i].Repos = repos[r.ID]
 	}
 
 	return out, nil

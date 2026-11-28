@@ -93,8 +93,8 @@ export function useRestoreProfileVersion() {
 }
 
 // useDeleteProfile deletes a profile (issue #485): one never used goes, one used before is hidden and comes back when
-// a profile of its name is saved. The server refuses implementer and one still named by an unfinished Task, another
-// profile's fallbacks or a Bot's workers.
+// a profile of its name is saved. The server refuses implementer and one still named by an unfinished Task or a
+// Bot's workers.
 export function useDeleteProfile() {
   return useMutation({
     mutationFn: async (name: string) => {

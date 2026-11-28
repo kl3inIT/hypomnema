@@ -102,3 +102,22 @@ test("a row's line names the person and the place, with one mark and no state ba
   expect(row.querySelectorAll("[data-source]")).toHaveLength(1)
   expect(row).not.toHaveTextContent(/To-do|Proposed|Snoozed/)
 })
+
+// Scenario: issue #1334. The main Bot kept a to-do it could pass to no project Bot and said why: the row says "Not
+// passed", its reason on hover; a closed one does not.
+test("a to-do the main Bot passed to no Bot says Not passed with its reason", () => {
+  const reason = "It needs the client's billing account, and no project Bot has it."
+  const row = show(
+    one(todo("n", { assignee: { kind: "bot", name: "thu-ky" }, not_passed: reason })),
+  )
+  const mark = row.querySelector('[data-slot="not-passed"]')
+
+  expect(mark).toHaveTextContent("Not passed")
+  expect(mark).toHaveAttribute("title", reason)
+})
+
+test("a closed to-do shows no Not passed", () => {
+  const row = show(one(todo("c", { state: "done", not_passed: "no Bot fits" })))
+
+  expect(row.querySelector('[data-slot="not-passed"]')).toBeNull()
+})

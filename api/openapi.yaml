@@ -1324,6 +1324,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/IntegrationConnection" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/sign-ins/{sign_in_id}/answer:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - name: sign_in_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    post:
+      operationId: AnswerIntegrationSignIn
+      summary: Answer what a linking in progress asks; only the owner
+      description: >-
+        For an Integration of kind device whose linking asks the owner to type something (Telegram, issue #1184):
+        his phone number, the code sent to it, or his two-step password, as the sign-in's `ask` says. Answers the
+        sign-in at its next step, once the service took the answer: the next question, the same one again when it
+        was refused, or no question once the account is linked, which completing the sign-in answers. The answer is
+        never kept or logged. Invalid when the linking asks nothing now.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignInAnswer" }
+      responses:
+        "200":
+          description: The linking at its next step.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignIn" }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -3252,7 +3280,7 @@ paths:
       summary: Every Bot, the oldest first
       description: >-
         A Bot is a long-lived agent of the control plane: its model, its
-        persona and its memory. It talks with people in chats and gives work
+        instructions and its memory. It talks with people in chats and gives work
         to workers. It is apart from a Profile, which is a worker's recipe.
       responses:
         "200":
@@ -3387,7 +3415,7 @@ paths:
       - $ref: "#/components/parameters/BotID"
     get:
       operationId: GetBot
-      summary: A Bot, with its persona and memory
+      summary: A Bot, with its instructions and memory
       responses:
         "200":
           description: The Bot.
@@ -3488,9 +3516,45 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ToolNames" }
         default: { $ref: "#/components/responses/Error" }
+  /bots/{bot_id}/repos:
+    parameters:
+      - $ref: "#/components/parameters/BotID"
+    put:
+      operationId: SetBotRepos
+      summary: Replace the repositories whose work a Bot owns; only the owner
+      description: >-
+        A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo`
+        takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list
+        frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot
+        owns none. Removing a Bot frees its repositories.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BotRepos" }
+      responses:
+        "200":
+          description: The Bot, with its repositories as kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
   /bots/{bot_id}/memory:
     parameters:
       - $ref: "#/components/parameters/BotID"
+    get:
+      operationId: GetBotMemory
+      summary: A Bot's memory, the same in every chat with it
+      description: >-
+        The same Memory as a profile's (issue #1336): the Bot's entries, one per line. Its notes are read through
+        /memory-notes. A Bot's token reads its own Bot's.
+      responses:
+        "200":
+          description: The memory.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
     put:
       operationId: SetBotMemory
       summary: Replace a Bot's whole memory with the owner's text; only the owner
@@ -3504,10 +3568,10 @@ paths:
             schema: { $ref: "#/components/schemas/MemoryText" }
       responses:
         "200":
-          description: The Bot, with its memory as kept.
+          description: The memory as kept; it was the whole Bot until 2026-11-28 (issue #1336).
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Bot" }
+              schema: { $ref: "#/components/schemas/Memory" }
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: ChangeBotMemory
@@ -3523,7 +3587,46 @@ paths:
             schema: { $ref: "#/components/schemas/MemoryChange" }
       responses:
         "200":
-          description: The Bot, with its memory after the change.
+          description: The memory after the change; it was the whole Bot until 2026-11-28 (issue #1336).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
+  /bots/{bot_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/BotID"
+    get:
+      operationId: ListBotVersions
+      summary: A Bot's saved settings, newest first
+      description: >-
+        Each save of a Bot's settings keeps a version with who saved it and when (issue #1336), as a profile's
+        apply does and Paperclip keeps an agent's config revisions (packages/db/src/schema/agent_config_revisions.ts).
+        Its name and memory are not part of a version. A Bot saved before versions has none until its next save,
+        which keeps what it had as its first.
+      responses:
+        "200":
+          description: The versions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BotVersionList" }
+        default: { $ref: "#/components/responses/Error" }
+  /bots/{bot_id}/versions/{version_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/BotID"
+      - name: version_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 100 }
+    post:
+      operationId: RestoreBotVersion
+      summary: Save one of a Bot's versions again; the owner, or the main Bot from its chat
+      description: >-
+        Saves that version's settings as PutBot does, which keeps a new version restored from it, as Paperclip's
+        rollback saves a revision's config again (server/src/services/agents.ts, rollbackConfigRevision). What it
+        names that is gone since, such as a model no provider offers, is refused and changes nothing.
+      responses:
+        "200":
+          description: The Bot as restored.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Bot" }
@@ -4328,8 +4431,7 @@ paths:
         not found and no new Task names it, while its versions stay for the
         Dispatches that ran them; applying its name again brings it back as a
         new version. Refused for `implementer`, and while an unfinished Task
-        names the profile, another profile names it as a backup, or a Bot's
-        workers list names it.
+        names the profile or a Bot's workers list names it.
       responses:
         "204": { description: The profile is deleted. }
         default: { $ref: "#/components/responses/Error" }
@@ -4374,12 +4476,13 @@ paths:
     parameters:
       - $ref: "#/components/parameters/Name"
     get:
-      operationId: GetAgentMemory
-      summary: An agent's memory, shared by all its workers
+      operationId: GetProfileMemory
+      summary: A profile's memory, shared by all its workers
       description: >-
-        What the agent's workers keep across their tasks, entries one per line.
-        Every worker of the agent gets it in its first message, as it is when
-        the work is offered. It is not part of the profile's versions.
+        What the profile's workers keep across their tasks, entries one per line.
+        Every worker of the profile gets it in its first message, as it is when
+        the work is offered. It is not part of the profile's versions. Called
+        GetAgentMemory until 2026-11-28 (issue #1336).
       responses:
         "200":
           description: The memory.
@@ -4388,8 +4491,8 @@ paths:
               schema: { $ref: "#/components/schemas/Memory" }
         default: { $ref: "#/components/responses/Error" }
     put:
-      operationId: SetAgentMemory
-      summary: Replace an agent's whole memory with the owner's text; only the owner
+      operationId: SetProfileMemory
+      summary: Replace a profile's whole memory with the owner's text; only the owner
       description: >-
         Each line is an entry; empty lines and an entry given twice are
         dropped. A text over the memory's limit is refused.
@@ -4406,10 +4509,10 @@ paths:
               schema: { $ref: "#/components/schemas/Memory" }
         default: { $ref: "#/components/responses/Error" }
     post:
-      operationId: ChangeAgentMemory
-      summary: Add, replace or remove one entry of an agent's memory; only the owner
+      operationId: ChangeProfileMemory
+      summary: Add, replace or remove one entry of a profile's memory; only the owner
       description: >-
-        A worker changes its own agent's memory through the agent API. A change
+        A worker changes its own profile's memory through the agent API. A change
         that would pass the memory's limit is refused and changes nothing.
       requestBody:
         required: true
@@ -4426,6 +4529,7 @@ paths:
   /memory-notes:
     parameters:
       - $ref: "#/components/parameters/MemoryOfBot"
+      - $ref: "#/components/parameters/MemoryOfProfile"
       - $ref: "#/components/parameters/MemoryOfAgent"
     get:
       operationId: ListMemoryNotes
@@ -4434,7 +4538,7 @@ paths:
         A memory is the directory /memories (issue #589): MEMORY.md is the
         memory itself, USER.md the one about the owner, and every other file
         a note the agent reads when needed. Name the memory with bot or
-        agent. Every token reads them; a Bot's token reads its own Bot's.
+        profile. Every token reads them; a Bot's token reads its own Bot's.
       responses:
         "200":
           description: The notes.
@@ -4445,6 +4549,7 @@ paths:
   /memory-notes/note:
     parameters:
       - $ref: "#/components/parameters/MemoryOfBot"
+      - $ref: "#/components/parameters/MemoryOfProfile"
       - $ref: "#/components/parameters/MemoryOfAgent"
       - name: path
         in: query
@@ -6210,12 +6315,18 @@ components:
     MemoryOfBot:
       name: bot
       in: query
-      description: A Bot's memory, by its id; give this or agent.
+      description: A Bot's memory, by its id; give this or profile.
+      schema: { type: string, maxLength: 63 }
+    MemoryOfProfile:
+      name: profile
+      in: query
+      description: A profile's memory, by its name; give this or bot.
       schema: { type: string, maxLength: 63 }
     MemoryOfAgent:
       name: agent
       in: query
-      description: An agent's memory, by its Profile's name; give this or bot.
+      deprecated: true
+      description: The profile under its name until 2026-11-28 (issue #1336), read for one release; give profile.
       schema: { type: string, maxLength: 63 }
     SkillName:
       name: skill
@@ -6395,6 +6506,7 @@ components:
         bot:
           type: string
           description: The id of the Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
+        routed_by: { $ref: "#/components/schemas/RoutedBy" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         uses:
@@ -6403,6 +6515,16 @@ components:
           description: The Connections the Run's workers may use, each as integration:label.
         finished_at: { type: string, format: date-time }
         review_stall: { $ref: "#/components/schemas/ReviewStall" }
+    RoutedBy:
+      type: string
+      enum: [chat, own_chat, repo_owner, default]
+      x-enum-varnames: [RoutedByChat, RoutedByOwnChat, RoutedByRepoOwner, RoutedByDefault]
+      description: >-
+        Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat,
+        the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a
+        Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default,
+        the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before,
+        or without a chat.
     ReviewStall:
       type: object
       description: A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
@@ -6499,8 +6621,11 @@ components:
           type: string
           minLength: 1
           description: >-
-            The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat.
-            A Bot request uses its own chat; a script Routine's Run has no chat.
+            The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses
+            its own chat when its Bot owns the repository, or owns none and no Bot owns the repository; else the Run
+            goes to the main chat of the Bot that owns the repository, or of the main Bot when none does, and the
+            creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main
+            chat. A script Routine's Run has no chat.
         uses:
           type: array
           maxItems: 16
@@ -6724,8 +6849,9 @@ components:
         fallback_for:
           type: string
           description: >-
-            The profile the Task asked for, when this Dispatch ran under a backup of it because every account of
-            that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+            The profile the Task asked for, when this Dispatch ran with one of its fallbacks, a later entry of its
+            chain, because every account of the first waited for a limit to reset. Dispatches from before 2026-11-28
+            (issue #1336) may have run under a backup profile, whose version `profile_version_id` then names.
         fallback_until:
           type: string
           format: date-time
@@ -8258,6 +8384,12 @@ components:
             The id of the OAuth client it signs in with; absent until one is
             set, and for an app, whose Connections each have their own. Not
             secret.
+        unready:
+          type: string
+          description: >-
+            For an Integration of kind device whose service needs more than the owner's phone (Telegram, issue
+            #1184): what is missing before an account can be linked, such as the api_id and api_hash in the vault.
+            Absent when nothing is.
         services:
           type: array
           items: { type: string }
@@ -8934,6 +9066,13 @@ components:
           description: >-
             For an app Integration: the label of the app Connection the owner
             signs in as himself through, by device code.
+        flow:
+          type: string
+          enum: [qr, phone]
+          description: >-
+            For an Integration of kind device: qr (the default) links by a QR code the phone scans; phone, for a
+            service that also links by phone number (Telegram, issue #1184), asks for the number first, then the
+            code sent to it.
     SignIn:
       type: object
       required: [id, url, expires_in_seconds]
@@ -8965,6 +9104,30 @@ components:
           format: date-time
           description: When the QR code stops being valid.
         expires_in_seconds: { type: integer }
+        ask: { $ref: "#/components/schemas/SignInAsk" }
+    SignInAsk:
+      type: object
+      required: [field, again]
+      description: >-
+        What a linking waits for the owner to type instead of a QR code (Telegram, issue #1184), which answering the
+        sign-in gives. Absent when it asks nothing.
+      properties:
+        field:
+          type: string
+          enum: [phone, code, password]
+          description: His phone number, the code sent to it, or his account's two-step password.
+        hint:
+          type: string
+          description: Where the code was sent, or the hint he set for his password.
+        again:
+          type: boolean
+          description: The last answer was refused (a wrong code or password); type it again.
+    SignInAnswer:
+      type: object
+      required: [value]
+      additionalProperties: false
+      properties:
+        value: { type: string, minLength: 1, maxLength: 256, writeOnly: true }
     SignInCallback:
       type: object
       additionalProperties: false
@@ -9022,6 +9185,11 @@ components:
           description: >-
             The SSH host's public keys the owner confirmed, one "<type>
             <base64>" a line; nodes trust the host under them alone.
+        bot:
+          type: string
+          description: >-
+            The id of the Bot that owns the repository's work (Bot.repos, issue #1334); absent when none does and its
+            Runs go to the main Bot.
         created_at: { type: string, format: date-time }
     PushSubscription:
       type: object
@@ -10164,6 +10332,11 @@ components:
         error:
           type: string
           description: The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
+        cooling_code:
+          $ref: "#/components/schemas/CoolingCode"
+          description: >-
+            Why the request last moved on to the model's next target or the Bot's fallback (issue #1335); absent when
+            it did not move on.
         prompt_tokens: { type: integer, format: int64 }
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }
@@ -10722,11 +10895,59 @@ components:
         data:
           type: array
           items: { type: string }
-    Bot:
+    AgentSpec:
       type: object
+      description: >-
+        What a Bot and a Profile have in common (issue #1336): what the agent is told, the model it runs, the models
+        it falls back to, its skills and its tool switches. Each embeds it, as OpenClaw has one agent entry for the
+        main agent and its sub-agents (src/config/zod-schema.agent-entry-base.ts) and Paperclip one agents table.
+      required: [instructions, fallbacks, skills, skills_off, preset, tools, tools_off]
+      properties:
+        instructions:
+          type: string
+          description: >-
+            What the agent is and how it works, written by the owner; it follows the runtime's built-in instructions.
+            A Bot's was its persona and a Profile's its instruction until 2026-11-28.
+        provider: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        fallbacks:
+          type: array
+          maxItems: 5
+          items: { type: string }
+          description: >-
+            Ordered models, each provider/model, tried in turn when the agent's own model cannot be served now, as
+            OpenClaw's model fallbacks (src/config/zod-schema.agent-model.ts). A Bot's are served by the gateway,
+            tried when the inherited model's last target refuses with a cooling code that moves on (usage_limit,
+            rate_limit, billing, auth, overloaded) or its accounts all rest; a Profile's run on its own runtime.
+        skills:
+          type: array
+          items: { type: string }
+          description: The skills the agent gets beside those given to everyone.
+        skills_off:
+          type: array
+          items: { type: string }
+          description: The skills given to everyone that the agent does not get.
+        preset: { $ref: "#/components/schemas/ToolPreset" }
+        tool_access: { $ref: "#/components/schemas/ToolAccess" }
+        tools:
+          type: array
+          items: { type: string }
+          description: Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
+        tools_off:
+          type: array
+          items: { type: string }
+          description: The Hypomnema tools the agent never gets, each a name or a family; it wins over tools.
+    Bot:
+      allOf:
+        - $ref: "#/components/schemas/AgentSpec"
+        - $ref: "#/components/schemas/BotOwn"
+    BotOwn:
+      type: object
+      description: What a Bot has that a Profile does not.
       required:
-        [id, name, main, position, fallbacks, persona, memory, memory_limit, skills, skills_off, preset, tools, tools_off,
-         connections, workers, scopes, tool_display, guaranteed_dispatches, created_at, updated_at]
+        [id, name, main, position, memory, memory_limit, connections, workers, scopes, tool_display,
+         guaranteed_dispatches, created_at, updated_at]
       properties:
         id:
           type: string
@@ -10754,41 +10975,16 @@ components:
           description: >-
             The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue
             #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
-        provider: { type: string }
-        model: { type: string }
-        fallbacks:
-          type: array
-          maxItems: 5
-          items: { type: string }
-          description: Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
-        effort: { type: string }
         persona:
           type: string
-          description: What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
+          deprecated: true
+          description: The Bot's instructions under their name until 2026-11-28 (issue #1336); read instructions.
         memory:
           type: string
           description: What the Bot keeps across chats, one entry per line.
         memory_limit:
           type: integer
           description: The most characters the memory holds.
-        skills:
-          type: array
-          items: { type: string }
-          description: The skills the Bot gets beside those given to everyone.
-        skills_off:
-          type: array
-          items: { type: string }
-          description: The skills given to everyone that the Bot does not get.
-        preset: { $ref: "#/components/schemas/ToolPreset" }
-        tool_access: { $ref: "#/components/schemas/ToolAccess" }
-        tools:
-          type: array
-          items: { type: string }
-          description: Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
-        tools_off:
-          type: array
-          items: { type: string }
-          description: The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
         connections:
           $ref: "#/components/schemas/AllowList"
           description: >-
@@ -10813,8 +11009,57 @@ components:
             claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and
             nothing running is stopped for it.
         owner_accounts: { $ref: "#/components/schemas/OwnerAccounts" }
+        repos:
+          type: array
+          items: { type: string }
+          description: >-
+            The repositories whose work the Bot owns (issue #1334), owner/name on github.com and an https URL on
+            another host: a Run created on one goes to the Bot's chat. A repository has at most one owning Bot; the
+            main Bot owns none. Set with PUT /bots/{bot_id}/repos.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    BotRepos:
+      type: object
+      additionalProperties: false
+      required: [repos]
+      properties:
+        repos:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 500 }
+          description: The repositories, each as NewRun.repo takes it; empty for none.
+    BotVersion:
+      type: object
+      required: [id, version, settings, source, created_at]
+      properties:
+        id: { type: string }
+        version: { type: integer }
+        settings: { $ref: "#/components/schemas/BotSettings" }
+        source:
+          type: string
+          enum: [save, restore, undo, before_versions]
+          x-enum-varnames: [BotVersionSave, BotVersionRestore, BotVersionUndo, BotVersionBeforeVersions]
+          description: >-
+            How it was saved: a save of the settings, a restore of another version, the undo of a setup change, or
+            what a Bot had when its first save after versions began kept it.
+        saved_by:
+          type: string
+          enum: [owner, main_bot]
+          x-enum-varnames: [SavedByOwner, SavedByMainBot]
+          description: Who saved it; absent for before_versions.
+        chat_id:
+          type: string
+          description: With main_bot, the chat it was saved from.
+        restored_from:
+          type: string
+          description: With restore, the id of the version it brought back.
+        created_at: { type: string, format: date-time }
+    BotVersionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/BotVersion" }
     OwnerAccounts:
       type: string
       enum: [use, read]
@@ -11190,7 +11435,15 @@ components:
           items: { type: string }
           description: Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
         effort: { type: string }
-        persona: { type: string }
+        instructions:
+          type: string
+          description: What the Bot is and how it behaves; left out, with persona left out too, it is cleared.
+        persona:
+          type: string
+          deprecated: true
+          description: >-
+            The instructions under their name until 2026-11-28 (issue #1336), read for one release when instructions
+            is left out.
         skills:
           type: array
           items: { type: string }
@@ -11238,10 +11491,20 @@ components:
       type: object
       additionalProperties: false
       required: [memory, memory_limit]
+      description: >-
+        A memory, one shape for a Bot's, a profile's and the one about the owner (issue #1336): a Bot's is kept on
+        the Bot, a profile's in the notes store, beside the notes each has.
       properties:
+        bot:
+          type: string
+          description: The id of the Bot whose memory it is.
+        profile:
+          type: string
+          description: The profile whose memory it is.
         agent:
           type: string
-          description: The agent whose memory it is; left out for the memory about the owner.
+          deprecated: true
+          description: The profile under its name until 2026-11-28 (issue #1336); read profile.
         memory:
           type: string
           description: The entries, one per line.
@@ -11306,10 +11569,13 @@ components:
           type: string
           description: Part of the one entry to replace or remove.
     Profile:
+      allOf:
+        - $ref: "#/components/schemas/AgentSpec"
+        - $ref: "#/components/schemas/ProfileOwn"
+    ProfileOwn:
       type: object
-      required:
-        [name, description, version_id, version, runtime, fallbacks, skills, skills_off, preset, tools, tools_off, source,
-         created_at]
+      description: What a Profile has that a Bot does not.
+      required: [name, description, version_id, version, runtime, source, created_at]
       properties:
         name: { type: string }
         description:
@@ -11318,10 +11584,10 @@ components:
         version_id: { type: string }
         version: { type: integer }
         runtime: { type: string }
-        provider: { type: string }
-        model: { type: string }
-        effort: { type: string }
-        instruction: { type: string }
+        instruction:
+          type: string
+          deprecated: true
+          description: The profile's instructions under their name until 2026-11-28 (issue #1336); read instructions.
         cpu_request_millis:
           type: integer
           format: int64
@@ -11340,32 +11606,6 @@ components:
           description: >-
             The most memory each worker of the profile may use, from its YAML's limits.memory (issue #1313); its node
             kills a process of a worker over it. Left out, none of its own: only its node's limit for all its workers.
-        skills:
-          type: array
-          items: { type: string }
-          description: The skills its workers get beside those given to everyone.
-        skills_off:
-          type: array
-          items: { type: string }
-          description: The skills given to everyone that its workers do not get.
-        preset: { $ref: "#/components/schemas/ToolPreset" }
-        tool_access: { $ref: "#/components/schemas/ToolAccess" }
-        tools:
-          type: array
-          items: { type: string }
-          description: Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
-        tools_off:
-          type: array
-          items: { type: string }
-          description: The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
-        fallbacks:
-          type: array
-          items: { type: string }
-          description: >-
-            The profiles, in the owner's order, a Task of this one runs under while every account of its runtime
-            waits for a limit to reset: the first a worker can start under now. Only a Task that has not started
-            and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task
-            waits for the reset.
         source: { type: string }
         created_at: { type: string, format: date-time }
         available:
@@ -12524,8 +12764,11 @@ components:
       description: >-
         owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo
         and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his
-        Gmail; meeting, a Bot reading a meeting he recorded.
-      enum: [owner, chat, routine, lark, zalo, whatsapp, gmail, meeting]
+        Gmail; meeting, a Bot reading a meeting he recorded; github, a call of the owner's GitHub App on an issue or
+        pull request by someone who may write to its repository, only the control plane makes one.
+      enum: [owner, chat, routine, lark, zalo, whatsapp, gmail, meeting, github]
+      x-enum-varnames: [TodoSourceKindOwner, TodoSourceKindChat, TodoSourceKindRoutine, TodoSourceKindLark,
+        TodoSourceKindZalo, TodoSourceKindWhatsapp, TodoSourceKindGmail, TodoSourceKindMeeting, TodoSourceKindGithub]
     TodoSource:
       type: object
       required: [kind]
@@ -12533,7 +12776,7 @@ components:
         kind: { $ref: "#/components/schemas/TodoSourceKind" }
         id:
           type: string
-          description: "The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting."
+          description: "The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, the meeting, or a GitHub issue's or pull request's owner/name#number."
         account:
           type: string
           description: The owner's account the chat or thread is in; zalo, whatsapp and gmail, and lark when given.
@@ -12628,6 +12871,11 @@ components:
           description: >-
             The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project
             Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
+        not_passed:
+          type: string
+          description: >-
+            The main Bot's reason it passed the item, which it has, to no project Bot (issue #1334): the Inbox shows
+            it as "Not passed". Left out when it gave none; cleared when the item is given to someone else.
         stale:
           type: boolean
           description: A proposal nobody touched for three days, left out of the list unless asked for.

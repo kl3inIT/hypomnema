@@ -39,7 +39,7 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 
 	var vmap openapi.Bot
 	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap", "--effort", "high")
-	assert.Equal(t, "You answer questions about VMAP.", vmap.Persona, "what the flags leave out stays")
+	assert.Equal(t, "You answer questions about VMAP.", vmap.Instructions, "what the flags leave out stays")
 	assert.Equal(t, "high", *vmap.Effort)
 
 	pi := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}

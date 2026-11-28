@@ -48,14 +48,42 @@ func runsCreate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
-	return e.print(fs, run, func() { e.printf("run %s (%s)%s\n", run.Id, run.Status, runChatSuffix(run)) })
+	return e.print(fs, run, func() {
+		e.printf("run %s (%s)%s\n", run.Id, run.Status, runChatSuffix(run))
+
+		if why := routedLine(run); why != "" {
+			e.printf("%s\n", why)
+		}
+	})
 }
 
+// runChat is the chat named with --chat, and only that: a Bot's pi that names none creates the Run from its own chat,
+// which the control plane reads from its token, and the Bot that owns the repository may take it (issue #1334).
 func runChat(fs *flag.FlagSet) *string {
-	if named := optional(fs, "chat"); named != nil {
-		return named
+	return optional(fs, "chat")
+}
+
+// routedLine says why the Run went to its chat (issue #1334), as OpenClaw's route says what it matched by.
+func routedLine(run openapi.Run) string {
+	repo := githost.Repo{Host: val(run.RepoHost), Path: val(run.Repo)}.String()
+
+	switch val(run.RoutedBy) {
+	case openapi.RoutedByChat:
+		return "routed_by chat: the chat named"
+	case openapi.RoutedByOwnChat:
+		return "routed_by own_chat: this Bot's chat"
+	case openapi.RoutedByRepoOwner:
+		return fmt.Sprintf("routed_by repo_owner: bot %s owns %s; its main chat plans and coordinates the Run",
+			val(run.Bot), repo)
+	case openapi.RoutedByDefault:
+		if val(run.Repo) == "" {
+			return "routed_by default: the main bot's main chat"
+		}
+
+		return fmt.Sprintf("routed_by default: no bot owns %s; the main bot's main chat", repo)
 	}
-	return chatOfThisAgent()
+
+	return ""
 }
 
 func runChatSuffix(run openapi.Run) string {

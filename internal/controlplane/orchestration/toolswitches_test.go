@@ -66,7 +66,10 @@ func TestDispatchToolAccessIsCappedOnlyForBotRuns(t *testing.T) {
 	_, _, err := w.s.Profiles().ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
 		"model: {provider: model-gateway}\ntools: [phone]\ntools_off: [web_fetch]\n")
 	require.NoError(t, err)
-	bot, err := w.s.PutBot(ctx, Bot{Name: "reporter", Preset: agenttool.PresetReport, ToolsOff: []string{"web_search"}})
+	bot, err := w.s.PutBot(ctx, Bot{
+		Name:      "reporter",
+		AgentSpec: AgentSpec{Preset: agenttool.PresetReport, ToolsOff: []string{"web_search"}},
+	})
 	require.NoError(t, err)
 
 	for _, botID := range []string{"", bot.ID} {
@@ -103,7 +106,7 @@ func TestABotsToolSwitchesAreKeptAndUndone(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", ToolsOff: []string{"not-a-tool"}})
+	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", AgentSpec: AgentSpec{ToolsOff: []string{"not-a-tool"}}})
 	require.ErrorIs(t, err, ErrInvalid)
 
 	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
@@ -133,7 +136,7 @@ func TestABotsToolSwitchesAreKeptAndUndone(t *testing.T) {
 
 // familiesAfterPresets are the tool families added after the presets' migration (00123), whose catalog of tools it
 // froze: a Bot or profile it moved to the full preset gets them as the preset says, which no legacy list named.
-var familiesAfterPresets = []string{"inbox", "requests", "meetings", "chats", "listening"}
+var familiesAfterPresets = []string{"inbox", "requests", "meetings", "chats", "listening", "telegram"}
 
 // toolsAfterPresets are the tools added after that migration to a family it knew: the browser take's (issue
 // #1189). A legacy list named none of them either, so they go as their family goes in the full preset.

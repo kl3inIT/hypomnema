@@ -451,13 +451,15 @@ export function nextAfter(keys: readonly string[], key: string): string | undefi
 
 // The sources the filter offers (issue #1093, section 5): where a to-do came from, as the owner names it. A mail
 // and a meeting have their own source kinds (issue #1105); an item a Routine's run found before them is named by its
-// reference.
+// reference. Telegram is a source of the chats the secretary reads (issue #1184), not yet of an item's.
 export type Source =
   | "zalo"
   | "whatsapp"
+  | "telegram"
   | "lark"
   | "gmail"
   | "meeting"
+  | "github"
   | "chat"
   | "hand"
   | "routine"
@@ -465,15 +467,25 @@ export type Source =
 export const sourceNames: Record<Source, string> = {
   zalo: "Zalo",
   whatsapp: "WhatsApp",
+  telegram: "Telegram",
   lark: "Lark",
   gmail: "Gmail",
   meeting: "Meeting",
+  github: "GitHub",
   chat: "Chat",
   hand: "Added by you",
   routine: "Routine",
 }
 
-export const filterSources: Source[] = ["zalo", "whatsapp", "lark", "gmail", "meeting", "chat"]
+export const filterSources: Source[] = [
+  "zalo",
+  "whatsapp",
+  "lark",
+  "gmail",
+  "meeting",
+  "github",
+  "chat",
+]
 
 const sourceOfKind: Record<TodoSourceKind, Source> = {
   owner: "hand",
@@ -484,6 +496,7 @@ const sourceOfKind: Record<TodoSourceKind, Source> = {
   whatsapp: "whatsapp",
   gmail: "gmail",
   meeting: "meeting",
+  github: "github",
 }
 
 export function sourceOf(row: Row): Source {

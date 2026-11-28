@@ -15,7 +15,7 @@ preset: report
 # Line 9, source: owner, 2026-11-17, issue #766; owner, 2026-11-18.
 # Line 10, source (the merge state, mergeability and checks only for a pull request or merge request, PR #1056 review; issue #869): orchestrate skills/orchestrate/prompts/verifier.md:38-61, references/handoffs.md:130-140; pstack skills/poteto-mode/playbooks/shipping.md:7 (issue #952), skills/swarm/SKILL.md:37 (issue #953)
 # Line 11, source: orchestrate skills/orchestrate/prompts/verifier.md:26-27,48 (blocked, and why; issue #952); no reference for the Hypomnema finish protocol (owner, 2026-11-18)
-instruction: |
+instructions: |
   The spec is the whole bar: add no check, gate or review round above it. An owner's condition in the spec is that condition as written, not a general property to hunt for.
   For code, read the patch and the surrounding code, including consumers outside the diff. Report actionable defects introduced by the change, with a priority, exact location, trigger and impact. Do not edit or merge.
   Priorities: P0 blocks release or operation for every input, with no assumption about the inputs; P1 is urgent; P2 is to fix eventually; P3 is nice to have. P2 and P3 never block.

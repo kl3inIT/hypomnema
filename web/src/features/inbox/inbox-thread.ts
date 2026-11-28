@@ -5,6 +5,7 @@ import {
   CircleCheck,
   CircleDot,
   CirclePlus,
+  CircleSlash,
   CircleX,
   Clock,
   Copy,
@@ -309,11 +310,14 @@ export function writeOf(
   return { act: todo.chat_id ? "comment" : "hand", bot, label: "Send", placeholder }
 }
 
-// actorName names who wrote or changed the item: the owner, a Bot by its name, or Hypomnema.
+// actorName names who wrote or changed the item: the owner, a Bot by its name, someone who called the GitHub App
+// (the system's actor "github:<login>", issue #1232) by their login, or Hypomnema.
 export function actorName(actor: TodoEvent["actor"], botName: (id: string) => string) {
   if (actor.kind === "owner") return "You"
+  if (actor.kind === "bot") return botName(actor.id ?? "")
+  if (actor.id?.startsWith("github:")) return `${actor.id.slice("github:".length)} on GitHub`
 
-  return actor.kind === "bot" ? botName(actor.id ?? "") : "Hypomnema"
+  return "Hypomnema"
 }
 
 // EventLine is one change of the item's history as its timeline shows it: its words, its icon on the line, and
@@ -357,6 +361,9 @@ export function eventLine(
         return { words: `${who} moved it to Waiting on ${waiting.by}`, icon: UserRoundCheck }
 
       return editLine(who, after, botName, projectName)
+    case "reviewed":
+      // The review the GitHub App left on the item's pull request during a Bot's attempt (issue #1232).
+      return { words: "The GitHub App reviewed the pull request", icon: CircleDot }
     default:
       return { words: `${who}: ${e.kind}`, icon: CircleDot }
   }
@@ -432,6 +439,9 @@ function editLine(
       icon: Box,
     }
   }
+  // The main Bot kept the item and said why no project Bot takes it (issue #1334).
+  if (typeof after.not_passed === "string")
+    return { words: `${who} passed it to no Bot: ${after.not_passed}`, icon: CircleSlash }
   const links = Array.isArray(after.evidence) ? (after.evidence as { kind?: string }[]) : []
   if (links.some((l) => l.kind === "pull_request"))
     return { words: `${who} linked a pull request`, icon: GitPullRequest }

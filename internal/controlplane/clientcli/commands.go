@@ -24,11 +24,14 @@ var commands = []command{
 	},
 	{
 		name: "run", args: "<objective>", min: 1, max: -1,
-		summary: "create a Run with one Task and follow it until the Task ends",
+		summary: "create a Run with one Task and follow it until the Task ends; from a bot's chat, a Run that goes " +
+			"to another bot's chat (routed_by) takes no Task from this one: use runs create and hand it off",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktree starts from (default main)")
-			fs.String("chat", "", "the chat to wake (default: this Bot's chat or the main Bot's main chat)")
+			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: in a bot's "+
+				"chat, that chat when its bot owns the repository, or owns none and no bot owns it; else the main "+
+				"chat of the bot that owns the repository; else the main bot's main chat)")
 			fs.String("profile", "", "profile of the Task (default implementer)")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model as <provider>/<model>, such as opencode-go/deepseek-v4-pro, instead of "+
@@ -43,7 +46,9 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktrees start from (default main)")
-			fs.String("chat", "", "the chat to wake (default: this Bot's chat or the main Bot's main chat)")
+			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: in a bot's "+
+				"chat, that chat when its bot owns the repository, or owns none and no bot owns it; else the main "+
+				"chat of the bot that owns the repository; else the main bot's main chat)")
 			fs.String("objective-file", "", "read the objective from this file, or - for standard input")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
 			fs.String("use", "", "accounts the workers may use, as integration:label separated by commas, such as google:work")
@@ -465,10 +470,10 @@ var commands = []command{
 		flags:   jsonFlag, run: larkChannelPersonRemove,
 	},
 	{
-		name: "bots list", summary: "the bots: each a model, a persona and a memory", flags: jsonFlag, run: botsList,
+		name: "bots list", summary: "the bots: each a model, instructions and a memory", flags: jsonFlag, run: botsList,
 	},
 	{
-		name: "bots show", args: "<bot>", min: 1, max: 1, summary: "a bot's model, persona and memory",
+		name: "bots show", args: "<bot>", min: 1, max: 1, summary: "a bot's model, instructions and memory",
 		flags: jsonFlag, run: botsShow,
 	},
 	{
@@ -478,9 +483,11 @@ var commands = []command{
 			fs.String("provider", "", "the provider of the model; or name both in --model as <provider>/<model>")
 			fs.String("model", "", "the model pi runs for the bot, as <provider>/<model> or with --provider; empty "+
 				"for pi's default")
-			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas; empty clears them")
+			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas, tried when the "+
+				"Bot's model is out of capacity, limited, refused or out of credits; empty clears them")
 			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
-			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
+			fs.String("instructions-file", "", "a file with what the bot is and how it behaves, or - for standard input")
+			fs.String("persona-file", "", "--instructions-file under its name until 2026-11-28, kept for one release")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
 			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
 			fs.String("preset", "", "tool family preset: full (default) or report")
@@ -499,9 +506,22 @@ var commands = []command{
 				"which refuses every write and send through his Lark sign-in, Google, Zalo and WhatsApp")
 			fs.Int("guarantee", 0, "its guaranteed share of the room, in workers across every node: 1 to 64 (4 for a "+
 				"new bot); it may use more when the others leave room free")
+			fs.String("repos", "", "the repositories whose work it owns, as runs create --repo takes them, separated "+
+				"by commas; \"\" for none (owner only): a Run created on one goes to its chat, and a repository has "+
+				"one owning bot")
 			jsonFlag(fs)
 		},
 		run: botsSet,
+	},
+	{
+		name: "bots versions", args: "<bot>", min: 1, max: 1,
+		summary: "a bot's saved settings, newest first, with who saved each and when",
+		flags:   jsonFlag, run: botsVersions,
+	},
+	{
+		name: "bots restore", args: "<bot> <version id>", min: 2, max: 2,
+		summary: "save one of a bot's versions again; its name and memory stay (owner, or the main bot)",
+		flags:   jsonFlag, run: botsRestore,
 	},
 	{
 		name: "bots rename", args: "<bot> <new name>", min: 2, max: 2,
@@ -519,7 +539,7 @@ var commands = []command{
 	},
 	{
 		name: "bots prompt", args: "<bot>", min: 1, max: 1,
-		summary: "what pi is given about a bot when it starts for a chat: the persona and the memory",
+		summary: "what pi is given about a bot when it starts for a chat: the instructions and the memory",
 		flags: func(fs *flag.FlagSet) {
 			fs.Bool("group", false, "for the chat of a Lark group: without the memory, and saying who writes there")
 		},
@@ -706,7 +726,7 @@ var commands = []command{
 		summary: "revoke a view-only link at once (owner)", flags: jsonFlag, run: artifactUnshare,
 	},
 	{
-		name: "memory show", summary: "a memory: a bot's, an agent's (--agent) or the one about the owner (--owner)",
+		name: "memory show", summary: "a memory: a bot's, a profile's (--profile) or the one about the owner (--owner)",
 		flags: memoryFlags, run: memoryShow,
 	},
 	{
@@ -729,7 +749,7 @@ var commands = []command{
 		flags:   memoryFlags, run: memoryChange(memoryRemove),
 	},
 	{
-		name: "memory ls", summary: "the notes of a bot's or an agent's memory, with their sizes",
+		name: "memory ls", summary: "the notes of a bot's or a profile's memory, with their sizes",
 		flags: notesFlags, run: notesList,
 	},
 	{
@@ -745,7 +765,8 @@ var commands = []command{
 		flags: notesFlags, run: notesRm,
 	},
 	{
-		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
+		name: "repos list", summary: "the repositories registered under a name, each with the bot whose chat takes " +
+			"its Runs", flags: jsonFlag, run: reposList,
 	},
 	{
 		name: "repos add", args: "<repo>", min: 1, max: 1,
@@ -784,15 +805,17 @@ var commands = []command{
 		flags: jsonFlag, run: reposRemove,
 	},
 	{
-		name: "profiles routing", summary: "show the effective role and Task-kind mapping as YAML",
-		flags: jsonFlag, run: profilesRouting,
+		name: "roles routing", aliases: []string{"profiles routing"},
+		summary: "show the effective role and Task-kind mapping as YAML",
+		flags:   jsonFlag, run: profilesRouting,
 	},
 	{
-		name: "profiles routing-apply", args: "<file>", min: 1, max: 1,
+		name: "roles routing-apply", aliases: []string{"profiles routing-apply"}, args: "<file>", min: 1, max: 1,
 		summary: "validate and replace the role routing YAML (owner)", run: profilesRoutingApply,
 	},
 	{
-		name: "profiles metrics", summary: "settled attempts and cost by role, kind and chain entry (owner)",
+		name: "roles metrics", aliases: []string{"profiles metrics"},
+		summary: "settled attempts and cost by role, kind and chain entry (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("since", "", "start of the period in RFC3339 (default: 14 days ago)")
 			jsonFlag(fs)
@@ -818,7 +841,7 @@ var commands = []command{
 	},
 	{
 		name: "profiles rm", args: "<profile>", min: 1, max: 1,
-		summary: "delete a profile no unfinished task, backup or bot's workers list names; one used before is " +
+		summary: "delete a profile no unfinished task or bot's workers list names; one used before is " +
 			"hidden and kept for its runs, and applying it again brings it back (owner)",
 		flags: jsonFlag, run: profilesRemove,
 	},

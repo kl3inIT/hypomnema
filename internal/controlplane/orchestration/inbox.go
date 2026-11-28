@@ -77,6 +77,55 @@ func (s *Service) InboxWorkOf(ctx context.Context, chatID string) (inboxstore.Wo
 	return inboxstore.Work{Kind: inboxstore.WorkChat, ID: chatID}, nil
 }
 
+// AppReviewAttempt is the attempt a review the owner's GitHub App makes now through the service proxy, from chat by
+// bot, would be the work of (issue #1232; review round 3 of PR #1323): read before the review's POST goes out. Only a
+// pi token's own chat and Bot name one, the chat's own Bot: "" for none.
+func (s *Service) AppReviewAttempt(ctx context.Context, chat, bot, repository string, number int) (string, error) {
+	work, ok, err := s.appReviewWork(ctx, chat, bot)
+	if err != nil || !ok {
+		return "", err
+	}
+
+	return s.inbox.ReviewAttempt(ctx, repository, number, bot, work)
+}
+
+// RecordAppReview records a review the owner's GitHub App made through the service proxy on the item of its pull
+// request (issue #1232): the work of the attempt read before its POST (AppReviewAttempt), when that attempt is still
+// on the item, by the chat's own Bot named by the pi token. Without a Bot, a chat or an attempt nothing is recorded
+// (review round 3 of PR #1323). False when it is not.
+func (s *Service) RecordAppReview(ctx context.Context, chat, bot, attempt, repository string, number int, id int64,
+	url string,
+) (bool, error) {
+	work, ok, err := s.appReviewWork(ctx, chat, bot)
+	if err != nil || !ok || attempt == "" {
+		return false, err
+	}
+
+	return s.inbox.RecordReview(ctx, inboxstore.MadeReview{
+		Repository: repository, Number: number, ID: id, URL: url, Bot: bot, Work: work, Attempt: attempt,
+	})
+}
+
+// appReviewWork is where a review made from chat by bot is work: the chat's work, when bot is the chat's own Bot.
+func (s *Service) appReviewWork(ctx context.Context, chat, bot string) (inboxstore.Work, bool, error) {
+	if chat == "" || bot == "" {
+		return inboxstore.Work{}, false, nil
+	}
+
+	c, err := s.GetChat(ctx, chat)
+	if err != nil {
+		return inboxstore.Work{}, false, err
+	}
+
+	if c.Bot != bot {
+		return inboxstore.Work{}, false, nil
+	}
+
+	work, err := s.InboxWorkOf(ctx, chat)
+
+	return work, err == nil, err
+}
+
 // InboxAttempt is the attempt of a Bot's pi at the Inbox item it names (issue #1004): the item's current attempt
 // when the Bot is doing it in this chat or the chat's Routine's run, so that an Approval the Bot asks while working
 // on the item records it (NewApproval.AttemptID) and the Bot never handles attempt ids. Any other item is a conflict

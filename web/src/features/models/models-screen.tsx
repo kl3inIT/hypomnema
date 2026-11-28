@@ -387,6 +387,9 @@ function AccountRow({
               </Fact>
             </span>
           </ItemDescription>
+          {state?.action && account.cooling_until && (
+            <RestAction action={state.action} until={account.cooling_until} />
+          )}
           <VerificationNote account={account} />
           <LimitBars account={account} />
           <ErrorAlert error={change.error ?? move.error} />
@@ -440,6 +443,22 @@ function AccountRow({
         </div>
       </Item>
     </div>
+  )
+}
+
+// RestAction is what the owner does to end a rest that does not end by itself (issue #1335, row 4): a refused sign-in
+// or spent credits. The gateway passes the account over for the usage wait, since asking it sooner changes nothing,
+// as OpenClaw keeps a billing failure off (docs/research/2026-11-13-gateway-features.md:70-72).
+function RestAction({ action, until: iso }: { action: string; until: string }) {
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="rest-action">
+      <TriangleAlert
+        className="me-1 inline size-3 shrink-0 align-[-0.125rem] text-destructive"
+        aria-hidden
+      />
+      <span className="font-medium text-foreground">{action}</span>: the gateway passes it over
+      until {until(iso)}, as asking it sooner changes nothing.
+    </p>
   )
 }
 

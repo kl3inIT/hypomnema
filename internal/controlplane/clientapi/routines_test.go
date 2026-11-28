@@ -141,7 +141,10 @@ func TestBotTokensActOnTheirOwnBotsRoutinesOnly(t *testing.T) {
 	coordinator, _ := w.token("pi-coordinator", bearertoken.Coordinator)
 	ctx := t.Context()
 
-	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name:      "vmap",
+		AgentSpec: orchestration.AgentSpec{Instructions: "You answer about VMAP."},
+	})
 	require.NoError(t, err)
 
 	mine, err := w.svc.CreateChat(ctx, "", "")
