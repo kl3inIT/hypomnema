@@ -18,7 +18,7 @@ import (
 // Which of the owner's chats the secretary reads (issue #1270): the chats of each of his Connections, with whether
 // the triage's check reads each and why (the default of its kind, or the owner), for his screen; and the one-time
 // move of the chat ids a Bot's thu-ky/filters.json dropChats named into his choices. The choices themselves are
-// inboxstore's (ChatRead). A Zalo or WhatsApp account's chats are those the server keeps; a Lark sign-in's are
+// inboxstore's (ChatRead). A Zalo, WhatsApp or Telegram account's chats are those the server keeps; a Lark sign-in's are
 // listed by Lark (GET /open-apis/im/v1/chats, his direct chats and groups, as the triage's check lists them).
 
 // Chats lists a Connection's chats with the owner's choices.
@@ -63,7 +63,7 @@ func (c Chats) List(ctx context.Context, integration, label string) ([]Chat, err
 	)
 
 	switch integration {
-	case "zalo", "whatsapp":
+	case "zalo", "whatsapp", "telegram":
 		out, err = c.keptChats(ctx, integration, label)
 	case "lark":
 		out, err = c.larkChats(ctx, label)
@@ -88,7 +88,12 @@ func (c Chats) List(ctx context.Context, integration, label string) ([]Chat, err
 	for _, r := range set {
 		i, ok := at[r.Chat]
 		if !ok {
-			out = append(out, Chat{ID: r.Chat, Name: r.Chat, Kind: inboxstore.ChatKind("", "", r.Chat)})
+			kind := inboxstore.ChatKind("", "", r.Chat)
+			if integration == "telegram" {
+				kind = inboxstore.TelegramIDKind(r.Chat)
+			}
+
+			out = append(out, Chat{ID: r.Chat, Name: r.Chat, Kind: kind})
 			i = len(out) - 1
 		}
 
@@ -107,6 +112,11 @@ func (c Chats) keptChats(ctx context.Context, integration, label string) ([]Chat
 	out := make([]Chat, 0, len(kept))
 	for _, k := range kept {
 		kind := inboxstore.ChatKind(k.Kind, k.Name, k.ID)
+		if integration == "telegram" {
+			// Telegram's kinds come from its own flags, never from a name (issue #1184).
+			kind = inboxstore.FlagKind(k.Kind)
+		}
+
 		out = append(out, Chat{
 			ID: k.ID, Name: k.Name, Kind: kind, LastMessageAt: k.LastMessageAt, Reads: inboxstore.DefaultReads(kind),
 		})

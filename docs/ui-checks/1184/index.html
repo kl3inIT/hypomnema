@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The owner's Telegram: link steps and the Telegram tab (#1184)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 48rem) {
+      .screens { grid-template-columns: minmax(0, 1fr); }
+      .phone { max-width: 25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>The owner's Telegram: link steps and the Telegram tab (#1184)</h1>
+    <p>
+      Taken by <code>web/tests/telegram-1184.spec.ts</code> against a fake client API, on a computer (Desktop Chrome)
+      and a phone (Pixel 7), in light and dark. Every name is made up; the numbers are in Telegram's test range (+999 66 X YYYY).
+    </p>
+    <section>
+      <h2>The api_id is missing</h2>
+      <p>The Telegram card before the owner's api_id and api_hash are in the vault: Not set up, what is missing, a link to the Vault, no Link button.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-not-set-up-light-desktop.png" alt="The api_id is missing, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-not-set-up-light-phone.png" alt="The api_id is missing, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-not-set-up-dark-desktop.png" alt="The api_id is missing, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-not-set-up-dark-phone.png" alt="The api_id is missing, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>The link dialog</h2>
+      <p>Link phone: the name, Show the code (QR first) and Use phone number.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-start-light-desktop.png" alt="The link dialog, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-start-light-phone.png" alt="The link dialog, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-start-dark-desktop.png" alt="The link dialog, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-start-dark-phone.png" alt="The link dialog, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>The QR code</h2>
+      <p>Telegram's login link as a QR code, where to scan it (Settings › Devices › Link Desktop Device), and Use phone number to switch without closing.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-qr-light-desktop.png" alt="The QR code, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-qr-light-phone.png" alt="The QR code, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-qr-dark-desktop.png" alt="The QR code, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-qr-dark-phone.png" alt="The QR code, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>The two-step password</h2>
+      <p>After the phone accepted the code, an account with a two-step password is asked for it, with its hint.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-password-light-desktop.png" alt="The two-step password, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-password-light-phone.png" alt="The two-step password, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-password-dark-desktop.png" alt="The two-step password, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-password-dark-phone.png" alt="The two-step password, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>A wrong password</h2>
+      <p>The two-step password, refused once: asked again with its hint, the field empty (nothing typed is kept).</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-password-again-light-desktop.png" alt="A wrong password, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-password-again-light-phone.png" alt="A wrong password, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-password-again-dark-desktop.png" alt="A wrong password, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-password-again-dark-phone.png" alt="A wrong password, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>By phone number</h2>
+      <p>Use phone number: the number, with its country code.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-phone-light-desktop.png" alt="By phone number, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-phone-light-phone.png" alt="By phone number, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-phone-dark-desktop.png" alt="By phone number, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-phone-dark-phone.png" alt="By phone number, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>The code</h2>
+      <p>The code Telegram sent, asked once the number was taken, and where it was sent.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-code-light-desktop.png" alt="The code, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-code-light-phone.png" alt="The code, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-code-dark-desktop.png" alt="The code, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-code-dark-phone.png" alt="The code, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>A wrong code</h2>
+      <p>The code Telegram sent, refused once: asked again, and where it was sent.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-code-again-light-desktop.png" alt="A wrong code, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-code-again-light-phone.png" alt="A wrong code, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-link-code-again-dark-desktop.png" alt="A wrong code, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-link-code-again-dark-phone.png" alt="A wrong code, phone, dark">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>The Telegram tab</h2>
+      <p>Inbox › Chats the secretary reads: a Telegram tab with its counts; a person and the groups read (an ordinary group named Engineering Newsletter too: Telegram's flags only), bots, Telegram's own account and a channel skipped by default.</p>
+      <h3>Light</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-chats-light-desktop.png" alt="The Telegram tab, desktop, light">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-chats-light-phone.png" alt="The Telegram tab, phone, light">
+        </figure>
+      </div>
+      <h3>Dark</h3>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="telegram-chats-dark-desktop.png" alt="The Telegram tab, desktop, dark">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="telegram-chats-dark-phone.png" alt="The Telegram tab, phone, dark">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

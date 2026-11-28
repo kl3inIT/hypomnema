@@ -402,3 +402,16 @@ const ZaloID = "zalo"
 func Zalo() Definition {
 	return Definition{ID: ZaloID, Name: "Zalo", Kind: KindDevice}
 }
+
+// TelegramID is the id of the Telegram Integration.
+const TelegramID = "telegram"
+
+// Telegram is the owner's own personal Telegram, linked as a user client (MTProto, through gotd/td) by a QR code his
+// phone accepts, with his two-step password when the account has one, or by his phone number and the code Telegram
+// sends (issue #1184): a Telegram bot reads only the chats it was added to, never his chats with other people
+// (Hermes and OpenClaw use the Bot API; mautrix-telegram logs in as the user). It needs the owner's own api_id and
+// api_hash from my.telegram.org, kept as the Integration's client. Unofficial clients are watched by Telegram, which
+// the owner accepted (owner, 2026-11-28).
+func Telegram() Definition {
+	return Definition{ID: TelegramID, Name: "Telegram", Kind: KindDevice}
+}

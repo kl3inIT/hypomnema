@@ -1808,6 +1808,14 @@ func (s *signIns) Code(context.Context, string, string) (integration.SignIn, err
 	return integration.SignIn{}, integration.ErrNotFound
 }
 
+func (s *signIns) LinkByPhone(context.Context, string, string) (integration.SignIn, error) {
+	return integration.SignIn{}, integration.ErrInvalid
+}
+
+func (s *signIns) Answer(context.Context, string, string, string) (integration.SignIn, error) {
+	return integration.SignIn{}, integration.ErrNotFound
+}
+
 func (s *signIns) Complete(_ context.Context, _, id, pasted string) (integration.Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -38,10 +38,11 @@ var errNoInboxChats = fmt.Errorf("%w: this control plane lists no chats for the 
 	orchestration.ErrUnavailable)
 
 // secretaryIntegrations are the services whose chats the triage reads: his messaging accounts and his own Lark
-// sign-ins (deploy/thu-ky/new-messages.mjs sources). Telegram joins when it lands (#1184).
-var secretaryIntegrations = []string{"zalo", "whatsapp", "lark"}
+// sign-ins (deploy/thu-ky/new-messages.mjs sources), and his Telegram (#1184).
+var secretaryIntegrations = []string{"zalo", "whatsapp", "telegram", "lark"}
 
-// chatSources are the owner's Connections whose chats the secretary may read: every Zalo and WhatsApp account, and
+// chatSources are the owner's Connections whose chats the secretary may read: every Zalo, WhatsApp and Telegram
+// account, and
 // the Lark Connections that sign in as him (an app's bot reads none of his chats, issue #1127).
 func (s *Server) chatSources(ctx context.Context) ([]orchestration.Connection, error) {
 	out := []orchestration.Connection{}

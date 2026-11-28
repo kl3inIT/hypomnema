@@ -122,9 +122,12 @@ CREATE TRIGGER IF NOT EXISTS tg_messages_au AFTER UPDATE ON tg_messages BEGIN
 END;
 `
 
-// upgrades bring the tables to this version, each from the one before; tg_version says which ran. None yet: the
-// list is where the next change goes, as whatsapp.db's (whatsapp/store.go, upgrades).
-var upgrades []string
+// upgrades bring the tables to this version, each from the one before; tg_version says which ran, as whatsapp.db's
+// (whatsapp/store.go, upgrades).
+var upgrades = []string{
+	// 1: where a message's file is kept once downloaded or sent (media.go), as wa_messages.local_path.
+	`ALTER TABLE tg_messages ADD COLUMN local_path TEXT NOT NULL DEFAULT '';`,
+}
 
 // store reads and writes telegram.db.
 type store struct{ db *sql.DB }
@@ -554,7 +557,7 @@ func (s *store) messages(ctx context.Context, account string, q messaging.Query)
 	rows, err := s.db.QueryContext(ctx, `SELECT m.msg_id, m.chat_id,
 			CASE WHEN c.name IS NOT NULL AND c.name <> '' THEN c.name ELSE m.chat_name END,
 			m.sender_id, m.sender_name, m.ts, m.from_me, m.text, m.quoted_msg_id, m.media_type, m.media_caption,
-			m.filename, m.mime_type, m.edited, m.revoked
+			m.filename, m.mime_type, m.edited, m.revoked, m.local_path <> ''
 		FROM tg_messages m LEFT JOIN tg_chats c ON c.account = m.account AND c.id = m.chat_id
 		WHERE `+strings.Join(where, " AND ")+` ORDER BY m.ts DESC, m.msg_id DESC, m.rowid DESC LIMIT ? OFFSET ?`,
 		args...)
@@ -572,7 +575,7 @@ func (s *store) messages(ctx context.Context, account string, q messaging.Query)
 		)
 		if err := rows.Scan(&msg.ID, &msg.Chat, &msg.ChatName, &msg.Sender, &msg.SenderName, &ts, &msg.FromMe,
 			&msg.Text, &msg.QuotedID, &msg.MediaType, &msg.Caption, &msg.FileName, &msg.MimeType, &msg.Edited,
-			&msg.Revoked); err != nil {
+			&msg.Revoked, &msg.MediaKept); err != nil {
 			return nil, err
 		}
 
@@ -606,4 +609,33 @@ func (s *store) forget(ctx context.Context, account string, userID int64) error 
 	}
 
 	return errors.Join(errs...)
+}
+
+// mediaRow is what is kept of a message's file.
+type mediaRow struct {
+	mediaType, mime, fileName, localPath string
+}
+
+func (s *store) mediaOf(ctx context.Context, account, chat, id string) (mediaRow, error) {
+	var r mediaRow
+
+	err := s.db.QueryRowContext(ctx, `SELECT media_type, mime_type, filename, local_path FROM tg_messages
+		WHERE account = ? AND chat_id = ? AND msg_id = ?`, account, chat, id).
+		Scan(&r.mediaType, &r.mime, &r.fileName, &r.localPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, fmt.Errorf("%w: no message %s is kept in %s", errNoFile, id, chat)
+	}
+
+	return r, err
+}
+
+// keptFile keeps where a message's file is.
+func (s *store) keptFile(ctx context.Context, account, chat, id, path string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE tg_messages SET local_path = ? WHERE account = ? AND chat_id = ?
+		AND msg_id = ?`, path, account, chat, id)
+	if err != nil {
+		return fmt.Errorf("telegram: keeping where the file of message %s is: %w", id, err)
+	}
+
+	return nil
 }

@@ -1734,6 +1734,10 @@ export type Integration = {
    */
   client_id?: string;
   /**
+   * For an Integration of kind device whose service needs more than the owner's phone (Telegram, issue #1184): what is missing before an account can be linked, such as the api_id and api_hash in the vault. Absent when nothing is.
+   */
+  unready?: string;
+  /**
    * The services a Connection can be granted, such as gmail; none for an app, which may do what the service allows the app.
    */
   services: Array<string>;
@@ -2368,6 +2372,10 @@ export type NewSignIn = {
    * For an app Integration: the label of the app Connection the owner signs in as himself through, by device code.
    */
   app?: string;
+  /**
+   * For an Integration of kind device: qr (the default) links by a QR code the phone scans; phone, for a service that also links by phone number (Telegram, issue #1184), asks for the number first, then the code sent to it.
+   */
+  flow?: 'qr' | 'phone';
 };
 
 export type SignIn = {
@@ -2393,6 +2401,29 @@ export type SignIn = {
    */
   qr_expires_at?: string;
   expires_in_seconds: number;
+  ask?: SignInAsk;
+};
+
+/**
+ * What a linking waits for the owner to type instead of a QR code (Telegram, issue #1184), which answering the sign-in gives. Absent when it asks nothing.
+ */
+export type SignInAsk = {
+  /**
+   * His phone number, the code sent to it, or his account's two-step password.
+   */
+  field: 'phone' | 'code' | 'password';
+  /**
+   * Where the code was sent, or the hint he set for his password.
+   */
+  hint?: string;
+  /**
+   * The last answer was refused (a wrong code or password); type it again.
+   */
+  again: boolean;
+};
+
+export type SignInAnswer = {
+  value: string;
 };
 
 export type SignInCallback = {
@@ -8575,6 +8606,34 @@ export type CompleteIntegrationSignInResponses = {
 };
 
 export type CompleteIntegrationSignInResponse = CompleteIntegrationSignInResponses[keyof CompleteIntegrationSignInResponses];
+
+export type AnswerIntegrationSignInData = {
+  body: SignInAnswer;
+  path: {
+    integration: string;
+    sign_in_id: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/sign-ins/{sign_in_id}/answer';
+};
+
+export type AnswerIntegrationSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AnswerIntegrationSignInError = AnswerIntegrationSignInErrors[keyof AnswerIntegrationSignInErrors];
+
+export type AnswerIntegrationSignInResponses = {
+  /**
+   * The linking at its next step.
+   */
+  200: SignIn;
+};
+
+export type AnswerIntegrationSignInResponse = AnswerIntegrationSignInResponses[keyof AnswerIntegrationSignInResponses];
 
 export type DeleteIntegrationConnectionData = {
   body?: never;

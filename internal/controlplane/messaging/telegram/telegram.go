@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/gotd/log/logslog"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/updates"
+	updhook "github.com/gotd/td/telegram/updates/hook"
 	"github.com/gotd/td/tg"
 	"golang.org/x/time/rate"
 
@@ -65,6 +67,13 @@ type Service struct {
 	states  stateStorage
 	secrets Secrets
 	log     *slog.Logger
+	// mediaDir holds the kept files, beside telegram.db, as whatsapp-media beside whatsapp.db.
+	mediaDir string
+
+	// live are the accounts opened and connecting, by user id, so that linking one again ends its old session
+	// (link.go).
+	mu   sync.Mutex
+	live map[string]*Account
 }
 
 // Open opens telegram.db at path, making it and its tables when they do not exist.
@@ -82,7 +91,10 @@ func Open(ctx context.Context, path string, secrets Secrets, logger *slog.Logger
 		return nil, errors.Join(err, db.Close())
 	}
 
-	return &Service{closeDB: db.Close, store: st, states: stateStorage{db: db}, secrets: secrets, log: logger}, nil
+	return &Service{
+		closeDB: db.Close, store: st, states: stateStorage{db: db}, secrets: secrets, log: logger,
+		mediaDir: filepath.Join(filepath.Dir(path), "telegram-media"), live: map[string]*Account{},
+	}, nil
 }
 
 // Close closes telegram.db; close the accounts first.
@@ -167,21 +179,27 @@ func (s *Service) Open(ctx context.Context, id string) (*Account, error) {
 	// The session outlives the request that opened it.
 	a.start(context.WithoutCancel(ctx), appID, appHash)
 
+	s.mu.Lock()
+	s.live[a.key] = a
+	s.mu.Unlock()
+
 	return a, nil
 }
 
 func (s *Service) newAccount(uid int64) *Account {
 	return &Account{
-		store: s.store, states: s.states, log: s.log, userID: uid, key: strconv.FormatInt(uid, 10),
+		store: s.store, states: s.states, log: s.log, mediaDir: s.mediaDir, userID: uid,
+		key:   strconv.FormatInt(uid, 10),
 		pause: waitPage, retry: retryWait, state: messaging.State{Status: messaging.StatusConnecting},
 	}
 }
 
 // Account is one linked account's live session.
 type Account struct {
-	store  *store
-	states stateStorage
-	log    *slog.Logger
+	store    *store
+	states   stateStorage
+	log      *slog.Logger
+	mediaDir string
 	// userID is the account's Telegram user id, and key the same as the mirror's account.
 	userID int64
 	key    string
@@ -335,7 +353,7 @@ func (a *Account) Logout(ctx context.Context) error {
 
 	a.Close()
 
-	return a.store.forget(ctx, a.key, a.userID)
+	return errors.Join(a.store.forget(ctx, a.key, a.userID), a.forgetFiles())
 }
 
 // start connects the session in the background until Close, again after each failure that may pass.
@@ -418,6 +436,9 @@ func (a *Account) connect(ctx context.Context, appID int, appHash string) error 
 		UpdateHandler:  manager,
 		Middlewares: []telegram.Middleware{
 			waiter,
+			// What a request of the account's own answers with (a message it sent) goes through the manager as an
+			// update, so that its pts stays in step, as gotd's examples/updates/main.go:53 hooks it.
+			updhook.UpdateHook(manager.Handle),
 			ratelimit.New(rate.Every(100*time.Millisecond), 5),
 		},
 		Device: telegram.DeviceConfig{DeviceModel: deviceName},

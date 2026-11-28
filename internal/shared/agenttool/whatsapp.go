@@ -7,7 +7,7 @@ const ToolWhatsAppSend = "whatsapp_send"
 
 const HeaderWhatsAppMentions = "Hypomnema-WhatsApp-Mentions"
 
-// WhatsAppSendCall is the arguments of a whatsapp_send or zalo_send call as the control plane takes them: the
+// WhatsAppSendCall is the arguments of a whatsapp_send, zalo_send or telegram_send call as the control plane takes them: the
 // agent's own, and the file its tools server read from Path.
 type WhatsAppSendCall struct {
 	Account  string `json:"account,omitempty"`
@@ -24,5 +24,7 @@ type WhatsAppSendCall struct {
 }
 
 // SendsAFile says a tool sends a file of the folder the agent works in, which its tools server reads into
-// WhatsAppSendCall.File: whatsapp_send and zalo_send.
-func SendsAFile(tool string) bool { return tool == ToolWhatsAppSend || tool == ToolZaloSend }
+// WhatsAppSendCall.File: whatsapp_send, zalo_send and telegram_send.
+func SendsAFile(tool string) bool {
+	return tool == ToolWhatsAppSend || tool == ToolZaloSend || tool == ToolTelegramSend
+}

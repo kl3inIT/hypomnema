@@ -35,6 +35,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/telegram"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/zalo"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
@@ -361,7 +362,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	})
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),
-		integration.Zalo())
+		integration.Zalo(), integration.Telegram())
 
 	// The owner's WhatsApp, linked as a device of his (issue #615): its sessions are whatsmeow's, in a database
 	// of their own beside this one, and are opened again as the control plane starts.
@@ -382,6 +383,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 		integrations.WithDevices(integration.ZaloID, zl)
 	}
+
+	// The owner's Telegram (issue #1184): gotd's user client in process, its session and chats in telegram.db; it
+	// links once his api_id and api_hash are in the vault.
+	tgm, err := telegram.Open(ctx, filepath.Join(filepath.Dir(cfg.Database.Path), "telegram.db"), secrets, logger)
+	if err != nil {
+		return err
+	}
+	defer tgm.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
+
+	integrations.WithDevices(integration.TelegramID, tgm.Device())
 
 	if err := integrations.OpenDevices(ctx); err != nil {
 		logger.WarnContext(ctx, "a linked account's session could not be opened", slog.String("error", err.Error()))

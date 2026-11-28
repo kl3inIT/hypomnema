@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,16 +38,33 @@ type deviceLink struct {
 	code    string
 	image   string
 	expires time.Time
+	// ask is the question the linking waits on instead of a code (issue #1184); moved is closed when the step
+	// changes, for an answer that waits for the step after it.
+	ask   *messaging.Ask
+	moved chan struct{}
 	// conn and err are the linking's end, set before done is closed.
 	conn Connection
 	err  error
 }
 
-func (l *deviceLink) current() (code, image string, expires time.Time) {
+// show makes step the linking's current one; l.mu is held.
+func (l *deviceLink) show(step messaging.LinkStep) {
+	l.code, l.image, l.expires, l.ask = step.Code, step.Image, step.Expires, step.Ask
+	close(l.moved)
+	l.moved = make(chan struct{})
+}
+
+// signIn is the linking as its page shows it now.
+func (l *deviceLink) signIn(id string, left time.Duration) SignIn {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	return l.code, l.image, l.expires
+	in := SignIn{ID: id, ExpiresIn: max(left, 0), Code: l.code, CodeImage: l.image, CodeExpires: l.expires}
+	if l.ask != nil {
+		in.Ask = &Asked{Field: l.ask.Field, Hint: l.ask.Hint, Again: l.ask.Again}
+	}
+
+	return in
 }
 
 // WithDevices sets the messaging service of an Integration of kind device: whatsapp's.
@@ -64,6 +82,41 @@ func deviceKey(integration, label string) string { return integration + ":" + la
 // beginLink starts linking an account under a label and answers its first code. A label that has an account is
 // linked again: the new device replaces the old one once the phone scanned a code.
 func (s *Service) beginLink(ctx context.Context, d Definition, label string) (SignIn, error) {
+	return s.startLink(ctx, d, label, func(svc messaging.Service, linkCtx context.Context) (<-chan messaging.LinkStep,
+		error,
+	) {
+		return svc.Link(linkCtx)
+	})
+}
+
+// LinkByPhone starts linking an account of a service that also links by phone number (Telegram, issue #1184), when
+// its QR code cannot be scanned: its first step asks for the number, which Answer gives.
+func (s *Service) LinkByPhone(ctx context.Context, integration, label string) (SignIn, error) {
+	d, err := s.definition(integration)
+	if err != nil {
+		return SignIn{}, err
+	}
+
+	return s.startLink(ctx, d, label, func(svc messaging.Service, linkCtx context.Context) (<-chan messaging.LinkStep,
+		error,
+	) {
+		byPhone, ok := svc.(messaging.PhoneLinker)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s links by its QR code only", ErrInvalid, d.Name)
+		}
+
+		return byPhone.LinkByPhone(linkCtx)
+	})
+}
+
+// startLink starts a linking with start and answers its first step: a code to show, or a question.
+func (s *Service) startLink(ctx context.Context, d Definition, label string,
+	start func(svc messaging.Service, linkCtx context.Context) (<-chan messaging.LinkStep, error),
+) (SignIn, error) {
+	if !d.IsDevice() {
+		return SignIn{}, fmt.Errorf("%w: %s is not linked as a device", ErrInvalid, d.Name)
+	}
+
 	if !orchestration.ValidConnectionLabel(label) {
 		return SignIn{}, fmt.Errorf("%w: a label is lower-case letters, digits and dashes, such as work", ErrInvalid)
 	}
@@ -77,10 +130,22 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 			d.Name)
 	}
 
+	if r, ok := svc.(messaging.Readier); ok {
+		if err := r.Ready(ctx); err != nil {
+			return SignIn{}, fmt.Errorf("%w: %w", ErrSignInFailed, err)
+		}
+	}
+
 	// The linking outlives this request, up to the time any sign-in has.
 	linkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), signInTimeout)
 
-	steps, err := svc.Link(linkCtx)
+	steps, err := start(svc, linkCtx)
+	if errors.Is(err, ErrInvalid) {
+		cancel()
+
+		return SignIn{}, err
+	}
+
 	if err != nil {
 		cancel()
 
@@ -101,7 +166,7 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 		return SignIn{}, fmt.Errorf("%w: %s sent no code in %s", ErrSignInFailed, d.Name, firstCodeWait)
 	}
 
-	if first.Code == "" && first.Image == "" {
+	if first.Code == "" && first.Image == "" && first.Ask == nil {
 		cancel()
 
 		if first.Err == nil {
@@ -112,9 +177,10 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 	}
 
 	link := &deviceLink{
-		label: label, ctx: linkCtx, cancel: cancel, done: make(chan struct{}), code: first.Code,
-		image: first.Image, expires: first.Expires,
+		label: label, ctx: linkCtx, cancel: cancel, done: make(chan struct{}), moved: make(chan struct{}),
 	}
+	link.show(first)
+
 	go s.followLink(linkCtx, d, label, link, steps)
 
 	id := s.newID("signin")
@@ -125,9 +191,7 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 	s.signIns[id] = pending
 	s.mu.Unlock()
 
-	return SignIn{
-		ID: id, ExpiresIn: signInTimeout, Code: first.Code, CodeImage: first.Image, CodeExpires: first.Expires,
-	}, nil
+	return link.signIn(id, signInTimeout), nil
 }
 
 // dropExpired forgets the sign-ins older than any can be; s.mu is held.
@@ -157,9 +221,9 @@ func (s *Service) followLink(ctx context.Context, d Definition, label string, li
 steps:
 	for step := range steps {
 		switch {
-		case step.Code != "" || step.Image != "":
+		case step.Code != "" || step.Image != "" || step.Ask != nil:
 			link.mu.Lock()
-			link.code, link.image, link.expires = step.Code, step.Image, step.Expires
+			link.show(step)
 			link.mu.Unlock()
 
 			continue
@@ -173,7 +237,8 @@ steps:
 	}
 
 	link.mu.Lock()
-	link.code, link.image, link.conn = "", "", conn
+	link.show(messaging.LinkStep{})
+	link.conn = conn
 
 	if err != nil {
 		link.err = fmt.Errorf("%w: %w", ErrSignInFailed, err)
@@ -238,6 +303,9 @@ func (s *Service) saveDevice(ctx context.Context, d Definition, label string, li
 
 	if old != nil && old.ID() != acc.ID() {
 		_ = old.Logout(ctx)
+	} else if old != nil && old != acc {
+		// The same account linked again (Telegram's user id stays): its new session replaces the old one's.
+		old.Close()
 	}
 
 	return s.view(ctx, d, saved), nil
@@ -281,10 +349,62 @@ func (s *Service) Code(_ context.Context, integration, id string) (SignIn, error
 			"or the control plane restarted. Start it again", ErrNotFound, id, int(signInTimeout.Minutes()))
 	}
 
-	code, image, expires := pending.link.current()
-	left := signInTimeout - s.clock.Now().Sub(pending.started)
+	return pending.link.signIn(id, signInTimeout-s.clock.Now().Sub(pending.started)), nil
+}
 
-	return SignIn{ID: id, ExpiresIn: max(left, 0), Code: code, CodeImage: image, CodeExpires: expires}, nil
+// answerWait bounds how long Answer waits for the step after an answer.
+const answerWait = 30 * time.Second
+
+// Answer gives a linking the owner's answer to the question it waits on (issue #1184): his phone number, the code
+// sent to it, or his two-step password, and answers the step after it, as mautrix-telegram's SubmitUserInput answers
+// the next login step (pkg/connector/loginphone.go:100-108). The answer is never kept or logged; a password is given
+// as typed, the others without the spaces around them.
+func (s *Service) Answer(ctx context.Context, integration, id, value string) (SignIn, error) {
+	s.mu.Lock()
+	pending, ok := s.signIns[id]
+	s.mu.Unlock()
+
+	if !ok || pending.def.ID != integration || pending.link == nil {
+		return SignIn{}, fmt.Errorf("%w: no link %q is waiting; it was completed, is older than %d minutes, "+
+			"or the control plane restarted. Start it again", ErrNotFound, id, int(signInTimeout.Minutes()))
+	}
+
+	link := pending.link
+
+	link.mu.Lock()
+	ask, moved := link.ask, link.moved
+	link.mu.Unlock()
+
+	if ask == nil {
+		return SignIn{}, fmt.Errorf("%w: this link asks nothing now; it waits for the phone", ErrInvalid)
+	}
+
+	if ask.Field != messaging.AskPassword {
+		value = strings.TrimSpace(value)
+	}
+
+	if strings.TrimSpace(value) == "" {
+		return SignIn{}, fmt.Errorf("%w: type the %s", ErrInvalid, askWords[ask.Field])
+	}
+
+	if err := ask.Answer(ctx, value); err != nil {
+		return SignIn{}, fmt.Errorf("%w: %w", ErrSignInFailed, err)
+	}
+
+	select {
+	case <-moved:
+	case <-link.done:
+	case <-ctx.Done():
+		return SignIn{}, ctx.Err()
+	case <-s.after(answerWait):
+	}
+
+	return pending.link.signIn(id, signInTimeout-s.clock.Now().Sub(pending.started)), nil
+}
+
+// askWords name what a linking asks for.
+var askWords = map[string]string{
+	messaging.AskPhone: "phone number", messaging.AskCode: "code", messaging.AskPassword: "password",
 }
 
 // OpenDevices opens the session of every Connection of an Integration of kind device, as the control plane starts.
@@ -550,4 +670,28 @@ func (s *Service) Messages(ctx context.Context, integration, label string, q mes
 	}
 
 	return acc.Messages(ctx, q)
+}
+
+// unready says what a device's service lacks before it links an account (messaging.Readier), in its own words
+// without the service's name before them.
+func (s *Service) unready(ctx context.Context, d Definition) string {
+	if !d.IsDevice() {
+		return ""
+	}
+
+	s.mu.Lock()
+	svc := s.devices[d.ID]
+	s.mu.Unlock()
+
+	r, ok := svc.(messaging.Readier)
+	if !ok {
+		return ""
+	}
+
+	err := r.Ready(ctx)
+	if err == nil {
+		return ""
+	}
+
+	return strings.TrimPrefix(err.Error(), strings.ToLower(d.Name)+": ")
 }
