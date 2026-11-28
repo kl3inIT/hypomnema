@@ -53,19 +53,26 @@ var engagementWeights = map[string]struct {
 	SourceX: {
 		fields: []weighted{{"likes", 0.55}, {"reposts", 0.25}, {"replies", 0.15}, {"quotes", 0.05}}, reference: 9.2,
 	},
+	// TikTok's weights without its top-comment slot, on the view scale YouTube's run on (lib/signals.py:278-285 and
+	// 399-410). Departure, as YouTube's: the 0.10 that _tiktok_engagement gives the top comment's likes is left out,
+	// a comment being an item of its own here, scored on commentReference.
+	SourceTikTok: {
+		fields: []weighted{{"views", 0.45}, {"likes", 0.27}, {"comments", 0.18}}, reference: 11.5, floor: 2.1,
+	},
 }
 
 // commentReference is the log1p of a very high comment's votes on each platform: a comment is scored on it alone
 // (last30days _VOTE_LOG_REFERENCE and normalized_comment_vote, lib/signals.py:141-166).
 var commentReference = map[string]float64{
 	SourceReddit: 7.6, SourceHackerNews: 6.2, SourceDevTo: 3.0, SourceYouTube: 10.3, SourceBluesky: 9.2,
+	SourceTikTok: 10.3,
 }
 
 // sourceQualities are last30days' (signals.SOURCE_QUALITY, lib/signals.py:14-41); a source not listed is 0.6, its
 // default (the web and Reddit, the app stores, GitHub, careers pages and the forums).
 var sourceQualities = map[string]float64{
 	SourceHackerNews: 0.8, SourceDevTo: 0.78, SourceYouTube: 0.85, SourceArxiv: 0.9, SourceTechmeme: 0.85,
-	SourceBluesky: 0.66, SourceCareers: 0.72, SourceX: 0.68,
+	SourceBluesky: 0.66, SourceCareers: 0.72, SourceX: 0.68, SourceTikTok: 0.58,
 }
 
 func quality(source string) float64 {

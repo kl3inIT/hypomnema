@@ -77,6 +77,11 @@ func runYtDlp(ctx context.Context, args ...string) ([]byte, string, error) {
 // PLATFORM_BLOCKED), a 429 a rate limit, a sign-in wall for an age-gated video a sign-in, a missing video not found,
 // a timeout a timeout, yt-dlp missing broken (last30days classify_run_failure).
 func ytFailure(ctx context.Context, stderr string, err error) *SourceError {
+	return ytFailureAt(ctx, "YouTube", stderr, err)
+}
+
+// ytFailureAt is ytFailure for the site yt-dlp read, named in a bot check's detail (TikTok's too, tiktok.go).
+func ytFailureAt(ctx context.Context, site, stderr string, err error) *SourceError {
 	text := strings.ToLower(stderr)
 	line := oneLine(lastLine(stderr))
 
@@ -86,7 +91,7 @@ func ytFailure(ctx context.Context, stderr string, err error) *SourceError {
 	case ctx.Err() != nil:
 		return Fail(CodeTimeout, "yt-dlp did not finish in time")
 	case strings.Contains(text, "not a bot"):
-		return Fail(CodeRefused, "YouTube asked to confirm this is not a bot: %s", line)
+		return Fail(CodeRefused, "%s asked to confirm this is not a bot: %s", site, line)
 	case strings.Contains(text, "429") || strings.Contains(text, "too many requests"):
 		return Fail(CodeRateLimited, "%s", line)
 	case strings.Contains(text, "sign in") || strings.Contains(text, "login required"):

@@ -31,6 +31,36 @@ const linkedInConsent =
   "page at a time, 10 seconds apart. Only LinkedIn's cookies are kept, in the vault: they are never shown or logged " +
   "and go only to linkedin.com. After a security check it stops until you sign in again; after a rate-limit page, for 24 hours."
 
+const tiktokConsent =
+  "TikTok's terms forbid automated access, so reading it as your account may bring a security check (a CAPTCHA), " +
+  "a limit or a ban of the account; users of TikTok-Api, which reads TikTok the same way, report TikTok answering " +
+  "empty pages once it takes the reader for a bot. Sign in a secondary account made for this, never your own. " +
+  "Hypomnema then opens TikTok as that account in its own tab of the shared browser and asks TikTok's web API from " +
+  "there for a search's videos and the top comments of a few of them, one request at a time, 12 seconds apart. Only " +
+  "TikTok's cookies are kept, in the vault: they are never shown or logged and go only to tiktok.com. If TikTok " +
+  "refuses the account or answers empty, Hypomnema stops reading it until you sign in again; it never solves a CAPTCHA."
+
+// tiktok is TikTok's card before its consent (issue #1294): its three backends, the account's first.
+function tiktok(): ListeningSource {
+  return {
+    name: "tiktok",
+    label: "TikTok",
+    adds:
+      "TikTok videos with their author, date, views, likes, comments and shares, and the top comments of the most " +
+      "watched, searched as your account; without one, the TikTok videos the web search finds, read with yt-dlp.",
+    on: false,
+    group: "could_be_on",
+    regressed: false,
+    items_this_week: 0,
+    signed: { consent: tiktokConsent, sign_in_url: "https://www.tiktok.com/login" },
+    backends: [
+      { name: "web_api", opt_in: false, state: "ready" },
+      { name: "yt_dlp", opt_in: false, state: "ready" },
+      { name: "site_search", opt_in: false, state: "ready" },
+    ],
+  }
+}
+
 function start(): Listening {
   const x: ListeningSource = {
     name: "x",
@@ -141,17 +171,22 @@ async function fakeServer(page: Page) {
           }
           {
             const { cookies } = request.postDataJSON() as { cookies: string }
-            if (!cookies.includes("ct0="))
-              return json(
-                {
-                  code: "invalid_request",
-                  message:
-                    "invalid: X's sign-in cookies are missing (ct0); copy the whole Cookie header from a browser signed in to x.com",
-                },
-                400,
-              )
+            // What each site's sign-in needs, as the server says it (signin.Site.FromHeader).
+            const needs: Record<string, [string, string]> = {
+              x: [
+                "ct0=",
+                "invalid: X's sign-in cookies are missing (ct0); copy the whole Cookie header from a browser signed in to x.com",
+              ],
+              tiktok: [
+                "msToken=",
+                "invalid: TikTok's sign-in cookies are missing (msToken); copy the whole Cookie header from a browser signed in to tiktok.com",
+              ],
+            }
+            const need = needs[source.name]
+            if (need && !cookies.includes(need[0]))
+              return json({ code: "invalid_request", message: need[1] }, 400)
             source.signed!.account = {
-              label: "X account",
+              label: `${source.label} account`,
               state: "signed_in",
               cause: "",
               signed_in_at: iso(Date.now()),
@@ -410,4 +445,43 @@ test("the Chinese sources' cards name their backends and Xiaohongshu's risks", a
   await expect(dialog).toContainText("code 300011")
   await expect(dialog).toContainText("signs Hypomnema out")
   await shot(page, "listening-consent-xiaohongshu")
+})
+
+// Scenario: TikTok before its consent: its card names its three backends, its consent card its own risks (the
+// CAPTCHA it never solves, its 12-second pace); once agreed, a pasted header without msToken is refused for it.
+test("TikTok's consent card says its own risks and its sign-in needs msToken", async ({ page }) => {
+  const { world, calls } = await fakeServer(page)
+  world.sources.push(tiktok())
+  count(world)
+  await page.goto("/settings/social-listening")
+
+  const tt = card(page, "TikTok")
+  await expect(tt).toContainText("Could be on")
+  await expect(tt.getByRole("list", { name: "TikTok's backends" })).toContainText(
+    "TikTok's web API, as your account",
+  )
+  expect(await fits(page)).toBe(true)
+  await tt.scrollIntoViewIfNeeded()
+  await shot(page, "listening-tiktok")
+
+  await tt.getByRole("button", { name: "Read the risks and turn on" }).click()
+  const dialog = page.getByRole("dialog", { name: "Read TikTok as your account?" })
+  await expect(dialog).toContainText("never solves a CAPTCHA")
+  await expect(dialog).toContainText("12 seconds apart")
+  await shot(page, "listening-consent-tiktok")
+  await dialog.getByRole("button", { name: "I understand, turn it on" }).click()
+  await expect(tt).toContainText("No account is signed in")
+
+  await tt.getByRole("button", { name: "Paste cookies" }).click()
+  const paste = page.getByRole("dialog", { name: "Paste TikTok's cookies" })
+  await paste.getByLabel("Cookie header").fill("sessionid=made-up")
+  await paste.getByRole("button", { name: "Check and keep" }).click()
+  await expect(paste.getByRole("alert")).toContainText("(msToken)")
+  await shot(page, "listening-paste-refused-tiktok")
+
+  await paste.getByLabel("Cookie header").fill("sessionid=made-up; msToken=made-up")
+  await paste.getByRole("button", { name: "Check and keep" }).click()
+  await expect(paste).toHaveCount(0)
+  await expect(tt.getByRole("region", { name: "TikTok's account" })).toContainText("Signed in")
+  expect(calls).toContain("PUT /gateway/listening/sources/tiktok/account")
 })

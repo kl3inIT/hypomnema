@@ -12,7 +12,12 @@ for Hacker News, GitHub, arXiv, Techmeme, DEV.to, YouTube through yt-dlp (search
 highlights) and careers pages (JSON-LD JobPosting, the hiring signals of hiring_signals.py); the robots.txt matcher
 of job_boards/robots.py (robots.go); the engagement weights, references and source qualities of signals.py; and,
 from last30days-skill-cn, Toutiao's search-card and hot-board parser (toutiao.py) and Bilibili's visitor search with
-its WBI signature (bilibili.py), in chinese.go; and Zhihu's search_v3 parser (zhihu.py), Weibo's mobile search and its
+its WBI signature (bilibili.py), in chinese.go. From last30days-skill at
+5aabbc227096d3474058d808c3d73f90e8abec70 (issue #1294, tiktok.go): TikTok's video address, its normalization and the
+date its id holds, and the fallback that reads the videos a web search finds with yt-dlp (shortform_oss.py), the
+reading of TikTok's comment list, most liked first (tiktok.py _normalize_comments), and TikTok's engagement weights
+(signals.py).
+And from last30days-skill-cn, Zhihu's search_v3 parser (zhihu.py), Weibo's mobile search and its
 dates (weibo.py), Douyin's video parser (douyin.py) and Xiaohongshu's note address and counts (xiaohongshu.py), in
 chinasigned.go, zhihu.go, weibo.go, douyin.go and xiaohongshu.go (issue #1362).
 

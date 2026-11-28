@@ -663,9 +663,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// the Channels below exist.
 	var tellListening func(ctx context.Context, b listening.Broken)
 
-	// Facebook, Instagram and Threads through the Muse pool (issue #1292), then X and LinkedIn as the owner's signed-in
-	// accounts (issue #1291), and Zhihu, Weibo, Douyin and Xiaohongshu the same way (issue #1362), their cookies in the
-	// vault and the pages read in the shared browser.
+	// Facebook, Instagram and Threads through the Muse pool (issue #1292), then X, LinkedIn and TikTok as the owner's
+	// signed-in accounts (issues #1291 and #1294), and Zhihu, Weibo, Douyin and Xiaohongshu the same way (issue #1362),
+	// their cookies in the vault, LinkedIn, TikTok and the Chinese sites read in the shared browser, TikTok's fallback
+	// with the yt-dlp on the control plane's PATH, as YouTube's.
 	listenPlatforms := listening.Sources(listening.Endpoints{Pages: websearch.PageClient(searchRules)}, http.DefaultClient)
 	listenPlatforms = append(listenPlatforms, listening.MuseSources(listeningMuse(musePool), http.DefaultClient)...)
 	listenPlatforms = append(listenPlatforms, listening.SignedSources(listening.Endpoints{}, http.DefaultClient)...)

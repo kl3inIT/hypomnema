@@ -23,7 +23,7 @@ func Fix(source string, code Code, until time.Time) string {
 	}
 
 	signed := slices.Contains([]string{
-		SourceX, SourceLinkedIn, SourceZhihu, SourceWeibo, SourceDouyin, SourceXiaohongshu,
+		SourceX, SourceLinkedIn, SourceTikTok, SourceZhihu, SourceWeibo, SourceDouyin, SourceXiaohongshu,
 	}, source)
 
 	switch {
@@ -84,6 +84,8 @@ func Label(source string) string {
 		return "Reddit"
 	case SourceLinkedIn:
 		return "LinkedIn"
+	case SourceTikTok:
+		return "TikTok"
 	}
 
 	if source == "" {

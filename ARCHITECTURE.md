@@ -5238,7 +5238,8 @@ writes no prose (last30days SKILL.md LAW 7).
   `third_party/bird`) as the account, the window as `since:`/`until:`, the Top tab, pages of 20 up to three, each
   post dated by its snowflake id (one whose id dates nothing is dropped), the bearer and query ids read from X's own
   bundles without cookies, kept a day and read again on a 404 or a validation error; 401 or "Could not authenticate
-  you" `need_login`, 403 `refused`, 429 rests until `x-rate-limit-reset`. LinkedIn: its Posts search page
+  you" `need_login`, 403 `refused`, 429 rests `graphql` until `x-rate-limit-reset`, a sign-in's check included (`Session.stop` keeps the
+  registry's rest for a site with no longer stop). LinkedIn: its Posts search page
   (`/search/results/content/`, the window as `datePosted` when a day, week or month holds it) in the account's own
   browser context, read as rendered (linkedin-mcp-server, Apache-2.0, `third_party/linkedin-mcp-server`): each post
   paired with its URN by its boundary, its address `/feed/update/<urn>/`, its date from the id's high bits, only a
@@ -5269,6 +5270,30 @@ writes no prose (last30days SKILL.md LAW 7).
   takes its account's turn and counts as a read, reads the stop again inside it, and keeps what it met before the
   turn ends (`Request.turn`, `pageStep`); the first stop ends the read, the items read before it kept. A sign-in's
   verification asks the API, then the account's page when the API failed without a stop (`Signed.Also`).
+- TikTok (issue #1294; `listening/tiktok.go`): `tiktok`, a signed-in source as above, its login cookies `sessionid`
+  (or `sid_tt` or `uid_tt`) and `msToken`, with three backends. `web_api`: TikTok's own web API asked from the account's
+  tab in the shared browser, TikTok-Api's mechanism (MIT, `third_party/tiktok-api`) without its Python or its
+  Playwright: the tab is opened on `https://www.tiktok.com/` and kept, waited for up to 20 s until TikTok's web
+  client (`window.byted_acrawler`) loads, and each request is a `fetch` from it with TikTok-Api's session parameters
+  and no `msToken`, `X-Bogus` or `X-Gnarly`, which TikTok's client adds itself (TikTok-Api's open pull request
+  #1310). One page of `/api/search/item/full/` a subquery, then, outside a sign-in's check, `/api/comment/list/` of
+  the three most watched videos in the window, five top-level comments each, the most liked, the video's author's left out, each
+  comment's address the video's with `?comment_id=`. One request at a time, 12 s apart and 30 s more after every five
+  (trend-opportunity-radar's TikTok pace). An empty body `refused` (TikTok taking the session for a bot), 401 or a
+  landing on `/login` `need_login`, 403 `refused`, 429 a rate limit until its Retry-After (else an hour), kept as
+  `web_api`'s rest before TikTok's turn ends and read inside the turn by every later read and by a sign-in's check,
+  so the owner's tab sends nothing meanwhile (no other call's failure shortens or replaces a rest in force after a rate
+  limit or a spent quota, any source's, and a TikTok read stopped while it waits for TikTok's turn sent nothing and
+  records no rest); a 404, or an answer that is not JSON, has a non-zero `status_code` or no `item_list` (unless its
+  `has_more` is 0, TikTok's empty answer), `broken` (a 404 is the endpoint's, so the next backend is still asked); a failure of a comment list after the videos keeps them as
+  a part read. `yt_dlp`, while the account cannot be read: `site:tiktok.com <query>` through the web search, the
+  videos it names (at most 12, none whose id dates it more than a day outside the window) each read by one yt-dlp
+  run, from the control plane's PATH as YouTube's, at TikTok's host in turn, with no gap between runs (YouTube's
+  pace; radar's is for browser reads); a video it cannot read ("Video unavailable" included) is that video's, and
+  when it reads none the failure is kept as the part not read, so `site_search` is still asked. It is stopped apart
+  from the account (host `yt-dlp:tiktok.com`), so an account's refusal still leaves it asked. `site_search`: the same web search's
+  cards, a video's address only, dated by its id's high 32 bits. Videos are scored on last30days' TikTok weights
+  (views 0.45, likes 0.27, comments 0.18, the view scale), comments on its 10.3 vote reference.
 - The keyless sources of issue #1289, each one backend, on by default (no backend is opt-in), each in its file:
   - `youtube` (`yt_dlp`, `youtube.go`): yt-dlp on the control plane's PATH (`broken` when it is missing), no config
     and no browser cookies: `ytsearch8:<query>` listed flat (a channel among the results is not opened whole), the
@@ -5465,7 +5490,7 @@ writes no prose (last30days SKILL.md LAW 7).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
   are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain with
   `websearch.KeylessOnly`: only its keyless providers, never the owner's keys or subscriptions, whatever the Web
-  search page has (owner, 2026-11-27: no paid services). No source is read with a key; only X and LinkedIn are read with an account, the owner's own (issue #1291). `go test
+  search page has (owner, 2026-11-27: no paid services). No source is read with a key; only X, LinkedIn and TikTok are read with an account, the owner's own (issues #1291, #1294). `go test
   ./internal/controlplane/listening -run Live` with `HYPOMNEMA_LISTENING_LIVE=1` reads the real sources, and runs the
   Social listening page's live test of every source.
 - Settings → Gateway → Social listening (issue #1290; `listening/settings.go`, `health.go`, `fix.go`,

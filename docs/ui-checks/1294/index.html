@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TikTok as a signed-in listening source (issue #1294)</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 110rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 64rem) { .screens { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Settings → Gateway → Social listening: TikTok (issue #1294)</h1>
+    <p>Taken by <code>web/tests/listening-accounts.spec.ts</code> against a fake client API, desktop (Desktop Chrome) and phone (Pixel 7), light and dark (<code>UI_CHECK</code>, <code>UI_THEME</code>). Cookies are made up. The <code>yt_dlp</code> backend is now named "yt-dlp, keyless" (YouTube's too).</p>
+
+    <section>
+      <h2>TikTok before its consent: its three backends, the account's web API first, then yt-dlp, then the web search's cards</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-tiktok-desktop.png" alt="TikTok before its consent: its three backends, the account's web API first, then yt-dlp, then the web search's cards, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-tiktok-phone.png" alt="TikTok before its consent: its three backends, the account's web API first, then yt-dlp, then the web search's cards, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-tiktok-desktop.png" alt="TikTok before its consent: its three backends, the account's web API first, then yt-dlp, then the web search's cards, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-tiktok-phone.png" alt="TikTok before its consent: its three backends, the account's web API first, then yt-dlp, then the web search's cards, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>TikTok's consent card: its own risks, its 12-second pace, never solving a CAPTCHA</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-consent-tiktok-desktop.png" alt="TikTok's consent card: its own risks, its 12-second pace, never solving a CAPTCHA, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-consent-tiktok-phone.png" alt="TikTok's consent card: its own risks, its 12-second pace, never solving a CAPTCHA, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-consent-tiktok-desktop.png" alt="TikTok's consent card: its own risks, its 12-second pace, never solving a CAPTCHA, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-consent-tiktok-phone.png" alt="TikTok's consent card: its own risks, its 12-second pace, never solving a CAPTCHA, phone, dark">
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>A pasted cookie header without msToken is refused, naming the missing cookie</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop, light</figcaption>
+          <img src="light/listening-paste-refused-tiktok-desktop.png" alt="A pasted cookie header without msToken is refused, naming the missing cookie, desktop, light">
+        </figure>
+        <figure>
+          <figcaption>Phone, light</figcaption>
+          <img src="light/listening-paste-refused-tiktok-phone.png" alt="A pasted cookie header without msToken is refused, naming the missing cookie, phone, light">
+        </figure>
+        <figure>
+          <figcaption>Desktop, dark</figcaption>
+          <img src="dark/listening-paste-refused-tiktok-desktop.png" alt="A pasted cookie header without msToken is refused, naming the missing cookie, desktop, dark">
+        </figure>
+        <figure>
+          <figcaption>Phone, dark</figcaption>
+          <img src="dark/listening-paste-refused-tiktok-phone.png" alt="A pasted cookie header without msToken is refused, naming the missing cookie, phone, dark">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
