@@ -251,6 +251,7 @@ var policies = map[string]policy{
 	"GetBotMemory":       {},
 	"ChangeBotMemory":    {},
 	"SetBotMemory":       {scope: scopeOwner},
+	"SetBotRepos":        {scope: scopeOwner},
 	// A Bot's versions (issue #1336) are read as the Bot is; a restore is a save, the owner's or the main Bot's
 	// from its chat, as PutBot.
 	"ListBotVersions":     {},

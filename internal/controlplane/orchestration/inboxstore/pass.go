@@ -3,7 +3,9 @@ package inboxstore
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
@@ -50,4 +52,29 @@ func passedBy(actor Actor, a Assignee) sql.NullString {
 	}
 
 	return sql.NullString{}
+}
+
+// notPassed checks the main Bot's reason it passes an item to no project Bot (issue #1334): a to-do the main Bot
+// cannot place is shown as not passed, with its reason, as Paperclip posts a visible "unresolved routing" comment when
+// no route matches rather than dropping the import silently (docs/specs/external-task-protocol.md, section 8.1). Only
+// the main Bot gives one, on an item given to it, and not in the edit that gives the item away.
+func (s *Store) notPassed(c Change, cur store.Todo, e Edit) (string, error) {
+	reason := strings.TrimSpace(*e.NotPassed)
+
+	switch {
+	case s.mainBot == "" || c.Actor.Kind != Bot || c.Actor.ID != s.mainBot:
+		return "", fmt.Errorf("%w: only the main Bot says why it passes a to-do to no Bot", storeerr.ErrForbidden)
+	case cur.AssigneeKind != ABot || cur.Assignee != s.mainBot:
+		return "", fmt.Errorf("%w: to-do %s is not the main Bot's; it says why it passes only an item it has",
+			storeerr.ErrConflict, cur.ID)
+	case e.Assignee != nil:
+		return "", fmt.Errorf("%w: not_passed keeps the item; it is not given with pass_to or hand_back",
+			storeerr.ErrInvalid)
+	}
+
+	if err := checkReason(reason, true); err != nil {
+		return "", err
+	}
+
+	return reason, nil
 }

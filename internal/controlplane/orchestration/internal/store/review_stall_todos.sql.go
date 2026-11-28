@@ -84,7 +84,7 @@ func (q *Queries) OpenReviewStallRequests(ctx context.Context) ([]string, error)
 }
 
 const openReviewStallTodosOfRequest = `-- name: OpenReviewStallTodosOfRequest :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id FROM review_stall_todos s JOIN todos t ON t.id = s.todo_id
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id, t.not_passed FROM review_stall_todos s JOIN todos t ON t.id = s.todo_id
 WHERE s.pull_request = ?1 AND t.state = 'open' AND t.assignee_kind = 'me'
 `
 
@@ -145,6 +145,7 @@ func (q *Queries) OpenReviewStallTodosOfRequest(ctx context.Context, pullRequest
 			&i.Priority,
 			&i.PriorityReason,
 			&i.ProjectID,
+			&i.NotPassed,
 		); err != nil {
 			return nil, err
 		}
@@ -160,7 +161,7 @@ func (q *Queries) OpenReviewStallTodosOfRequest(ctx context.Context, pullRequest
 }
 
 const openReviewStallTodosOfRun = `-- name: OpenReviewStallTodosOfRun :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id FROM review_stall_todos s JOIN todos t ON t.id = s.todo_id
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id, t.not_passed FROM review_stall_todos s JOIN todos t ON t.id = s.todo_id
 WHERE s.run_id = ?1 AND t.state = 'open' AND t.assignee_kind = 'me'
 `
 
@@ -221,6 +222,7 @@ func (q *Queries) OpenReviewStallTodosOfRun(ctx context.Context, runID string) (
 			&i.Priority,
 			&i.PriorityReason,
 			&i.ProjectID,
+			&i.NotPassed,
 		); err != nil {
 			return nil, err
 		}

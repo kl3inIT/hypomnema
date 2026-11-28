@@ -45,6 +45,7 @@ func toRun(r orchestration.Run) openapi.Run {
 		Id: r.ID, Objective: r.Objective, Status: openapi.RunStatus(r.Status), CreatedBy: r.CreatedBy,
 		Repo: ptr(r.Repo), RepoHost: ptr(r.RepoHost), Base: ptr(r.Base),
 		CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID), Bot: ptr(r.Bot), Uses: usesOf(r.Uses),
+		RoutedBy:  routedBy(r.RoutedBy),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, ReviewStall: review,
 	}
 }
@@ -393,4 +394,13 @@ func toWorkUsage(u orchestration.WorkUsage) openapi.WorkUsage {
 	out.Reported.CacheRead, out.Reported.CacheWrite = u.Reported.CacheRead, u.Reported.CacheWrite
 
 	return out
+}
+
+// routedBy is why a Run went to its chat (issue #1334); absent for a Run made before, or without a chat.
+func routedBy(r orchestration.RoutedBy) *openapi.RoutedBy {
+	if r == "" {
+		return nil
+	}
+
+	return new(openapi.RoutedBy(r))
 }

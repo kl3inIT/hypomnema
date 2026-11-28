@@ -508,6 +508,17 @@ function TodoBody({
         </span>
       </span>,
     ],
+    // The main Bot kept the item and said why no project Bot takes it (issue #1334).
+    ...(todo.not_passed && !isClosed(todo)
+      ? ([
+          [
+            "Not passed",
+            <span key="not-passed" data-slot="not-passed" className="break-words">
+              {todo.not_passed}
+            </span>,
+          ],
+        ] as [string, ReactNode][])
+      : []),
     ...(due
       ? ([
           [

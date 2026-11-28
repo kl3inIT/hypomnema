@@ -224,6 +224,10 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 				"pass_to": map[string]any{"type": "string", "description": "Give it to this Bot, by its id; it is " +
 					"woken with it. The main Bot passes it to the project Bot whose accounts or context the work " +
 					"needs; a project Bot gives it back only to the main Bot."},
+				"not_passed": map[string]any{"type": "string", "maxLength": inboxstore.MaxReason, "description": "" +
+					"The main Bot only, on an item it has: why it passes it to no project Bot, when the work needs " +
+					"one and none fits; the item stays with it and the Inbox shows it as not passed, with this " +
+					"reason. Not with pass_to or hand_back."},
 				"waiting_on": waitingOnSchema(true),
 				// One item from the ask to the work to done (issue #1206).
 				"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.Promised}, "description": "" +
@@ -350,6 +354,7 @@ type inboxArgs struct {
 	Timezone       string  `json:"timezone"`
 	HandBack       bool    `json:"hand_back"`
 	PassTo         string  `json:"pass_to"`
+	NotPassed      string  `json:"not_passed"`
 	// inbox_add.
 	AssigneeKind string `json:"assignee_kind"`
 	Assignee     string `json:"assignee"`
@@ -882,6 +887,10 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 
 		pass := strings.TrimSpace(in.PassTo)
 
+		if in.NotPassed != "" {
+			e.NotPassed = &in.NotPassed
+		}
+
 		switch {
 		case in.HandBack && pass != "":
 			return nil, fmt.Errorf("%w: hand_back or pass_to, not both", orchestration.ErrInvalid)
@@ -1006,6 +1015,7 @@ type todoOut struct {
 	Due         string            `json:"due,omitempty"`
 	Assignee    string            `json:"assignee"`
 	PassedBy    string            `json:"passed_by,omitempty"`
+	NotPassed   string            `json:"not_passed,omitempty"`
 	Priority    string            `json:"priority,omitempty"`
 	PriorityWhy string            `json:"priority_reason,omitempty"`
 	Project     string            `json:"project,omitempty"`
@@ -1067,6 +1077,8 @@ func todoView(t inboxstore.Todo, events bool, projects map[string]string) todoOu
 	if t.PassedBy != "" {
 		out.PassedBy = who(inboxstore.Bot, t.PassedBy)
 	}
+
+	out.NotPassed = t.NotPassed
 
 	if t.Priority > inboxstore.NoPriority && t.Priority < len(inboxstore.PriorityNames) {
 		out.Priority, out.PriorityWhy = inboxstore.PriorityNames[t.Priority], t.PriorityReason

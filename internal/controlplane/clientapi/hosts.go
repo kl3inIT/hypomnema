@@ -32,7 +32,7 @@ func toGitHost(h orchestration.GitHost) openapi.GitHost {
 func toRepo(r orchestration.Repo) openapi.Repo {
 	return openapi.Repo{
 		Name: r.Name, Host: r.Host, Path: r.Path, Base: ptr(r.Base), Connection: ptr(r.Connection),
-		SshUrl: ptr(r.SSHURL), SshHostKey: ptr(r.SSHHostKey), CreatedAt: r.CreatedAt,
+		SshUrl: ptr(r.SSHURL), SshHostKey: ptr(r.SSHHostKey), Bot: ptr(r.Bot), CreatedAt: r.CreatedAt,
 	}
 }
 

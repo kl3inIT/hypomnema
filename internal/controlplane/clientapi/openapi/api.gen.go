@@ -1935,6 +1935,30 @@ func (e ReviewStallVerdict) Valid() bool {
 	}
 }
 
+// Defines values for RoutedBy.
+const (
+	RoutedByChat      RoutedBy = "chat"
+	RoutedByDefault   RoutedBy = "default"
+	RoutedByOwnChat   RoutedBy = "own_chat"
+	RoutedByRepoOwner RoutedBy = "repo_owner"
+)
+
+// Valid indicates whether the value is a known member of the RoutedBy enum.
+func (e RoutedBy) Valid() bool {
+	switch e {
+	case RoutedByChat:
+		return true
+	case RoutedByDefault:
+		return true
+	case RoutedByOwnChat:
+		return true
+	case RoutedByRepoOwner:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RoutineAccess.
 const (
 	Full RoutineAccess = "full"
@@ -3810,6 +3834,9 @@ type Bot struct {
 	Preset   ToolPreset `json:"preset"`
 	Provider *string    `json:"provider,omitempty"`
 
+	// Repos The repositories whose work the Bot owns (issue #1334), owner/name on github.com and an https URL on another host: a Run created on one goes to the Bot's chat. A repository has at most one owning Bot; the main Bot owns none. Set with PUT /bots/{bot_id}/repos.
+	Repos *[]string `json:"repos,omitempty"`
+
 	// Scopes What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
 	Scopes map[string]ConnectionScope `json:"scopes"`
 
@@ -3899,6 +3926,9 @@ type BotOwn struct {
 	// Position The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
 	Position int `json:"position"`
 
+	// Repos The repositories whose work the Bot owns (issue #1334), owner/name on github.com and an https URL on another host: a Run created on one goes to the Bot's chat. A repository has at most one owning Bot; the main Bot owns none. Set with PUT /bots/{bot_id}/repos.
+	Repos *[]string `json:"repos,omitempty"`
+
 	// Scopes What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
 	Scopes map[string]ConnectionScope `json:"scopes"`
 
@@ -3908,6 +3938,12 @@ type BotOwn struct {
 
 	// Workers What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
 	Workers AllowList `json:"workers"`
+}
+
+// BotRepos defines model for BotRepos.
+type BotRepos struct {
+	// Repos The repositories, each as NewRun.repo takes it; empty for none.
+	Repos []string `json:"repos"`
 }
 
 // BotSettings defines model for BotSettings.
@@ -6408,7 +6444,7 @@ type NewRepo struct {
 type NewRun struct {
 	Base *string `json:"base,omitempty"`
 
-	// ChatId The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat. A Bot request uses its own chat; a script Routine's Run has no chat.
+	// ChatId The chat to wake for the Run's events; a chat named is kept. Without one (issue #1334), a Bot request uses its own chat when its Bot owns the repository, or owns none and no Bot owns the repository; else the Run goes to the main chat of the Bot that owns the repository, or of the main Bot when none does, and the creating chat gets a line saying so; an owner request on a repository no Bot owns uses the main Bot's main chat. A script Routine's Run has no chat.
 	ChatId    *string `json:"chat_id,omitempty"`
 	Objective string  `json:"objective"`
 
@@ -6990,6 +7026,9 @@ type Repo struct {
 	// Base The branch worktrees start from when a Run names none.
 	Base *string `json:"base,omitempty"`
 
+	// Bot The id of the Bot that owns the repository's work (Bot.repos, issue #1334); absent when none does and its Runs go to the main Bot.
+	Bot *string `json:"bot,omitempty"`
+
 	// Connection The label of the host's Connection work on it uses; absent for the host's only one.
 	Connection *string   `json:"connection,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -7048,6 +7087,9 @@ type RoleMetric struct {
 	Succeeded  int64    `json:"succeeded"`
 	Unpriced   int64    `json:"unpriced"`
 }
+
+// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
+type RoutedBy string
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
 type Routine struct {
@@ -7278,8 +7320,11 @@ type Run struct {
 
 	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
 	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
-	Status      RunStatus    `json:"status"`
-	UpdatedAt   time.Time    `json:"updated_at"`
+
+	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
+	RoutedBy  *RoutedBy `json:"routed_by,omitempty"`
+	Status    RunStatus `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Uses The Connections the Run's workers may use, each as integration:label.
 	Uses *[]string `json:"uses,omitempty"`
@@ -7320,9 +7365,12 @@ type RunDetail struct {
 
 	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
 	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
-	Status      RunStatus    `json:"status"`
-	Tasks       []TaskDetail `json:"tasks"`
-	UpdatedAt   time.Time    `json:"updated_at"`
+
+	// RoutedBy Why the Run went to its chat (issue #1334), tried in this order: chat, the chat its creator named; own_chat, the Bot chat that created it, whose Bot owns the repository, or owns none on a repository no Bot owns (or a Run without a repository); repo_owner, the main chat of the Bot that owns the repository (Run.bot); default, the main Bot's main chat, for a repository no Bot owns. Absent for a Run made before, or without a chat.
+	RoutedBy  *RoutedBy    `json:"routed_by,omitempty"`
+	Status    RunStatus    `json:"status"`
+	Tasks     []TaskDetail `json:"tasks"`
+	UpdatedAt time.Time    `json:"updated_at"`
 
 	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
 	Usage *WorkUsage `json:"usage,omitempty"`
@@ -8068,7 +8116,10 @@ type Todo struct {
 	Events   *[]TodoEvent `json:"events,omitempty"`
 	Evidence []TodoLink   `json:"evidence"`
 	Id       string       `json:"id"`
-	Notes    string       `json:"notes"`
+
+	// NotPassed The main Bot's reason it passed the item, which it has, to no project Bot (issue #1334): the Inbox shows it as "Not passed". Left out when it gave none; cleared when the item is given to someone else.
+	NotPassed *string `json:"not_passed,omitempty"`
+	Notes     string  `json:"notes"`
 
 	// PassedBy The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
 	PassedBy *string `json:"passed_by,omitempty"`
@@ -10010,6 +10061,9 @@ type ChangeBotMemoryJSONRequestBody = MemoryChange
 // SetBotMemoryJSONRequestBody defines body for SetBotMemory for application/json ContentType.
 type SetBotMemoryJSONRequestBody = MemoryText
 
+// SetBotReposJSONRequestBody defines body for SetBotRepos for application/json ContentType.
+type SetBotReposJSONRequestBody = BotRepos
+
 // PutRoutineJSONRequestBody defines body for PutRoutine for application/json ContentType.
 type PutRoutineJSONRequestBody = RoutineSettings
 
@@ -11010,6 +11064,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /bots/{bot_id}/memory (the `SetBotMemory` operationId).
 	SetBotMemory(ctx context.Context, botId BotID, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetBotReposWithBody Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotReposWithBody(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotRepos(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PutRoutineWithBody Make a Routine of a Bot, or change the one of that name
 	//
@@ -14762,6 +14834,44 @@ func (c *Client) SetBotMemoryWithBody(ctx context.Context, botId BotID, contentT
 // Corresponds with PUT /bots/{bot_id}/memory (the `SetBotMemory` operationId).
 func (c *Client) SetBotMemory(ctx context.Context, botId BotID, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetBotMemoryRequest(c.Server, botId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetBotReposWithBody Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *Client) SetBotReposWithBody(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotReposRequestWithBody(c.Server, botId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *Client) SetBotRepos(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotReposRequest(c.Server, botId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -23089,6 +23199,53 @@ func NewSetBotMemoryRequestWithBody(server string, botId BotID, contentType stri
 	}
 
 	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSetBotReposRequest calls the generic SetBotRepos builder with application/json body
+func NewSetBotReposRequest(server string, botId BotID, body SetBotReposJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetBotReposRequestWithBody(server, botId, "application/json", bodyReader)
+}
+
+// NewSetBotReposRequestWithBody constructs an http.Request for the SetBotRepos method, with any body, and a specified content type
+func NewSetBotReposRequestWithBody(server string, botId BotID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "bot_id", botId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/repos", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -36834,6 +36991,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /bots/{bot_id}/memory (the `SetBotMemory` operationId).
 	SetBotMemoryWithResponse(ctx context.Context, botId BotID, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
 
+	// SetBotReposWithBodyWithResponse Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotReposWithBodyWithResponse(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error)
+
+	// SetBotReposWithResponse Replace the repositories whose work a Bot owns; only the owner
+	//
+	// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+	SetBotReposWithResponse(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error)
+
 	// PutRoutineWithBodyWithResponse Make a Routine of a Bot, or change the one of that name
 	//
 	// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
@@ -41717,6 +41892,54 @@ func (r SetBotMemoryResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetBotMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetBotReposResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetBotReposResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetBotReposResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetBotReposResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetBotReposResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetBotReposResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetBotReposResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -55850,6 +56073,36 @@ func (c *ClientWithResponses) SetBotMemoryWithResponse(ctx context.Context, botI
 	return ParseSetBotMemoryResponse(rsp)
 }
 
+// SetBotReposWithBodyWithResponse Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *ClientWithResponses) SetBotReposWithBodyWithResponse(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error) {
+	rsp, err := c.SetBotReposWithBody(ctx, botId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotReposResponse(rsp)
+}
+
+// SetBotReposWithResponse Replace the repositories whose work a Bot owns; only the owner
+//
+// A Run created on one of them goes to the Bot's chat (issue #1334). Each is named as `runs create --repo` takes it: owner/name on GitHub, the URL of a repository on a known host, or a registered name. An empty list frees them all. A repository another Bot owns is refused, naming that Bot, and nothing changes; the main Bot owns none. Removing a Bot frees its repositories.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{bot_id}/repos (the `SetBotRepos` operationId).
+func (c *ClientWithResponses) SetBotReposWithResponse(ctx context.Context, botId BotID, body SetBotReposJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotReposResponse, error) {
+	rsp, err := c.SetBotRepos(ctx, botId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotReposResponse(rsp)
+}
+
 // PutRoutineWithBodyWithResponse Make a Routine of a Bot, or change the one of that name
 //
 // A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
@@ -62518,6 +62771,39 @@ func ParseSetBotMemoryResponse(rsp *http.Response) (*SetBotMemoryResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Memory
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetBotReposResponse parses an HTTP response from a SetBotReposWithResponse call
+func ParseSetBotReposResponse(rsp *http.Response) (*SetBotReposResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetBotReposResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -71902,6 +72188,9 @@ type ServerInterface interface {
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{bot_id}/memory)
 	SetBotMemory(w http.ResponseWriter, r *http.Request, botId BotID)
+	// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+	// (PUT /bots/{bot_id}/repos)
+	SetBotRepos(w http.ResponseWriter, r *http.Request, botId BotID)
 	// PutRoutine Make a Routine of a Bot, or change the one of that name
 	// (PUT /bots/{bot_id}/routines/{routine})
 	PutRoutine(w http.ResponseWriter, r *http.Request, botId BotID, routine string)
@@ -73755,6 +74044,32 @@ func (siw *ServerInterfaceWrapper) SetBotMemory(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetBotMemory(w, r, botId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetBotRepos operation middleware
+func (siw *ServerInterfaceWrapper) SetBotRepos(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bot_id" -------------
+	var botId BotID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bot_id", r.PathValue("bot_id"), &botId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetBotRepos(w, r, botId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -83140,6 +83455,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}", wrapper.PutBot)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/skills", wrapper.ListBotSkills)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/tools", wrapper.ListBotTools)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}/repos", wrapper.SetBotRepos)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.GetBotMemory)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.ChangeBotMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.SetBotMemory)
@@ -84706,6 +85022,46 @@ type SetBotMemorydefaultJSONResponse struct {
 }
 
 func (response SetBotMemorydefaultJSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotReposRequestObject struct {
+	BotId BotID `json:"bot_id"`
+	Body  *SetBotReposJSONRequestBody
+}
+
+type SetBotReposResponseObject interface {
+	VisitSetBotReposResponse(w http.ResponseWriter) error
+}
+
+type SetBotRepos200JSONResponse Bot
+
+func (response SetBotRepos200JSONResponse) VisitSetBotReposResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotReposdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetBotReposdefaultJSONResponse) VisitSetBotReposResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -96177,6 +96533,9 @@ type StrictServerInterface interface {
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{bot_id}/memory)
 	SetBotMemory(ctx context.Context, request SetBotMemoryRequestObject) (SetBotMemoryResponseObject, error)
+	// SetBotRepos Replace the repositories whose work a Bot owns; only the owner
+	// (PUT /bots/{bot_id}/repos)
+	SetBotRepos(ctx context.Context, request SetBotReposRequestObject) (SetBotReposResponseObject, error)
 	// PutRoutine Make a Routine of a Bot, or change the one of that name
 	// (PUT /bots/{bot_id}/routines/{routine})
 	PutRoutine(ctx context.Context, request PutRoutineRequestObject) (PutRoutineResponseObject, error)
@@ -98098,6 +98457,39 @@ func (sh *strictHandler) SetBotMemory(w http.ResponseWriter, r *http.Request, bo
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetBotMemoryResponseObject); ok {
 		if err := validResponse.VisitSetBotMemoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetBotRepos operation middleware
+func (sh *strictHandler) SetBotRepos(w http.ResponseWriter, r *http.Request, botId BotID) {
+	var request SetBotReposRequestObject
+
+	request.BotId = botId
+
+	var body SetBotReposJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetBotRepos(ctx, request.(SetBotReposRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetBotRepos")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetBotReposResponseObject); ok {
+		if err := validResponse.VisitSetBotReposResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

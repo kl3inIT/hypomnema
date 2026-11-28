@@ -464,6 +464,11 @@
       ],
       "type": "object"
      },
+     "not_passed": {
+      "description": "The main Bot only, on an item it has: why it passes it to no project Bot, when the work needs one and none fits; the item stays with it and the Inbox shows it as not passed, with this reason. Not with pass_to or hand_back.",
+      "maxLength": 2000,
+      "type": "string"
+     },
      "notes": {
       "description": "Markdown, which the Inbox shows with the ids of meetings, chats, Runs and Tasks (mtg_…, cht_…, run_…, tsk_…) as links: write an id as it is. When you enrich an item, write them as short sections, a ## heading each, only those that have something: Source, Meeting, Plan (a numbered list); keep every fact.",
       "maxLength": 20000,

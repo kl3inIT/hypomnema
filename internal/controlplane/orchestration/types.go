@@ -58,6 +58,8 @@ type Run struct {
 	// Bot is the Bot of that chat; empty for a Run without a chat. Filled by
 	// GetRun and ListRuns.
 	Bot string
+	// RoutedBy is why the Run went to its chat (issue #1334); empty for a Run made before, or without a chat.
+	RoutedBy RoutedBy
 	// Uses are the Connections the Run's workers may use ("google:work").
 	Uses        []string
 	CreatedAt   time.Time
@@ -136,6 +138,12 @@ type NewRun struct {
 	CoordinatorTokenID string
 	// ChatID names the chat whose coordinator creates it, if any.
 	ChatID string
+	// ChatNamed says the caller named ChatID itself (`runs create --chat`), rather than it being the chat of the Bot
+	// whose token creates the Run: a named chat is kept whatever Bot owns the Run's repository (issue #1334). It is
+	// left out of the request's hash, which ChatID already holds: a retry of a create made before the field existed,
+	// with or without --chat, still matches its receipt and returns the first Run (review rounds 1 and 2 of PR #1343).
+	// Only a Bot's token both names its own chat and leaves it out, and its two requests then hash as one.
+	ChatNamed bool `json:"-"`
 	// Uses are the Connections the Run's workers may use ("google:work").
 	Uses []string
 	// Bot is the Bot whose token creates it, if any: it gives the Run only

@@ -210,19 +210,6 @@ func (s *Service) createRunOnce(ctx context.Context, o Once, nr NewRun, coordina
 		var err error
 
 		id, err = once(ctx, q, now, o, "runs.create", nr, func() (string, error) {
-			if coordinator != "" {
-				chat, parent, err := s.bindNewRun(ctx, q, now, nr, coordinator)
-				if err != nil {
-					return "", err
-				}
-
-				nr.ChatID, nr.CoordinatorTokenID, nr.Bot = chat.ID, parent, chat.BotID
-			} else if nr.ChatID != "" {
-				if _, err := q.GetChat(ctx, nr.ChatID); err != nil {
-					return "", notFound(err, "chat", nr.ChatID)
-				}
-			}
-
 			var (
 				repo githost.Repo
 				base string
@@ -235,6 +222,12 @@ func (s *Service) createRunOnce(ctx context.Context, o Once, nr NewRun, coordina
 				}
 
 				repo, base = resolved, or(nr.Base, or(registeredBase, DefaultBase))
+			}
+
+			// The chat is chosen once the repository is known: the Bot that owns it may take the Run (issue #1334).
+			route, err := s.routeRun(ctx, q, now, &nr, repo, coordinator)
+			if err != nil {
+				return "", err
 			}
 
 			var bot *Bot
@@ -264,9 +257,13 @@ func (s *Service) createRunOnce(ctx context.Context, o Once, nr NewRun, coordina
 				ID:   id, Objective: objective, CreatedBy: createdBy, Repo: nullString(repo.Path),
 				RepoHost: nullString(repo.Host), Base: nullString(base),
 				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), ChatID: nullString(nr.ChatID),
-				Bot: nullString(nr.Bot), Now: now,
+				Bot: nullString(nr.Bot), RoutedBy: nullString(string(route.by)), Now: now,
 			}); err != nil {
 				return "", fmt.Errorf("inserting run: %w", err)
+			}
+
+			if err := tellRouted(ctx, q, now, id, repo, route, nr.ChatID, nr.Bot); err != nil {
+				return "", err
 			}
 
 			return id, emit(ctx, q, now, event{
@@ -1054,6 +1051,7 @@ func runFromRow(r store.Run) Run {
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
 		Repo: r.Repo.String, RepoHost: r.RepoHost.String, Base: r.Base.String,
 		CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String, Uses: splitUses(r.Uses),
+		RoutedBy:  RoutedBy(r.RoutedBy.String),
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
 }

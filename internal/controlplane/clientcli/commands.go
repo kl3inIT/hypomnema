@@ -24,11 +24,14 @@ var commands = []command{
 	},
 	{
 		name: "run", args: "<objective>", min: 1, max: -1,
-		summary: "create a Run with one Task and follow it until the Task ends",
+		summary: "create a Run with one Task and follow it until the Task ends; from a bot's chat, a Run that goes " +
+			"to another bot's chat (routed_by) takes no Task from this one: use runs create and hand it off",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktree starts from (default main)")
-			fs.String("chat", "", "the chat to wake (default: this Bot's chat or the main Bot's main chat)")
+			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: in a bot's "+
+				"chat, that chat when its bot owns the repository, or owns none and no bot owns it; else the main "+
+				"chat of the bot that owns the repository; else the main bot's main chat)")
 			fs.String("profile", "", "profile of the Task (default implementer)")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model as <provider>/<model>, such as opencode-go/deepseek-v4-pro, instead of "+
@@ -43,7 +46,9 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktrees start from (default main)")
-			fs.String("chat", "", "the chat to wake (default: this Bot's chat or the main Bot's main chat)")
+			fs.String("chat", "", "the chat to wake, kept whatever bot owns the repository (default: in a bot's "+
+				"chat, that chat when its bot owns the repository, or owns none and no bot owns it; else the main "+
+				"chat of the bot that owns the repository; else the main bot's main chat)")
 			fs.String("objective-file", "", "read the objective from this file, or - for standard input")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
 			fs.String("use", "", "accounts the workers may use, as integration:label separated by commas, such as google:work")
@@ -501,6 +506,9 @@ var commands = []command{
 				"which refuses every write and send through his Lark sign-in, Google, Zalo and WhatsApp")
 			fs.Int("guarantee", 0, "its guaranteed share of the room, in workers across every node: 1 to 64 (4 for a "+
 				"new bot); it may use more when the others leave room free")
+			fs.String("repos", "", "the repositories whose work it owns, as runs create --repo takes them, separated "+
+				"by commas; \"\" for none (owner only): a Run created on one goes to its chat, and a repository has "+
+				"one owning bot")
 			jsonFlag(fs)
 		},
 		run: botsSet,
@@ -757,7 +765,8 @@ var commands = []command{
 		flags: notesFlags, run: notesRm,
 	},
 	{
-		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
+		name: "repos list", summary: "the repositories registered under a name, each with the bot whose chat takes " +
+			"its Runs", flags: jsonFlag, run: reposList,
 	},
 	{
 		name: "repos add", args: "<repo>", min: 1, max: 1,

@@ -168,6 +168,13 @@ type Bot struct {
 	OwnerAccounts        string
 }
 
+type BotRepo struct {
+	Host      string
+	Path      string
+	BotID     string
+	CreatedAt int64
+}
+
 type BotVersion struct {
 	ID           string
 	BotID        string
@@ -1117,6 +1124,7 @@ type Run struct {
 	Uses               sql.NullString
 	BotID              sql.NullString
 	WakeAfter          int64
+	RoutedBy           sql.NullString
 }
 
 type Secret struct {
@@ -1280,6 +1288,7 @@ type Todo struct {
 	Priority        int64
 	PriorityReason  string
 	ProjectID       sql.NullString
+	NotPassed       sql.NullString
 }
 
 type TodoChatDepartment struct {

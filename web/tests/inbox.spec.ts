@@ -20,9 +20,9 @@ const dayIn = (n: number) =>
 
 type Todo = Record<string, unknown> & { id: string; state: string; revision: number }
 
-// The meeting and the chat the report for Laura names by their ids (issue #1173).
-const laurasMeeting = "mtg_v44xjlbxtmqeyig3jp3drxsany"
-const laurasChat = "cht_eag7jejewob7v65py6ydqip4wu"
+// The meeting and the chat the report for Jordan names by their ids (issue #1173).
+const reportMeeting = "mtg_v44xjlbxtmqeyig3jp3drxsany"
+const reportChat = "cht_eag7jejewob7v65py6ydqip4wu"
 
 const todo = (id: string, title: string, m: object = {}): Todo => ({
   id,
@@ -50,15 +50,15 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // list. hold keeps each done call unanswered until release is called, so a second press finds the first in flight.
 // sources adds a to-do from a Gmail thread and one from a meeting's line (issue #1105), and the owner's Google
 // account the first was read with. quiet leaves nothing waiting on the owner. The owner's WhatsApp and Zalo accounts
-// keep their chats, which name Kai Yong and Lan, and the message Kai sent (issue #1110). triage makes Thư ký the main
+// keep their chats, which name Sam Carter and Linh, and the message Sam sent (issue #1110). triage makes Thư ký the main
 // Bot with its triage Routine, last run 12 minutes ago; a run started by hand goes until endScan, which finds a new
-// to-do (issue #1115). passed adds a to-do Hypo passed to the BeyondPilot Bot (issue #1118). worked adds one Hypo
+// to-do (issue #1115). passed adds a to-do Hypo passed to the Atlas Bot (issue #1118). worked adds one Hypo
 // works on, with its steps and its report, and one it closed as done (issue #1143). projects keeps the owner's
-// departments VMAP and BeyondPilot, in that order in the sidebar, the BeyondPilot Bot in the second, which are the
-// Inbox's projects (issue #1188), puts the reply to Kai in BeyondPilot and the invoice in VMAP, and gives the open
-// items their priorities (issue #1157). waiting moves the contract Lan sends to Waiting on others, with the message
-// she took it in, and adds a meeting's action Hà took on, waiting on her from its line (issue #1142).
-// described adds the owner's own report for Laura, two days late, its
+// departments Orbit and Atlas, in that order in the sidebar, the Atlas Bot in the second, which are the
+// Inbox's projects (issue #1188), puts the reply to Sam in Atlas and the invoice in Orbit, and gives the open
+// items their priorities (issue #1157). waiting moves the contract Linh sends to Waiting on others, with the message
+// she took it in, and adds a meeting's action Nga took on, waiting on her from its line (issue #1142).
+// described adds the owner's own report for Jordan, two days late, its
 // description in Markdown sections naming a meeting and a chat by their ids (issue #1173).
 type SentFile = { path: string; name: string; type?: string; size: number }
 
@@ -68,6 +68,7 @@ function world({
   quiet = false,
   triage = false,
   passed = false,
+  notPassed = false,
   worked = false,
   projects: withProjects = false,
   waiting = false,
@@ -79,6 +80,7 @@ function world({
   quiet?: boolean
   triage?: boolean
   passed?: boolean
+  notPassed?: boolean
   worked?: boolean
   projects?: boolean
   waiting?: boolean
@@ -88,15 +90,15 @@ function world({
   let release = () => {}
   let held: Promise<void> | undefined
   const todos: Todo[] = [
-    todo("tdo_reply", "Reply to Kai Yong", {
+    todo("tdo_reply", "Reply to Sam Carter", {
       due: { kind: "date", date: dayIn(0), zone: "Asia/Ho_Chi_Minh" },
       why_open: "asked_directly",
-      draft: "Hi Kai, I will send the signed contract this afternoon.",
+      draft: "Hi Sam, I will send the signed contract this afternoon.",
       source: {
         kind: "whatsapp",
-        id: "6591234567@s.whatsapp.net",
+        id: "15550100001@s.whatsapp.net",
         account: "main",
-        quote: "Hi Dat, any news on the contract? We need it before Friday.",
+        quote: "Hi Alex, any news on the contract? We need it before Friday.",
         ref: { kind: "whatsapp_message", ref: "3EB0C1" },
       },
       updated_at: at(-20 * 60_000),
@@ -107,9 +109,9 @@ function world({
       source: { kind: "routine", id: "rrn_1", quote: "401 from Lark" },
       updated_at: at(-2 * hour),
     }),
-    todo("tdo_chase", "Lan sends the signed contract", {
+    todo("tdo_chase", "Linh sends the signed contract", {
       due: { kind: "date", date: dayIn(-1), zone: "Asia/Ho_Chi_Minh" },
-      assignee: { kind: "person", name: "Lan" },
+      assignee: { kind: "person", name: "Linh" },
       source: {
         kind: "zalo",
         id: "1000000000000000001",
@@ -117,12 +119,12 @@ function world({
         ref: { kind: "zalo_message", ref: "z1" },
       },
     }),
-    todo("tdo_invoice", "Send the invoice to ELITEX", {
+    todo("tdo_invoice", "Send the invoice to Acme", {
       due: { kind: "date", date: dayIn(1), zone: "Asia/Ho_Chi_Minh" },
       source: {
         kind: "lark",
         account: "me",
-        ref: { kind: "lark_message", ref: "om_1", label: "ELITEX" },
+        ref: { kind: "lark_message", ref: "om_1", label: "Acme" },
       },
     }),
     todo("tdo_doing", "Draft the weekly report", {
@@ -144,7 +146,7 @@ function world({
   ]
   if (review)
     todos.unshift(
-      todo("tdo_mail", "Send the contract to Kai", {
+      todo("tdo_mail", "Send the contract to Sam", {
         state: "review",
         approval_id: "apr_1",
         assignee: { kind: "bot", name: "thu-ky" },
@@ -176,8 +178,8 @@ function world({
     )
   const departments: { id: string; name: string; position: number }[] = withProjects
     ? [
-        { id: "dep_vmap", name: "VMAP", position: 0 },
-        { id: "dep_bp", name: "BeyondPilot", position: 1 },
+        { id: "dep_orbit", name: "Orbit", position: 0 },
+        { id: "dep_atlas", name: "Atlas", position: 1 },
       ]
     : []
   if (withProjects) {
@@ -188,16 +190,16 @@ function world({
       )
     set("tdo_reply", {
       priority: 1,
-      priority_reason: "Kai needs it before Friday",
-      project_id: "dep_bp",
+      priority_reason: "Sam needs it before Friday",
+      project_id: "dep_atlas",
     })
-    set("tdo_invoice", { priority: 3, project_id: "dep_vmap" })
-    set("tdo_chase", { priority: 2, priority_reason: "Lan is a day late" })
+    set("tdo_invoice", { priority: 3, project_id: "dep_orbit" })
+    set("tdo_chase", { priority: 2, priority_reason: "Linh is a day late" })
     todos.push(
-      todo("tdo_report", "Send Laura the weekly report", {
+      todo("tdo_report", "Send Jordan the weekly report", {
         priority: 1,
         priority_reason: "Due today",
-        project_id: "dep_vmap",
+        project_id: "dep_orbit",
         due: { kind: "date", date: dayIn(3), zone: "Asia/Ho_Chi_Minh" },
         source: { kind: "owner" },
       }),
@@ -205,22 +207,22 @@ function world({
   }
   if (described)
     todos.push(
-      todo("tdo_laura", "Báo cáo + kế hoạch hệ sinh thái Tasco quanh Cốc Cốc cho cô Laura", {
+      todo("tdo_jordan", "Báo cáo + kế hoạch hệ sinh thái Contoso quanh Fabrikam cho cô Jordan", {
         due: { kind: "date", date: dayIn(-2), zone: "Asia/Ho_Chi_Minh" },
         why_open: "promised",
         created_by: { kind: "owner" },
         notes: [
           "## Source",
-          "Zalo, chat Laura Nguyen. 17/11 cô nhờ nghiên cứu VETC, Goong, Cốc Cốc.",
-          `20/11 anh hứa: "tầm chiều tối em gửi cô cái báo cáo". Chat của item: ${laurasChat}`,
+          "Zalo, chat Jordan Lee. 17/11 cô nhờ nghiên cứu Northwind, Tailspin, Fabrikam.",
+          `20/11 anh hứa: "tầm chiều tối em gửi cô cái báo cáo". Chat của item: ${reportChat}`,
           "",
           "## Meeting",
-          `25/11 (${laurasMeeting}, dòng 69): Tasco mua Cốc Cốc; cô dặn "ngó về Cốc Cốc".`,
+          `25/11 (${reportMeeting}, dòng 69): Contoso mua Fabrikam; cô dặn "ngó về Fabrikam".`,
           "",
           "## Plan",
-          "1. Tasco đang có gì: VETC, VMAP, Goong",
-          "2. Cốc Cốc: người dùng, công nghệ",
-          "3. Ý kiến về Cốc Cốc làm nền",
+          "1. Contoso đang có gì: Northwind, Orbit, Tailspin",
+          "2. Fabrikam: người dùng, công nghệ",
+          "3. Ý kiến về Fabrikam làm nền",
         ].join("\n"),
       }),
     )
@@ -236,17 +238,17 @@ function world({
       action_name: "Send mail",
       asked_by: "pi",
       chat_id: "cht_1",
-      title: "Send mail: kai@example.com",
+      title: "Send mail: sam@example.com",
       payload: [
-        { label: "To", value: "kai@example.com" },
+        { label: "To", value: "sam@example.com" },
         { label: "Subject", value: "The contract" },
-        { label: "Body", value: "Hi Kai, the contract is attached." },
+        { label: "Body", value: "Hi Sam, the contract is attached." },
       ],
       status: "pending",
       used: false,
       created_at: at(-30 * 60_000),
     },
-  ].filter(() => !quiet)
+  ].filter(() => !quiet && !notPassed)
   let questions = [
     {
       id: "qst_1",
@@ -260,30 +262,47 @@ function world({
       status: "open",
       created_at: at(-40 * 60_000),
     },
-  ].filter(() => !quiet)
+  ].filter(() => !quiet && !notPassed)
   if (passed)
     todos.push(
-      todo("tdo_pilot", "Send Kai the pilot's report", {
-        assignee: { kind: "bot", name: "bot_beyond" },
+      todo("tdo_pilot", "Send Sam the pilot's report", {
+        assignee: { kind: "bot", name: "bot_atlas" },
         passed_by: "bot_main",
-        chat_id: "cht_beyond",
+        chat_id: "cht_atlas",
         source: { kind: "owner" },
       }),
     )
-  const fromElitex = {
+  // Hypo kept a to-do no project Bot fits and said why (issue #1334). Its pictures are public, so this Inbox holds
+  // only made-up items: the others go.
+  if (notPassed)
+    todos.splice(
+      0,
+      todos.length,
+      todo("tdo_billing", "Pay the hosting invoice for Acme", {
+        assignee: { kind: "bot", name: "bot_main" },
+        not_passed: "It needs the Acme billing account, and no project Bot has it.",
+        chat_id: "cht_billing",
+        source: { kind: "owner" },
+      }),
+      todo("tdo_domain", "Renew the example.com domain", {
+        due: { kind: "date", date: dayIn(3), zone: "Asia/Ho_Chi_Minh" },
+        source: { kind: "owner" },
+      }),
+    )
+  const fromAcme = {
     kind: "lark",
     account: "me",
     quote: "Anh gửi giúp em invoice tháng 11 nhé",
-    ref: { kind: "lark_message", ref: "om_2", label: "ELITEX" },
+    ref: { kind: "lark_message", ref: "om_2", label: "Acme" },
   }
   const pr = {
     kind: "pull_request",
-    ref: "https://github.com/kl3inIT/elitex/pull/12",
+    ref: "https://github.com/example/acme-site/pull/12",
     label: "#12",
   }
   if (worked)
     todos.push(
-      todo("tdo_work", "Send the November invoice to ELITEX", {
+      todo("tdo_work", "Send the November invoice to Acme", {
         state: "doing",
         assignee: { kind: "bot", name: "bot_main" },
         chat_id: "cht_work",
@@ -294,17 +313,17 @@ function world({
           bot: "bot_main",
           started_at: at(-48 * 60_000),
         },
-        draft: "Hi ELITEX team, the November invoice is attached.",
-        source: fromElitex,
+        draft: "Hi Acme team, the November invoice is attached.",
+        source: fromAcme,
       }),
-      todo("tdo_shipped", "Fix the invoice total on the ELITEX site", {
+      todo("tdo_shipped", "Fix the invoice total on the Acme site", {
         state: "done",
         assignee: { kind: "bot", name: "bot_main" },
         chat_id: "cht_shipped",
         closed_at: at(-5 * 60_000),
         close_reason: "The total is fixed; PR #12 is merged.",
         evidence: [pr],
-        source: fromElitex,
+        source: fromAcme,
       }),
     )
   // report is a Bot's long comment, its sections folded in <details>, as CodeRabbit's summary comment.
@@ -347,7 +366,7 @@ function world({
       actor: { kind: "owner" },
       kind: "commented",
       before: {},
-      after: { text: "Do it, then draft a reply to ELITEX for me to send." },
+      after: { text: "Do it, then draft a reply to Acme for me to send." },
     },
     {
       id: start + 2,
@@ -383,7 +402,7 @@ function world({
       actor: { kind: "bot", id: "bot_main" },
       kind: "edited",
       before: {},
-      after: { draft: "Hi ELITEX team, the November invoice is attached." },
+      after: { draft: "Hi Acme team, the November invoice is attached." },
     },
     {
       id: start + 6,
@@ -403,19 +422,19 @@ function world({
       { why_open: "waiting", revision: 2 },
     )
     todos.push(
-      todo("tdo_deck", "Hà sends the tiles report", {
+      todo("tdo_deck", "Nga sends the tiles report", {
         why_open: "waiting",
-        assignee: { kind: "person", name: "Hà" },
+        assignee: { kind: "person", name: "Nga" },
         due: { kind: "date", date: dayIn(2), zone: "Asia/Ho_Chi_Minh" },
         source: { kind: "meeting", id: "mtg_1", quote: "Để em check tiles rồi gửi anh báo cáo." },
       }),
     )
     createdWith.tdo_deck = {
       assignee_kind: "person",
-      assignee: "Hà",
+      assignee: "Nga",
       why_open: "waiting",
       waiting_on: {
-        by: "Hà",
+        by: "Nga",
         quote: "Để em check tiles rồi gửi anh báo cáo.",
         ref: { kind: "meeting_line", ref: "mtg_1/12" },
       },
@@ -459,11 +478,32 @@ function world({
               actor: { kind: "bot", id: "bot_main" },
               kind: "edited",
               before: {},
-              after: { assignee_kind: "bot", assignee: "bot_beyond", passed_by: "bot_main" },
+              after: { assignee_kind: "bot", assignee: "bot_atlas", passed_by: "bot_main" },
             },
           ],
         }
       : {}
+  if (notPassed)
+    threads.tdo_billing = [
+      {
+        id: 2,
+        at: at(-30 * 60_000),
+        revision: 2,
+        actor: { kind: "owner" },
+        kind: "edited",
+        before: {},
+        after: { assignee_kind: "bot", assignee: "bot_main" },
+      },
+      {
+        id: 3,
+        at: at(-20 * 60_000),
+        revision: 3,
+        actor: { kind: "bot", id: "bot_main" },
+        kind: "edited",
+        before: { not_passed: null },
+        after: { not_passed: "It needs the Acme billing account, and no project Bot has it." },
+      },
+    ]
   if (waiting)
     threads.tdo_chase = [
       {
@@ -475,10 +515,10 @@ function world({
         before: { assignee_kind: "me", assignee: "", why_open: "asked_directly" },
         after: {
           assignee_kind: "person",
-          assignee: "Lan",
+          assignee: "Linh",
           why_open: "waiting",
           waiting_on: {
-            by: "Lan",
+            by: "Linh",
             quote: "Em nhận nhé, chiều em gửi anh bản ký.",
             ref: { kind: "zalo_message", ref: "z2" },
           },
@@ -496,13 +536,13 @@ function world({
   }
   if (longThread) {
     todos.find((todo) => todo.id === "tdo_reply")!.notes =
-      "Confirm the dates in the contract before replying to Kai."
+      "Confirm the dates in the contract before replying to Sam."
     todos.find((todo) => todo.id === "tdo_login")!.notes =
       "Check the connection settings and confirm the last successful sync.\n\n".repeat(40)
     for (let i = 1; i <= 10; i++) {
       botComment(
         `Contract update ${i}\n\n` +
-          "I checked the delivery dates against the signed agreement. I will confirm the remaining details with Kai and update the draft before it goes out.".repeat(
+          "I checked the delivery dates against the signed agreement. I will confirm the remaining details with Sam and update the draft before it goes out.".repeat(
             2,
           ),
       )
@@ -542,7 +582,7 @@ function world({
     endScan() {
       lastRun = { ...lastRun, state: "succeeded", ended_at: at(0) }
       todos.push(
-        todo("tdo_new", "Answer Hà about the tiles", {
+        todo("tdo_new", "Answer Nga about the tiles", {
           why_open: "asked_directly",
           created_at: at(0),
           updated_at: at(0),
@@ -633,7 +673,7 @@ function world({
               remember(t, {
                 actor: { kind: "owner" },
                 kind: "edited",
-                before: { assignee_kind: "person", assignee: "Lan", why_open: "waiting" },
+                before: { assignee_kind: "person", assignee: "Linh", why_open: "waiting" },
                 after: { assignee_kind: "me", assignee: "", why_open: null },
               })
             }
@@ -699,7 +739,7 @@ function world({
               kind: "whatsapp_sent",
               ref: "3EB0SENT",
               account: "main",
-              chat: "6591234567@s.whatsapp.net",
+              chat: "15550100001@s.whatsapp.net",
             }
             t.revision += 1
             Object.assign(t, { state: "done", closed_at: at(0), evidence: [sentLink] })
@@ -798,7 +838,7 @@ function world({
         if (path === "/chats/cht_1")
           return json({
             id: "cht_1",
-            title: "The contract with Kai",
+            title: "The contract with Sam",
             bot: "thu-ky",
             working: false,
             coordinator: false,
@@ -814,7 +854,7 @@ function world({
                   id: "google",
                   name: "Google",
                   connections: [
-                    { integration: "google", label: "work", account: "dat@example.com" },
+                    { integration: "google", label: "work", account: "alex@example.com" },
                   ],
                 },
                 {
@@ -822,14 +862,14 @@ function world({
                   name: "WhatsApp",
                   kind: "device",
                   connections: [
-                    { integration: "whatsapp", label: "main", account: "+84369230426" },
+                    { integration: "whatsapp", label: "main", account: "+15550100002" },
                   ],
                 },
                 {
                   id: "zalo",
                   name: "Zalo",
                   kind: "device",
-                  connections: [{ integration: "zalo", label: "main", account: "Hồng Đạt" }],
+                  connections: [{ integration: "zalo", label: "main", account: "Alex Tran" }],
                 },
               ],
             })
@@ -837,9 +877,9 @@ function world({
             return json({
               data: [
                 {
-                  id: "6591234567@s.whatsapp.net",
+                  id: "15550100001@s.whatsapp.net",
                   kind: "dm",
-                  name: "Kai Yong",
+                  name: "Sam Carter",
                   last_message_at: at(-2 * hour),
                 },
               ],
@@ -847,7 +887,7 @@ function world({
           case "/integrations/zalo/connections/main/chats":
             return json({
               data: [
-                { id: "1000000000000000001", kind: "dm", name: "Lan", last_message_at: at(-day) },
+                { id: "1000000000000000001", kind: "dm", name: "Linh", last_message_at: at(-day) },
               ],
             })
           case "/integrations/whatsapp/connections/main/messages":
@@ -857,13 +897,13 @@ function world({
                   ? [
                       {
                         id: "3EB0C1",
-                        chat: "6591234567@s.whatsapp.net",
-                        chat_name: "Kai Yong",
-                        sender: "6591234567@s.whatsapp.net",
-                        sender_name: "Kai Yong",
+                        chat: "15550100001@s.whatsapp.net",
+                        chat_name: "Sam Carter",
+                        sender: "15550100001@s.whatsapp.net",
+                        sender_name: "Sam Carter",
                         at: at(-2 * hour),
                         from_me: false,
-                        text: "Hi Dat, any news on the contract? We need it before Friday.",
+                        text: "Hi Alex, any news on the contract? We need it before Friday.",
                         edited: false,
                         revoked: false,
                         media_kept: false,
@@ -879,9 +919,9 @@ function world({
                       {
                         id: "z2",
                         chat: "1000000000000000001",
-                        chat_name: "Lan",
-                        sender: "lan",
-                        sender_name: "Lan Phạm",
+                        chat_name: "Linh",
+                        sender: "linh",
+                        sender_name: "Linh Vo",
                         at: at(-3 * hour),
                         from_me: false,
                         text: "Em nhận nhé, chiều em gửi anh bản ký.",
@@ -892,17 +932,17 @@ function world({
                     ]
                   : [],
             })
-          case `/meetings/${laurasMeeting}`:
+          case `/meetings/${reportMeeting}`:
             return json({
-              meeting: { id: laurasMeeting, title: "Họp với cô Laura về Cốc Cốc", speakers: [] },
+              meeting: { id: reportMeeting, title: "Họp với cô Jordan về Fabrikam", speakers: [] },
               lines: [],
               items: [],
               suggestions: [],
             })
-          case `/chats/${laurasChat}`:
+          case `/chats/${reportChat}`:
             return json({
-              id: laurasChat,
-              title: "Inbox: báo cáo cho cô Laura",
+              id: reportChat,
+              title: "Inbox: báo cáo cho cô Jordan",
               bot: "bot_main",
               working: false,
               coordinator: false,
@@ -919,7 +959,7 @@ function world({
                     track: "mic",
                     label: "s1",
                     owner: false,
-                    name: "Hà",
+                    name: "Nga",
                     named: true,
                     talk_ms: 1,
                     share: 1,
@@ -964,10 +1004,10 @@ function world({
                   updated_at: at(-day),
                 },
                 {
-                  id: "bot_beyond",
-                  name: "BeyondPilot",
+                  id: "bot_atlas",
+                  name: "Atlas",
                   main: false,
-                  ...(withProjects ? { department: "dep_bp" } : {}),
+                  ...(withProjects ? { department: "dep_atlas" } : {}),
                   instructions: "",
                   memory: "",
                   memory_limit: 2200,
@@ -1027,12 +1067,12 @@ test("an Inbox item opens at its newest comment from the list and arrows", async
 }) => {
   await world({ longThread: true }).serve(page)
   await page.goto(isMobile ? "/inbox" : "/inbox?item=todo%3Atdo_login")
-  await rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" }).click()
+  await rowsOf(page, "Needs you").filter({ hasText: "Reply to Sam Carter" }).click()
 
   const detail = item(page)
   const newest = detail.getByText("Contract update 10", { exact: true })
   const box = detail.getByRole("textbox", { name: "Message" })
-  const description = detail.getByText("Confirm the dates in the contract before replying to Kai.")
+  const description = detail.getByText("Confirm the dates in the contract before replying to Sam.")
   await expect(newest).toBeInViewport()
   await expect(box).toBeInViewport({ ratio: 1 })
   await expect(description).not.toBeInViewport()
@@ -1056,7 +1096,7 @@ test("an open Inbox thread follows Bot comments only from the bottom", async ({ 
 
   const detail = item(page)
   const box = detail.getByRole("textbox", { name: "Message" })
-  const description = detail.getByText("Confirm the dates in the contract before replying to Kai.")
+  const description = detail.getByText("Confirm the dates in the contract before replying to Sam.")
   const down = detail.getByRole("button", { name: "Scroll to the latest comment" })
   await expect(detail.getByText("Contract update 10", { exact: true })).toBeAttached()
   await box.scrollIntoViewIfNeeded()
@@ -1164,7 +1204,7 @@ test.describe("iPhone Home Screen layout", () => {
         expect(box.x + box.width).toBeLessThanOrEqual(393)
         expect(box.y + box.height / 2).toBeCloseTo(positionBox.y + positionBox.height / 2, 0)
       }
-      await expect(item(page).getByRole("heading", { name: "Reply to Kai Yong" })).toBeVisible()
+      await expect(item(page).getByRole("heading", { name: "Reply to Sam Carter" })).toBeVisible()
       await shot(page, `inbox-standalone-item-${theme}`)
     }
 
@@ -1182,8 +1222,8 @@ test.describe("iPhone Home Screen layout", () => {
 })
 
 // Scenario: the owner opens the Inbox from the sidebar, whose count is what waits on him. Needs you lists the
-// Approval and the worker's question first, then the reply to Kai Yong, due today, with its draft, then the
-// account to log in again. He opens the reply, reads what Kai said, copies the draft, and marks it done: the next
+// Approval and the worker's question first, then the reply to Sam Carter, due today, with its draft, then the
+// account to log in again. He opens the reply, reads what Sam said, copies the draft, and marks it done: the next
 // item opens. On a phone one pane shows at a time, and Back returns to the list.
 test("the owner copies a reply's draft, marks it done, and the next item opens", async ({
   page,
@@ -1205,20 +1245,18 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   // A row says who and where by name, read from the kept chats and the message, never the account's number; what
   // was said on its second line; its date labelled; the time of the message on its right.
   await expect(rowsOf(page, "Needs you")).toHaveText([
-    /Send mail: kai@example.com/,
+    /Send mail: sam@example.com/,
     /Should \/health be public/,
-    /^WhatsAppReply to Kai Yong2h agoHi Dat, any news on the contract.*Kai YongDue todaydraft$/,
+    /^WhatsAppReply to Sam Carter2h agoHi Alex, any news on the contract.*Sam CarterDue todaydraft$/,
     /Log in again: lark:me/,
   ])
-  const kai = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
-  await expect(kai).not.toContainText("6591234567")
-  await expect(kai.locator('[data-source="whatsapp"]')).toHaveText("WhatsApp")
+  const sam = rowsOf(page, "Needs you").filter({ hasText: "Reply to Sam Carter" })
+  await expect(sam).not.toContainText("15550100001")
+  await expect(sam.locator('[data-source="whatsapp"]')).toHaveText("WhatsApp")
   await expect(rowsOf(page, "Working")).toHaveText([/Draft the weekly report.*Thư ký/])
-  await expect(rowsOf(page, "Open")).toHaveText([
-    /Send the invoice to ELITEX.*ELITEX.*Due tomorrow/,
-  ])
+  await expect(rowsOf(page, "Open")).toHaveText([/Send the invoice to Acme.*Acme.*Due tomorrow/])
   await expect(rowsOf(page, "Proposed")).toHaveText([/Book the meeting room/])
-  // Waiting on others, Snoozed and Done are folded, with their counts: what Lan sends is hers until its chase day.
+  // Waiting on others, Snoozed and Done are folded, with their counts: what Linh sends is hers until its chase day.
   await expect(
     group(page, "Waiting on others").getByRole("button", { name: /Waiting on others/ }),
   ).toHaveAttribute("aria-expanded", "false")
@@ -1234,21 +1272,21 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await shot(page, "inbox")
 
   await rowsOf(page, "Needs you")
-    .filter({ hasText: "Reply to Kai Yong" })
+    .filter({ hasText: "Reply to Sam Carter" })
     .getByRole("button")
     .first()
     .click()
   await expect(page).toHaveURL(/item=todo%3Atdo_reply|item=todo:tdo_reply/)
   const detail = item(page)
   await expect(
-    detail.getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
+    detail.getByRole("heading", { name: "Reply to Sam Carter", exact: true }),
   ).toBeVisible()
   await expect(detail).toContainText("3 of 4 in Needs you")
   await expect(detail).toContainText("You answer in this chat; it closes by itself")
   await expect(detail.getByRole("region", { name: "Said" })).toContainText(
-    "Kai YongHi Dat, any news on the contract",
+    "Sam CarterHi Alex, any news on the contract",
   )
-  await expect(detail).toContainText("Kai Yong")
+  await expect(detail).toContainText("Sam Carter")
   await expect(detail).not.toContainText("WhatsApp ›")
   await expect(detail.locator('[data-source="whatsapp"]')).toHaveAttribute("aria-label", "WhatsApp")
   // Send is the owner's own, beside Copy (issue #1111); a Bot never sends.
@@ -1263,7 +1301,7 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await detail.getByRole("region", { name: "Draft" }).getByRole("button", { name: "Copy" }).click()
   await expect
     .poll(() => page.evaluate<string>("navigator.clipboard.readText()"))
-    .toBe("Hi Kai, I will send the signed contract this afternoon.")
+    .toBe("Hi Sam, I will send the signed contract this afternoon.")
   await expect(
     detail.getByRole("region", { name: "Draft" }).getByRole("button", { name: "Copied" }),
   ).toBeVisible()
@@ -1295,7 +1333,7 @@ test("a mail opens in Gmail and a meeting's action at its line", async ({ page }
   ).toBeVisible()
   await expect(detail.getByRole("link", { name: "Open in Gmail" })).toHaveAttribute(
     "href",
-    "https://mail.google.com/mail/u/dat@example.com/#all/18c2f0a9b1d2e3f4",
+    "https://mail.google.com/mail/u/alex@example.com/#all/18c2f0a9b1d2e3f4",
   )
 
   await page.goto("/inbox?item=todo%3Atdo_tiles")
@@ -1306,7 +1344,7 @@ test("a mail opens in Gmail and a meeting's action at its line", async ({ page }
   await expect(detail).toContainText("Tiles review")
   await expect(detail).not.toContainText("Meeting ›")
   await expect(detail.getByRole("region", { name: "Said" })).toContainText(
-    "Hà · Tiles reviewĐể em check tiles.",
+    "Nga · Tiles reviewĐể em check tiles.",
   )
   await expect(detail).not.toContainText("Not said")
   await expect(detail.getByRole("region", { name: "Draft" })).toHaveCount(0)
@@ -1327,7 +1365,7 @@ test("an Approval allowed in the Inbox leaves Needs you and its chat card", asyn
   await page.goto("/inbox?item=approval%3Aapr_1")
   const detail = item(page)
   await expect(
-    detail.getByRole("heading", { name: "Send mail: kai@example.com", exact: true }),
+    detail.getByRole("heading", { name: "Send mail: sam@example.com", exact: true }),
   ).toBeVisible()
   await expect(detail.getByRole("region", { name: /Approval needed/ })).toContainText(
     "The contract",
@@ -1342,10 +1380,10 @@ test("an Approval allowed in the Inbox leaves Needs you and its chat card", asyn
       body: { decision: "approve" },
     })
   await expect(detail.getByRole("heading", { name: /Should \/health be public/ })).toBeVisible()
-  await expect(page.getByTestId("inbox-row").filter({ hasText: "Send mail: kai" })).toHaveCount(0)
+  await expect(page.getByTestId("inbox-row").filter({ hasText: "Send mail: sam" })).toHaveCount(0)
 
   await page.goto("/chats/cht_1")
-  await expect(page.getByText("The contract with Kai").first()).toBeVisible()
+  await expect(page.getByText("The contract with Sam").first()).toBeVisible()
   await expect(page.getByRole("region", { name: /Approval needed/ })).toHaveCount(0)
 })
 
@@ -1360,7 +1398,7 @@ test("j, k and e work through the list, and a row shows its actions", async ({ p
   await expect(rowsOf(page, "Needs you")).toHaveCount(4)
   // The first item of Needs you is open by itself; every row is bold until it is opened once.
   await expect(
-    item(page).getByRole("heading", { name: "Send mail: kai@example.com", exact: true }),
+    item(page).getByRole("heading", { name: "Send mail: sam@example.com", exact: true }),
   ).toBeVisible()
   const question = rowsOf(page, "Needs you").filter({ hasText: "Should /health" })
   await expect(question).toHaveAttribute("data-unread", "true")
@@ -1368,7 +1406,7 @@ test("j, k and e work through the list, and a row shows its actions", async ({ p
   await expect(item(page).getByRole("heading", { name: /Should \/health/ })).toBeVisible()
   await page.keyboard.press("j")
   await expect(
-    item(page).getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
+    item(page).getByRole("heading", { name: "Reply to Sam Carter", exact: true }),
   ).toBeVisible()
   await expect(question).not.toHaveAttribute("data-unread")
   await page.keyboard.press("k")
@@ -1397,7 +1435,7 @@ test("approving in a to-do's page moves on to the next item", async ({ page }) =
   await page.goto("/inbox?item=todo%3Atdo_mail")
   const detail = item(page)
   await expect(
-    detail.getByRole("heading", { name: "Send the contract to Kai", exact: true }),
+    detail.getByRole("heading", { name: "Send the contract to Sam", exact: true }),
   ).toBeVisible()
   const card = detail.getByRole("region", { name: "Waits for your approval" })
   await card.getByRole("button", { name: "Approve", exact: true }).click()
@@ -1417,7 +1455,7 @@ test("e pressed twice sends done once", async ({ page }) => {
   await page.goto("/inbox?item=todo%3Atdo_reply")
   const detail = item(page)
   await expect(
-    detail.getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
+    detail.getByRole("heading", { name: "Reply to Sam Carter", exact: true }),
   ).toBeVisible()
 
   w.hold()
@@ -1444,16 +1482,16 @@ test("the owner hands an item to Hypo by writing, and his comment shows", async 
   await page.goto("/inbox?item=todo%3Atdo_invoice")
   const detail = item(page)
   await expect(
-    detail.getByRole("heading", { name: "Send the invoice to ELITEX", exact: true }),
+    detail.getByRole("heading", { name: "Send the invoice to Acme", exact: true }),
   ).toBeVisible()
   await expect(detail.getByRole("button", { name: /^Hand to/ })).toHaveCount(1)
   await expect(page.getByRole("dialog")).toHaveCount(0)
 
   const comments = detail.getByRole("region", { name: "Comments" })
-  await expect(comments).toContainText("Thư ký added it from Lark · ELITEX")
+  await expect(comments).toContainText("Thư ký added it from Lark · Acme")
   const box = comments.getByRole("textbox", { name: "Message" })
   await expect(box).toHaveAttribute("placeholder", "Message Hypo…")
-  await box.fill("Do it now, then draft a reply to ELITEX for me to send")
+  await box.fill("Do it now, then draft a reply to Acme for me to send")
   await comments.getByRole("button", { name: "Hand to Hypo" }).click()
 
   await expect
@@ -1463,12 +1501,12 @@ test("the owner hands an item to Hypo by writing, and his comment shows", async 
       body: {
         revision: 1,
         bot: "bot_main",
-        prompt: "Do it now, then draft a reply to ELITEX for me to send",
+        prompt: "Do it now, then draft a reply to Acme for me to send",
       },
     })
   await expect(comments).toContainText("You gave it to Hypo")
   await expect(comments.getByRole("article", { name: "Comment by You" })).toContainText(
-    "Do it now, then draft a reply to ELITEX for me to send",
+    "Do it now, then draft a reply to Acme for me to send",
   )
   await expect(detail).toContainText(/Who\s*Hypo/)
   await expect(
@@ -1584,7 +1622,7 @@ test("a Hand in another tab and a pass keep the Inbox draft", async ({ page }) =
 
   for (const [chat, bot, label] of [
     ["cht_other_tab", "bot_main", "Hypo"],
-    ["cht_passed", "bot_beyond", "BeyondPilot"],
+    ["cht_passed", "bot_atlas", "Atlas"],
   ] as const) {
     w.give("tdo_invoice", bot, chat)
     await page.clock.fastForward(11_000)
@@ -1634,7 +1672,7 @@ test("writing on a done item reopens it and hands it back", async ({ page }) => 
   await expect(comments).toContainText("You reopened it")
 })
 
-// Scenario: issue #1118, section 4. Hypo passed an item the owner handed it to the BeyondPilot Bot: the item shows
+// Scenario: issue #1118, section 4. Hypo passed an item the owner handed it to the Atlas Bot: the item shows
 // who has it and through whom, and its thread shows each hand-over.
 test("an item the main Bot passed shows who has it through whom", async ({ page }) => {
   const w = world({ passed: true })
@@ -1642,18 +1680,39 @@ test("an item the main Bot passed shows who has it through whom", async ({ page 
   await page.goto("/inbox?item=todo%3Atdo_pilot")
   const detail = item(page)
   await expect(
-    detail.getByRole("heading", { name: "Send Kai the pilot's report", exact: true }),
+    detail.getByRole("heading", { name: "Send Sam the pilot's report", exact: true }),
   ).toBeVisible()
 
-  await expect(detail).toContainText(/Who\s*Hypo → BeyondPilot/)
+  await expect(detail).toContainText(/Who\s*Hypo → Atlas/)
   const thread = detail.getByRole("region", { name: "Comments" })
   await expect(thread).toContainText("You gave it to Hypo")
-  await expect(thread).toContainText("Hypo passed it to BeyondPilot")
+  await expect(thread).toContainText("Hypo passed it to Atlas")
   await shot(page, "inbox-passed")
 })
 
-// Scenario: issue #1111, section 3. The owner edits the reply to Kai and presses Send: a confirmation names Kai
-// Yong and WhatsApp and shows the text; once he confirms, the text as edited is sent with the revision he read, and
+// Scenario: issue #1334. Hypo kept a to-do no project Bot fits and said why: its row says "Not passed", and its
+// detail and thread give the reason, instead of the item staying with Hypo silently.
+test("a to-do the main Bot passed to no Bot shows Not passed with its reason", async ({ page }) => {
+  const w = world({ notPassed: true })
+  await w.serve(page)
+  await page.goto("/inbox")
+  const row = page.getByTestId("inbox-row").filter({ hasText: "Pay the hosting invoice for Acme" })
+  await expect(row.locator('[data-slot="not-passed"]')).toHaveText("Not passed")
+  await shot(page, "inbox-not-passed-list")
+
+  await page.goto("/inbox?item=todo%3Atdo_billing")
+  const detail = item(page)
+  await expect(detail).toContainText(
+    /Not passed\s*It needs the Acme billing account, and no project Bot has it\./,
+  )
+  await expect(detail.getByRole("region", { name: "Comments" })).toContainText(
+    "Hypo passed it to no Bot: It needs the Acme billing account",
+  )
+  await shot(page, "inbox-not-passed")
+})
+
+// Scenario: issue #1111, section 3. The owner edits the reply to Sam and presses Send: a confirmation names Sam
+// Carter and WhatsApp and shows the text; once he confirms, the text as edited is sent with the revision he read, and
 // nothing is sent before.
 test("the owner sends a draft after confirming", async ({ page }) => {
   const w = world()
@@ -1661,16 +1720,16 @@ test("the owner sends a draft after confirming", async ({ page }) => {
   await page.goto("/inbox?item=todo%3Atdo_reply")
   const detail = item(page)
   const draft = detail.getByRole("region", { name: "Draft" })
-  await expect(draft).toContainText("Hi Kai, I will send the signed contract this afternoon.")
+  await expect(draft).toContainText("Hi Sam, I will send the signed contract this afternoon.")
 
   await draft.getByRole("button", { name: "Edit" }).click()
   await draft
     .getByRole("textbox", { name: "Draft" })
-    .fill("Hi Kai, the signed contract comes this afternoon.")
+    .fill("Hi Sam, the signed contract comes this afternoon.")
   await draft.getByRole("button", { name: "Send" }).click()
 
-  const confirm = page.getByRole("alertdialog", { name: "Send to Kai Yong on WhatsApp (main)?" })
-  await expect(confirm).toContainText("Hi Kai, the signed contract comes this afternoon.")
+  const confirm = page.getByRole("alertdialog", { name: "Send to Sam Carter on WhatsApp (main)?" })
+  await expect(confirm).toContainText("Hi Sam, the signed contract comes this afternoon.")
   expect(w.sent.filter((s) => s.path.endsWith("/send"))).toHaveLength(0)
   await shot(page, "inbox-send")
   await confirm.getByRole("button", { name: "Send" }).click()
@@ -1679,7 +1738,7 @@ test("the owner sends a draft after confirming", async ({ page }) => {
     .poll(() => w.sent)
     .toContainEqual({
       path: "/inbox/tdo_reply/send",
-      body: { revision: 1, text: "Hi Kai, the signed contract comes this afternoon." },
+      body: { revision: 1, text: "Hi Sam, the signed contract comes this afternoon." },
     })
   await expect(confirm).toBeHidden()
   await expect(page.getByText("Sent", { exact: true })).toBeVisible()
@@ -1708,7 +1767,7 @@ test("Scan now runs the triage and the list shows what it found", async ({ page 
   })
   await expect(list(page).getByText("Read new messages just now")).toBeVisible()
   await expect(
-    rowsOf(page, "Needs you").filter({ hasText: "Answer Hà about the tiles" }),
+    rowsOf(page, "Needs you").filter({ hasText: "Answer Nga about the tiles" }),
   ).toBeVisible({
     timeout: 2_000,
   })
@@ -1752,7 +1811,7 @@ for (const theme of ["light", "dark"] as const) {
 
     await page.goto("/inbox?item=todo%3Atdo_reply")
     await expect(
-      item(page).getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
+      item(page).getByRole("heading", { name: "Reply to Sam Carter", exact: true }),
     ).toBeVisible()
     await expect(item(page).getByRole("region", { name: "Comments" })).toContainText(
       "Thư ký added it",
@@ -1764,13 +1823,13 @@ for (const theme of ["light", "dark"] as const) {
       .getByRole("region", { name: "Draft" })
       .getByRole("button", { name: "Send" })
       .click()
-    await expect(page.getByRole("alertdialog", { name: /Send to Kai Yong/ })).toBeVisible()
+    await expect(page.getByRole("alertdialog", { name: /Send to Sam Carter/ })).toBeVisible()
     await shot(page, `inbox-send-${theme}`)
   })
 }
 
 // The pictures of an item's comments in its four states (issue #1143): not handed, Hypo working with its steps and
-// its report, passed to the BeyondPilot Bot, and done; in the light and the dark theme.
+// its report, passed to the Atlas Bot, and done; in the light and the dark theme.
 for (const theme of ["light", "dark"] as const) {
   test(`an item's comments in the ${theme} theme`, async ({ page }) => {
     await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
@@ -1815,15 +1874,15 @@ test("the owner changes a priority with one click and the list orders by it", as
 
   const open = rowsOf(page, "Open")
   await expect(open).toHaveCount(2)
-  await expect(open.nth(0)).toContainText("Send Laura the weekly report")
-  await expect(open.nth(1)).toContainText("Send the invoice to ELITEX")
+  await expect(open.nth(0)).toContainText("Send Jordan the weekly report")
+  await expect(open.nth(1)).toContainText("Send the invoice to Acme")
   await expect(open.nth(0).getByRole("combobox", { name: "Priority: Urgent" })).toBeVisible()
-  await expect(open.nth(1)).toContainText("VMAP")
+  await expect(open.nth(1)).toContainText("Orbit")
 
-  const reply = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
+  const reply = rowsOf(page, "Needs you").filter({ hasText: "Reply to Sam Carter" })
   await expect(reply.getByRole("combobox", { name: "Priority: Urgent" })).toHaveAttribute(
     "title",
-    "Kai needs it before Friday",
+    "Sam needs it before Friday",
   )
 
   await open.nth(1).getByRole("combobox", { name: "Priority: Medium" }).click()
@@ -1833,7 +1892,7 @@ test("the owner changes a priority with one click and the list orders by it", as
   await expect
     .poll(() => w.sent.find((s) => s.path === "/inbox/tdo_invoice")?.body)
     .toEqual({ revision: 1, priority: 1 })
-  await expect(open.nth(0)).toContainText("Send the invoice to ELITEX")
+  await expect(open.nth(0)).toContainText("Send the invoice to Acme")
   await shot(page, "inbox-priorities")
 })
 
@@ -1844,13 +1903,11 @@ test("Cmd+K changes the selected item and jumps to another", async ({ page }) =>
   const w = world({ projects: true })
   await w.serve(page)
   await page.goto("/inbox?item=todo%3Atdo_invoice")
-  await expect(
-    item(page).getByRole("heading", { name: "Send the invoice to ELITEX" }),
-  ).toBeVisible()
+  await expect(item(page).getByRole("heading", { name: "Send the invoice to Acme" })).toBeVisible()
 
   const menu = page.getByRole("dialog", { name: "Command menu" })
   await page.keyboard.press("ControlOrMeta+k")
-  await expect(menu.getByTestId("command-context")).toContainText("Send the invoice to ELITEX")
+  await expect(menu.getByTestId("command-context")).toContainText("Send the invoice to Acme")
   await expect(menu.getByRole("option", { name: "Give to Hypo" })).toBeVisible()
   await shot(page, "inbox-command-menu")
   await menu.getByRole("option", { name: "Set priority…" }).click()
@@ -1865,18 +1922,18 @@ test("Cmd+K changes the selected item and jumps to another", async ({ page }) =>
   await page.keyboard.type("department")
   await expect(menu.getByRole("option", { name: "Move to department…" })).toBeVisible()
   await page.keyboard.press("Enter")
-  await expect(menu.getByRole("option", { name: "BeyondPilot" })).toBeVisible()
+  await expect(menu.getByRole("option", { name: "Atlas" })).toBeVisible()
   await expect(menu.getByRole("option", { name: "No department" })).toBeVisible()
   await shot(page, "inbox-command-menu-department")
-  await menu.getByRole("option", { name: "BeyondPilot" }).click()
+  await menu.getByRole("option", { name: "Atlas" }).click()
   await expect
     .poll(() => w.sent.filter((s) => s.path === "/inbox/tdo_invoice").at(-1)?.body)
-    .toEqual({ revision: 2, project_id: "dep_bp" })
-  const selector = item(page).getByRole("combobox", { name: "Department: BeyondPilot" })
+    .toEqual({ revision: 2, project_id: "dep_atlas" })
+  const selector = item(page).getByRole("combobox", { name: "Department: Atlas" })
   await selector.click()
   await expect(page.getByPlaceholder("Set department...")).toBeVisible()
   await shot(page, "inbox-department-selector")
-  await page.getByRole("option", { name: "BeyondPilot" }).click()
+  await page.getByRole("option", { name: "Atlas" }).click()
 
   await page.keyboard.press("ControlOrMeta+k")
   await menu.getByRole("option", { name: "Give to Hypo" }).click()
@@ -1893,7 +1950,7 @@ test("Cmd+K changes the selected item and jumps to another", async ({ page }) =>
 })
 
 // Scenario: issue #1157, decision 4, and issue #1188, decision 2. The department filter lists the sidebar's
-// departments in order, VMAP then BeyondPilot. The owner picks VMAP and sees its items only, then No department.
+// departments in order, Orbit then Atlas. The owner picks Orbit and sees its items only, then No department.
 test("the department filter lists the departments and shows one's items", async ({ page }) => {
   const w = world({ projects: true })
   await w.serve(page)
@@ -1906,25 +1963,25 @@ test("the department filter lists the departments and shows one's items", async 
   await expect(page.getByRole("option")).toHaveText([
     "Every department",
     /^No department/,
-    /^VMAP/,
-    /^BeyondPilot/,
+    /^Orbit/,
+    /^Atlas/,
   ])
   await expect(page.getByRole("option", { name: /New department|Edit/ })).toHaveCount(0)
   await shot(page, "inbox-department-filter")
-  await page.getByRole("option", { name: /^VMAP/ }).click()
+  await page.getByRole("option", { name: /^Orbit/ }).click()
   await expect(rowsOf(page, "Open")).toHaveCount(2)
   await expect(group(page, "Needs you")).toHaveCount(0)
 
-  await list(page).getByRole("button", { name: "Department: VMAP" }).click()
+  await list(page).getByRole("button", { name: "Department: Orbit" }).click()
   await page.getByRole("option", { name: /^No department/ }).click()
-  await expect(rowsOf(page, "Open").filter({ hasText: "VMAP" })).toHaveCount(0)
+  await expect(rowsOf(page, "Open").filter({ hasText: "Orbit" })).toHaveCount(0)
 })
 
-// Scenario: issue #1142, rule 2. Lan took the contract the owner was asked for, and the Thư ký moved it to Waiting on
-// others; Hà took a meeting's action on. The group starts folded; opened, it lists both with their chase days. Lan's
+// Scenario: issue #1142, rule 2. Linh took the contract the owner was asked for, and the Thư ký moved it to Waiting on
+// others; Nga took a meeting's action on. The group starts folded; opened, it lists both with their chase days. Linh's
 // item says in its history who moved it, to whom, and her words, with the name and time the server keeps of her Zalo
-// message; Hà's says she was waited on from the meeting's line, which opens the meeting there. Take it back gives
-// Lan's item to the owner at the revision read: it is in Open, his again.
+// message; Nga's says she was waited on from the meeting's line, which opens the meeting there. Take it back gives
+// Linh's item to the owner at the revision read: it is in Open, his again.
 test("an item a teammate took waits on them, and Take it back makes it his again", async ({
   page,
 }) => {
@@ -1937,18 +1994,18 @@ test("an item a teammate took waits on them, and Take it back makes it his again
   await fold.click()
   const waiting = rowsOf(page, "Waiting on others")
   await expect(waiting).toHaveText([
-    /Lan sends the signed contract.*Lan.*Late · Chase yesterday/,
-    /Hà sends the tiles report.*Chase /,
+    /Linh sends the signed contract.*Linh.*Late · Chase yesterday/,
+    /Nga sends the tiles report.*Chase /,
   ])
-  await expect(rowsOf(page, "Open")).toHaveText([/Send the invoice to ELITEX/])
+  await expect(rowsOf(page, "Open")).toHaveText([/Send the invoice to Acme/])
   await shot(page, "inbox-waiting")
 
-  await waiting.filter({ hasText: "Lan sends" }).getByRole("button").first().click()
+  await waiting.filter({ hasText: "Linh sends" }).getByRole("button").first().click()
   const detail = item(page)
   const comments = detail.getByRole("region", { name: "Comments" })
-  await expect(comments).toContainText("Thư ký moved it to Waiting on Lan")
+  await expect(comments).toContainText("Thư ký moved it to Waiting on Linh")
   await expect(comments.getByRole("blockquote")).toHaveText("Em nhận nhé, chiều em gửi anh bản ký.")
-  await expect(comments.getByRole("figure")).toContainText("Lan Phạm")
+  await expect(comments.getByRole("figure")).toContainText("Linh Vo")
   await expect(detail).not.toContainText("You answer in this chat")
   await comments.scrollIntoViewIfNeeded()
   await shot(page, "inbox-waiting-history")
@@ -1960,13 +2017,13 @@ test("an item a teammate took waits on them, and Take it back makes it his again
   await expect(comments).toContainText("You took it back")
   if ((page.viewportSize()?.width ?? 1280) < 768)
     await detail.getByRole("button", { name: "Inbox" }).click()
-  await expect(rowsOf(page, "Open").filter({ hasText: "Lan sends" })).toHaveCount(1)
-  await expect(waiting).toHaveText([/Hà sends the tiles report/])
+  await expect(rowsOf(page, "Open").filter({ hasText: "Linh sends" })).toHaveCount(1)
+  await expect(waiting).toHaveText([/Nga sends the tiles report/])
   await shot(page, "inbox-taken-back")
 
   await page.goto("/inbox?item=todo%3Atdo_deck")
   const deck = item(page).getByRole("region", { name: "Comments" })
-  await expect(deck).toContainText("waiting on Hà")
+  await expect(deck).toContainText("waiting on Nga")
   await expect(deck.getByRole("link", { name: "Line 12 of the meeting" })).toHaveAttribute(
     "href",
     "/meetings/mtg_1?line=12",
@@ -1975,26 +2032,26 @@ test("an item a teammate took waits on them, and Take it back makes it his again
   await shot(page, "inbox-waiting-meeting")
 })
 
-// Scenario: issue #1173. The owner opens his report for Laura, due two days ago: its properties are circle's, the
+// Scenario: issue #1173. The owner opens his report for Jordan, due two days ago: its properties are circle's, the
 // status by its name, who does it with an avatar, the date with a calendar saying how late it is; its description
 // shows its sections, and the meeting and the chat it names are links by their titles, not their ids. He marks it
 // done from the status. A prioritized item and one in a project show their priority, its reason, and the project.
 test("an item's detail shows its status, a late date and its ids as links", async ({ page }) => {
   const w = world({ described: true, projects: true })
   await w.serve(page)
-  await page.goto("/inbox?item=todo%3Atdo_laura")
+  await page.goto("/inbox?item=todo%3Atdo_jordan")
   const detail = item(page)
   await expect(detail.getByRole("heading", { name: /Báo cáo \+ kế hoạch/ })).toBeVisible()
 
   await expect(detail.getByRole("combobox", { name: "Status: Open" })).toBeVisible()
   await expect(detail).toContainText(/Due \d\d\/\d\d\s*Late · 2 days/)
-  const meeting = detail.getByRole("link", { name: "Họp với cô Laura về Cốc Cốc" })
-  await expect(meeting).toHaveAttribute("href", `/meetings/${laurasMeeting}`)
-  await expect(detail.getByRole("link", { name: "Inbox: báo cáo cho cô Laura" })).toHaveAttribute(
+  const meeting = detail.getByRole("link", { name: "Họp với cô Jordan về Fabrikam" })
+  await expect(meeting).toHaveAttribute("href", `/meetings/${reportMeeting}`)
+  await expect(detail.getByRole("link", { name: "Inbox: báo cáo cho cô Jordan" })).toHaveAttribute(
     "href",
-    `/chats/${laurasChat}`,
+    `/chats/${reportChat}`,
   )
-  await expect(detail).not.toContainText(laurasMeeting)
+  await expect(detail).not.toContainText(reportMeeting)
   await expect(detail.getByRole("heading", { name: "Plan" })).toBeVisible()
   await expect(detail.locator("[data-slot=notes]").getByRole("listitem")).toHaveCount(3)
   await shot(page, "inbox-detail-late")
@@ -2003,20 +2060,22 @@ test("an item's detail shows its status, a late date and its ids as links", asyn
   await expect(page.getByRole("option", { name: "Dropped" })).toBeVisible()
   await shot(page, "inbox-detail-status")
   await page.getByRole("option", { name: "Done" }).click()
-  await expect.poll(() => w.sent.map((s) => s.path)).toContain("/inbox/tdo_laura/done")
+  await expect.poll(() => w.sent.map((s) => s.path)).toContain("/inbox/tdo_jordan/done")
 
   await page.goto("/inbox?item=todo%3Atdo_chase")
-  await expect(detail.getByRole("heading", { name: "Lan sends the signed contract" })).toBeVisible()
+  await expect(
+    detail.getByRole("heading", { name: "Linh sends the signed contract" }),
+  ).toBeVisible()
   await expect(detail.getByRole("combobox", { name: "Priority: High" })).toBeVisible()
-  await expect(detail).toContainText("Lan is a day late")
+  await expect(detail).toContainText("Linh is a day late")
   await expect(detail.locator("[data-slot=who-avatar][data-who=person]")).toHaveText("L")
   await expect(detail).toContainText(/Chase yesterday\s*Late · 1 day/)
   await shot(page, "inbox-detail-prioritized")
 
   await page.goto("/inbox?item=todo%3Atdo_reply")
-  await expect(detail.getByRole("heading", { name: "Reply to Kai Yong" })).toBeVisible()
+  await expect(detail.getByRole("heading", { name: "Reply to Sam Carter" })).toBeVisible()
   await expect(detail.getByRole("combobox", { name: "Priority: Urgent" })).toBeVisible()
-  await expect(detail).toContainText("BeyondPilot")
+  await expect(detail).toContainText("Atlas")
   await expect(detail.locator("[data-slot=due]")).toHaveAttribute("data-tone", "today")
   await shot(page, "inbox-detail-project")
 })
